@@ -1,0 +1,8 @@
+{
+  "name": "extensao-complementar-ato",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

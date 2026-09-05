@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Complementar Ato TCE/RN",
+  "version": "1.0.1",
+  "description": "Prévia local e preenchimento documental controlado para Complementar Ato.",
+  "permissions": [
+    "storage",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://novaarearestrita.tce.rn.gov.br/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Abrir Complementar Ato"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/panel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://novaarearestrita.tce.rn.gov.br/*"
+      ],
+      "js": [
+        "content/form-detector.js"
+      ],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+:root {
+  color-scheme: light;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: #f6f8fa;
+  color: #17202a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #f6f8fa;
+}
+
+#panel-root {
+  padding: 1rem;
+}
+
+.panel-header,
+.panel-section {
+  background: #fff;
+  border: 1px solid #d9e0e7;
+  border-radius: 0.5rem;
+  margin-block-end: 0.75rem;
+  padding: 0.75rem;
+}
+
+h1,
+h2,
+p { margin-block-start: 0; }
+
+h1 { font-size: 1.25rem; margin-block-end: 0.5rem; }
+h2 { font-size: 1rem; margin-block-end: 0.65rem; }
+
+button {
+  background: #155eef;
+  border: 2px solid transparent;
+  border-radius: 0.35rem;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+  margin: 0.25rem 0.25rem 0.5rem 0;
+  min-height: 2.25rem;
+  padding: 0.4rem 0.7rem;
+}
+
+button:hover:not(:disabled) { background: #0649c5; }
+button:focus-visible,
+input:focus-visible { outline: 3px solid #f79009; outline-offset: 2px; }
+button:disabled { background: #9aa5b1; cursor: not-allowed; opacity: 0.75; }
+
+.safety-warning {
+  border-inline-start: 0.3rem solid #b42318;
+  color: #8a1c13;
+  font-weight: 700;
+  margin-block-end: 0;
+  padding-inline-start: 0.5rem;
+}
+
+#screen-status[data-state="blocked"],
+#panel-message[data-state="error"] { color: #b42318; font-weight: 650; }
+
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; font-size: 0.82rem; min-width: 42rem; width: 100%; }
+caption { font-weight: 650; margin-block-end: 0.5rem; text-align: start; }
+th,
+td { border: 1px solid #d9e0e7; padding: 0.45rem; text-align: start; vertical-align: top; }
+th { background: #eef2f6; }
+td[data-kind="exact"] { background: #ecfdf3; color: #067647; }
+td[data-kind="probable"],
+td[data-kind="tie"] { background: #fffaeb; color: #b54708; }
+td[data-kind="missing-source"] { color: #667085; }
+
+td button {
+  background: #b54708;
+  font-size: 0.78rem;
+  margin: 0;
+  min-height: 2rem;
+  padding: 0.25rem 0.45rem;
+}
+
+.review-section[hidden] { display: none; }
+.visually-hidden {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}

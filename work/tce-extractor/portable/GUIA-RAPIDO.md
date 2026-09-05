@@ -1,0 +1,256 @@
+# Guia rápido do pacote portátil TCE/RN
+
+Este pacote baixa os eventos e arquivos dos processos selecionados, analisa os
+documentos localmente, monta o HTML de conferência e fornece uma Extensão do
+Chrome para auxiliar no preenchimento de sete campos do **Complementar Ato**.
+
+> Segurança: o pacote consulta e organiza documentos, mas **não envia**, não
+> assina, não tramita e não conclui atos. Confira tudo antes de usar os dados no
+> portal. O ZIP privado contém dados pessoais e não deve ser publicado.
+
+## Comece aqui
+
+1. Extraia o ZIP inteiro em uma pasta curta, como `C:\TCE-Atos`.
+2. Não execute os arquivos diretamente de dentro do ZIP.
+3. Abra `TESTAR-PACOTE.ps1` com o PowerShell para verificar a integridade.
+   A opção 7 do menu faz apenas o diagnóstico de Python e OCR.
+4. Para consultar o lote que já veio pronto, abra
+   `acervo-tce\complementar-ato.html` ou escolha a opção 5 de `INICIAR.cmd`.
+
+## Primeiro uso em outro computador
+
+### 1. Testar o pacote
+
+Clique com o botão direito em `TESTAR-PACOTE.ps1` e escolha **Executar com
+PowerShell**. O resultado esperado termina com:
+
+```text
+Pacote íntegro: verificação offline aprovada.
+```
+
+Python, Tesseract e o idioma português já estão incluídos. Não instale nada.
+
+### 2. Entrar no e-Contas
+
+Para baixar processos novos, abra `INICIAR.cmd`, escolha **1** ou **6** e siga
+a mensagem exibida. Quando o navegador abrir, faça login no e-Contas, deixe a
+tela **Meus Processos Finalísticos** carregada e volte ao terminal.
+
+O login não acompanha o ZIP. Em cada computador será necessário autenticar-se
+novamente.
+
+### 3. Instalar a Extensão
+
+1. No Chrome, abra `chrome://extensions`.
+2. Ative **Modo do desenvolvedor**.
+3. Clique em **Carregar sem compactação**.
+4. Selecione a pasta `extensao-complementar-ato` deste pacote.
+5. Opcionalmente, fixe o ícone **Complementar Ato TCE/RN** na barra do Chrome.
+
+## Uso diário: qual opção escolher?
+
+Abra `INICIAR.cmd` e escolha:
+
+| Opção | O que faz | Quando usar |
+|---|---|---|
+| 1 | Coletar processos selecionados | Baixar eventos e arquivos novos |
+| 2 | Analisar acervo local | Reprocessar PDFs, OCR e dados sem acessar o portal |
+| 3 | Gerar HTML local | Atualizar o HTML; também executa a análise necessária |
+| 4 | Atualizar dados da extensão | Recriar somente `dados-complementar-ato.json` |
+| 5 | Abrir HTML existente | Consultar rapidamente o resultado já pronto |
+| 6 | Fluxo completo | Coletar, analisar, atualizar resultados e abrir o HTML |
+| 7 | Diagnóstico do runtime | Testar Python e idiomas do OCR; não substitui `TESTAR-PACOTE.ps1` |
+| 8 | Zerar acervo e iniciar novo lote | Guardar o lote anterior e começar coleta, análise, HTML e JSON do zero |
+
+Na seleção de processos, você pode digitar:
+
+```text
+1,4,8-12          seleciona os itens 1, 4 e 8 até 12
+todos             seleciona tudo que aparece na lista atual
+novos             ignora o que já teve a coleta concluída no checkpoint
+buscar magnolia   procura por nome ou número antes da seleção
+```
+
+Para o dia a dia, mantenha a mesma pasta extraída e use `novos`. O checkpoint
+será retomado e os documentos inalterados não serão baixados outra vez.
+`novos` se refere à coleta dos arquivos, não ao check **Processo feito** do HTML.
+
+## Conferir pelo HTML local
+
+Abra `acervo-tce\complementar-ato.html` ou use a opção 5.
+
+- Escolha o processo na lista superior.
+- Troque entre Resolução Administrativa e Guia Financeira quando disponíveis.
+- Arraste o divisor central para aumentar o PDF ou os campos.
+- Use **Copiar valor** para levar um campo ao portal.
+- Use **Processo feito** como lembrete local.
+- Confira sempre a citação de processo, evento e página.
+
+O check do HTML fica salvo no navegador daquele computador. Ele é independente
+da marca **Revisado** da extensão e pode não acompanhar a pasta para outro PC.
+
+Se o PDF aparecer vazio, confirme que o ZIP foi totalmente extraído e use
+**Abrir PDF**. Não mova apenas o HTML sem a pasta `processos`.
+
+## Preencher com a Extensão
+
+1. Na Área Restrita, abra **Complementar Ato**.
+2. Informe o processo e selecione exatamente um interessado.
+3. Clique no ícone da extensão para abrir o painel lateral.
+4. Na primeira utilização de cada lote, clique em **Importar/Atualizar dados**
+   e escolha `acervo-tce\dados-complementar-ato.json`.
+5. Clique em **Atualizar prévia**.
+6. Confira o valor documental, a opção proposta, o status e a fonte.
+7. Clique em **Preencher campos disponíveis** somente depois da conferência.
+8. Revise os campos no próprio formulário do TCE.
+9. Marque **Revisado** no painel apenas como controle local.
+
+A importação é feita uma vez para o lote inteiro, e não uma vez por processo.
+A extensão reconhece automaticamente o processo e o interessado que estão na
+tela.
+
+### Significado das cores
+
+- **Verde:** correspondência exata ou segura.
+- **Amarelo:** opção mais parecida, aproximação ou empate; confira manualmente.
+- **Divergência:** o portal já possui outro valor. A extensão não substitui
+  automaticamente. O override é individual e mostra uma confirmação.
+- **Pendente:** o dado não foi encontrado com segurança.
+
+Somente estes sete campos podem ser escritos:
+
+```text
+Modalidade
+Fundamento legal
+Data de publicação no DOE
+Cargo
+Matrícula
+Data de nascimento
+Gênero
+```
+
+A data do DOE corresponde à data expressa na Resolução Administrativa e é
+apresentada como `DD/MM/AAAA`. Valores financeiros e a conclusão da análise
+continuam manuais.
+
+## Baixar um lote novo no futuro
+
+### Já terminei todo o acervo: quero começar do zero
+
+1. Abra `INICIAR.cmd` e escolha **8**.
+2. Confira a pasta `acervo-tce` mostrada e confirme somente se terminou o lote.
+3. O conteúdo antigo sai do acervo ativo e fica em `backups-acervo` para recuperação.
+   Scripts, runtime, extensão e perfil de login são preservados.
+4. Selecione os processos da lista atual. Após a coleta, o programa executa a
+   análise e gera o novo HTML e o novo `dados-complementar-ato.json`.
+5. Importe o novo JSON no painel da extensão. Essa importação substitui o lote
+   anterior e zera as marcas **Revisado**. O HTML novo começa com checks separados.
+
+Se cancelar a confirmação, nada é zerado. Se a coleta/análise falhar depois do
+reinício, o backup continua disponível; retome o lote novo pela opção **6**, sem
+usar **8** novamente. Os backups não entram no próximo ZIP e continuam ocupando
+espaço nesta máquina até você decidir removê-los.
+
+### Quero apenas atualizar sem zerar
+
+Na mesma pasta, use a opção 1 e digite `novos`. Depois escolha a opção 2, 3 ou
+6 para atualizar a análise e o HTML. O arquivo da extensão também é atualizado
+pela análise; a opção 4 permite atualizá-lo separadamente.
+
+Se começar com uma pasta vazia e quiser usar um ZIP antigo como base de tudo que
+já foi concluído, abra o PowerShell na raiz do pacote e execute:
+
+```powershell
+& .\Coletar-Processos-TCE.ps1 `
+  -Selecao 'novos' `
+  -BaseConcluidos 'D:\Caminho\TCE-Atos-Anterior.zip' `
+  -BaselineAllComplete
+```
+
+Use `-BaselineAllComplete` somente quando todos os processos da base antiga já
+tiverem sido realmente conferidos.
+
+## Criar outro ZIP completo
+
+Depois de coletar e analisar um novo lote, abra o PowerShell na raiz e execute:
+
+```powershell
+& .\Empacotar-Acervo-Completo.ps1 `
+  -Destino 'D:\Destino\TCE-Atos-Atualizado.zip'
+```
+
+O empacotador bloqueia a substituição silenciosa de um ZIP existente e executa
+a auditoria antes de publicar o arquivo.
+
+## Diagnóstico e problemas comuns
+
+### Estou substituindo uma versão antiga da extensão
+
+Extraia o ZIP novo em outra pasta; preserve o antigo. Em `chrome://extensions`,
+carregue a pasta `extensao-complementar-ato` do kit novo ou recarregue a extensão
+se atualizou a mesma pasta. Evite manter duas cópias habilitadas ao mesmo tempo.
+Depois de atualizar, recarregue a tela do portal **somente se não houver edição
+pendente** e importe o JSON do lote desejado. Não recarregue um formulário com
+dados ainda não salvos. A versão corrigida é **1.0.1**.
+
+### O terminal diz que a sessão não está autenticada
+
+Faça login na janela de navegador aberta pelo coletor, volte para **Meus
+Processos Finalísticos** e tente novamente. O pacote não copia cookies de outro
+navegador.
+
+### Nenhum processo foi encontrado
+
+Espere a lista terminar de carregar, confirme o setor correto e deixe a aba da
+lista visível antes de pressionar `ENTER` no terminal.
+
+### O HTML abre, mas o PDF não aparece
+
+Extraia o ZIP inteiro, preserve a estrutura das pastas e evite abrir o HTML a
+partir de dentro do ZIP. Caminhos muito longos e pastas sincronizadas podem
+causar problemas; prefira `C:\TCE-Atos`.
+
+### A extensão não reconhece a tela
+
+Confirme que você está em `https://novaarearestrita.tce.rn.gov.br/`, na tela
+**Complementar Ato**, com um interessado selecionado. Depois clique em
+**Atualizar prévia**.
+
+### Apareceu amarelo ou divergência
+
+Não preencha às cegas. Compare a proposta com o PDF e a citação. Em empate, a
+extensão mostra a primeira opção do portal como proposta amarela. Divergências
+só podem ser substituídas uma por vez, após confirmação.
+
+### O diagnóstico falhou
+
+Não use o pacote para preencher dados. Execute `TESTAR-PACOTE.ps1`, anote a
+linha marcada como **FALHOU** e preserve a pasta para correção.
+
+## O que existe em cada pasta
+
+| Item | Finalidade |
+|---|---|
+| `INICIAR.cmd` | Menu principal de uso diário |
+| `GUIA-RAPIDO.html` | Este guia em formato visual |
+| `TESTAR-PACOTE.ps1` | Diagnóstico offline de integridade |
+| `Coletar-Processos-TCE.ps1` | Coleta direta e opções avançadas |
+| `Empacotar-Acervo-Completo.ps1` | Gera um novo ZIP privado auditado |
+| `acervo-tce` | HTML, resultados, checkpoints, eventos e PDFs |
+| `extensao-complementar-ato` | Extensão para carregar no Chrome |
+| `runtime` | Python, PyMuPDF e Tesseract portáteis |
+| `app` | Componentes internos do coletor e analisador |
+| `licenses` | Licenças dos componentes incluídos |
+| `runtime-manifest.json` | Inventário e hashes do runtime |
+
+Não edite `runtime`, `app` ou `runtime-manifest.json`. Para uso normal, concentre-se
+em `INICIAR.cmd`, no HTML, na extensão e na pasta `acervo-tce`.
+
+## Limites de segurança
+
+- O coletor baixa documentos, mas não envia nem altera processos.
+- A extensão não assina, não tramita, não conclui e não limpa o formulário.
+- A decisão final e a conclusão da análise permanecem manuais.
+- O pacote privado contém dados pessoais. Guarde-o somente em local autorizado.
+- CAPTCHA, bloqueio de rede, alteração do portal ou expiração da sessão exigem
+  intervenção humana.

@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-04T12:00:00+00:00",
+  "batch": {
+    "id": "task-7-sanitized-fixture",
+    "logical_sha256": "8340a1f5ffc570fe05797849a09918ba4b2f1d2a9ef33d527f7169f3bc535c92",
+    "process_count": 2,
+    "record_count": 2,
+    "process_keys": [
+      "103439/2023",
+      "103487/2023"
+    ]
+  },
+  "records": [
+    {
+      "process": {
+        "key": "103439/2023",
+        "number": "103439",
+        "year": "2023"
+      },
+      "interested": {
+        "original": "Maria de Souza",
+        "normalized": "maria de souza"
+      },
+      "status": "found",
+      "fields": {
+        "modalidade": {
+          "status": "found",
+          "confidence": "high",
+          "source_value": "Aposentadoria voluntária por tempo de contribuição com proventos integrais",
+          "form_value": "Aposentadoria voluntária por tempo de contribuição com proventos integrais",
+          "citation": {"process": "103439/2023", "event": "9", "page": 1, "document": "resolucao-sanitizada.pdf"}
+        },
+        "fundamento_legal": {
+          "status": "found",
+          "confidence": "high",
+          "source_value": "Artigo 40, parágrafo 5º, professor",
+          "form_value": "Artigo 40, parágrafo 5º, professor",
+          "citation": {"process": "103439/2023", "event": "9", "page": 1, "document": "resolucao-sanitizada.pdf"}
+        },
+        "data_publicacao_doe": {
+          "status": "found",
+          "confidence": "high",
+          "source_value": "07/02/2020",
+          "form_value": "07/02/2020",
+          "citation": {"process": "103439/2023", "event": "9", "page": 1, "document": "resolucao-sanitizada.pdf"}
+        },
+        "cargo": {
+          "status": "found",
+          "confidence": "high",
+          "source_value": "Professora PN - IV",
+          "form_value": "Professora PN - IV",
+          "citation": {"process": "103439/2023", "event": "9", "page": 1, "document": "resolucao-sanitizada.pdf"}
+        },
+        "matricula": {
+          "status": "found",
+          "confidence": "high",
+          "source_value": "103.870-2/1",
+          "form_value": "103.870-2/1",
+          "citation": {"process": "103439/2023", "event": "9", "page": 1, "document": "resolucao-sanitizada.pdf"}
+        },
+        "data_nascimento": {
+          "status": "found",
+          "confidence": "high",
+          "source_value": "30/04/1967",
+          "form_value": "30/04/1967",
+          "citation": {"process": "103439/2023", "event": "10", "page": 2, "document": "guia-sanitizada.pdf"}
+        },
+        "genero": {
+          "status": "found",
+          "confidence": "high",
+          "source_value": "Feminino",
+          "form_value": "Feminino",
+          "citation": {"process": "103439/2023", "event": "10", "page": 2, "document": "guia-sanitizada.pdf"}
+        }
+      }
+    },
+    {
+      "process": {
+        "key": "103487/2023",
+        "number": "103487",
+        "year": "2023"
+      },
+      "interested": {
+        "original": "João da Silva",
+        "normalized": "joao da silva"
+      },
+      "status": "found",
+      "fields": {
+        "modalidade": {
+          "status": "found",
+          "confidence": "high",
+          "source_value": "Aposentadoria especial",
+          "form_value": "Aposentadoria especial",
+          "citation": {"process": "103487/2023", "event": "4", "page": 1, "document": "resolucao-sanitizada.pdf"}
+        },
+        "fundamento_legal": {
+          "status": "found",
+          "confidence": "medium",
+          "source_value": "Fundamento documental gama",
+          "form_value": "Fundamento documental gama",
+          "citation": {"process": "103487/2023", "event": "4", "page": 1, "document": "resolucao-sanitizada.pdf"}
+        },
+        "data_publicacao_doe": {
+          "status": "found",
+          "confidence": "high",
+          "source_value": "08/03/2021",
+          "form_value": "08/03/2021",
+          "citation": {"process": "103487/2023", "event": "4", "page": 1, "document": "resolucao-sanitizada.pdf"}
+        },
+        "cargo": {
+          "status": "found",
+          "confidence": "high",
+          "source_value": "Analista Administrativo",
+          "form_value": "Analista Administrativo",
+          "citation": {"process": "103487/2023", "event": "4", "page": 1, "document": "resolucao-sanitizada.pdf"}
+        },
+        "matricula": {
+          "status": "found",
+          "confidence": "high",
+          "source_value": "204.321-8/2",
+          "form_value": "204.321-8/2",
+          "citation": {"process": "103487/2023", "event": "4", "page": 1, "document": "resolucao-sanitizada.pdf"}
+        },
+        "data_nascimento": {
+          "status": "found",
+          "confidence": "high",
+          "source_value": "12/09/1972",
+          "form_value": "12/09/1972",
+          "citation": {"process": "103487/2023", "event": "5", "page": 2, "document": "guia-sanitizada.pdf"}
+        },
+        "genero": {
+          "status": "found",
+          "confidence": "high",
+          "source_value": "Masculino",
+          "form_value": "Masculino",
+          "citation": {"process": "103487/2023", "event": "5", "page": 2, "document": "guia-sanitizada.pdf"}
+        }
+      }
+    }
+  ]
+}

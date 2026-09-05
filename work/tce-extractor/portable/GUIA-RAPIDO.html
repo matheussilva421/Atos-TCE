@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guia rápido · Pacote portátil TCE/RN</title>
+  <style>
+    :root {
+      --navy: #102b3c;
+      --blue: #174b65;
+      --teal: #08756d;
+      --green: #1d7a55;
+      --gold: #e5aa3a;
+      --red: #ad3f32;
+      --paper: #f7faf9;
+      --mist: #e4eef0;
+      --line: #bfd0d4;
+      --ink: #17313d;
+      --muted: #526b74;
+      --white: #ffffff;
+      --shadow: 0 14px 34px rgba(16, 43, 60, .12);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--mist);
+      font: 16px/1.55 "Segoe UI", Tahoma, Arial, sans-serif;
+    }
+    a { color: var(--blue); }
+    a:focus-visible, summary:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+    .hero {
+      position: relative;
+      overflow: hidden;
+      color: var(--white);
+      background: linear-gradient(125deg, var(--navy) 0 66%, var(--teal) 66% 100%);
+      border-bottom: 6px solid var(--gold);
+    }
+    .hero::after {
+      content: "AUTOS · EVENTOS · CONFERÊNCIA";
+      position: absolute;
+      right: -22px;
+      bottom: 14px;
+      color: rgba(255,255,255,.12);
+      font-size: clamp(28px, 5vw, 68px);
+      font-weight: 900;
+      letter-spacing: .06em;
+      white-space: nowrap;
+    }
+    .hero-inner { position: relative; z-index: 1; max-width: 1180px; margin: auto; padding: 44px 28px 38px; }
+    .eyebrow { margin: 0 0 8px; color: #bce8e3; font-size: 12px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+    h1 { max-width: 760px; margin: 0; font-size: clamp(34px, 6vw, 70px); line-height: .98; letter-spacing: -.045em; }
+    .hero p { max-width: 720px; margin: 20px 0 0; font-size: 18px; color: #d9e8ed; }
+    .safety {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 14px 28px;
+      color: #fff7df;
+      background: #624918;
+      border-bottom: 1px solid #8b6c2e;
+      font-weight: 600;
+    }
+    .safety strong { color: #ffd978; }
+    .layout { display: grid; grid-template-columns: 245px minmax(0, 1fr); max-width: 1180px; margin: 24px auto 60px; padding: 0 22px; gap: 22px; }
+    nav { position: sticky; top: 14px; align-self: start; padding: 18px; background: var(--navy); color: white; box-shadow: var(--shadow); border-top: 4px solid var(--gold); }
+    nav h2 { margin: 0 0 10px; color: #c7e8e6; font-size: 12px; letter-spacing: .13em; text-transform: uppercase; }
+    nav a { display: block; padding: 8px 8px; color: #e9f3f5; text-decoration: none; border-left: 2px solid transparent; }
+    nav a:hover { border-left-color: var(--gold); background: rgba(255,255,255,.08); }
+    main { min-width: 0; }
+    .start { padding: 24px; background: var(--white); box-shadow: var(--shadow); border-top: 5px solid var(--teal); }
+    .start h2, section h2 { margin: 0 0 10px; color: var(--navy); font-size: clamp(25px, 3vw, 36px); line-height: 1.12; letter-spacing: -.025em; }
+    .choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+    .choice { display: block; min-height: 92px; padding: 16px; color: var(--ink); text-decoration: none; background: #edf5f4; border: 1px solid #b9d6d2; border-left: 6px solid var(--teal); }
+    .choice:hover { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(16,43,60,.12); }
+    .choice strong { display: block; margin-bottom: 4px; color: var(--navy); font-size: 18px; }
+    section { scroll-margin-top: 18px; margin-top: 22px; padding: 26px; background: var(--paper); border: 1px solid var(--line); box-shadow: 0 8px 22px rgba(16,43,60,.07); }
+    section > h2 { display: flex; gap: 12px; align-items: center; }
+    .number { display: inline-grid; place-items: center; flex: 0 0 38px; height: 38px; color: var(--white); background: var(--blue); font: 800 15px/1 Consolas, monospace; }
+    h3 { margin: 24px 0 8px; color: var(--blue); font-size: 20px; }
+    ol, ul { padding-left: 22px; }
+    li + li { margin-top: 6px; }
+    .steps { display: grid; gap: 1px; margin: 18px 0; background: var(--line); border: 1px solid var(--line); }
+    .step { display: grid; grid-template-columns: 44px 1fr; gap: 14px; align-items: start; padding: 14px; background: var(--white); }
+    .step b:first-child { display: grid; place-items: center; width: 34px; height: 34px; color: white; background: var(--teal); border-radius: 50%; }
+    .step strong { color: var(--navy); }
+    .menu-table { width: 100%; border-collapse: collapse; margin: 16px 0; background: white; }
+    .menu-table th, .menu-table td { padding: 11px; text-align: left; vertical-align: top; border: 1px solid var(--line); }
+    .menu-table th { color: white; background: var(--blue); }
+    .menu-table td:first-child { width: 64px; color: var(--teal); font: 800 18px Consolas, monospace; text-align: center; }
+    code, pre { font-family: Consolas, "Courier New", monospace; }
+    code { padding: 2px 5px; background: #e6edef; }
+    pre { overflow-x: auto; padding: 16px; color: #dff6f2; background: #102b3c; border-left: 5px solid var(--gold); white-space: pre-wrap; }
+    .callout { margin: 16px 0; padding: 15px 17px; background: #fff8e8; border-left: 5px solid var(--gold); }
+    .callout.danger { background: #fff0ed; border-left-color: var(--red); }
+    .callout.ok { background: #ebf7f1; border-left-color: var(--green); }
+    .status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .status { padding: 14px; background: white; border: 1px solid var(--line); }
+    .status b { display: block; margin-bottom: 4px; }
+    .green { border-left: 6px solid var(--green); }
+    .yellow { border-left: 6px solid var(--gold); }
+    .red { border-left: 6px solid var(--red); }
+    .gray { border-left: 6px solid #7d8d93; }
+    details { margin-top: 10px; background: white; border: 1px solid var(--line); }
+    summary { cursor: pointer; padding: 14px 16px; color: var(--navy); font-weight: 750; }
+    details > div { padding: 0 16px 16px; }
+    .inventory { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .file { padding: 12px 14px; background: white; border-left: 4px solid var(--blue); }
+    .file code { display: block; margin-bottom: 4px; color: var(--navy); font-weight: 700; }
+    .footer { padding: 28px; color: #d8e6ea; text-align: center; background: var(--navy); }
+    .footer strong { color: white; }
+    @media (max-width: 820px) {
+      .layout { grid-template-columns: 1fr; padding: 0 12px; }
+      nav { position: static; }
+      nav a { display: inline-block; margin: 2px; border: 1px solid rgba(255,255,255,.18); }
+      .choices, .status-grid, .inventory { grid-template-columns: 1fr; }
+      section { padding: 20px 16px; }
+      .menu-table { font-size: 14px; }
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .choice { transition: transform .16s ease, box-shadow .16s ease; }
+    }
+    @media print {
+      body { background: white; }
+      .hero { background: var(--navy) !important; print-color-adjust: exact; }
+      nav, .choices { display: none; }
+      .layout { display: block; max-width: none; margin: 0; padding: 0; }
+      section, .start { break-inside: avoid; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <p class="eyebrow">Manual de bancada · pacote local</p>
+      <h1>Do ZIP ao Complementar Ato</h1>
+      <p>Um caminho direto para consultar o lote pronto, baixar novos processos, conferir PDFs e usar a extensão com segurança.</p>
+    </div>
+  </header>
+  <div class="safety" role="note">
+    <span aria-hidden="true">⚠</span>
+    <div><strong>Controle humano obrigatório.</strong> O pacote não envia, não assina, não tramita e não conclui atos. Confira os documentos e o formulário.</div>
+  </div>
+
+  <div class="layout">
+    <nav aria-label="Sumário do guia">
+      <h2>Ir direto para</h2>
+      <a href="#comecar">Comece aqui</a>
+      <a href="#primeiro-uso">Primeiro uso</a>
+      <a href="#uso-diario">Uso diário</a>
+      <a href="#html">HTML local</a>
+      <a href="#extensao">Extensão</a>
+      <a href="#novo-lote">Novo lote</a>
+      <a href="#zip">Criar outro ZIP</a>
+      <a href="#problemas">Problemas comuns</a>
+      <a href="#arquivos">O que é cada arquivo</a>
+    </nav>
+
+    <main>
+      <article id="comecar" class="start">
+        <p class="eyebrow" style="color:var(--teal)">O que você quer fazer agora?</p>
+        <h2>Escolha seu ponto de partida</h2>
+        <div class="choices">
+          <a class="choice" href="#html"><strong>Ver o lote que já está pronto</strong>Abra o HTML e consulte PDF, valores e citações.</a>
+          <a class="choice" href="#extensao"><strong>Preencher os sete campos</strong>Instale a extensão e importe um único JSON.</a>
+          <a class="choice" href="#novo-lote"><strong>Baixar processos novos</strong>Use o checkpoint para não repetir o que já terminou.</a>
+          <a class="choice" href="#problemas"><strong>Algo deu errado</strong>Encontre a mensagem e siga a correção indicada.</a>
+        </div>
+      </article>
+
+      <section id="primeiro-uso">
+        <h2><span class="number">01</span> Primeiro uso em outro computador</h2>
+        <div class="steps">
+          <div class="step"><b>1</b><div><strong>Extraia o ZIP inteiro.</strong><br>Use uma pasta curta, como <code>C:\TCE-Atos</code>. Não execute nada de dentro do ZIP e, se possível, evite o OneDrive.</div></div>
+          <div class="step"><b>2</b><div><strong>Teste a integridade.</strong><br>Execute <code>TESTAR-PACOTE.ps1</code> com o PowerShell. A opção 7 do menu testa apenas Python e OCR.</div></div>
+          <div class="step"><b>3</b><div><strong>Confira o resultado.</strong><br>A última linha esperada é <em>Pacote íntegro: verificação offline aprovada.</em></div></div>
+          <div class="step"><b>4</b><div><strong>Faça login quando for coletar.</strong><br>O ZIP não leva cookies nem credenciais. Cada computador exige novo login no e-Contas.</div></div>
+        </div>
+        <div class="callout ok"><strong>Nada para instalar:</strong> Python, PyMuPDF, Tesseract e o idioma português já vêm no pacote.</div>
+      </section>
+
+      <section id="uso-diario">
+        <h2><span class="number">02</span> Uso diário pelo menu</h2>
+        <p>Abra <code>INICIAR.cmd</code>. O menu oferece oito ações:</p>
+        <table class="menu-table">
+          <thead><tr><th>Opção</th><th>O que faz</th><th>Quando usar</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>Coletar processos selecionados</td><td>Baixar eventos e arquivos.</td></tr>
+            <tr><td>2</td><td>Analisar acervo local</td><td>Ler PDFs/OCR e atualizar dados, HTML e JSON.</td></tr>
+            <tr><td>3</td><td>Gerar HTML local</td><td>Atualizar o HTML; executa a análise necessária.</td></tr>
+            <tr><td>4</td><td>Atualizar dados da extensão</td><td>Recriar apenas o JSON usado no painel.</td></tr>
+            <tr><td>5</td><td>Abrir HTML existente</td><td>Consultar o que já está pronto.</td></tr>
+            <tr><td>6</td><td>Fluxo completo</td><td>Coletar, analisar e abrir o HTML.</td></tr>
+            <tr><td>7</td><td>Diagnóstico do runtime</td><td>Testar Python e idiomas do OCR. Não substitui TESTAR-PACOTE.ps1.</td></tr>
+            <tr><td>8</td><td>Zerar acervo e iniciar novo lote</td><td>Guardar o lote anterior e gerar coleta, análise, HTML e JSON novos.</td></tr>
+          </tbody>
+        </table>
+        <h3>Como selecionar processos</h3>
+        <pre>1,4,8-12          itens 1, 4 e 8 até 12
+todos             tudo que aparece na lista
+novos             somente o que não teve a coleta concluída
+buscar magnolia   pesquisa antes da seleção</pre>
+        <p>Para uso regular, mantenha a mesma pasta e escolha <code>novos</code>. O checkpoint evita repetir documentos inalterados. Esse comando se refere à coleta, não ao check <strong>Processo feito</strong> do HTML.</p>
+      </section>
+
+      <section id="html">
+        <h2><span class="number">03</span> Conferir pelo HTML local</h2>
+        <p>Escolha a opção 5 ou abra <a href="acervo-tce/complementar-ato.html"><code>acervo-tce\complementar-ato.html</code></a>.</p>
+        <ul>
+          <li>Selecione o processo na parte superior.</li>
+          <li>Alterne entre Resolução Administrativa e Guia Financeira.</li>
+          <li>Arraste o divisor central para dar mais espaço ao PDF ou aos campos.</li>
+          <li>Use <strong>Copiar valor</strong> e confira a citação de processo, evento e página.</li>
+          <li>Marque <strong>Processo feito</strong> como lembrete local.</li>
+        </ul>
+        <div class="callout"><strong>Importante:</strong> o check do HTML fica salvo naquele navegador. Ele é independente da marca “Revisado” da extensão e pode não acompanhar a pasta para outro computador.</div>
+        <p>Se o PDF ficar vazio, confirme que o ZIP foi totalmente extraído e clique em <strong>Abrir PDF</strong>. O HTML precisa permanecer junto da pasta <code>processos</code>.</p>
+      </section>
+
+      <section id="extensao">
+        <h2><span class="number">04</span> Usar a Extensão no Complementar Ato</h2>
+        <h3>Instalar uma vez em cada Chrome</h3>
+        <ol>
+          <li>Abra <code>chrome://extensions</code>.</li>
+          <li>Ative <strong>Modo do desenvolvedor</strong>.</li>
+          <li>Clique em <strong>Carregar sem compactação</strong>.</li>
+          <li>Selecione a pasta <code>extensao-complementar-ato</code>.</li>
+          <li>Fixe o ícone da extensão na barra, se desejar.</li>
+        </ol>
+        <h3>Usar em cada processo</h3>
+        <div class="steps">
+          <div class="step"><b>1</b><div>Na Área Restrita, abra <strong>Complementar Ato</strong>, informe o processo e selecione exatamente um interessado.</div></div>
+          <div class="step"><b>2</b><div>Clique no ícone da extensão. Na primeira vez do lote, escolha <strong>Importar/Atualizar dados</strong> e selecione <code>acervo-tce\dados-complementar-ato.json</code>.</div></div>
+          <div class="step"><b>3</b><div>Clique em <strong>Atualizar prévia</strong> e confira valor documental, opção proposta, status e fonte.</div></div>
+          <div class="step"><b>4</b><div>Somente após conferir, clique em <strong>Preencher campos disponíveis</strong>. Revise novamente no formulário.</div></div>
+          <div class="step"><b>5</b><div>Marque <strong>Revisado</strong> apenas como controle local. A conclusão do ato continua manual.</div></div>
+        </div>
+        <div class="callout ok"><strong>Uma importação por lote:</strong> o mesmo JSON atende todos os processos e interessados. A extensão identifica automaticamente o registro aberto na tela.</div>
+        <h3>Como interpretar a prévia</h3>
+        <div class="status-grid">
+          <div class="status green"><b>Verde</b>Correspondência exata ou segura.</div>
+          <div class="status yellow"><b>Amarelo</b>Opção mais parecida, aproximação ou empate. Confira no PDF.</div>
+          <div class="status red"><b>Divergência</b>O portal já contém outro valor. Override somente individual e confirmado.</div>
+          <div class="status gray"><b>Pendente</b>Informação não encontrada com segurança.</div>
+        </div>
+        <h3>Os únicos campos permitidos</h3>
+        <p>Modalidade · Fundamento legal · Data de publicação no DOE · Cargo · Matrícula · Data de nascimento · Gênero.</p>
+        <div class="callout danger"><strong>O que permanece manual:</strong> valores financeiros, conclusão da análise, assinatura, tramitação e envio. A data do DOE é a data expressa na Resolução Administrativa, no formato <code>DD/MM/AAAA</code>.</div>
+      </section>
+
+      <section id="novo-lote">
+        <h2><span class="number">05</span> Baixar um lote novo</h2>
+        <h3>Já terminou todo o acervo?</h3>
+        <p>Escolha <strong>8</strong> no menu e confira a pasta antes de confirmar. O acervo antigo sai da pasta ativa e fica em <code>backups-acervo</code>. Scripts, runtime, extensão e login ficam preservados.</p>
+        <p>Selecione os processos atuais e aguarde coleta e análise. O novo HTML terá checks separados. Importe o novo <code>dados-complementar-ato.json</code> no painel: ele substitui o lote anterior e zera as marcas Revisado.</p>
+        <div class="callout"><strong>Se der erro após reiniciar:</strong> o backup permanece. Retome pela opção 6, sem zerar novamente. Backups não entram no próximo ZIP e ocupam espaço até você decidir removê-los.</div>
+        <h3>Atualizar sem zerar</h3>
+        <p>Na mesma pasta, escolha a opção 1 e digite <code>novos</code>. Depois use 2, 3 ou 6 para atualizar análise, HTML e dados da extensão.</p>
+        <p>Se começar com uma pasta vazia e quiser considerar um ZIP antigo como concluído:</p>
+        <pre>&amp; .\Coletar-Processos-TCE.ps1 `
+  -Selecao 'novos' `
+  -BaseConcluidos 'D:\Caminho\TCE-Atos-Anterior.zip' `
+  -BaselineAllComplete</pre>
+        <div class="callout"><strong>Use com cuidado:</strong> <code>-BaselineAllComplete</code> somente quando todos os processos da base antiga já tiverem sido realmente conferidos.</div>
+      </section>
+
+      <section id="zip">
+        <h2><span class="number">06</span> Criar outro ZIP completo</h2>
+        <p>Depois de coletar e analisar, execute na raiz do pacote:</p>
+        <pre>&amp; .\Empacotar-Acervo-Completo.ps1 `
+  -Destino 'D:\Destino\TCE-Atos-Atualizado.zip'</pre>
+        <p>O empacotador audita o conteúdo e não substitui silenciosamente um ZIP existente.</p>
+      </section>
+
+      <section id="problemas">
+        <h2><span class="number">07</span> Diagnóstico e problemas comuns</h2>
+        <details><summary>A sessão não está autenticada</summary><div>Faça login na janela aberta pelo coletor, volte para <strong>Meus Processos Finalísticos</strong> e tente novamente. Cookies de outro navegador não são copiados.</div></details>
+        <details><summary>Nenhum processo foi encontrado</summary><div>Espere a lista carregar, confirme o setor correto e deixe a aba da lista visível antes de pressionar <kbd>ENTER</kbd> no terminal.</div></details>
+        <details><summary>O HTML abre, mas o PDF não aparece</summary><div>Extraia o ZIP inteiro, preserve as pastas e prefira um caminho curto como <code>C:\TCE-Atos</code>. Não abra o HTML de dentro do ZIP.</div></details>
+        <details><summary>A extensão não reconhece a tela</summary><div>Confirme que está em <code>novaarearestrita.tce.rn.gov.br</code>, na tela <strong>Complementar Ato</strong>, com um interessado selecionado. Clique em <strong>Atualizar prévia</strong>.</div></details>
+        <details><summary>Apareceu amarelo ou divergência</summary><div>Compare a proposta com o PDF e a citação. Em empate, a primeira opção do portal aparece em amarelo. Divergências exigem confirmação individual.</div></details>
+        <details><summary>O diagnóstico marcou FALHOU</summary><div>Não use o pacote para preencher dados. Preserve a pasta e anote a linha marcada como <strong>FALHOU</strong> para correção.</div></details>
+      </section>
+
+      <section id="arquivos">
+        <h2><span class="number">08</span> O que existe no ZIP</h2>
+        <div class="inventory">
+          <div class="file"><code>INICIAR.cmd</code>Menu principal de uso diário.</div>
+          <div class="file"><code>GUIA-RAPIDO.html</code>Este manual visual e offline.</div>
+          <div class="file"><code>TESTAR-PACOTE.ps1</code>Diagnóstico de integridade.</div>
+          <div class="file"><code>Coletar-Processos-TCE.ps1</code>Coleta direta e opções avançadas.</div>
+          <div class="file"><code>Empacotar-Acervo-Completo.ps1</code>Cria um novo ZIP privado auditado.</div>
+          <div class="file"><code>acervo-tce</code>HTML, dados, checkpoints, eventos e PDFs.</div>
+          <div class="file"><code>extensao-complementar-ato</code>Pasta para carregar no Chrome.</div>
+          <div class="file"><code>runtime</code>Python, PyMuPDF e Tesseract portáteis.</div>
+          <div class="file"><code>app</code>Componentes internos do sistema.</div>
+          <div class="file"><code>licenses</code>Licenças dos componentes.</div>
+          <div class="file"><code>runtime-manifest.json</code>Inventário e hashes do runtime.</div>
+          <div class="file"><code>README.md</code>Referência técnica resumida.</div>
+        </div>
+        <div class="callout danger"><strong>Não edite</strong> as pastas <code>runtime</code> e <code>app</code>, nem o arquivo <code>runtime-manifest.json</code>. O ZIP privado contém dados pessoais: mantenha-o em local autorizado.</div>
+      </section>
+    </main>
+  </div>
+
+  <footer class="footer"><strong>Pacote portátil TCE/RN</strong><br>Coleta e conferência local com decisão humana.</footer>
+</body>
+</html>

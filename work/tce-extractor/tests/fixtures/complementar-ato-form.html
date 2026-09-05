@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head><meta charset="utf-8"><title>Complementar Ato - formulário sanitizado</title></head>
+  <body>
+    <form id="complementarAtoForm">
+      <label>Processo <input id="txtNumeroProcesso" value="103439"></label>
+      <label>Ano <input id="txtAnoProcesso" value="2023"></label>
+
+      <table id="interessados">
+        <tbody>
+          <tr><td></td><td>Nome</td><td>CPF/CNPJ</td><td>Função no Processo</td></tr>
+          <tr>
+            <td><input type="radio" name="interessado" value="101"></td>
+            <td>Joao da Silva</td><td>00000000000</td><td>Interessado</td>
+          </tr>
+          <tr>
+            <td><input type="radio" name="interessado" value="102" checked></td>
+            <td>Maria de Souza</td><td>00000000000</td><td>Interessado</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <label>Modalidade
+        <select id="txtModalidade">
+          <option value="">Selecione</option>
+          <option value="m-ordinary">Aposentadoria voluntária</option>
+          <option value="m-special">Aposentadoria especial</option>
+        </select>
+      </label>
+      <label>Fundamento legal
+        <select id="txtFundamentoLegal">
+          <option value="">Selecione</option>
+          <option value="f-general">Artigo 40, parágrafo 1</option>
+          <option value="f-professor">Artigo 40, parágrafo 5, professor</option>
+        </select>
+      </label>
+      <label>Data do DOE <input id="txtDataDOE"></label>
+      <label>Cargo <input id="txtCargo"></label>
+      <label>Matrícula <input id="txtMatricula"></label>
+      <label>Data de nascimento <input id="txtDataNascimento"></label>
+      <label>Gênero <input id="txtGenero"></label>
+
+      <label>Proventos <input id="txtValorProventos" value="R$ 9.999,99"></label>
+      <label>Contribuição <input id="txtValorContribuicao" value="R$ 1.111,11"></label>
+      <label>Conclusão da análise <textarea id="txtConclusaoAnalise">Conclusão manual intacta</textarea></label>
+
+      <button id="btnComplementar" type="button" data-click-count="0">Complementar Ato</button>
+      <button id="btnLimpar" type="button" data-click-count="0">Limpar</button>
+    </form>
+  </body>
+</html>
