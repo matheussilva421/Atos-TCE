@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-Implementação local do plano `docs/notes/2026-09-08-fluxo-portatil-plano-implementacao.md` avançada até um candidato integrado. O checkout continua em `main`, sem commit ou push. Não houve login, coleta real, envio de ato, instalação no Chrome, alteração de acervo pessoal ou exclusão de arquivos.
+Implementação local do plano `docs/notes/2026-09-08-fluxo-portatil-plano-implementacao.md` avançada até um candidato integrado. O checkout continua em `main`; o bloco mais recente foi validado localmente e será registrado em commit, mas não há push por falta de remoto `origin`. Não houve login, coleta real, envio de ato, instalação no Chrome, alteração de acervo pessoal ou exclusão de arquivos.
 
 O fluxo mantém a separação aprovada:
 
@@ -66,7 +66,7 @@ Criado `portable/extensao-complementar-ato/lib/bridge-client.js` e seu teste; ma
 
 ### Fase 6 — publicação incremental
 
-Criado `portable/app/incremental_pipeline.py` e teste; criadas as opções `-ModoPreparacao progressivo|completo` e `-MaxDownloads 1..2`, com publicação atômica por processo e retenção da revisão atual/anterior. `analyze_process` filtra o índice antes do OCR, publica `preparando` e depois o resultado em revisão própria. Cada revisão final também materializa `review-data.json` sanitizado e `dataset.json`; o serviço expõe `/api/v1/review-data?since=N`. A mesa servida em `/review` é aberta pelo menu com bootstrap de uso único, consulta revisões a cada 500 ms visível/2 s oculta e preserva processo, interessado, documento e viewport quando possível. O coletor agora chama essa preparação por processo no modo progressivo e depois da varredura no modo completo, usando o runtime explícito; o menu pergunta o modo e mantém a abertura da mesa após a etapa completa. `Sync-TceProcessManifest` usa runspaces somente para o downloader quando recebe contexto explícito isolável; o pico efetivo é limitado a 1–2 e hash/deduplicação/versões/checkpoint permanecem no coordenador. O token de sessão passa apenas em memória.
+Criado `portable/app/incremental_pipeline.py` e teste; criadas as opções `-ModoPreparacao progressivo|completo` e `-MaxDownloads 1..2`, com publicação atômica por processo e retenção da revisão atual/anterior. `analyze_process` filtra o índice antes do OCR, publica `preparando` e depois o resultado em revisão própria. Cada revisão final também materializa `review-data.json` sanitizado e `dataset.json`; o serviço expõe `/api/v1/review-data?since=N`. A mesa servida em `/review` é aberta pelo menu com bootstrap de uso único, consulta revisões a cada 500 ms visível/2 s oculta e preserva processo, interessado, documento e viewport quando possível. O acompanhamento também lê `/api/v1/state` pela sessão autenticada, segue a seleção publicada pela extensão, pausa quando o usuário navega manualmente e oferece retomada explícita; falhas usam backoff limitado a 10 s. O coletor agora chama essa preparação por processo no modo progressivo e depois da varredura no modo completo, usando o runtime explícito; o menu pergunta o modo e mantém a abertura da mesa após a etapa completa. `Sync-TceProcessManifest` usa runspaces somente para o downloader quando recebe contexto explícito isolável; o pico efetivo é limitado a 1–2 e hash/deduplicação/versões/checkpoint permanecem no coordenador. O token de sessão passa apenas em memória.
 
 ### Fase 7 — transporte
 
@@ -87,6 +87,9 @@ Criados `qa_integrated_workflow.py` e `test_integrated_workflow.py`. O relatóri
 | `tests/Test-TcePortable.ps1` | 83 pass, 0 falhas |
 | `tests/Test-PortableMenu.ps1` | 73 pass, 0 falhas |
 | `tests/Test-PortableReset.ps1` | 31 pass, 0 falhas, 1 skip ambiental |
+| teste focado estado/sessão + ativos da mesa | 2 pass, 0 falhas |
+| `qa_integrated_workflow.py --project-root . --fixture-only` | passed; login/submission not-run |
+| subconjunto browser/reset/runtime | 15 pass, 0 falhas |
 
 O Python exibiu apenas avisos ResourceWarning dos testes de erro HTTP e a mensagem de uso deliberada do caso `--timeout-seconds 0`; a suíte terminou verde. Os skips ambientais/fixture não validam OCR real, bridge em navegador ou portal.
 
@@ -114,7 +117,7 @@ O ZIP anterior foi preservado em `artifacts/extensao-complementar-ato-2026-09-08
 - `git remote -v`: sem remoto configurado.
 - Commits locais relevantes: `f2c770b feat: sync incremental bridge datasets` e `9b9a473 feat: serve live portable review revisions`.
 - Push não executado porque não há `origin` configurado.
-- Working tree verificado limpo após `9b9a473`; o lock observado durante a execução não está mais presente.
+- O bloco de acompanhamento da seleção foi implementado em `html_generator.py` e `portable/app/local_service.py`, com RED→GREEN em `test_local_service.py` e `test_review_assets.py`; o working tree deve ser rechecado após o commit deste handoff.
 
 Pendências reais para chamar de release validada:
 
@@ -122,4 +125,4 @@ Pendências reais para chamar de release validada:
 2. medir os mesmos 20 processos e p95 de sincronização, e repetir o teste sobre ZIP extraído em ambiente restrito;
 3. obter autorização humana para segundo PC, se esse gate for necessário.
 
-Para continuar: preservar as alterações atuais, executar os gates acima, validar o ZIP v2 por `Get-FileHash`, e só então preparar commit/push se um remoto autorizado existir.
+Para continuar: executar os gates supervisionados acima, validar o ZIP v3 por `Get-FileHash`, e só então preparar push quando um remoto autorizado existir. O commit local mais recente e o status final devem ser registrados nesta seção antes de encerrar a próxima sessão.

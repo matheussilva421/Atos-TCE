@@ -222,6 +222,10 @@ class LocalServiceTests(unittest.TestCase):
             self.assertNotIn("review-session", body.decode("utf-8"))
             self.assertIn("Content-Security-Policy", headers)
 
+            status, _headers, body = json_request(f"{base}/api/v1/state?since=-1", cookie=cookie)
+            self.assertEqual(status, 200)
+            self.assertIn("selection", json.loads(body))
+
     def test_pdf_is_served_only_by_document_id_and_supports_range(self):
         with running_server() as (root, server, base):
             pdf = root / "sample.pdf"

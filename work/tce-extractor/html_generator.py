@@ -479,7 +479,7 @@ HTML_TEMPLATE = r'''<!doctype html>
     h1, h2, h3, p { margin: 0; }
     .brand h1 { margin-top: 2px; font: 700 25px/1.05 Georgia, "Times New Roman", serif; letter-spacing: -.02em; }
     .brand-note { margin-top: 4px; color: #b5c2ca; font-size: 11px; }
-    .toolbar { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; align-items: center; }
+    .toolbar { display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 8px; align-items: center; }
     .toolbar label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
     .toolbar input, .toolbar select {
       min-width: 0; height: 39px; padding: 0 12px; color: var(--ink);
@@ -502,6 +502,7 @@ HTML_TEMPLATE = r'''<!doctype html>
     }
     .notice strong { color: var(--teal-dark); }
     .notice .run { color: var(--ink-soft); font-family: Consolas, monospace; font-size: 11px; }
+    .notice .live-status { color: var(--teal-dark); font-weight: 800; }
     .workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, var(--viewer-size)) 18px minmax(0, 1fr); gap: 0; }
     .viewer-panel { min-height: 0; display: flex; flex-direction: column; background: #233242; }
     .splitter { position: relative; z-index: 4; display: flex; align-items: center; justify-content: center; min-width: 0; background: #162737; cursor: col-resize; touch-action: none; user-select: none; }
@@ -589,7 +590,7 @@ HTML_TEMPLATE = r'''<!doctype html>
       .eyebrow { font-size: 8px; letter-spacing: .12em; }
       .brand h1 { font-size: 18px; }
       .brand-note { display: none; }
-      .toolbar { grid-template-columns: minmax(120px, 1fr) minmax(155px, 1.15fr) 31px 31px; gap: 5px; }
+      .toolbar { grid-template-columns: minmax(120px, 1fr) minmax(155px, 1.15fr) 31px 31px auto; gap: 5px; }
       .toolbar input, .toolbar select { height: 31px; padding: 0 8px; font-size: 11px; }
       .icon-button, .outline-button { height: 31px; padding: 0 6px; font-size: 13px; }
       .stats { display: grid; grid-template-columns: repeat(3, minmax(45px, 1fr)); gap: 5px 7px; }
@@ -599,6 +600,7 @@ HTML_TEMPLATE = r'''<!doctype html>
       .notice { min-height: 30px; padding: 6px 14px; gap: 8px; font-size: 10px; }
       .notice > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .notice .run { flex: none; font-size: 9px; }
+      .notice .live-status { flex: none; font-size: 9px; }
       .workspace { --viewer-size: 42%; grid-template-columns: minmax(0, var(--viewer-size)) 18px minmax(0, 1fr); }
       .viewer-head, .inspector-head { padding: 9px 10px; }
       .viewer-head { gap: 7px; }
@@ -652,6 +654,7 @@ HTML_TEMPLATE = r'''<!doctype html>
       .topbar, .notice { padding-left: 15px; padding-right: 15px; }
       .toolbar { grid-template-columns: 1fr 1fr; }
       .toolbar input, .toolbar select { grid-column: 1 / -1; }
+      .toolbar .follow-button { grid-column: 1 / -1; }
       .workspace { --viewer-size: auto; grid-template-columns: 1fr; }
       .viewer-panel { min-height: 620px; }
       .inspector { max-height: none; }
@@ -681,6 +684,7 @@ HTML_TEMPLATE = r'''<!doctype html>
       <select id="process-select" aria-label="Processo"></select>
       <button class="icon-button" id="prev-process" type="button" title="Processo anterior">←</button>
       <button class="icon-button" id="next-process" type="button" title="Próximo processo">→</button>
+      <button class="outline-button follow-button" id="follow-toggle" type="button" aria-pressed="true">Acompanhar portal</button>
     </div>
     <div class="stats" aria-label="Resumo da extração">
       <div class="stat"><strong id="stat-processes">0</strong><span>processos</span></div>
@@ -694,6 +698,7 @@ HTML_TEMPLATE = r'''<!doctype html>
   </header>
   <div class="notice">
     <span><strong>Somente leitura.</strong> Use “Copiar” para levar um valor ao formulário do TCE. Nada nesta página envia ou altera atos.</span>
+    <span class="live-status" id="live-status">Sincronização manual</span>
     <span class="run" id="run-label"></span>
   </div>
   <main class="workspace">
@@ -763,6 +768,9 @@ HTML_TEMPLATE = r'''<!doctype html>
   let integratedLoad = null;
   let renderSequence = 0;
   let liveRevision = Number(data.live_revision || 0);
+  let followPortal = true;
+  let liveFailureCount = 0;
+  let livePollTimer = null;
   const COMPLETED_STORAGE_KEY = data.archive_cycle_id
     ? `tce-completed-processes-v1:${data.archive_cycle_id}`
     : 'tce-completed-processes-v1';
@@ -778,6 +786,42 @@ HTML_TEMPLATE = r'''<!doctype html>
   const currentProcess = () => data.processes[state.processIndex] || {process: '', status: 'pending', documents: [], all_documents: [], blocks: []};
   const currentBlock = () => currentProcess().blocks[state.blockIndex] || {interested: 'Não identificado', pending: [], fields: {}};
   const notify = (message) => { const toast = $('toast'); toast.textContent = message; toast.classList.add('show'); clearTimeout(notify.timer); notify.timer = setTimeout(() => toast.classList.remove('show'), 2200); };
+  const normalizeIdentity = (value) => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').replace(/[^a-z0-9]+/g, ' ').trim();
+
+  function setLiveStatus(message) {
+    const status = $('live-status');
+    if (status) status.textContent = message;
+  }
+
+  function updateFollowButton() {
+    const button = $('follow-toggle');
+    if (!button) return;
+    button.textContent = followPortal ? 'Acompanhar portal' : 'Retomar acompanhamento';
+    button.setAttribute('aria-pressed', String(followPortal));
+    button.title = followPortal ? 'Pausar acompanhamento da seleção do portal' : 'Retomar acompanhamento da seleção do portal';
+    setLiveStatus(followPortal ? 'Sincronização ativa' : 'Acompanhamento pausado');
+  }
+
+  function setFollowPortal(enabled) {
+    followPortal = enabled === true;
+    updateFollowButton();
+  }
+
+  function applyPortalSelection(selection) {
+    if (!followPortal || !selection || typeof selection.process_key !== 'string') return;
+    const processIndex = data.processes.findIndex((process) => process.process === selection.process_key);
+    if (processIndex < 0) return;
+    const interested = normalizeIdentity(selection.interested_normalized);
+    const blocks = data.processes[processIndex].blocks || [];
+    const blockIndex = blocks.findIndex((block) => normalizeIdentity(block.interested) === interested);
+    const unchanged = state.processIndex === processIndex && (blockIndex < 0 || state.blockIndex === blockIndex);
+    if (unchanged) return;
+    state.processIndex = processIndex;
+    state.blockIndex = blockIndex >= 0 ? blockIndex : 0;
+    state.documentIndex = 0;
+    state.evidence = null;
+    render();
+  }
 
   function applyLivePayload(next) {
     if (!next || !Array.isArray(next.processes)) return;
@@ -809,7 +853,10 @@ HTML_TEMPLATE = r'''<!doctype html>
 
   async function pollLiveReview() {
     const localFileProtocol = 'file' + ':';
-    if (window.location.protocol === localFileProtocol) return;
+    if (window.location.protocol === localFileProtocol) {
+      setLiveStatus('Modo arquivo · sem sincronização');
+      return;
+    }
     if (window.location.protocol !== 'http:') return;
     try {
       const response = await fetch(`/api/v1/review-data?since=${encodeURIComponent(liveRevision)}`, {
@@ -822,12 +869,25 @@ HTML_TEMPLATE = r'''<!doctype html>
           liveRevision = Number(envelope.revision || envelope.data.live_revision || liveRevision);
           applyLivePayload(envelope.data);
         }
+      } else if (response.status !== 404) {
+        throw new Error('review data unavailable');
       }
+      const stateResponse = await fetch('/api/v1/state?since=-1', {credentials: 'same-origin', cache: 'no-store'});
+      if (!stateResponse.ok) throw new Error('live state unavailable');
+      const stateEnvelope = await stateResponse.json();
+      applyPortalSelection(stateEnvelope.selection);
+      liveFailureCount = 0;
+      updateFollowButton();
     } catch (_) {
-      // The desk remains usable when the optional live service is unavailable.
+      liveFailureCount += 1;
+      setLiveStatus(`Desconectado · reconectando (${Math.min(10, liveFailureCount)}s)`);
     }
-    const delay = document.visibilityState === 'hidden' ? 2000 : 500;
-    window.setTimeout(pollLiveReview, delay);
+    const baseDelay = document.visibilityState === 'hidden' ? 2000 : 500;
+    const delay = liveFailureCount
+      ? Math.min(10000, baseDelay * (2 ** Math.min(liveFailureCount - 1, 5)))
+      : baseDelay;
+    if (livePollTimer !== null) window.clearTimeout(livePollTimer);
+    livePollTimer = window.setTimeout(pollLiveReview, delay);
   }
 
   function splitBounds() {
@@ -1067,11 +1127,12 @@ HTML_TEMPLATE = r'''<!doctype html>
 
   function render() { renderProcessOptions(); renderIdentity(); renderFields(); renderPending(); renderDocuments(); }
   $('search-process').addEventListener('input', (event) => { state.query = event.target.value; renderProcessOptions(); render(); });
-  $('process-select').addEventListener('change', (event) => { state.processIndex = Number(event.target.value); state.blockIndex = 0; state.documentIndex = 0; render(); });
+  $('process-select').addEventListener('change', (event) => { setFollowPortal(false); state.processIndex = Number(event.target.value); state.blockIndex = 0; state.documentIndex = 0; render(); });
   $('block-select').addEventListener('change', (event) => { state.blockIndex = Number(event.target.value); renderFields(); renderPending(); });
   $('document-select').addEventListener('change', (event) => { state.documentIndex = Number(event.target.value); state.evidence = null; renderDocuments(); });
-  $('prev-process').addEventListener('click', () => { if (state.processIndex > 0) { state.processIndex--; state.blockIndex = 0; state.documentIndex = 0; render(); } });
-  $('next-process').addEventListener('click', () => { if (state.processIndex < data.processes.length - 1) { state.processIndex++; state.blockIndex = 0; state.documentIndex = 0; render(); } });
+  $('follow-toggle').addEventListener('click', () => setFollowPortal(!followPortal));
+  $('prev-process').addEventListener('click', () => { if (state.processIndex > 0) { setFollowPortal(false); state.processIndex--; state.blockIndex = 0; state.documentIndex = 0; render(); } });
+  $('next-process').addEventListener('click', () => { if (state.processIndex < data.processes.length - 1) { setFollowPortal(false); state.processIndex++; state.blockIndex = 0; state.documentIndex = 0; render(); } });
   $('process-done').addEventListener('change', (event) => {
     const processId = currentProcess().process;
     if (!processId) return;
@@ -1115,6 +1176,7 @@ HTML_TEMPLATE = r'''<!doctype html>
   $('split-slider').addEventListener('input', (event) => applySplit(event.target.value, true));
   window.addEventListener('resize', updateSplitBounds);
   applySplit(storedSplit, false);
+  updateFollowButton();
   renderStats(); render();
   void pollLiveReview();
 })();

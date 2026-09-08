@@ -424,9 +424,9 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
                 return
             self._send_pdf(unquote(parsed.path.removeprefix("/api/v1/pdf/")))
             return
-        if not self._require_auth():
-            return
         if parsed.path == "/api/v1/state":
+            if not self._require_private_auth():
+                return
             params = parse_qs(parsed.query)
             try:
                 since = int(params.get("since", ["-1"])[0])
@@ -442,6 +442,8 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
                 "selection": self.server_state.selection,
                 "unchanged": since == snapshot["revision"],
             })
+            return
+        if not self._require_auth():
             return
         if parsed.path == "/api/v1/dataset":
             self._send_dataset()
