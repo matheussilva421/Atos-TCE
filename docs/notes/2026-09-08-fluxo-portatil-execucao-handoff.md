@@ -296,4 +296,4 @@ O benchmark dos mesmos 20 processos permanece não medido: não há baseline hum
 
 ### Retomada e Git
 
-O Chrome do projeto permanece aberto no CDP `127.0.0.1:63097`, com a Área Restrita e e-Contas abertas e o formulário real restaurado. Não fechar nem recarregar o formulário sem nova autorização; qualquer nova validação deve continuar sem envio/finalização. As alterações desta rodada ainda precisam ser registradas no commit local após `git diff --check` e os testes finais. Não há remoto `origin`, portanto não há push a realizar.
+O Chrome do projeto permanece aberto no CDP `127.0.0.1:63097`, com a Área Restrita e e-Contas abertas e o formulário real restaurado. Não fechar nem recarregar o formulário sem nova autorização; qualquer nova validação deve continuar sem envio/finalização. Esta rodada foi registrada no commit local `af95f9c` após `git diff --check` e os testes finais. Não há remoto `origin`, portanto não há push a realizar.
