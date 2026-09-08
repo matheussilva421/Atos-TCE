@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-Implementação local do plano `docs/notes/2026-09-08-fluxo-portatil-plano-implementacao.md` avançada até um candidato integrado. O checkout continua em `main`; o bloco mais recente foi validado localmente e está no commit `ca1e372`. Não há push por falta de remoto `origin`. Não houve login, coleta real, envio de ato, instalação no Chrome, alteração de acervo pessoal ou exclusão de arquivos.
+Implementação local do plano `docs/notes/2026-09-08-fluxo-portatil-plano-implementacao.md` avançada até um candidato integrado. O checkout continua em `main`; o bloco mais recente foi validado localmente e está no commit `4d0153c`. Não há push por falta de remoto `origin`. Não houve login, coleta real, envio de ato, instalação no Chrome, alteração de acervo pessoal ou exclusão de arquivos.
 
 O fluxo mantém a separação aprovada:
 
@@ -116,9 +116,9 @@ O ZIP anterior foi preservado em `artifacts/extensao-complementar-ato-2026-09-08
 ## GitHub / retomada
 
 - `git remote -v`: sem remoto configurado.
-- Commits locais relevantes: `f2c770b feat: sync incremental bridge datasets`, `9b9a473 feat: serve live portable review revisions` e `ca1e372 feat: follow live portal selection in review desk`.
+- Commits locais relevantes: `f2c770b feat: sync incremental bridge datasets`, `9b9a473 feat: serve live portable review revisions`, `ca1e372 feat: follow live portal selection in review desk` e `4d0153c fix: synchronize review completion with local service`.
 - Push não executado porque não há `origin` configurado.
-- O bloco de acompanhamento da seleção foi implementado em `html_generator.py` e `portable/app/local_service.py`, com RED→GREEN em `test_local_service.py` e `test_review_assets.py`; o commit local é `ca1e372`.
+- O bloco de acompanhamento da seleção e a conclusão compartilhada foram implementados em `html_generator.py` e `portable/app/local_service.py`, com RED→GREEN em `test_local_service.py` e `test_review_assets.py`; o commit local mais recente é `4d0153c`.
 
 Pendências reais para chamar de release validada:
 
