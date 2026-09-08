@@ -10,6 +10,45 @@ Implementação local da Fase 1 concluída, com testes focais verdes e sem
 qualquer ação no portal. O matcher JavaScript da Fase 0 permanece
 intencionalmente RED. Commit de implementação: `f0a72b5`.
 
+## Fix round 1 — revisão da Fase 1
+
+Data: 2026-09-08
+Commit incremental: `e84ac95 fix: harden legal context evidence publication`
+
+O round corrigiu somente os achados de publicação de contexto, sem tocar
+empacotamento, `test_portable_end_to_end.py` ou o matcher:
+
+1. O classificador agora conserva as páginas já lidas (page_texts) e o
+   pipeline as entrega ao sidecar; a publicação não dispara OCR em GET ou
+   seleção.
+2. complete exige que o interessado normalizado apareça em uma página citada
+   da resolução. Sem vínculo nominal verificável, o registro fica incomplete;
+   divergência entre resoluções permanece conflict.
+3. operative_text usa o último marcador resolve ancorado no início de linha,
+   evitando um resolve histórico/preliminar. A versão de extração foi
+   incrementada para legal-context-v2 e analysis-pipeline-v3.
+4. page_count agora é preservado no manifesto e validado no sidecar. Lista
+   truncada recebe páginas vazias citadas e bloqueia complete; quantidade
+   excedente também marca a fonte como incompleta.
+5. O caminho do temporário é registrado imediatamente após sua criação, então
+   falhas em serialização, flush, fsync ou os.replace removem o arquivo
+   parcial. Há testes para falhas de serialização e fsync.
+
+### TDD do fix
+
+RED antes da implementação:
+
+    python -m unittest test_legal_context -q
+    12 testes; 8 passaram; 4 falharam (interessado ausente, marcador
+    operativo histórico e dois cleanups).
+
+    python -m unittest test_analysis_pipeline.AnalysisPipelineTests.test_classification_records_page_count_from_native_and_ocr_pages test_analysis_pipeline.AnalysisPipelineTests.test_target_manifest_preserves_classified_page_count_for_sidecar_validation test_analysis_pipeline.AnalysisPipelineTests.test_local_pipeline_publishes_native_classification_pages_without_ocr -q
+    3 testes; 0 passaram integralmente; 1 falhou e 2 falharam por ausência dos
+    contratos ainda não implementados.
+
+GREEN após a implementação e ajuste das fixtures sintéticas para declarar o
+vínculo nominal e o page_count que a nova regra exige.
+
 ## Implementação
 
 Foi criado `portable/app/legal_context.py` com as interfaces:
@@ -57,7 +96,7 @@ parte operativa contém §5 e é preservada no contexto.
 
 ```text
 python -m unittest test_legal_context test_tce_extractor test_analysis_pipeline test_extension_exporter -q
-75 testes executados; 75 passaram; 0 falharam.
+82 testes executados; 82 passaram; 0 falharam.
 Aviso ambiental já conhecido: API fitz depreciada.
 ```
 
@@ -91,6 +130,7 @@ fase apropriada.
 - Alterado `work/tce-extractor/portable/app/analysis_pipeline.py`.
 - Alterado `work/tce-extractor/test_analysis_pipeline.py`.
 - Criado este relatório.
+- Alterado o handoff global `docs/notes/2026-09-08-fundamentacao-automatico-handoff.md` para registrar o fix round 1, os gates e a retomada.
 
 Não foram mantidas alterações em `empacotar-coletor-portatil.ps1` ou
 `test_portable_end_to_end.py`; ambos foram comparados ao HEAD `08cf8b9` e estão
@@ -111,7 +151,8 @@ exatos. Nenhum arquivo do matcher, portal ou exportador foi alterado.
 ## GitHub e retomada
 
 O checkout não possui remoto configurado; nenhum push foi realizado. O commit
-de implementação é `f0a72b5 feat: publish versioned legal evidence context`.
+de implementação é `f0a72b5 feat: publish versioned legal evidence context` e o
+fix round 1 é `e84ac95 fix: harden legal context evidence publication`.
 
 Retomada: revisar o diff limitado aos arquivos listados e somente então decidir
 a fase/autoridade para incluir o novo módulo no pacote portátil. Não corrigir o

@@ -99,3 +99,28 @@
   não tratar esse concern sem autorização/fase apropriada.
 - Retomada: manter o matcher RED e resolver a dependência do empacotador somente
   em escopo posterior autorizado.
+
+## Registro por fase — Fase 1 fix round 1
+
+- Estado: revisão corrigida no commit
+  `e84ac95 fix: harden legal context evidence publication`.
+- Ownership: somente `portable/app/analysis_pipeline.py`,
+  `portable/app/legal_context.py`, `test_analysis_pipeline.py` e
+  `test_legal_context.py` foram alterados no fix. Empacotador e
+  `test_portable_end_to_end.py` continuam exatamente no HEAD `08cf8b9`.
+- Correções: páginas nativas já classificadas chegam ao sidecar sem OCR;
+  interessado precisa aparecer em página citada; marcador operativo usa o
+  bloco `resolve` final; `page_count` é preservado/validado; temporários
+  são limpos também em falhas de serialização e `fsync`.
+- Versões: `legal-context-v2` e `analysis-pipeline-v3`, mantendo o dataset
+  v1 de sete campos e o exportador sem alterações.
+- TDD: RED registrado no relatório; GREEN com 82/82 testes Python focais e
+  19/19 testes de `test_batch_runner`. A suíte JS permanece 33/34 por uma
+  única RED intencional do matcher.
+- Validação de escopo: `git diff 08cf8b9 --exit-code --` nos dois arquivos
+  proibidos passou; `git diff --check` passou.
+- Documentação: `.superpowers/sdd/2026-09-08-fundamentacao-automatico-plano-fases/task-1-report.md`
+  contém o fix report completo e lista este handoff global alterado.
+- GitHub: nenhum remoto configurado; não houve push.
+- Retomada: não corrigir matcher nem incluir empacotamento. Qualquer release
+  portátil que dependa de `legal_context.py` requer autorização posterior.
