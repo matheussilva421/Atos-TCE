@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-Atualização de 08/09/2026: três subagentes Luna xhigh fizeram auditoria separada de bridge/estado, serviço e empacotamento. O agente principal revisou os diffs, corrigiu a liberação do lock no encerramento do serviço, o fallback manual em falha de porta e a transformação geométrica nativa para CropBox/rotação. O source da extensão foi reempacotado como v5; este handoff permanece candidato integrado até os gates externos.
+Atualização de 08/09/2026: três subagentes Luna xhigh fizeram auditoria separada de bridge/estado, serviço e empacotamento. O agente principal revisou os diffs, corrigiu a liberação do lock no encerramento do serviço, o fallback manual em falha de porta e a transformação geométrica nativa para CropBox/rotação. Nesta continuação foram endurecidos Origin/CSRF/seleção no servidor, bloqueada colisão de identidade normalizada, implementado pedido de pausa+drenagem de transferência e conectado o módulo servido da mesa. O source da extensão foi reempacotado como v5; este handoff permanece candidato integrado até os gates externos.
 
 Implementação local do plano `docs/notes/2026-09-08-fluxo-portatil-plano-implementacao.md` avançada até um candidato integrado. O checkout continua em `main`; a última etapa local adiciona retry/autenticação sanitizados à coleta, documentada também em `docs/notes/2026-09-08-retry-autenticacao-coleta-handoff.md`. Não há push por falta de remoto `origin`. Não houve login, coleta real, envio de ato, instalação no Chrome, alteração de acervo pessoal ou exclusão de arquivos.
 
@@ -72,7 +72,7 @@ Criado `portable/app/incremental_pipeline.py` e teste; criadas as opções `-Mod
 
 ### Fase 7 — transporte
 
-Criados `portable/app/prepare_transfer.py` e `test_prepare_transfer.py`; allowlists, auditoria, empacotadores e `TESTAR-PACOTE.ps1` incluem o bridge, sidecar, viewer e licença PDF.js, excluindo `dados-locais`, perfis, credenciais, `.part` e logs privados. Foi criado `empacotar-extensao-complementar-ato.ps1` com allowlist explícita e verificação CRC/entradas para reproduzir o ZIP somente da extensão. Cada revisão incremental também materializa `dataset.json` validável; o README portátil documenta modos progressivo/completo, pareamento, fallback e pesquisa manual. A transferência agora compartilha um lease exclusivo com o coletor e o serviço: recusa snapshot enquanto houver execução ativa, recupera marcadores obsoletos por PID morto e libera o lease em `finally`; detalhes em `docs/notes/2026-09-08-transferencia-quiescente-handoff.md`.
+Criados `portable/app/prepare_transfer.py` e `test_prepare_transfer.py`; allowlists, auditoria, empacotadores e `TESTAR-PACOTE.ps1` incluem o bridge, sidecar, viewer e licença PDF.js, excluindo `dados-locais`, perfis, credenciais, `.part` e logs privados. Foi criado `empacotar-extensao-complementar-ato.ps1` com allowlist explícita e verificação CRC/entradas para reproduzir o ZIP somente da extensão. Cada revisão incremental também materializa `dataset.json` validável; o README portátil documenta modos progressivo/completo, pareamento, fallback e pesquisa manual. A transferência agora grava `transfer-request.json`, pausa novos escritores, aguarda o coletor/serviço liberar seus marcadores até 60 s, adquire o lease após a drenagem e libera solicitação/lease em `finally`.
 
 ### Fase 8 — QA seguro
 
@@ -83,8 +83,8 @@ Criados `qa_integrated_workflow.py` e `test_integrated_workflow.py`. O relatóri
 | Gate | Resultado |
 |---|---:|
 | `node --test` em `portable/extensao-complementar-ato` | 124 pass, 0 falhas, 0 skips |
-| `node --test` em `portable/app/web` | 4 pass, 0 falhas |
-| `python -m unittest discover -s . -p 'test_*.py' -q` | 276 pass, 0 falhas, 5 skips |
+| `node --test` em `portable/app/web` | 5 pass, 0 falhas |
+| `C:\Python314\python.exe -m unittest discover -s . -p 'test_*.py' -q` | 284 pass, 0 falhas, 5 skips |
 | pacote/auditoria/end-to-end + transferência quiescente | 47 pass, 0 falhas, 2 skips |
 | `tests/Test-TcePortable.ps1` | 114 pass, 0 falhas |
 | `tests/Test-PortableMenu.ps1` | 74 pass, 0 falhas |
@@ -149,13 +149,14 @@ Foi executado `python portable/app/package_audit.py staging-final --distribution
 - O bloco de acompanhamento da seleção e a conclusão compartilhada foram implementados em `html_generator.py` e `portable/app/local_service.py`, com RED→GREEN em `test_local_service.py` e `test_review_assets.py`; a implementação está em `4d0153c` e a evidência do ZIP extraído foi registrada nos commits de documentação.
 - Na primeira execução da suíte Python completa após um smoke concorrente, três testes do supervisor apresentaram falhas intermitentes e processos ainda vivos; os três casos passaram isoladamente, a suíte `test_qa_extension_runtime` passou 7/7 e novas execuções completas passaram 249/249 e 250/250. Nenhum ajuste foi feito no supervisor; o comportamento transitório fica registrado para retomada se voltar a ocorrer.
 - O teste browser local `test_review_live_browser.py` confirma a seleção publicada pelo bridge, pausa manual e retomada em sessão autenticada; não acessa o portal real.
-- A correção `6c88d2a` adiciona lease compartilhado entre `prepare_transfer`, coletor e serviço; 16 testes focados Python cobrem serviço/auth/transferência, incluindo recusa de runtime ativo, recuperação de lock obsoleto e liberação após falha de build.
+- A continuação adiciona 6 testes focados de segurança/seleção/colisão/drenagem; o protocolo publica `transfer-request.json`, pausa novos escritores e aguarda o marcador ativo até 60 s. `BridgeAuth`, CSRF da mesa e exportador de identidade têm cobertura RED→GREEN.
 
 Pendências reais para chamar de release validada:
 
-1. executar QA manual em Chrome/Área Restrita com usuário autenticado, sem envio/finalização;
+1. executar QA manual no Chrome separado aberto pelo launcher do pacote, com usuário autenticado, sem envio/finalização;
 2. medir os mesmos 20 processos e p95 de sincronização, e repetir o teste sobre ZIP extraído em ambiente restrito;
-3. obter autorização humana para segundo PC, se esse gate for necessário.
-4. validar em ambiente restrito a retomada após 401/403 e o comportamento do ZIP extraído sem Python/Node no `PATH`.
+3. validar em ambiente restrito a retomada após 401/403 e o comportamento do ZIP extraído sem Python/Node no `PATH`.
 
-Para continuar: executar os gates supervisionados acima, considerar o v5 como artefato correspondente ao source atual, e só então preparar push quando um remoto autorizado existir. O checkout está limpo no commit `e041a93`. A API de transferência usa recusa segura em vez de drenagem formal do coordenador; essa limitação permanece documentada. Rechecar `git status` antes de retomar.
+O gate de segundo PC foi dispensado explicitamente pelo usuário e não será executado.
+
+Para continuar: concluir o login no Chrome separado já aberto pelo launcher e então executar os gates supervisionados acima. O pacote portátil completo ainda depende de `acervo-tce/dados-complementar-ato.json` real, ausente nesta árvore; não fabricar dado privado para preencher essa lacuna. Preparar commit/push somente quando o QA externo terminar e um remoto autorizado existir. Rechecar `git status` antes de retomar.

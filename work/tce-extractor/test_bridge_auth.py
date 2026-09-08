@@ -57,6 +57,14 @@ class BridgeAuthTests(unittest.TestCase):
             with self.assertRaises(BridgeAuthError):
                 auth.redeem(code, origin)
 
+    def test_token_is_bound_to_the_exact_extension_origin_and_requires_origin(self):
+        auth = BridgeAuth()
+        token = auth.redeem(auth.issue_pairing_code(), "chrome-extension://test-extension")
+
+        self.assertTrue(auth.validate(token, "chrome-extension://test-extension"))
+        self.assertFalse(auth.validate(token, None))
+        self.assertFalse(auth.validate(token, "chrome-extension://other-extension"))
+
 
 if __name__ == "__main__":
     unittest.main()

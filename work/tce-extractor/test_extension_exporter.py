@@ -201,6 +201,14 @@ def _rehash_dataset(dataset):
 
 
 class ExtensionExporterTests(unittest.TestCase):
+    def test_blocks_distinct_interested_names_that_share_a_normalized_identity(self):
+        checkpoint = checkpoint_fixture()
+        blocks = checkpoint["processes"]["103439/2023"]["result"]["blocks"]
+        blocks[1]["interested"] = "MAGNOLIA RAMALHO MACIEL PINTO LOPES"
+
+        with self.assertRaisesRegex(ValueError, "interested identity collision"):
+            build_extension_dataset(checkpoint, generated_at=FIXED_TIME)
+
     def test_builds_one_batch_with_all_processes_and_interested_parties(self):
         dataset = build_extension_dataset(checkpoint_fixture(), generated_at=FIXED_TIME)
 

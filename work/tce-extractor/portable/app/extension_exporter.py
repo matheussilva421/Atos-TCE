@@ -536,7 +536,7 @@ def validate_extension_dataset(dataset: Mapping[str, object]) -> None:
     if batch["record_count"] != len(records):
         raise _invalid("record_count does not match records")
 
-    seen: set[tuple[str, str]] = set()
+    seen: dict[tuple[str, str], str] = {}
     for index, raw_record in enumerate(records):
         record = _mapping(raw_record, f"record {index}")
         if set(record) != {"process", "interested", "status", "fields"}:
@@ -555,9 +555,15 @@ def validate_extension_dataset(dataset: Mapping[str, object]) -> None:
         if _normalize_name(interested["original"]) != interested["normalized"]:
             raise _invalid(f"record {index} interested normalization does not match")
         identity = (process_key, interested["normalized"])
+        previous_original = seen.get(identity)
+        if previous_original is not None and previous_original != interested["original"]:
+            raise _invalid(
+                "interested identity collision: "
+                f"{process_key}/{interested['normalized']}; explicit selection required"
+            )
         if identity in seen:
             raise _invalid(f"duplicate process/interested record: {process_key}")
-        seen.add(identity)
+        seen[identity] = interested["original"]
         if not isinstance(record["status"], str):
             raise _invalid(f"record {index} status must be a string")
         fields = _mapping(record["fields"], f"record {index} fields")

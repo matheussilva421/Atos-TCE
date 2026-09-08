@@ -7,6 +7,8 @@ import json
 import os
 from pathlib import Path
 import sys
+import tempfile
+import time
 from typing import Mapping
 import uuid
 
@@ -19,6 +21,7 @@ class TransferBusyError(RuntimeError):
 
 _BRIDGE_ROOT_NAME = "dados-locais/bridge"
 _OPERATION_LOCK_NAME = ".operation.lock"
+_TRANSFER_REQUEST_NAME = "transfer-request.json"
 _RUNTIME_MARKERS = ("service.json", "collector.json")
 
 
@@ -61,6 +64,119 @@ def _active_runtime(package_root: Path) -> str | None:
 
 def _active_bridge(package_root: Path) -> bool:
     return _active_runtime(package_root) == "service.json"
+
+
+def _transfer_request_path(package_root: Path) -> Path:
+    return package_root / _BRIDGE_ROOT_NAME / _TRANSFER_REQUEST_NAME
+
+
+def transfer_requested(package_root: Path) -> bool:
+    """Return whether a transfer is pausing new portable writers."""
+
+    path = _transfer_request_path(Path(package_root).resolve())
+    if not path.is_file():
+        return False
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise TransferBusyError(f"solicitação de transferência inválida: {path}") from exc
+    if not isinstance(value, Mapping) or type(value.get("pid")) is not int or value["pid"] <= 0:
+        raise TransferBusyError(f"solicitação de transferência inválida: {path}")
+    if _pid_is_alive(value["pid"]):
+        return True
+    try:
+        path.unlink()
+    except OSError as exc:
+        raise TransferBusyError(f"solicitação obsoleta não pôde ser removida: {path}") from exc
+    return False
+
+
+def _request_transfer(package_root: Path) -> tuple[Path, str]:
+    bridge_root = package_root / _BRIDGE_ROOT_NAME
+    bridge_root.mkdir(parents=True, exist_ok=True)
+    path = bridge_root / _TRANSFER_REQUEST_NAME
+    token = uuid.uuid4().hex
+    metadata = {
+        "schema_version": 1,
+        "kind": "transfer-request",
+        "pid": os.getpid(),
+        "token": token,
+        "state": "requested",
+        "requested_at": time.time(),
+    }
+    try:
+        descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError as exc:
+        if transfer_requested(package_root):
+            raise TransferBusyError("outra transferência já está pausando o pacote") from exc
+        try:
+            path.unlink()
+        except OSError as unlink_error:
+            raise TransferBusyError("solicitação obsoleta não pôde ser recuperada") from unlink_error
+        descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as stream:
+            json.dump(metadata, stream, ensure_ascii=False)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+    except Exception:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        raise
+    return path, token
+
+
+def _update_transfer_request(path: Path, token: str, state: str, deadline: float) -> None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(value, Mapping) or value.get("token") != token:
+            return
+        payload = dict(value)
+        payload.update({"state": state, "deadline": deadline, "updated_at": time.time()})
+        temporary_path: Path | None = None
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", newline="\n", dir=path.parent,
+            prefix=f".{path.name}.", suffix=".tmp", delete=False,
+        ) as temporary:
+            json.dump(payload, temporary, ensure_ascii=False)
+            temporary.write("\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+            temporary_path = Path(temporary.name)
+        os.replace(temporary_path, path)
+    except (FileNotFoundError, OSError, UnicodeError, json.JSONDecodeError):
+        return
+
+
+def _release_transfer_request(path: Path, token: str) -> None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(value, Mapping) and value.get("token") == token:
+            path.unlink()
+    except (FileNotFoundError, OSError, UnicodeError, json.JSONDecodeError):
+        return
+
+
+def _quiesce_runtime(package_root: Path, request_path: Path, request_token: str, timeout_seconds: float) -> set[str]:
+    if timeout_seconds < 0:
+        raise ValueError("timeout_seconds deve ser não-negativo")
+    deadline = time.monotonic() + timeout_seconds
+    _update_transfer_request(request_path, request_token, "draining", time.time() + timeout_seconds)
+    initial_active: set[str] = set()
+    while True:
+        active = _active_runtime(package_root)
+        if active is None:
+            return initial_active
+        initial_active.add(active)
+        if time.monotonic() >= deadline:
+            raise TransferBusyError(
+                "trabalho pendente: execução ativa não drenou dentro do timeout de "
+                f"{timeout_seconds:g} segundos ({active})"
+            )
+        time.sleep(min(0.1, max(0.01, deadline - time.monotonic())))
 
 
 def _pid_is_alive(pid: int) -> bool:
@@ -152,25 +268,26 @@ def _assert_distinct_destination(package_root: Path, destination: Path) -> None:
     )
 
 
-def prepare_transfer(package_root: Path, destination: Path) -> dict:
+def prepare_transfer(package_root: Path, destination: Path, *, timeout_seconds: float = 60.0) -> dict:
     """Build a quiescent private ZIP, leaving bridge state outside it.
 
-    A process-wide operation lock prevents a new collector or transfer from
-    starting during the snapshot. Existing service or collector markers cause
-    an explicit refusal, so no ZIP is produced while those writers are active.
+    A transfer request first pauses new writers and lets an existing collector
+    or service drain. Only after the runtime markers disappear is the
+    operation lock acquired and the coherent ZIP built.
     """
     root = Path(package_root).resolve()
     output = Path(destination).resolve()
     if output.exists():
         raise FileExistsError(f"destino já existe: {output}")
     _assert_distinct_destination(root, output)
-    lock_path, lock_token = _acquire_operation_lock(root)
+    request_path, request_token = _request_transfer(root)
+    lock_path: Path | None = None
+    lock_token: str | None = None
     try:
-        active = _active_runtime(root)
-        if active is not None:
-            raise TransferBusyError(
-                f"transferência recusada: execução ativa ({active}); pare-a e tente novamente"
-            )
+        initial_active = _quiesce_runtime(root, request_path, request_token, timeout_seconds)
+        lock_path, lock_token = _acquire_operation_lock(root)
+        if _active_runtime(root) is not None:
+            raise TransferBusyError("trabalho pendente: novo escritor iniciou durante a transferência")
         progress_path = root / "acervo-tce" / "progresso.json"
         if not progress_path.is_file():
             raise ValueError(
@@ -180,13 +297,17 @@ def prepare_transfer(package_root: Path, destination: Path) -> dict:
         return {
             **dict(stats),
             "path": str(output),
-            "bridge_active_at_start": False,
-            "collector_active_at_start": False,
+            "bridge_active_at_start": "service.json" in initial_active,
+            "collector_active_at_start": "collector.json" in initial_active,
             "bridge_state_included": False,
             "progress_included": True,
+            "quiesced": True,
+            "drain_timeout_seconds": timeout_seconds,
         }
     finally:
-        _release_operation_lock(lock_path, lock_token)
+        if lock_path is not None and lock_token is not None:
+            _release_operation_lock(lock_path, lock_token)
+        _release_transfer_request(request_path, request_token)
 
 
 def main(argv: list[str] | None = None) -> int:

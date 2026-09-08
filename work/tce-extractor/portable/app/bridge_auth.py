@@ -95,7 +95,7 @@ class BridgeAuth:
             expected_origin = self._tokens.get(token)
             if expected_origin is None:
                 return False
-            return origin is None or origin == expected_origin
+            return origin is not None and origin == expected_origin
 
     @staticmethod
     def is_extension_origin(origin: str | None) -> bool:

@@ -4,6 +4,8 @@ import json
 import os
 import unittest
 import zipfile
+import threading
+import time
 from unittest.mock import patch
 
 from package_complete_archive import build_complete_zip
@@ -16,6 +18,55 @@ from prepare_transfer import TransferBusyError, prepare_transfer  # noqa: E402
 
 
 class PrepareTransferTests(unittest.TestCase):
+    def test_transfer_requests_pause_and_waits_for_active_runtime_to_drain(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _fixture_zip, _fixture = _build_fixture_zip(root)
+            package = root / "source-package"
+            (package / "acervo-tce" / "progresso.json").write_text(
+                '{"schema_version":1,"revision":0,"processes":{}}', encoding="utf-8"
+            )
+            bridge = package / "dados-locais" / "bridge"
+            bridge.mkdir(parents=True)
+            marker = bridge / "collector.json"
+            marker.write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+
+            def drain_after_pause_request():
+                request = bridge / "transfer-request.json"
+                deadline = time.monotonic() + 1
+                while not request.exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                marker.unlink()
+
+            worker = threading.Thread(target=drain_after_pause_request)
+            worker.start()
+            try:
+                result = prepare_transfer(package, root / "transfer.zip", timeout_seconds=1)
+            finally:
+                worker.join(timeout=2)
+
+            self.assertTrue(Path(result["path"]).exists())
+            self.assertFalse((bridge / "transfer-request.json").exists())
+
+    def test_transfer_timeout_reports_pending_work_without_creating_zip(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _fixture_zip, _fixture = _build_fixture_zip(root)
+            package = root / "source-package"
+            (package / "acervo-tce" / "progresso.json").write_text(
+                '{"schema_version":1,"revision":0,"processes":{}}', encoding="utf-8"
+            )
+            bridge = package / "dados-locais" / "bridge"
+            bridge.mkdir(parents=True)
+            (bridge / "collector.json").write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+            destination = root / "transfer.zip"
+
+            with self.assertRaisesRegex(TransferBusyError, "trabalho pendente|timeout"):
+                prepare_transfer(package, destination, timeout_seconds=0.05)
+
+            self.assertFalse(destination.exists())
+            self.assertFalse((bridge / "transfer-request.json").exists())
+
     def test_transfer_excludes_pairing_but_keeps_progress_when_quiescent(self):
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -49,7 +100,7 @@ class PrepareTransferTests(unittest.TestCase):
             destination = root / "transfer.zip"
 
             with self.assertRaises(TransferBusyError):
-                prepare_transfer(package, destination)
+                prepare_transfer(package, destination, timeout_seconds=0.01)
 
             self.assertFalse(destination.exists())
 
@@ -64,7 +115,7 @@ class PrepareTransferTests(unittest.TestCase):
             destination = root / "transfer.zip"
 
             with self.assertRaises(TransferBusyError):
-                prepare_transfer(package, destination)
+                prepare_transfer(package, destination, timeout_seconds=0.01)
 
             self.assertFalse(destination.exists())
 

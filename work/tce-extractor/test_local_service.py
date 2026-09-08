@@ -21,20 +21,26 @@ import local_service  # noqa: E402
 from local_service import create_server  # noqa: E402
 
 
-def json_request(url, *, method="GET", payload=None, token=None, origin=None, host=None, range_header=None, cookie=None):
+def json_request(url, *, method="GET", payload=None, token=None, origin=None, host=None, range_header=None, cookie=None, csrf=None, omit_origin=False):
     headers = {}
     if payload is not None:
         headers["Content-Type"] = "application/json"
     if token is not None:
         headers["Authorization"] = f"Bearer {token}"
-    if origin is not None:
-        headers["Origin"] = origin
+    if not omit_origin:
+        effective_origin = origin
+        if effective_origin is None and token is not None:
+            effective_origin = "chrome-extension://test-extension"
+        if effective_origin is not None:
+            headers["Origin"] = effective_origin
     if host is not None:
         headers["Host"] = host
     if range_header is not None:
         headers["Range"] = range_header
     if cookie is not None:
         headers["Cookie"] = cookie
+    if csrf is not None:
+        headers["X-CSRF-Token"] = csrf
     body = None if payload is None else json.dumps(payload).encode("utf-8")
     with urlopen(Request(url, data=body, headers=headers, method=method), timeout=3) as response:
         return response.status, response.headers, response.read()
@@ -101,6 +107,7 @@ class LocalServiceTests(unittest.TestCase):
                     "sequence": 1,
                 },
                 token=token,
+                origin="chrome-extension://test-extension",
             )
             self.assertEqual(status, 200)
 
@@ -109,6 +116,7 @@ class LocalServiceTests(unittest.TestCase):
                 method="PUT",
                 payload={"completed": True, "expected_revision": 0},
                 token=token,
+                origin="chrome-extension://test-extension",
             )
             self.assertEqual(status, 200)
             self.assertEqual(json.loads(body)["revision"], 1)
@@ -119,6 +127,7 @@ class LocalServiceTests(unittest.TestCase):
                     method="PUT",
                     payload={"completed": False, "expected_revision": 0},
                     token=token,
+                    origin="chrome-extension://test-extension",
                 )
             self.assertEqual(error.exception.code, 409)
             self.assertTrue((root / "progresso.json").is_file())
@@ -205,7 +214,7 @@ class LocalServiceTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertIn("review-session", bootstrap.decode("utf-8"))
 
-            status, headers, _body = json_request(
+            status, headers, session_body = json_request(
                 f"{base}/api/v1/review-session",
                 method="POST",
                 payload={"code": server.review_bootstrap_code},
@@ -213,6 +222,9 @@ class LocalServiceTests(unittest.TestCase):
             )
             self.assertEqual(status, 200)
             cookie = headers["Set-Cookie"].split(";", 1)[0]
+            csrf = json.loads(session_body)["csrf_token"]
+            self.assertTrue(csrf)
+            self.assertIn("tce_csrf=", "\n".join(headers.get_all("Set-Cookie", [])))
             with self.assertRaises(HTTPError) as error:
                 json_request(
                     f"{base}/api/v1/review-session",
@@ -226,6 +238,8 @@ class LocalServiceTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertIn("api/v1/review-data", body.decode("utf-8"))
             self.assertNotIn("review-session", body.decode("utf-8"))
+            self.assertIn('href="/app/web/review.css"', body.decode("utf-8"))
+            self.assertIn('src="/app/web/review-app.js"', body.decode("utf-8"))
             self.assertIn("Content-Security-Policy", headers)
 
             status, _headers, body = json_request(f"{base}/api/v1/state?since=-1", cookie=cookie)
@@ -237,9 +251,108 @@ class LocalServiceTests(unittest.TestCase):
                 method="PUT",
                 cookie=cookie,
                 payload={"completed": True, "expected_revision": 0},
+                origin=base,
+                csrf=csrf,
             )
             self.assertEqual(status, 200)
             self.assertTrue(json.loads(body)["state"]["processes"]["103439/2023"]["completed"])
+
+    def test_bearer_requests_without_origin_are_rejected(self):
+        with running_server() as (_root, server, base):
+            code = server.auth.issue_pairing_code()
+            _status, _headers, pair_body = json_request(
+                f"{base}/api/v1/pair",
+                method="POST",
+                payload={"code": code},
+                origin="chrome-extension://test-extension",
+            )
+            token = json.loads(pair_body)["token"]
+            with self.assertRaises(HTTPError) as error:
+                json_request(f"{base}/api/v1/state", token=token, omit_origin=True)
+            self.assertEqual(error.exception.code, 401)
+
+    def test_review_mutation_requires_local_origin_and_csrf_token(self):
+        with running_server() as (_root, server, base):
+            status, headers, body = json_request(f"{base}/api/v1/review-session", method="POST", payload={"code": server.review_bootstrap_code}, origin=base)
+            self.assertEqual(status, 200)
+            cookie = headers["Set-Cookie"].split(";", 1)[0]
+            csrf = json.loads(body)["csrf_token"]
+
+            with self.assertRaises(HTTPError) as error:
+                json_request(
+                    f"{base}/api/v1/progress/103439%2F2023",
+                    method="PUT",
+                    cookie=cookie,
+                    payload={"completed": True, "expected_revision": 0},
+                    origin=base,
+                )
+            self.assertEqual(error.exception.code, 403)
+
+            with self.assertRaises(HTTPError) as error:
+                json_request(
+                    f"{base}/api/v1/progress/103439%2F2023",
+                    method="PUT",
+                    cookie=cookie,
+                    payload={"completed": True, "expected_revision": 0},
+                    csrf=csrf,
+                    omit_origin=True,
+                )
+            self.assertEqual(error.exception.code, 403)
+
+            with self.assertRaises(HTTPError) as error:
+                json_request(
+                    f"{base}/api/v1/progress/103439%2F2023",
+                    method="PUT",
+                    cookie=cookie,
+                    payload={"completed": True, "expected_revision": 0},
+                    origin="http://127.0.0.1:1",
+                    csrf=csrf,
+                )
+            self.assertEqual(error.exception.code, 403)
+
+    def test_selection_rejects_invalid_coordinates_and_non_positive_sequence(self):
+        with running_server() as (_root, server, base):
+            code = server.auth.issue_pairing_code()
+            _status, _headers, pair_body = json_request(
+                f"{base}/api/v1/pair", method="POST", payload={"code": code}, origin="chrome-extension://test-extension"
+            )
+            token = json.loads(pair_body)["token"]
+            selection = {
+                "process_key": "103439/2023",
+                "interested_normalized": "pessoa teste",
+                "tab_id": 1,
+                "frame_id": 0,
+                "sequence": 1,
+            }
+            for key, value in (("tab_id", -1), ("frame_id", -1), ("sequence", 0)):
+                invalid = {**selection, key: value}
+                with self.assertRaises(HTTPError) as error:
+                    json_request(f"{base}/api/v1/selection", method="POST", payload=invalid, token=token)
+                self.assertEqual(error.exception.code, 400)
+
+    def test_selection_discards_an_old_sequence_explicitly(self):
+        with running_server() as (_root, server, base):
+            code = server.auth.issue_pairing_code()
+            _status, _headers, pair_body = json_request(
+                f"{base}/api/v1/pair", method="POST", payload={"code": code}, origin="chrome-extension://test-extension"
+            )
+            token = json.loads(pair_body)["token"]
+            selection = {
+                "process_key": "103439/2023",
+                "interested_normalized": "pessoa teste",
+                "tab_id": 1,
+                "frame_id": 0,
+                "sequence": 2,
+            }
+            status, _headers, body = json_request(f"{base}/api/v1/selection", method="POST", payload=selection, token=token)
+            self.assertEqual(status, 200)
+            self.assertTrue(json.loads(body)["accepted"])
+            status, _headers, body = json_request(
+                f"{base}/api/v1/selection", method="POST", payload={**selection, "sequence": 1}, token=token
+            )
+            self.assertEqual(status, 200)
+            self.assertFalse(json.loads(body)["accepted"])
+            self.assertEqual(json.loads(body)["discarded_sequence"], 1)
 
     def test_pdf_is_served_only_by_document_id_and_supports_range(self):
         with running_server() as (root, server, base):

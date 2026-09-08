@@ -29,7 +29,7 @@ for candidate in (APP_ROOT, PROJECT_ROOT):
 
 from bridge_auth import BridgeAuth, BridgeAuthError
 from html_generator import render_html
-from prepare_transfer import _acquire_operation_lock, _active_runtime, _release_operation_lock
+from prepare_transfer import _acquire_operation_lock, _active_runtime, _release_operation_lock, transfer_requested
 from workflow_state import RevisionConflict, WorkflowState
 
 
@@ -71,8 +71,11 @@ _REVIEW_BOOTSTRAP_JS = """(() => {
     credentials: 'same-origin',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({code}),
-  }).then((response) => {
+  }).then(async (response) => {
     if (!response.ok) throw new Error('session rejected');
+    const payload = await response.json();
+    if (!payload.csrf_token) throw new Error('csrf token missing');
+    window.sessionStorage.setItem('tce-review-csrf', payload.csrf_token);
     history.replaceState(null, '', '/review');
     window.location.replace('/review');
   }).catch(() => {
@@ -206,6 +209,7 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
         self.review_bootstrap_code: str | None = secrets.token_urlsafe(32)
         self._review_session_token: str | None = None
         self._review_session_expires_at = 0.0
+        self._review_csrf_token: str | None = None
         self._review_lock = threading.RLock()
         try:
             super().__init__(address, _WorkflowHandler)
@@ -223,21 +227,35 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
             if workflow_state is not None:
                 workflow_state.close()
 
-    def redeem_review_bootstrap(self, code: str) -> str:
+    def redeem_review_bootstrap(self, code: str) -> tuple[str, str]:
         with self._review_lock:
             if self.review_bootstrap_code is None or not compare_digest(self.review_bootstrap_code, code):
                 raise ValueError("código de mesa inválido")
             self.review_bootstrap_code = None
             token = secrets.token_urlsafe(32)
+            csrf_token = secrets.token_urlsafe(32)
             self._review_session_token = token
+            self._review_csrf_token = csrf_token
             self._review_session_expires_at = time.time() + 8 * 60 * 60
-            return token
+            return token, csrf_token
 
     def validate_review_session(self, token: str) -> bool:
         with self._review_lock:
             if not token or self._review_session_token is None or time.time() >= self._review_session_expires_at:
                 return False
             return compare_digest(self._review_session_token, token)
+
+    def validate_review_csrf(self, token: str) -> bool:
+        with self._review_lock:
+            if not token or self._review_csrf_token is None or time.time() >= self._review_session_expires_at:
+                return False
+            return compare_digest(self._review_csrf_token, token)
+
+    def current_review_csrf(self) -> str | None:
+        with self._review_lock:
+            if time.time() >= self._review_session_expires_at:
+                return None
+            return self._review_csrf_token
 
 
 class _WorkflowHandler(BaseHTTPRequestHandler):
@@ -251,19 +269,28 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
     def server_state(self) -> _WorkflowHTTPServer:
         return self.server  # type: ignore[return-value]
 
-    def _send(self, status: int, payload: object = None, *, headers: dict[str, str] | None = None, body: bytes | None = None) -> None:
+    def _send(self, status: int, payload: object = None, *, headers: dict[str, str | list[str]] | None = None, body: bytes | None = None) -> None:
         response = body if body is not None else _json_bytes(payload if payload is not None else {})
         self.send_response(status)
         self.send_header("Content-Length", str(len(response)))
         if body is None:
             self.send_header("Content-Type", "application/json; charset=utf-8")
         for name, value in (headers or {}).items():
-            self.send_header(name, value)
+            values = value if isinstance(value, list) else [value]
+            for item in values:
+                self.send_header(name, item)
         self.end_headers()
         self.wfile.write(response)
 
     def _error(self, status: int, code: str, message: str) -> None:
-        self._send(status, {"error": {"code": code, "message": message}})
+        # Some auth failures happen before the JSON request body is consumed.
+        # Closing that connection prevents unread bytes from being parsed as a
+        # second HTTP request by the keep-alive server.
+        self._send(
+            status,
+            {"error": {"code": code, "message": message}},
+            headers={"Connection": "close"},
+        )
 
     def _valid_host(self) -> bool:
         return self.headers.get("Host", "") == f"127.0.0.1:{self.server.server_port}"
@@ -273,12 +300,13 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
         return origin is None or self.server_state.auth.is_extension_origin(origin)
 
     def _authorized(self) -> bool:
-        if not self._valid_host() or not self._valid_origin_header():
+        origin = self.headers.get("Origin")
+        if not self._valid_host() or not self.server_state.auth.is_extension_origin(origin):
             return False
         value = self.headers.get("Authorization", "")
         if not value.startswith("Bearer "):
             return False
-        return self.server_state.auth.validate(value[7:].strip(), self.headers.get("Origin"))
+        return self.server_state.auth.validate(value[7:].strip(), origin)
 
     def _valid_review_origin(self) -> bool:
         origin = self.headers.get("Origin")
@@ -295,8 +323,21 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
     def _review_authorized(self) -> bool:
         return self._valid_host() and self._valid_review_origin() and self.server_state.validate_review_session(self._review_cookie() or "")
 
+    def _review_mutation_authorized(self) -> bool:
+        origin = self.headers.get("Origin")
+        csrf = self.headers.get("X-CSRF-Token", "")
+        return (
+            self._valid_host()
+            and origin == f"http://127.0.0.1:{self.server.server_port}"
+            and self.server_state.validate_review_session(self._review_cookie() or "")
+            and self.server_state.validate_review_csrf(csrf)
+        )
+
     def _private_authorized(self) -> bool:
         return self._authorized() or self._review_authorized()
+
+    def _private_mutation_authorized(self) -> bool:
+        return self._authorized() or self._review_mutation_authorized()
 
     def _read_json(self) -> dict:
         try:
@@ -320,6 +361,12 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
         if self._private_authorized():
             return True
         self._error(403 if self.headers.get("Origin") and not self.server_state.auth.is_extension_origin(self.headers.get("Origin")) and not self._valid_review_origin() else 401, "UNAUTHORIZED", "autenticação local necessária")
+        return False
+
+    def _require_private_mutation_auth(self) -> bool:
+        if self._private_mutation_authorized():
+            return True
+        self._error(403 if self.headers.get("Origin") or self.headers.get("Cookie") else 401, "UNAUTHORIZED", "autenticação local necessária")
         return False
 
     def _send_text(self, status: int, value: str, *, content_type: str, headers: dict[str, str] | None = None) -> None:
@@ -361,6 +408,22 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             self._error(500, "REVIEW_DATA_INVALID", "snapshot de revisão inválido")
             return
         nonce = secrets.token_urlsafe(18)
+        csrf_token = self.server_state.current_review_csrf()
+        if csrf_token is None:
+            self._error(401, "UNAUTHORIZED", "sessão local expirada")
+            return
+        html = html.replace(
+            '<body data-review-mode=',
+            f'<body data-review-csrf="{csrf_token}" data-review-mode=',
+            1,
+        )
+        html = html.replace(
+            "</head>",
+            '<link rel="stylesheet" href="/app/web/review.css">\n'
+            '<script type="module" src="/app/web/review-app.js"></script>\n'
+            "</head>",
+            1,
+        )
         html = html.replace("<style>", f'<style nonce="{nonce}">', 1)
         html = html.replace("<script>\n(() => {", f'<script nonce="{nonce}">\n(() => {{', 1)
         self._send_text(
@@ -591,11 +654,20 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
                 payload = self._read_json()
                 if set(payload) != {"code"} or not isinstance(payload["code"], str):
                     raise ValueError
-                token = self.server_state.redeem_review_bootstrap(payload["code"])
+                token, csrf_token = self.server_state.redeem_review_bootstrap(payload["code"])
             except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
                 self._error(401, "REVIEW_SESSION_REJECTED", "código da mesa rejeitado")
                 return
-            self._send(200, {"api_version": API_VERSION, "authenticated": True}, headers={"Set-Cookie": f"tce_review={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={8 * 60 * 60}"})
+            self._send(
+                200,
+                {"api_version": API_VERSION, "authenticated": True, "csrf_token": csrf_token},
+                headers={
+                    "Set-Cookie": [
+                        f"tce_review={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={8 * 60 * 60}",
+                        f"tce_csrf={csrf_token}; SameSite=Strict; Path=/; Max-Age={8 * 60 * 60}",
+                    ]
+                },
+            )
             return
         if not self._require_auth():
             return
@@ -604,14 +676,17 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
                 payload = self._read_json()
                 if set(payload) != {"process_key", "interested_normalized", "tab_id", "frame_id", "sequence"}:
                     raise ValueError
-                if not isinstance(payload["process_key"], str) or not isinstance(payload["interested_normalized"], str) or not all(isinstance(payload[key], int) for key in ("tab_id", "frame_id", "sequence")):
+                if not isinstance(payload["process_key"], str) or not isinstance(payload["interested_normalized"], str) or not all(type(payload[key]) is int for key in ("tab_id", "frame_id", "sequence")):
                     raise ValueError
             except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
                 self._error(400, "INVALID_JSON", "seleção inválida")
                 return
+            if payload["tab_id"] < 0 or payload["frame_id"] < 0 or payload["sequence"] <= 0:
+                self._error(400, "INVALID_SELECTION", "tab_id, frame_id e sequence devem ser válidos")
+                return
             previous = self.server_state.selection
             if previous is not None and payload["sequence"] <= previous["sequence"]:
-                self._send(200, {"accepted": False, "sequence": previous["sequence"]})
+                self._send(200, {"accepted": False, "sequence": previous["sequence"], "discarded_sequence": payload["sequence"]})
                 return
             self.server_state.selection = payload
             self.server_state.service_revision += 1
@@ -621,7 +696,7 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self):
         parsed = urlsplit(self.path)
-        if not self._require_private_auth():
+        if not self._require_private_mutation_auth():
             return
         if not parsed.path.startswith("/api/v1/progress/"):
             self._error(404, "NOT_FOUND", "rota não encontrada")
@@ -699,6 +774,8 @@ def main(argv: list[str] | None = None) -> int:
     operation_lock_path, operation_lock_token = _acquire_operation_lock(package_root)
     server = None
     try:
+        if transfer_requested(package_root):
+            raise RuntimeError("transferência em andamento; serviço local aguardará a conclusão")
         active = _active_runtime(package_root)
         if active is not None:
             raise RuntimeError(

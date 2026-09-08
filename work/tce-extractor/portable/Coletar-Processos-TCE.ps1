@@ -217,6 +217,10 @@ function Remove-TceStaleLeaseFiles {
 function Start-TceCollectorLease {
     $bridgeRoot = Join-Path $scriptRoot 'dados-locais\bridge'
     [IO.Directory]::CreateDirectory($bridgeRoot) | Out-Null
+    $transferRequestPath = Join-Path $bridgeRoot 'transfer-request.json'
+    if (Test-TceTransferPauseRequested) {
+        throw 'Transferência portátil em andamento; nova coleta foi pausada até a conclusão.'
+    }
     $lockPath = Join-Path $bridgeRoot '.operation.lock'
     $markerPath = Join-Path $bridgeRoot 'collector.json'
     $token = [guid]::NewGuid().ToString('N')
@@ -252,6 +256,19 @@ function Start-TceCollectorLease {
     $script:CollectorLeasePath = $lockPath
     $script:CollectorMarkerPath = $markerPath
     $script:CollectorLeaseToken = $token
+}
+
+function Test-TceTransferPauseRequested {
+    $requestPath = Join-Path $scriptRoot 'dados-locais\bridge\transfer-request.json'
+    if (-not (Test-Path -LiteralPath $requestPath -PathType Leaf)) { return $false }
+    try {
+        $request = Get-Content -LiteralPath $requestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not $request.pid -or (Test-TceProcessAlive -ProcessId ([int]$request.pid))) { return $true }
+        Remove-Item -LiteralPath $requestPath -Force -ErrorAction SilentlyContinue
+        return $false
+    } catch {
+        throw 'Solicitação de transferência inválida; coleta recusada até revisão manual.'
+    }
 }
 
 function Stop-TceCollectorLease {
@@ -343,6 +360,11 @@ try {
     $totals = @{ downloaded = 0; skipped = 0; deduplicated = 0; failed = 0 }
     $collectionSuspended = $false
     for ($index = 0; $index -lt $selected.Count; $index++) {
+        if (Test-TceTransferPauseRequested) {
+            Write-Warning 'Transferência solicitada; novas operações foram pausadas e a coleta será drenada.'
+            $collectionSuspended = $true
+            break
+        }
         $item = $selected[$index]
         Write-Host "[$($index + 1)/$($selected.Count)] $($item.key)" -ForegroundColor Cyan
         try {
@@ -398,6 +420,11 @@ try {
             if ($ModoPreparacao -eq 'progressivo') {
                 Invoke-TceIncrementalPreparation -ProcessKey $item.key
             }
+            if (Test-TceTransferPauseRequested) {
+                Write-Warning 'Transferência solicitada; fila drenada após o processo atual.'
+                $collectionSuspended = $true
+                break
+            }
         } catch {
             $totals.failed++
             Write-Warning (ConvertTo-TceSafeText "$($item.key): $($_.Exception.Message)")
@@ -407,6 +434,11 @@ try {
 
     if ($ModoPreparacao -eq 'completo' -and -not $collectionSuspended) {
         foreach ($item in $selected) {
+            if (Test-TceTransferPauseRequested) {
+                Write-Warning 'Transferência solicitada; preparação completa foi pausada.'
+                $collectionSuspended = $true
+                break
+            }
             try {
                 Invoke-TceIncrementalPreparation -ProcessKey $item.key
             } catch {

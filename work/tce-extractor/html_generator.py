@@ -789,6 +789,15 @@ HTML_TEMPLATE = r'''<!doctype html>
   const currentBlock = () => currentProcess().blocks[state.blockIndex] || {interested: 'Não identificado', pending: [], fields: {}};
   const notify = (message) => { const toast = $('toast'); toast.textContent = message; toast.classList.add('show'); clearTimeout(notify.timer); notify.timer = setTimeout(() => toast.classList.remove('show'), 2200); };
   const normalizeIdentity = (value) => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').replace(/[^a-z0-9]+/g, ' ').trim();
+  const reviewCsrfToken = () => {
+    const pageToken = document.body?.dataset.reviewCsrf;
+    if (pageToken) return pageToken;
+    try {
+      const sessionToken = window.sessionStorage.getItem('tce-review-csrf');
+      if (sessionToken) return sessionToken;
+    } catch (_) {}
+    return '';
+  };
 
   function saveOfflineCompleted() {
     try { localStorage.setItem(COMPLETED_STORAGE_KEY, JSON.stringify([...completedProcesses])); } catch (_) {}
@@ -822,7 +831,7 @@ HTML_TEMPLATE = r'''<!doctype html>
         const response = await fetch(`/api/v1/progress/${encodeURIComponent(processId)}`, {
           method: 'PUT',
           credentials: 'same-origin',
-          headers: {'Content-Type': 'application/json'},
+          headers: {'Content-Type': 'application/json', 'X-CSRF-Token': reviewCsrfToken()},
           body: JSON.stringify({completed: completed === true, expected_revision: liveProgressRevision}),
         });
         if (!response.ok) throw new Error('não foi possível salvar a conclusão');
@@ -866,6 +875,7 @@ HTML_TEMPLATE = r'''<!doctype html>
 
   function setFollowPortal(enabled) {
     followPortal = enabled === true;
+    if (window.TceReviewApp) window.TceReviewApp.setFollowPortal(followPortal);
     updateFollowButton();
   }
 
@@ -874,6 +884,12 @@ HTML_TEMPLATE = r'''<!doctype html>
     const processIndex = data.processes.findIndex((process) => process.process === selection.process_key);
     if (processIndex < 0) return;
     const interested = normalizeIdentity(selection.interested_normalized);
+    if (window.TceReviewApp) {
+      window.TceReviewApp.setSelection({
+        processKey: selection.process_key,
+        interestedNormalized: interested,
+      });
+    }
     const blocks = data.processes[processIndex].blocks || [];
     const blockIndex = blocks.findIndex((block) => normalizeIdentity(block.interested) === interested);
     const unchanged = state.processIndex === processIndex && (blockIndex < 0 || state.blockIndex === blockIndex);

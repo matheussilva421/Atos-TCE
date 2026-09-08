@@ -69,10 +69,21 @@ O resultado permanece candidato integrado, não release validada. Faltam gates q
 1. QA manual no Chrome/Área Restrita com login real, somente leitura e preenchimento autorizado; nunca enviar/finalizar ato;
 2. benchmark dos mesmos 20 processos, incluindo mediana/p95 de sincronização e cliques;
 3. teste do ZIP extraído em ambiente sem Python/Node no `PATH`;
-4. pareamento/execução em segundo PC, se esse gate for exigido;
+4. o gate de segundo PC foi dispensado explicitamente pelo usuário e não faz parte desta entrega;
 5. screenshot de PDF completo com evidência alinhada, mantido fora do Git por possível dado pessoal;
 6. confirmar versão/hash de runtime portátil e Tesseract no pacote de distribuição final;
-7. a transferência possui lease e recusa segura durante operações ativas, mas não implementa drenagem formal de workers em andamento.
+7. a drenagem agora é cooperativa: `prepare_transfer.py` publica pedido, aguarda marcadores ativos até 60 s e só então cria o ZIP; falta validar esse protocolo contra uma coleta real e gerar o pacote com acervo privado disponível.
+
+## Atualização de continuação — segurança, drenagem e mesa — 08/09/2026
+
+- `BridgeAuth.validate` exige a origem exata registrada; bearer sem `Origin` não é aceito.
+- A sessão HTML emite CSRF separado, mantém a sessão em cookie HttpOnly, exige Origin local exata nas mutações e o HTML envia `X-CSRF-Token`.
+- `POST /api/v1/selection` valida `tab_id >= 0`, `frame_id >= 0`, `sequence > 0`, rejeita booleanos como inteiros e retorna a sequência descartada quando recebe mensagem antiga.
+- O exportador bloqueia explicitamente duas pessoas distintas com a mesma normalização (`interested identity collision`), exigindo seleção explícita antes da sincronização.
+- `review-app.js` é instalado pelo HTML servido e `review.css` é carregado como asset real; o fallback inline continua somente para o modo `file:`.
+- A transferência usa `transfer-request.json`, pausa novos escritores, espera o marcador ativo desaparecer e falha sem ZIP se o timeout for atingido. O coletor verifica a solicitação entre processos; o serviço recusa iniciar durante a pausa.
+
+Testes deste bloco: 284 Python pass, 5 skips; 5 testes web JS pass; 114 TCE PowerShell pass; 74 Menu PowerShell pass. Não há `origin` configurado para push.
 
 ## Retomada
 
