@@ -12,7 +12,7 @@ from tempfile import NamedTemporaryFile
 
 
 SCHEMA_VERSION = 1
-LEGAL_CONTEXT_VERSION = "legal-context-v3"
+LEGAL_CONTEXT_VERSION = "legal-context-v4"
 EXTRACTION_VERSION = LEGAL_CONTEXT_VERSION
 _RESOLUTION_CLASSIFICATION = "resolucao_administrativa"
 _FAILED_PAGE_STATUSES = frozenset(
@@ -20,6 +20,12 @@ _FAILED_PAGE_STATUSES = frozenset(
 )
 _URL_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://", re.IGNORECASE)
 _NAME_TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
+_NUMERIC_IDENTIFIER_RE = re.compile(
+    r"\b(?:matricula|registro|inscricao|identificador|id)\b"
+    r"\s*(?:n(?:o|º)?\s*)?[:#-]?\s*"
+    r"(?P<value>\d(?:[\d\s./-]*\d)?)",
+    re.IGNORECASE,
+)
 
 
 def _normalise_interested(value: object) -> str:
@@ -51,21 +57,15 @@ def _normalise_identifier(value: object) -> str:
 
 
 def _contains_identifier(text: object, target: object) -> bool:
-    if _contains_token_sequence(text, target):
-        return True
     normalized_target = _normalise_identifier(target)
     target_digits = "".join(re.findall(r"\d+", str(target)))
     if not target_digits or normalized_target != target_digits:
-        return False
-    page_chunks = re.findall(r"\d+", _normalise_interested(text))
-    for index in range(len(page_chunks)):
-        joined = ""
-        for chunk in page_chunks[index:]:
-            joined += chunk
-            if len(joined) >= len(target_digits):
-                if joined == target_digits:
-                    return True
-                break
+        return _contains_token_sequence(text, target)
+    normalized_text = _normalise_interested(text)
+    for match in _NUMERIC_IDENTIFIER_RE.finditer(normalized_text):
+        value_digits = "".join(re.findall(r"\d+", match.group("value")))
+        if value_digits == target_digits:
+            return True
     return False
 
 
@@ -293,7 +293,12 @@ def _page_items(payload: object) -> tuple[list[object], str, bool]:
 def _snapshot(page_texts: Mapping[str, object], source: Mapping[str, object]) -> dict[str, object]:
     payload = _lookup_page_payload(page_texts, source)
     if payload is None:
-        return {"state": "missing", "pages": [], "operative_text": ""}
+        return {
+            "state": "missing",
+            "pages": [],
+            "page_count_observed": 0,
+            "operative_text": "",
+        }
     raw_pages, declared_hash, failed_document = _page_items(payload)
     source_hash = str(source["pdf_sha256"] or declared_hash)
     if (
@@ -303,10 +308,16 @@ def _snapshot(page_texts: Mapping[str, object], source: Mapping[str, object]) ->
         or source.get("page_count_valid") is not True
         or (declared_hash and source_hash != declared_hash)
     ):
-        return {"state": "incomplete", "pages": [], "operative_text": ""}
+        return {
+            "state": "incomplete",
+            "pages": [],
+            "page_count_observed": 0,
+            "operative_text": "",
+        }
 
     expected_page_count = source.get("page_count")
-    page_count_mismatch = expected_page_count != len(raw_pages)
+    observed_page_count = len(raw_pages)
+    page_count_mismatch = expected_page_count != observed_page_count
     if isinstance(expected_page_count, int) and expected_page_count > len(raw_pages):
         raw_pages.extend([None] * (expected_page_count - len(raw_pages)))
     pages: list[dict[str, object]] = []
@@ -339,6 +350,7 @@ def _snapshot(page_texts: Mapping[str, object], source: Mapping[str, object]) ->
     return {
         "state": "incomplete" if failed or page_count_mismatch or not pages else "complete",
         "pages": pages,
+        "page_count_observed": observed_page_count,
         "operative_text": operative_text,
     }
 
@@ -395,6 +407,43 @@ def _identity_match_count(
     )
 
 
+def _source_evidence(
+    source: Mapping[str, object], snapshot: Mapping[str, object]
+) -> dict[str, object]:
+    return {
+        "document_id": str(source["document_id"]),
+        "event_id": str(source["event_id"]),
+        "pdf_sha256": str(source["pdf_sha256"]),
+        "page_count": source.get("page_count"),
+        "page_count_observed": snapshot.get("page_count_observed", 0),
+        "state": str(snapshot["state"]),
+    }
+
+
+def _source_status_reasons(
+    sources: Sequence[Mapping[str, object]],
+    snapshots: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    reasons: list[dict[str, object]] = []
+    for source, snapshot in zip(sources, snapshots):
+        state = str(snapshot["state"])
+        if state not in {"missing", "incomplete"}:
+            continue
+        reasons.append(
+            {
+                "code": (
+                    "source_evidence_missing"
+                    if state == "missing"
+                    else "source_evidence_incomplete"
+                ),
+                "document_id": str(source["document_id"]),
+                "event_id": str(source["event_id"]),
+                "state": state,
+            }
+        )
+    return reasons
+
+
 def _select_sources(
     sources: list[dict[str, object]],
     process_key: str,
@@ -436,12 +485,22 @@ def _record(
     sources: list[dict[str, object]],
     page_texts: Mapping[str, object],
     dataset_sha256: str,
+    evidence_sources: Sequence[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     interested_normalized = _normalise_interested(
         block.get("interested", block.get("interested_normalized", "Não identificado"))
     ) or _normalise_interested("Não identificado")
     identifiers = _block_identifiers(block)
     snapshots = [_snapshot(page_texts, source) for source in sources]
+    evidence_sources = list(evidence_sources) if evidence_sources is not None else sources
+    evidence_snapshots = [
+        _snapshot(page_texts, source) for source in evidence_sources
+    ]
+    status_reasons = _source_status_reasons(evidence_sources, evidence_snapshots)
+    source_evidence = [
+        _source_evidence(source, snapshot)
+        for source, snapshot in zip(evidence_sources, evidence_snapshots)
+    ]
     identity_match_count = _identity_match_count(
         interested_normalized,
         identifiers,
@@ -458,6 +517,7 @@ def _record(
         status = "missing"
         pages = []
         operative_text = ""
+        status_reasons.append({"code": "resolution_source_missing"})
     elif len(distinct_operative) > 1 or identity_match_count > 1:
         status = "conflict"
         operative_text = "\n\n".join(operative_values)
@@ -467,6 +527,10 @@ def _record(
         if (
             not operative_text
             or any(snapshot["state"] != "complete" for snapshot in snapshots)
+            or any(
+                snapshot["state"] != "complete"
+                for snapshot in evidence_snapshots
+            )
             or not all(str(page["text"]).strip() for page in pages)
             or identity_match_count != 1
         ):
@@ -480,6 +544,8 @@ def _record(
         "pages": pages,
         "operative_text": operative_text,
         "extraction_version": EXTRACTION_VERSION,
+        "source_evidence": source_evidence,
+        "status_reasons": status_reasons,
     }
 
 
@@ -490,16 +556,21 @@ def build_legal_contexts(
     dataset_sha256: str,
 ) -> dict:
     sources = _manifest_sources(manifest)
-    records = [
-        _record(
-            process_key,
-            block,
-            _select_sources(sources, process_key, block, page_texts),
-            page_texts,
-            dataset_sha256,
+    records = []
+    for process_key, block in _checkpoint_blocks(checkpoint):
+        process_sources = [
+            source for source in sources if source["process_key"] == process_key
+        ]
+        records.append(
+            _record(
+                process_key,
+                block,
+                _select_sources(sources, process_key, block, page_texts),
+                page_texts,
+                dataset_sha256,
+                evidence_sources=process_sources,
+            )
         )
-        for process_key, block in _checkpoint_blocks(checkpoint)
-    ]
     return {
         "schema_version": SCHEMA_VERSION,
         "dataset_sha256": dataset_sha256,

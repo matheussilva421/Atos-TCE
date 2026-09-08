@@ -487,8 +487,9 @@ class AnalysisPipelineTests(unittest.TestCase):
         self.assertEqual(record["pages"][2]["text"], "")
         self.assertEqual(record["resolution_status"], "incomplete")
 
-    def test_legal_context_version_is_separate_and_old_ocr_cache_remains_valid(self):
+    def test_legal_context_version_is_separate_and_v3_ocr_cache_remains_valid(self):
         self.assertNotEqual(LEGAL_CONTEXT_VERSION, EXTRACTOR_VERSION)
+        self.assertEqual(EXTRACTOR_VERSION, "analysis-pipeline-v3")
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             sha256 = "a" * 64
@@ -503,7 +504,7 @@ class AnalysisPipelineTests(unittest.TestCase):
                 json.dumps(
                     {
                         "version": 2,
-                        "extractor_version": "analysis-pipeline-v2",
+                        "extractor_version": "analysis-pipeline-v3",
                         "ocr_version": OCR_VERSION,
                         "runtime_identity": "injected-ocr-reader-v1",
                         "entries": {

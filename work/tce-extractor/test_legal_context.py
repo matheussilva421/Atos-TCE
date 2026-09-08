@@ -196,6 +196,43 @@ class LegalContextTests(unittest.TestCase):
 
         self.assertEqual(contexts["records"][0]["resolution_status"], "conflict")
 
+    def test_does_not_complete_when_competing_manifest_source_has_no_page_texts(self):
+        first = _resolution_document(event="9", document_id="resolution-9")
+        second = _resolution_document(
+            event="10", document_id="resolution-10", sha256="b" * 64
+        )
+        first["page_count"] = second["page_count"] = 1
+        contexts = build_legal_contexts(
+            _manifest(first, second),
+            _checkpoint(
+                interested="ANA",
+                fields={"fundamento_legal": _foundation_field()},
+            ),
+            {
+                "resolution-9": {
+                    "pdf_sha256": first["sha256"],
+                    "pages": ["Interessada: ANA\nRESOLVE:\nArt. 1º Conceder."],
+                }
+            },
+            DATASET_SHA256,
+        )
+
+        record = contexts["records"][0]
+        self.assertIn(record["resolution_status"], {"incomplete", "conflict"})
+        self.assertNotEqual(record["resolution_status"], "complete")
+        evidence = {
+            item["document_id"]: item for item in record["source_evidence"]
+        }
+        self.assertEqual(set(evidence), {"resolution-9", "resolution-10"})
+        self.assertEqual(evidence["resolution-10"]["state"], "missing")
+        self.assertTrue(
+            any(
+                reason["code"] == "source_evidence_missing"
+                and reason["document_id"] == "resolution-10"
+                for reason in record["status_reasons"]
+            )
+        )
+
     def test_uses_identifier_to_disambiguate_homonymous_resolution_sources(self):
         first = _resolution_document(event="9", document_id="resolution-9")
         second = _resolution_document(
@@ -223,6 +260,43 @@ class LegalContextTests(unittest.TestCase):
         self.assertEqual(
             record["pages"][0]["citation"]["document_id"], "resolution-10"
         )
+
+    def test_does_not_join_numeric_groups_separated_by_labels_when_matching_identifier(self):
+        document = _resolution_document()
+        document["page_count"] = 1
+        split = build_legal_contexts(
+            _manifest(document),
+            _checkpoint(interested="ANA", identifier="1234"),
+            {
+                "resolution-9": {
+                    "pdf_sha256": PDF_SHA256,
+                    "pages": [
+                        "Interessada: ANA\nAno: 12\nPágina: 34\n"
+                        "RESOLVE:\nArt. 1º Conceder."
+                    ],
+                }
+            },
+            DATASET_SHA256,
+        )
+
+        self.assertEqual(split["records"][0]["resolution_status"], "incomplete")
+
+        contiguous = build_legal_contexts(
+            _manifest(document),
+            _checkpoint(interested="ANA", identifier="1234"),
+            {
+                "resolution-9": {
+                    "pdf_sha256": PDF_SHA256,
+                    "pages": [
+                        "Interessada: ANA\nMatrícula: 1234\n"
+                        "RESOLVE:\nArt. 1º Conceder."
+                    ],
+                }
+            },
+            DATASET_SHA256,
+        )
+
+        self.assertEqual(contiguous["records"][0]["resolution_status"], "complete")
 
     def test_extracts_operativo_block_after_historical_resolve_marker(self):
         document = _resolution_document()

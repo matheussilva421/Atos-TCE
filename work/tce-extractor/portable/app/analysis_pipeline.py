@@ -34,7 +34,7 @@ from tce_extractor import classify_document, extract_pdf_pages
 
 
 CACHE_VERSION = 2
-EXTRACTOR_VERSION = "analysis-pipeline-v2"
+EXTRACTOR_VERSION = "analysis-pipeline-v3"
 OCR_VERSION = "tesseract-por+eng-psm6-v2"
 GEOMETRY_CACHE_VERSION = 1
 TARGET_CLASSIFICATIONS = frozenset(
