@@ -123,7 +123,20 @@ _JSON_SECRET_KEY_RE = re.compile(
 )
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$", re.IGNORECASE)
 _FORBIDDEN_SUFFIXES = {".pdf", ".part", ".tmp"}
-_FORBIDDEN_DIRECTORY_NAMES = {"dados-locais", "downloads"}
+_FORBIDDEN_DIRECTORY_NAMES = {
+    "auth",
+    "authentication",
+    "backups",
+    "backups-acervo",
+    "bridge",
+    "credentials",
+    "dados-locais",
+    "downloads",
+    "log",
+    "logs",
+    "profile",
+    "profiles",
+}
 _PRIVATE_DATA_DIRECTORY_NAMES = {"cache", "data", "dados", "database", "databases", "state"}
 _BROWSER_PROFILE_DIRECTORY_NAMES = {
     "chrome",
@@ -168,6 +181,13 @@ _SENSITIVE_JSON_KEYS = frozenset(
     {"token", "accesstoken", "refreshtoken", "idtoken", "authtoken", "sessiontoken", "cookies"}
 )
 _REPARSE_POINT_FLAG = 0x400
+_PROCESS_KEY_RE = re.compile(r"^[0-9]+/[0-9]{4}$")
+_ARCHIVE_REFERENCE_KEYS = frozenset(
+    {"path", "relative_path", "pdf_path", "document_path", "pdf"}
+)
+_OPTIONAL_MISSING_DOCUMENT_STATUSES = frozenset(
+    {"missing", "not_found", "pending", "error", "cover_missing", "unavailable"}
+)
 
 
 def _relative_name(root: Path, path: Path) -> str:
@@ -478,6 +498,207 @@ def _audit_content(
     _scan_json_value(
         report, relative, parsed, scan_credentials=scan_credentials
     )
+
+
+def _read_json_value(path: Path) -> object | None:
+    """Read JSON for structural checks already covered by ``_audit_content``."""
+
+    try:
+        return json.loads(_decode_text(path.read_bytes()))
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, TypeError):
+        return None
+
+
+def _audit_progress_snapshot(root: Path, report: AuditReport) -> None:
+    path = root / _ACERVO_DIRECTORY / "progresso.json"
+    if not path.is_file():
+        return
+    relative = _relative_name(root, path)
+    value = _read_json_value(path)
+    if not isinstance(value, Mapping):
+        report.add("progress_invalid", relative, "progresso.json deve ser um objeto JSON")
+        return
+    if value.get("schema_version") != 1:
+        report.add("progress_invalid", relative, "schema_version de progresso deve ser 1")
+    revision = value.get("revision")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+        report.add("progress_invalid", relative, "revision de progresso deve ser inteiro não negativo")
+    processes = value.get("processes")
+    if not isinstance(processes, Mapping):
+        report.add("progress_invalid", relative, "processes de progresso deve ser um objeto")
+        return
+    for process_key, entry in processes.items():
+        if not isinstance(process_key, str) or not _PROCESS_KEY_RE.fullmatch(process_key):
+            report.add("progress_invalid", relative, f"chave de processo inválida: {process_key}")
+            continue
+        if not isinstance(entry, Mapping) or type(entry.get("completed")) is not bool:
+            report.add("progress_invalid", relative, f"conclusão inválida para {process_key}")
+            continue
+        if not isinstance(entry.get("updated_at"), str) or not entry["updated_at"].strip():
+            report.add("progress_invalid", relative, f"updated_at ausente para {process_key}")
+
+
+def _audit_portal_order(root: Path, report: AuditReport) -> None:
+    path = root / _ACERVO_DIRECTORY / "ordem-portal.json"
+    if not path.is_file():
+        return
+    relative = _relative_name(root, path)
+    value = _read_json_value(path)
+    if not isinstance(value, Mapping):
+        report.add("order_invalid", relative, "ordem-portal.json deve ser um objeto JSON")
+        return
+    if value.get("schema_version") != 1:
+        report.add("order_invalid", relative, "schema_version de ordem deve ser 1")
+    if not isinstance(value.get("captured_at"), str) or not value["captured_at"].strip():
+        report.add("order_invalid", relative, "captured_at da ordem é obrigatório")
+    keys = value.get("process_keys")
+    if not isinstance(keys, list):
+        report.add("order_invalid", relative, "process_keys da ordem deve ser uma lista")
+        return
+    seen: set[str] = set()
+    for process_key in keys:
+        if not isinstance(process_key, str) or not _PROCESS_KEY_RE.fullmatch(process_key):
+            report.add("order_invalid", relative, f"chave de processo inválida: {process_key}")
+        elif process_key in seen:
+            report.add("order_invalid", relative, f"chave de processo duplicada: {process_key}")
+        else:
+            seen.add(process_key)
+
+
+def _audit_publication_pointer(root: Path, report: AuditReport) -> None:
+    path = root / _ACERVO_DIRECTORY / "publicacao-atual.json"
+    if not path.is_file():
+        return
+    relative = _relative_name(root, path)
+    value = _read_json_value(path)
+    if not isinstance(value, Mapping) or value.get("schema_version") != 1:
+        report.add("publication_invalid", relative, "ponteiro de publicação inválido")
+        return
+    revision = value.get("revision")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+        report.add("publication_invalid", relative, "revision de publicação inválida")
+        return
+    snapshot = root / _ACERVO_DIRECTORY / "publicacoes" / str(revision) / "resultados.json"
+    if not snapshot.is_file():
+        report.add(
+            "publication_missing",
+            _relative_name(root, snapshot),
+            "revisão apontada não possui resultados.json",
+        )
+        return
+    payload = _read_json_value(snapshot)
+    if (
+        not isinstance(payload, Mapping)
+        or payload.get("schema_version") != 1
+        or payload.get("revision") != revision
+        or not isinstance(payload.get("results"), Mapping)
+    ):
+        report.add(
+            "publication_invalid",
+            _relative_name(root, snapshot),
+            "snapshot publicado não é coerente com seu ponteiro",
+        )
+
+
+def _resolve_archive_reference(root: Path, raw_path: str) -> tuple[Path | None, str]:
+    normalized = raw_path.replace("\\", "/").strip()
+    if not normalized or "\x00" in normalized:
+        return None, "invalid"
+    posix = PurePosixPath(normalized)
+    windows = PureWindowsPath(normalized)
+    if (
+        posix.is_absolute()
+        or windows.is_absolute()
+        or bool(windows.drive)
+        or any(part in {"", ".", ".."} for part in posix.parts)
+    ):
+        return None, "invalid"
+    if posix.parts and posix.parts[0].casefold() == _ACERVO_DIRECTORY:
+        candidates = (root.joinpath(*posix.parts),)
+    else:
+        candidates = (root / _ACERVO_DIRECTORY).joinpath(*posix.parts), root.joinpath(*posix.parts)
+    for candidate in candidates:
+        try:
+            if not _is_within(candidate.resolve(), root.resolve()):
+                continue
+            if candidate.is_file() and not _is_reparse_point(candidate.lstat()):
+                return candidate, "ok"
+        except OSError:
+            continue
+    return None, "missing"
+
+
+def _audit_archive_reference_mapping(
+    root: Path,
+    report: AuditReport,
+    relative: str,
+    mapping: Mapping[object, object],
+    location: str,
+) -> None:
+    status = str(mapping.get("status", "")).casefold()
+    for key in _ARCHIVE_REFERENCE_KEYS:
+        raw_path = mapping.get(key)
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            continue
+        if "://" in raw_path:
+            continue
+        # A short path value is still a valid PDF reference; other short
+        # values such as a process label are not treated as file references.
+        if key == "path" and "/" not in raw_path and "\\" not in raw_path:
+            if not raw_path.casefold().endswith(".pdf"):
+                continue
+        candidate, state = _resolve_archive_reference(root, raw_path)
+        finding_path = f"{relative}#{location}.{key}"
+        if candidate is None:
+            if status in _OPTIONAL_MISSING_DOCUMENT_STATUSES:
+                continue
+            code = "reference_invalid" if state == "invalid" else "reference_missing"
+            report.add(code, finding_path, "referência documental não resolve para arquivo local")
+            continue
+
+        for hash_key in ("sha256", "pdf_sha256"):
+            expected = mapping.get(hash_key)
+            if expected is None:
+                continue
+            if not isinstance(expected, str) or not _SHA256_RE.fullmatch(expected):
+                report.add("hash_invalid", finding_path, f"{hash_key} inválido")
+                continue
+            try:
+                observed = hashlib.sha256(candidate.read_bytes()).hexdigest()
+            except OSError as error:
+                report.add("read_error", finding_path, f"não foi possível calcular hash: {error}")
+                continue
+            if observed.casefold() != expected.casefold():
+                report.add(
+                    "hash_divergence",
+                    finding_path,
+                    f"SHA-256 divergente: esperado {expected}, observado {observed}",
+                )
+
+
+def _audit_archive_json_references(
+    root: Path,
+    report: AuditReport,
+    audited_files: Iterable[tuple[Path, os.stat_result]],
+) -> None:
+    def visit(value: object, relative: str, location: str) -> None:
+        if isinstance(value, Mapping):
+            _audit_archive_reference_mapping(root, report, relative, value, location)
+            for key, child in value.items():
+                visit(child, relative, f"{location}.{key}")
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                visit(child, relative, f"{location}[{index}]")
+
+    for path, _info in audited_files:
+        relative = _relative_name(root, path)
+        if not relative.casefold().startswith(f"{_ACERVO_DIRECTORY}/"):
+            continue
+        if path.suffix.casefold() != ".json":
+            continue
+        value = _read_json_value(path)
+        if value is not None:
+            visit(value, relative, "json")
 
 
 def _extension_relative(relative: str) -> str | None:
@@ -1178,6 +1399,11 @@ def audit_package(root: Path, *, distribution: str = "public") -> AuditReport:
             relative,
             scan_credentials=relative.casefold() not in trusted_vendor_files,
         )
+    if distribution == "private":
+        _audit_progress_snapshot(root, report)
+        _audit_portal_order(root, report)
+        _audit_publication_pointer(root, report)
+        _audit_archive_json_references(root, report, audited_files)
     _audit_licenses(root, report, audited_files)
     _audit_required_app_files(root, report, required=distribution == "public")
     if distribution == "private":

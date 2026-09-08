@@ -1,17 +1,23 @@
 import contextlib
+from contextlib import redirect_stderr
 from http.client import RemoteDisconnected
+import io
 import json
+import os
 from pathlib import Path
 import sys
+import socket
 from tempfile import TemporaryDirectory
 import threading
 import unittest
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 APP_ROOT = Path(__file__).parent / "portable" / "app"
 sys.path.insert(0, str(APP_ROOT))
 
+import local_service  # noqa: E402
 from local_service import create_server  # noqa: E402
 
 
@@ -274,6 +280,120 @@ class LocalServiceTests(unittest.TestCase):
             with self.assertRaises(HTTPError) as error:
                 json_request(f"{base}/api/v1/pdf/doc-1", token=token, range_header="bytes=99-100")
             self.assertEqual(error.exception.code, 416)
+
+            with self.assertRaises(HTTPError) as error:
+                json_request(f"{base}/api/v1/pdf/doc-1", token=token, range_header="bytes=0-1,3-4")
+            self.assertEqual(error.exception.code, 416)
+
+    def test_corrupt_publication_pointer_does_not_fallback_to_legacy_dataset(self):
+        with running_server() as (root, server, base):
+            (root / "publicacao-atual.json").write_text("{broken", encoding="utf-8")
+            (root / "dados-complementar-ato.json").write_text(
+                json.dumps({"schema_version": 1, "records": []}), encoding="utf-8"
+            )
+            code = server.auth.issue_pairing_code()
+            _status, _headers, pair_body = json_request(
+                f"{base}/api/v1/pair",
+                method="POST",
+                payload={"code": code},
+                origin="chrome-extension://test-extension",
+            )
+            token = json.loads(pair_body)["token"]
+
+            with self.assertRaises(HTTPError) as error:
+                json_request(f"{base}/api/v1/dataset", token=token)
+            self.assertEqual(error.exception.code, 500)
+            error.exception.close()
+
+    def test_pdf_rejects_internal_reparse_path(self):
+        with running_server() as (root, server, base):
+            real = root / "real.pdf"
+            alias = root / "alias.pdf"
+            real.write_bytes(b"payload")
+            try:
+                os.symlink(real, alias)
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"ambiente sem criação de symlink: {exc}")
+            (root / "evidencias-visuais.json").write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "documents": {"doc-1": {"relative_path": "alias.pdf"}},
+                    "records": {},
+                }),
+                encoding="utf-8",
+            )
+            code = server.auth.issue_pairing_code()
+            _status, _headers, pair_body = json_request(
+                f"{base}/api/v1/pair",
+                method="POST",
+                payload={"code": code},
+                origin="chrome-extension://test-extension",
+            )
+            token = json.loads(pair_body)["token"]
+
+            with self.assertRaises(HTTPError) as error:
+                json_request(f"{base}/api/v1/pdf/doc-1", token=token)
+            self.assertEqual(error.exception.code, 404)
+            error.exception.close()
+
+    def test_server_close_releases_state_lock_for_restart(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first = create_server(root, port=0)
+            port = first.server_port
+            first.server_close()
+
+            second = create_server(root, port=port)
+            second.server_close()
+
+    def test_occupied_port_uses_loopback_fallback(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied:
+            occupied.bind(("127.0.0.1", 0))
+            occupied.listen(1)
+            requested_port = occupied.getsockname()[1]
+            with TemporaryDirectory() as temporary:
+                server = create_server(Path(temporary), port=requested_port)
+                try:
+                    self.assertNotEqual(server.server_port, requested_port)
+                    self.assertEqual(server.server_address[0], "127.0.0.1")
+                finally:
+                    server.server_close()
+
+    def test_health_rejects_null_origin_and_forged_host(self):
+        with running_server() as (_root, server, base):
+            with self.assertRaises(HTTPError) as error:
+                json_request(f"{base}/api/v1/health", origin="null")
+            self.assertEqual(error.exception.code, 403)
+            error.exception.close()
+
+            with self.assertRaises(HTTPError) as error:
+                json_request(
+                    f"{base}/api/v1/health",
+                    host=f"127.0.0.1:{server.server_port + 1}",
+                )
+            self.assertEqual(error.exception.code, 403)
+            error.exception.close()
+
+    def test_service_failure_reports_manual_fallback_without_leaving_lock(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bridge_root = root / "dados-locais" / "bridge"
+            with patch.object(local_service, "create_server", side_effect=OSError("porta ocupada")):
+                with redirect_stderr(io.StringIO()) as error_output:
+                    result = local_service.main(
+                        [
+                            "--root",
+                            str(root / "acervo-tce"),
+                            "--bridge-root",
+                            str(bridge_root),
+                            "--port",
+                            "0",
+                        ]
+                    )
+
+            self.assertEqual(result, 2)
+            self.assertIn("modo manual", error_output.getvalue().lower())
+            self.assertFalse((bridge_root / ".operation.lock").exists())
 
 
 if __name__ == "__main__":

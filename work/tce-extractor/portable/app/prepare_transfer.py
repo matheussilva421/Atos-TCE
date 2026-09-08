@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 from pathlib import Path
+import sys
 from typing import Mapping
 import uuid
 
@@ -140,6 +142,16 @@ def _release_operation_lock(lock_path: Path, token: str) -> None:
         return
 
 
+def _assert_distinct_destination(package_root: Path, destination: Path) -> None:
+    try:
+        destination.relative_to(package_root)
+    except ValueError:
+        return
+    raise ValueError(
+        "destino da transferência deve ser distinto e ficar fora da pasta portátil"
+    )
+
+
 def prepare_transfer(package_root: Path, destination: Path) -> dict:
     """Build a quiescent private ZIP, leaving bridge state outside it.
 
@@ -151,12 +163,18 @@ def prepare_transfer(package_root: Path, destination: Path) -> dict:
     output = Path(destination).resolve()
     if output.exists():
         raise FileExistsError(f"destino já existe: {output}")
+    _assert_distinct_destination(root, output)
     lock_path, lock_token = _acquire_operation_lock(root)
     try:
         active = _active_runtime(root)
         if active is not None:
             raise TransferBusyError(
                 f"transferência recusada: execução ativa ({active}); pare-a e tente novamente"
+            )
+        progress_path = root / "acervo-tce" / "progresso.json"
+        if not progress_path.is_file():
+            raise ValueError(
+                "snapshot de transferência exige acervo-tce/progresso.json coerente"
             )
         stats = build_complete_zip(root, output, distribution="private")
         return {
@@ -169,3 +187,21 @@ def prepare_transfer(package_root: Path, destination: Path) -> dict:
         }
     finally:
         _release_operation_lock(lock_path, lock_token)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--distribution", choices=("private",), default="private")
+    try:
+        args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
+        result = prepare_transfer(args.source, args.output)
+    except (OSError, RuntimeError, ValueError) as error:
+        parser.error(str(error))
+    print(json.dumps(result, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

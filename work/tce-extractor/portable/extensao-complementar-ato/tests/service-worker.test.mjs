@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { STORAGE_KEYS } from "../lib/schema.js";
+import { computeLogicalSha256, STORAGE_KEYS } from "../lib/schema.js";
 import { MESSAGE_TYPES, createMessage } from "../lib/messages.js";
 import { createServiceWorker } from "../background/service-worker.js";
 
@@ -256,6 +256,53 @@ test("rejects an invalid import without calling storage or replacing the previou
   assert.equal(response.ok, false);
   assert.equal(storage.calls.length, 0);
   assert.equal(storage.state[STORAGE_KEYS.DATASET].batch.id, "batch-valid");
+});
+
+test("automatic bridge imports preserve legacy review by process identity, while manual imports do not migrate it", async () => {
+  const current = await makeDataset();
+  const reviewedKey = `${PROCESS_KEY}\u0000joao da silva`;
+  const storage = storageMock({
+    [STORAGE_KEYS.REVIEWED]: { schemaVersion: 1, records: { [reviewedKey]: true } },
+  });
+  const worker = createServiceWorker({ chromeApi: chromeMock(storage) });
+
+  const refreshed = await makeDataset();
+  refreshed.batch.id = "batch-refresh";
+  refreshed.batch.logical_sha256 = await computeLogicalSha256(refreshed);
+  const preserved = await worker.handleMessage(
+    createMessage(
+      MESSAGE_TYPES.IMPORT_DATASET,
+      { dataset: refreshed, preserveReviewed: true },
+      "import-bridge",
+    ),
+    extensionSender(),
+  );
+
+  assert.equal(preserved.ok, true);
+  const afterBridge = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.GET_MATCH, {
+      processKey: PROCESS_KEY,
+      interestedNormalized: "joao da silva",
+      options: {},
+    }, "match-after-bridge"),
+    extensionSender(),
+  );
+  assert.equal(afterBridge.payload.reviewed, true);
+
+  const manual = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.IMPORT_DATASET, { dataset: current }, "import-manual"),
+    extensionSender(),
+  );
+  assert.equal(manual.ok, true);
+  const afterManual = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.GET_MATCH, {
+      processKey: PROCESS_KEY,
+      interestedNormalized: "joao da silva",
+      options: {},
+    }, "match-after-manual"),
+    extensionSender(),
+  );
+  assert.equal(afterManual.payload.reviewed, false);
 });
 
 test("registers only an allowed portal frame and routes only the requested current payload", async () => {

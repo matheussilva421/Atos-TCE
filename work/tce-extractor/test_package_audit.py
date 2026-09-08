@@ -100,6 +100,29 @@ class PackageAuditContractTests(unittest.TestCase):
                 self.assertFalse(report.ok)
                 self.assertTrue(report.findings)
 
+    def test_rejects_auth_profile_bridge_backup_and_log_directories(self):
+        forbidden = (
+            "auth/session.json",
+            "profiles/Default/Cookies",
+            "dados-locais/bridge/service.json",
+            "backups-acervo/old.json",
+            "logs/transfer.log",
+        )
+        for relative in forbidden:
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                target = root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(b"fixture")
+
+                report = self.audit_package(root, distribution="private")
+
+                self.assertFalse(report.ok)
+                self.assertIn(
+                    relative,
+                    {finding.path for finding in report.findings},
+                )
+
     def test_rejects_temporary_urls_authorization_tokens_and_cookies_in_text(self):
         samples = (
             "https://host/ConsultaProcessoTemp?id=secret",
@@ -838,8 +861,69 @@ class PackageAuditContractTests(unittest.TestCase):
             self.assertIn("private_data_missing", codes)
             self.assertIn("extension_hosts", codes)
 
+    def test_validates_progress_snapshot_revision_and_entries(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            progress = root / "acervo-tce" / "progresso.json"
+            progress.parent.mkdir(parents=True)
+            progress.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "revision": "broken",
+                        "processes": {"103439/2023": {"completed": True}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = self.audit_package(root, distribution="private")
+
+            self.assertIn("progress_invalid", {finding.code for finding in report.findings})
+
+    def test_validates_archive_reference_and_document_hash(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = root / "acervo-tce"
+            pdf = archive / "processos" / "ação" / "documento.pdf"
+            pdf.parent.mkdir(parents=True)
+            pdf.write_bytes(b"%PDF-fixture")
+            metadata = archive / "processos" / "ação" / "evento.json"
+            metadata.write_text(
+                json.dumps(
+                    {
+                        "documents": [
+                            {
+                                "path": "processos/ação/documento.pdf",
+                                "sha256": "0" * 64,
+                            },
+                            {
+                                "path": "processos/ação/ausente.pdf",
+                                "sha256": "1" * 64,
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = self.audit_package(root, distribution="private")
+            codes = {finding.code for finding in report.findings}
+
+            self.assertIn("hash_divergence", codes)
+            self.assertIn("reference_missing", codes)
+
 
 class PackagerContractTests(unittest.TestCase):
+    def test_private_wrapper_uses_quiescent_transfer_helper(self):
+        wrapper = (ROOT / "portable" / "Empacotar-Acervo-Completo.ps1").read_text(
+            encoding="utf-8-sig"
+        )
+
+        self.assertIn("prepare_transfer.py", wrapper)
+        self.assertIn("--source", wrapper)
+        self.assertNotIn("[switch]$Force", wrapper)
+
     def test_private_wrapper_delegates_audit_to_filtered_python_builder(self):
         wrapper = (ROOT / "portable" / "Empacotar-Acervo-Completo.ps1").read_text(
             encoding="utf-8-sig"

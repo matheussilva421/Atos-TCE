@@ -291,7 +291,10 @@ export function createServiceWorker({
     const importedDataset = message.payload.dataset;
     await validateDataset(importedDataset);
     const nextIndex = buildDatasetIndex(importedDataset);
-    const nextReviewed = { schemaVersion: 1, records: {} };
+    await loadState();
+    const nextReviewed = message.payload.preserveReviewed === true
+      ? { schemaVersion: 1, records: clone(reviewed.records) }
+      : { schemaVersion: 1, records: {} };
     await storage.set({
       [STORAGE_KEYS.DATASET]: importedDataset,
       [STORAGE_KEYS.DATASET_INDEX]: nextIndex,

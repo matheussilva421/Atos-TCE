@@ -113,10 +113,10 @@ Cada fase: teste RED específico → mudança mínima → teste GREEN → regres
 
 **Arquivos:** este plano; novo `docs/notes/YYYY-MM-DD-fluxo-portatil-execucao-handoff.md`.
 
-- [ ] Ler mudanças locais, scripts de empacotamento e testes antes de criar branch `feat/fluxo-portatil-integrado`; preservar alterações do usuário.
-- [ ] Resolver runtime local e registrar caminho/versão de Python, Node e Tesseract. Não presumir Python global nem instalar para contornar falha sem necessidade.
-- [ ] Executar baseline: `node --test` em X; `python -m unittest discover -s . -p 'test_*.py'` em E; scripts `tests/Test-TcePortable.ps1`, `Test-PortableMenu.ps1`, `Test-PortableReset.ps1` em E com Windows PowerShell 5.1.
-- [ ] Registrar falhas pré-existentes separadamente. Criar fixtures sintéticas, nunca versionar PDFs pessoais.
+- [x] Ler mudanças locais, scripts de empacotamento e testes antes de criar branch `feat/fluxo-portatil-integrado`; preservar alterações do usuário.
+- [x] Resolver runtime local e registrar caminho/versão de Python, Node e Tesseract. Não presumir Python global nem instalar para contornar falha sem necessidade.
+- [x] Executar baseline: `node --test` em X; `python -m unittest discover -s . -p 'test_*.py'` em E; scripts `tests/Test-TcePortable.ps1`, `Test-PortableMenu.ps1`, `Test-PortableReset.ps1` em E com Windows PowerShell 5.1.
+- [x] Registrar falhas pré-existentes separadamente. Criar fixtures sintéticas, nunca versionar PDFs pessoais.
 - [ ] Capturar medição do fluxo existente em 20 processos autorizados: primeiro resultado, preparação total, tempo humano de comparação e cliques. Não baixar novamente todo acervo só para benchmark.
 
 **Gate:** baseline reproduzível e lista de limitações. Commit `docs: record integrated workflow baseline`.
@@ -140,11 +140,11 @@ def test_completion_survives_order_refresh(self):
     self.assertEqual(result['process_keys'][0], '103490/2023')
 ```
 
-- [ ] Criar teste com `unittest.TestCase`, `TemporaryDirectory` em setUp e cleanup; executar `python -m unittest test_workflow_state` e confirmar ausência do módulo como RED.
-- [ ] Implementar snapshot defensivo, canonicalização número/ano reutilizando regras existentes, escrita temp+fsync+replace e cópia anterior válida. Nunca tratar JSON corrompido como acervo vazio silenciosamente.
-- [ ] Serializar escritores; segunda instância do serviço para a mesma raiz recusa iniciar. Testar revision conflict, reabertura, corrupção, falha antes do replace e pedido idempotente.
-- [ ] Preservar marcas em reanálise e reset do lote; migração de checks antigos é ação explícita, sem promoção de `reviewed:v1`.
-- [ ] Testar eventos novos e ordem nova sem alteração de conclusão. Gate GREEN dos testes de estado, índice e reset.
+- [x] Criar teste com `unittest.TestCase`, `TemporaryDirectory` em setUp e cleanup; executar `python -m unittest test_workflow_state` e confirmar ausência do módulo como RED.
+- [x] Implementar snapshot defensivo, canonicalização número/ano reutilizando regras existentes, escrita temp+fsync+replace e cópia anterior válida. Nunca tratar JSON corrompido como acervo vazio silenciosamente.
+- [x] Serializar escritores; segunda instância do serviço para a mesma raiz recusa iniciar. Testar revision conflict, reabertura, corrupção, falha antes do replace e pedido idempotente.
+- [x] Preservar marcas em reanálise e reset do lote; migração de checks antigos é ação explícita, sem promoção de `reviewed:v1`.
+- [x] Testar eventos novos e ordem nova sem alteração de conclusão. Gate GREEN dos testes de estado, índice e reset.
 
 **Commit:** `feat: persist portable workflow progress and portal order`.
 
@@ -165,11 +165,11 @@ def test_private_state_requires_auth(self):
         self.assertEqual(error.exception.code, 401)
 ```
 
-- [ ] Criar harness `running_server` com contextmanager que inicia thread em `port=0`, retorna URL e garante shutdown/join em finally. Executar `python -m unittest test_local_service test_bridge_auth` RED.
-- [ ] Implementar rotas da seção 3, separar parser/autorização/handlers; JSON inválido=400, falta de autenticação=401, origem proibida=403, documento ausente=404, revisão conflitante=409.
-- [ ] No iniciador, iniciar helper oculto, abrir HTML local, manter comando explícito de parar. Não adicionar inicialização automática ao Windows nem criar regra de firewall.
-- [ ] Testar token expirado, código reutilizado, Origin/Host forjados, traversal codificado, link/reparse, Range válido/inválido (416), porta ocupada, execução duplicada, reinício e ausência de vazamento de tokens nos logs.
-- [ ] Se serviço falhar, mostrar modo manual e preservar o lote; não impedir HTML estático/JSON. Gate de segurança antes de conectar a extensão.
+- [x] Criar harness `running_server` com contextmanager que inicia thread em `port=0`, retorna URL e garante shutdown/join em finally. Executar `python -m unittest test_local_service test_bridge_auth` RED.
+- [x] Implementar rotas da seção 3, separar parser/autorização/handlers; JSON inválido=400, falta de autenticação=401, origem proibida=403, documento ausente=404, revisão conflitante=409.
+- [x] No iniciador, iniciar helper oculto, abrir HTML local, manter comando explícito de parar. Não adicionar inicialização automática ao Windows nem criar regra de firewall.
+- [x] Testar token expirado, código reutilizado, Origin/Host forjados, traversal codificado, link/reparse, Range válido/inválido (416), porta ocupada, execução duplicada, reinício e ausência de vazamento de tokens nos logs.
+- [x] Se serviço falhar, mostrar modo manual e preservar o lote; não impedir HTML estático/JSON. Gate de segurança antes de conectar a extensão.
 
 **Commit:** `feat: add authenticated loopback workflow service`.
 
@@ -191,13 +191,13 @@ def test_repeated_quote_is_not_guessed(self):
     self.assertEqual(locate_evidence(words, '103.870-2/1'), [])
 ```
 
-- [ ] Escrever testes puros e fixtures PyMuPDF geradas no teste. Executar `python -m unittest test_evidence_geometry` RED.
-- [ ] Capturar trecho original na extração; adicionar referências opcionais a FieldEvidence e serialização do batch_runner. Defaults mantêm checkpoints antigos legíveis. Nunca procurar campo apenas pelo valor normalizado.
-- [ ] Extrair palavras nativas via PyMuPDF; OCR retorna TSV com caixas e confiança, preservando texto agrupado por página. Reutilizar rasterização; não rodar um OCR só para texto e outro para caixas.
-- [ ] Cache geométrico separado, chave hash+versão de geometria+runtime OCR. Não interpretar cache de texto v2 como cache geométrico completo. Arquivo inalterado com cache válido não recebe novo OCR.
-- [ ] Transformar coordenadas considerando CropBox/rotação e dimensões raster. Destacar sequência única com contexto suficiente; se ambígua ou baixa confiança, retornar rects vazios e motivo, mantendo página.
-- [ ] Propagar identidade real até candidatos de conflito. Mesmo conteúdo duplicado pode compartilhar bytes, mas mantém ocorrências/eventos distintos.
-- [ ] Confirmar que exportação v1 continua validada, sem coordenadas, caminho absoluto ou novas chaves. Geometria somente no sidecar.
+- [x] Escrever testes puros e fixtures PyMuPDF geradas no teste. Executar `python -m unittest test_evidence_geometry` RED.
+- [x] Capturar trecho original na extração; adicionar referências opcionais a FieldEvidence e serialização do batch_runner. Defaults mantêm checkpoints antigos legíveis. Nunca procurar campo apenas pelo valor normalizado.
+- [x] Extrair palavras nativas via PyMuPDF; OCR retorna TSV com caixas e confiança, preservando texto agrupado por página. Reutilizar rasterização; não rodar um OCR só para texto e outro para caixas.
+- [x] Cache geométrico separado, chave hash+versão de geometria+runtime OCR. Não interpretar cache de texto v2 como cache geométrico completo. Arquivo inalterado com cache válido não recebe novo OCR.
+- [x] Transformar coordenadas considerando CropBox/rotação e dimensões raster. Destacar sequência única com contexto suficiente; se ambígua ou baixa confiança, retornar rects vazios e motivo, mantendo página.
+- [x] Propagar identidade real até candidatos de conflito. Mesmo conteúdo duplicado pode compartilhar bytes, mas mantém ocorrências/eventos distintos.
+- [x] Confirmar que exportação v1 continua validada, sem coordenadas, caminho absoluto ou novas chaves. Geometria somente no sidecar.
 - [ ] Gate: datas/matrículas/cargo com classe preservados; PDF 1 página, escaneado, rotação 90/180/270, evento repetido, candidato múltiplo, hash modificado e round-trip de checkpoint.
 
 **Commit:** `feat: add traceable PDF evidence geometry`.
@@ -218,13 +218,13 @@ test('same event number does not select another document', () => {
 });
 ```
 
-- [ ] Separar seleção/layout do viewer; criar `resolveDocument(documents,id)` exportada e testar RED com `node --test app/web/tests/*.test.mjs` executado em P.
-- [ ] Adicionar PDF.js a `P/app/web/vendor/pdfjs`, com licença, versão exata e SHA256 em manifesto de dependências. Escolher release estável compatível após verificar navegador alvo; não usar latest flutuante nem CDN. Registrar versão antes de implementar o adaptador.
-- [ ] Implementar canvas por página e camada de destaques; carregar página atual e vizinhas, cancelar render anterior ao trocar documento, liberar canvases antigos. Não carregar centenas de PDFs na memória.
-- [ ] Abas Resolução/Guia, seletor de múltiplos alvos e seção de outros eventos. Clique em campo usa document_id+page, nunca somente event.
-- [ ] Manter HTML offline existente como fallback nativo; assets integrados usados quando servido localmente. Mostrar claramente qual modo está ativo.
-- [ ] Lista segue ordem-portal; conclusões somente ícones. Seleção manual pausa acompanhamento até botão Retomar. Trocar para outra tela não altera foco no navegador do portal.
-- [ ] Valores somente leitura; campo ausente/conflictante permanece explícito. Não renomear status de extração para “validado”.
+- [x] Separar seleção/layout do viewer; criar `resolveDocument(documents,id)` exportada e testar RED com `node --test app/web/tests/*.test.mjs` executado em P.
+- [x] Adicionar PDF.js a `P/app/web/vendor/pdfjs`, com licença, versão exata e SHA256 em manifesto de dependências. Escolher release estável compatível após verificar navegador alvo; não usar latest flutuante nem CDN. Registrar versão antes de implementar o adaptador.
+- [x] Implementar canvas por página e camada de destaques; carregar página atual e vizinhas, cancelar render anterior ao trocar documento, liberar canvases antigos. Não carregar centenas de PDFs na memória.
+- [x] Abas Resolução/Guia, seletor de múltiplos alvos e seção de outros eventos. Clique em campo usa document_id+page, nunca somente event.
+- [x] Manter HTML offline existente como fallback nativo; assets integrados usados quando servido localmente. Mostrar claramente qual modo está ativo.
+- [x] Lista segue ordem-portal; conclusões somente ícones. Seleção manual pausa acompanhamento até botão Retomar. Trocar para outra tela não altera foco no navegador do portal.
+- [x] Valores somente leitura; campo ausente/conflictante permanece explícito. Não renomear status de extração para “validado”.
 - [ ] Gate visual 900x1440 e desktop: divisor, zoom, páginas completas, fonte legível, ausência de overflow horizontal raiz. Scroll interno de PDF permitido; não prometer todos os documentos na tela simultaneamente.
 
 **Commit:** `feat: add full-page evidence viewer to local review desk`.
@@ -249,15 +249,15 @@ test('selection update never applies fields', async () => {
 });
 ```
 
-- [ ] RED `node --test tests/bridge-client.test.mjs` em X; implementar bridge com timeout e validação de envelope.
-- [ ] Adicionar host permission somente `http://127.0.0.1/*`; aceitar baseUrl apenas loopback e intervalo definido. Nunca aceitar URL passada pelo content script como destino livre de fetch.
-- [ ] Painel faz pareamento e associa sua aba/frame registrados. Se houver múltiplos formulários visíveis ambíguos, não escolher silenciosamente. Reutilizar descoberta existente.
-- [ ] Enquanto painel aberto, publicar mudanças de identidade com sequence monotônica. Ao suspender/reiniciar worker, reconstruir associação pela descoberta atual; não usar snapshot antigo para escrever.
-- [ ] Ao importar revisão do serviço, manter conclusão independente de batch.id; atualização automática não chama a rotina que zera reviewed legado.
-- [ ] Preservar `fillAvailableFields`, guardas `validateBeforeWrite` e confirmação individual de override. Revalidar identidade antes e durante aplicação; se mudar, abortar restantes. Manter clique explícito Preencher.
+- [x] RED `node --test tests/bridge-client.test.mjs` em X; implementar bridge com timeout e validação de envelope.
+- [x] Adicionar host permission somente `http://127.0.0.1/*`; aceitar baseUrl apenas loopback e intervalo definido. Nunca aceitar URL passada pelo content script como destino livre de fetch.
+- [x] Painel faz pareamento e associa sua aba/frame registrados. Se houver múltiplos formulários visíveis ambíguos, não escolher silenciosamente. Reutilizar descoberta existente.
+- [x] Enquanto painel aberto, publicar mudanças de identidade com sequence monotônica. Ao suspender/reiniciar worker, reconstruir associação pela descoberta atual; não usar snapshot antigo para escrever.
+- [x] Ao importar revisão do serviço, manter conclusão independente de batch.id; atualização automática não chama a rotina que zera reviewed legado.
+- [x] Preservar `fillAvailableFields`, guardas `validateBeforeWrite` e confirmação individual de override. Revalidar identidade antes e durante aplicação; se mudar, abortar restantes. Manter clique explícito Preencher.
 - [x] Adicionar controle Concluído nos dois clientes chamando mesma API; erro de gravação mostra não salvo e reverte check otimista. Correções no portal não são copiadas de volta ao dataset.
-- [ ] Modo desconectado mantém JSON manual; importar progresso antigo só mediante confirmação. `Revisado` não migra implicitamente.
-- [ ] Gate: troca rápida de processo, homônimos, nome com/sem acento, duas abas, iframe invisível, worker reiniciado, serviço caído, correção manual preservada e zero ações de envio.
+- [x] Modo desconectado mantém JSON manual; importar progresso antigo só mediante confirmação. `Revisado` não migra implicitamente.
+- [x] Gate: troca rápida de processo, homônimos, nome com/sem acento, duas abas, iframe invisível, worker reiniciado, serviço caído, correção manual preservada e zero ações de envio.
 
 **Commit:** `feat: synchronize review desk with extension without auto-fill`.
 
@@ -278,15 +278,15 @@ def test_publication_keeps_unaffected_process(self):
     self.assertEqual(set(self.current_results()), {'1/2023', '2/2023'})
 ```
 
-- [ ] Testar merge incremental e helper `current_results` lendo ponteiro/publicação; confirmar RED.
+- [x] Testar merge incremental e helper `current_results` lendo ponteiro/publicação; confirmar RED.
 - [x] Refatorar `Sync-TceProcessManifest` em planejamento de documentos, download e commit, mantendo wrapper compatível. Runspaces limitados executam apenas downloader; coordenador único faz hash/dedup/versões/checkpoint.
-- [ ] Capturar ordem da listagem antes de filtrar seleção. Prioridade: títulos alvo após evento1, genéricos após evento1, outros documentos, capas. Não eliminar genéricos por título nem parar depois do primeiro alvo.
+- [x] Capturar ordem da listagem antes de filtrar seleção. Prioridade: títulos alvo após evento1, genéricos após evento1, outros documentos, capas. Não eliminar genéricos por título nem parar depois do primeiro alvo.
 - [x] Sessões/URLs autenticadas só em memória dos workers; nenhum spool ou log com token. Em 401/403 suspender e pedir login; 429 respeita Retry-After, reduz a um download; máximo três tentativas para falhas transitórias. HTTP400 documental permanece erro explícito sem retry infinito.
-- [ ] Após arquivo validado, emitir evento local sanitizado para análise. Um worker OCR; evitar duas escritas simultâneas do cache-ocr. Publicar por processo quando houver resultado novo, com estado preparando enquanto varredura continua.
-- [ ] No modo completo, não abrir mesa automaticamente até término; em falha terminal, abrir resultado parcial somente com indicação clara. No progressivo, abrir com primeiro resultado e atualizar sem resetar documento/zoom do usuário.
-- [ ] Publicação: montar revisão em diretório temporário, validar datasets, mover snapshot e trocar ponteiro atomicamente. Leitor fixa revisão por leitura. HTML/JSON estáticos atualizados ao finalizar ou empacotar.
-- [ ] Assinatura de retomada inclui hashes de entrada e versão de extração; nunca declarar atualizado só porque existe checkpoint. Guardar alternativas surgidas depois sem modificar o formulário atual.
-- [ ] Gate: dois workers sem perda de registros, retomada após kill, dedup entre processos, versão modificada, arquivo inválido, título genérico, evento repetido, autenticação expirada e resultados equivalentes entre modos.
+- [x] Após arquivo validado, emitir evento local sanitizado para análise. Um worker OCR; evitar duas escritas simultâneas do cache-ocr. Publicar por processo quando houver resultado novo, com estado preparando enquanto varredura continua.
+- [x] No modo completo, não abrir mesa automaticamente até término; em falha terminal, abrir resultado parcial somente com indicação clara. No progressivo, abrir com primeiro resultado e atualizar sem resetar documento/zoom do usuário.
+- [x] Publicação: montar revisão em diretório temporário, validar datasets, mover snapshot e trocar ponteiro atomicamente. Leitor fixa revisão por leitura. HTML/JSON estáticos atualizados ao finalizar ou empacotar.
+- [x] Assinatura de retomada inclui hashes de entrada e versão de extração; nunca declarar atualizado só porque existe checkpoint. Guardar alternativas surgidas depois sem modificar o formulário atual.
+- [x] Gate: dois workers sem perda de registros, retomada após kill, dedup entre processos, versão modificada, arquivo inválido, título genérico, evento repetido, autenticação expirada e resultados equivalentes entre modos.
 
 **Commit:** `feat: prepare process results incrementally with bounded downloads`.
 
@@ -308,14 +308,14 @@ def test_transfer_excludes_pairing_but_keeps_progress(self):
         self.assertFalse(any('dados-locais/' in name for name in names))
 ```
 
-- [ ] Criar fixture de pacote mínimo a partir dos helpers de teste existentes; executar `python -m unittest test_prepare_transfer` RED.
-- [ ] Atualizar `EXTENSION_FILE_ALLOWLIST` para bridge-client e demais assets aprovados; atualizar fontes copiadas para `app`, assets vendor e licenças. Não confiar só na pasta de desenvolvimento.
-- [ ] Snapshot inclui progresso e revisão coerentes; não apagar dados para economizar espaço.
+- [x] Criar fixture de pacote mínimo a partir dos helpers de teste existentes; executar `python -m unittest test_prepare_transfer` RED.
+- [x] Atualizar `EXTENSION_FILE_ALLOWLIST` para bridge-client e demais assets aprovados; atualizar fontes copiadas para `app`, assets vendor e licenças. Não confiar só na pasta de desenvolvimento.
+- [x] Snapshot inclui progresso e revisão coerentes; não apagar dados para economizar espaço.
 - [x] Bloquear novas escritas durante fechamento/exportação com lease compartilhado e liberar a operação em `finally` se o empacotamento falhar.
-- [ ] Excluir autenticação, browser profiles, bridge state, .part, backups e logs privados. ZIP novo em destino distinto, sem overwrite silencioso.
-- [ ] Auditoria exige arquivos novos, hashes PDF/progresso/JSON, referências resolvíveis e CRC. Processo parcial permitido com relatório; capa faltante não reprova pacote.
+- [x] Excluir autenticação, browser profiles, bridge state, .part, backups e logs privados. ZIP novo em destino distinto, sem overwrite silencioso.
+- [x] Auditoria exige arquivos novos, hashes PDF/progresso/JSON, referências resolvíveis e CRC. Processo parcial permitido com relatório; capa faltante não reprova pacote.
 - [ ] Extrair ZIP em pasta nova com espaços/acentos. Iniciar sem Python/Node no PATH; instalar extensão unpacked do ZIP; parear novamente; verificar ordem e conclusão conservadas.
-- [ ] Atualizar README e guias HTML/Markdown com os dois modos, bloqueios de PCs restritos, transporte, modo manual e significado de conclusão. Nenhuma instrução de PATH manual obrigatório.
+- [x] Atualizar README e guias HTML/Markdown com os dois modos, bloqueios de PCs restritos, transporte, modo manual e significado de conclusão. Nenhuma instrução de PATH manual obrigatório.
 
 **Commit:** `feat: package consistent portable workflow snapshots`.
 
@@ -324,14 +324,14 @@ def test_transfer_excludes_pairing_but_keeps_progress(self):
 **Criar:** `E/test_integrated_workflow.py`, `E/qa_integrated_workflow.py`; relatório em `docs/notes` sem dados pessoais.
 **Reutilizar:** `E/test_qa_extension_runtime.py`, `E/test_extension_browser.py`, fixtures `E/tests/fixtures/complementar-ato-*.html`.
 
-- [ ] RED para preenchimento com identidade alterada entre prévia e clique; criar cenário antes de corrigir eventual regressão.
-- [ ] Executar todos os testes JS/Python/PowerShell do baseline, além dos novos. Contabilizar skips; nenhum skip de OCR/bridge pode ser tratado como validação dessa funcionalidade.
+- [x] RED para preenchimento com identidade alterada entre prévia e clique; criar cenário antes de corrigir eventual regressão.
+- [x] Executar todos os testes JS/Python/PowerShell do baseline, além dos novos. Contabilizar skips; nenhum skip de OCR/bridge pode ser tratado como validação dessa funcionalidade.
 - [ ] QA em Chrome separado: usuário autentica; agente abre somente telas de leitura e formulário autorizado. Testar preenchimento em fixture primeiro. Em portal real, nunca clicar no envio/finalização e nunca recarregar formulário com edição pendente.
 - [ ] Verificar HTML noutra janela acompanhando processo/interessado em até 2s, pause/resume, dois PDFs em abas, zoom/rotação, todos os sete links de evidência e marca Concluído sem navegar.
 - [ ] Comparar os mesmos 20 processos/baseline: primeiro resultado, tempo de preparação, OCR reutilizado, mediana/p95 de sincronização e cliques. Registrar hardware/rede/modo; não prometer processos/hora com base em tempo de máquina.
 - [ ] Meta: seleção duplicada zero; clique Preencher único por aplicação; nenhum envio; 100% das fontes resolvem o documento/hash/página correto ou mostram ausência explícita. p95 sincronização <=2s no ambiente registrado.
 - [ ] Repetir QA sobre ZIP extraído, não apenas source tree. Testar serviço bloqueado e fallback; teste em segundo PC real requer usuário se não houver acesso.
-- [ ] Documentar limites, falhas de documentos e testes não executados. Se gate falhar, entregar como candidato, não release validada.
+- [x] Documentar limites, falhas de documentos e testes não executados. Se gate falhar, entregar como candidato, não release validada.
 - [ ] Commit final, verificar remoto, push somente se houver destino autorizado e sem dados privados. Não criar/publicar remoto automaticamente.
 
 ## 5. Sequência, revisão e rollback

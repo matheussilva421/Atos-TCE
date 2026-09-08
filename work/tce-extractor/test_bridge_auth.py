@@ -45,6 +45,18 @@ class BridgeAuthTests(unittest.TestCase):
         with self.assertRaises(BridgeAuthError):
             auth.redeem(code, "chrome-extension://test-extension")
 
+    def test_pairing_rejects_chrome_extension_url_decorations(self):
+        for origin in (
+            "chrome-extension://test-extension?query=1",
+            "chrome-extension://test-extension#fragment",
+            "chrome-extension://user@test-extension",
+            "chrome-extension://test-extension:443",
+        ):
+            auth = BridgeAuth()
+            code = auth.issue_pairing_code()
+            with self.assertRaises(BridgeAuthError):
+                auth.redeem(code, origin)
+
 
 if __name__ == "__main__":
     unittest.main()

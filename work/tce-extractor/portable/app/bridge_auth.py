@@ -17,7 +17,22 @@ def _is_extension_origin(origin: str) -> bool:
     if not isinstance(origin, str) or not origin or origin == "null":
         return False
     parsed = urlsplit(origin)
-    return parsed.scheme == "chrome-extension" and bool(parsed.netloc) and not parsed.path
+    try:
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "chrome-extension"
+        and bool(hostname)
+        and parsed.netloc == hostname
+        and port is None
+        and parsed.username is None
+        and parsed.password is None
+        and not parsed.path
+        and not parsed.query
+        and not parsed.fragment
+    )
 
 
 @dataclass

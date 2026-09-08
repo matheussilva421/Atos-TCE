@@ -261,7 +261,13 @@ def _portal_process_keys(root: Path) -> list[str] | None:
     if not order_path.is_file():
         return None
     order = _read_json(order_path)
-    if order.get("schema_version") != 1 or not isinstance(order.get("process_keys"), list):
+    if (
+        type(order.get("schema_version")) is not int
+        or order.get("schema_version") != 1
+        or not isinstance(order.get("captured_at"), str)
+        or not order["captured_at"].strip()
+        or not isinstance(order.get("process_keys"), list)
+    ):
         raise ValueError(f"ordem do portal inválida: {order_path}")
     process_keys: list[str] = []
     seen: set[str] = set()

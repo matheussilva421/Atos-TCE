@@ -84,7 +84,16 @@ EXCLUDED_DIRECTORIES = frozenset(
     {
         "dados-locais",
         "backups-acervo",
+        "backups",
         "downloads",
+        "auth",
+        "authentication",
+        "credentials",
+        "logs",
+        "log",
+        "profile",
+        "profiles",
+        "bridge",
         "__pycache__",
         ".pytest_cache",
         ".git",
@@ -301,6 +310,14 @@ def build_complete_zip(
         raise ValueError("distribution deve ser public ou private")
     if not source_root.is_dir():
         raise FileNotFoundError(f"Pasta portátil não existe: {source_root}")
+    try:
+        destination.relative_to(source_root)
+    except ValueError:
+        pass
+    else:
+        raise ValueError(
+            "destino do ZIP deve ser distinto e ficar fora da pasta portátil de origem"
+        )
     if destination.exists() and not force:
         raise FileExistsError(f"ZIP já existe: {destination}")
     if distribution == "private":
@@ -356,6 +373,10 @@ def build_complete_zip(
                         counts["events"] += 1
                     if path.suffix.casefold() == ".pdf":
                         counts["pdfs"] += 1
+            with zipfile.ZipFile(temporary, mode="r", allowZip64=True) as verification:
+                bad_member = verification.testzip()
+                if bad_member is not None:
+                    raise ValueError(f"CRC inválido no membro do ZIP: {bad_member}")
             _replace_with_retry(temporary, destination)
         except Exception:
             temporary.unlink(missing_ok=True)
@@ -366,6 +387,7 @@ def build_complete_zip(
         "zip": str(destination),
         "bytes": destination.stat().st_size,
         "sha256": _sha256(destination),
+        "crc_ok": True,
     }
 
 

@@ -198,6 +198,7 @@ export function createPanelApp({
     bridgePollDelay: 500,
     bridgeSequence: 0,
     bridgeContext: null,
+    refreshGeneration: 0,
     message: "",
     listenersInstalled: false,
   };
@@ -367,8 +368,8 @@ export function createPanelApp({
     return payload;
   }
 
-  async function publishBridgeSelection(snapshot, identity) {
-    if (!state.bridgeClient) return;
+  async function publishBridgeSelection(snapshot, identity, refreshGeneration = state.refreshGeneration) {
+    if (!state.bridgeClient || refreshGeneration !== state.refreshGeneration) return;
     const context = snapshot?.bridgeContext;
     if (!context || !Number.isInteger(context.tab_id) || !Number.isInteger(context.frame_id)) {
       setBridgeStatus("Ponte conectada, mas a aba/frame atual não foi identificado.", true);
@@ -376,27 +377,36 @@ export function createPanelApp({
     }
     state.bridgeSequence += 1;
     state.bridgeContext = context;
+    const bridgeClient = state.bridgeClient;
+    const sequence = state.bridgeSequence;
     try {
-      const result = await state.bridgeClient.publishSelection({
+      await bridgeClient.publishSelection({
         process_key: identity.processKey,
         interested_normalized: identity.interestedNormalized,
         tab_id: context.tab_id,
         frame_id: context.frame_id,
-        sequence: state.bridgeSequence,
+        sequence,
       });
-      if (typeof state.bridgeClient.getState === "function") {
+      if (refreshGeneration !== state.refreshGeneration || state.bridgeClient !== bridgeClient) return;
+      if (typeof bridgeClient.getState === "function") {
         try {
-          const current = await state.bridgeClient.getState();
-          state.bridgeRevision = Number.isInteger(current?.revision) ? current.revision : null;
+          const current = await bridgeClient.getState();
+          if (refreshGeneration === state.refreshGeneration && state.bridgeClient === bridgeClient) {
+            state.bridgeRevision = Number.isInteger(current?.revision) ? current.revision : null;
+          }
         } catch {
-          state.bridgeRevision = null;
+          if (refreshGeneration === state.refreshGeneration && state.bridgeClient === bridgeClient) state.bridgeRevision = null;
         }
-      } else {
+      } else if (refreshGeneration === state.refreshGeneration && state.bridgeClient === bridgeClient) {
         state.bridgeRevision = null;
       }
-      setBridgeStatus("Mesa local acompanhando a seleção atual.");
+      if (refreshGeneration === state.refreshGeneration && state.bridgeClient === bridgeClient) {
+        setBridgeStatus("Mesa local acompanhando a seleção atual.");
+      }
     } catch (error) {
-      setBridgeStatus(`Mesa local desconectada: ${error instanceof Error ? error.message : String(error)}`, true);
+      if (refreshGeneration === state.refreshGeneration && state.bridgeClient === bridgeClient) {
+        setBridgeStatus(`Mesa local desconectada: ${error instanceof Error ? error.message : String(error)}`, true);
+      }
     }
   }
 
@@ -408,7 +418,7 @@ export function createPanelApp({
       if (!Number.isInteger(revision) || revision < 0) throw new Error("revisão do dataset inválida");
       if (!force && Number.isInteger(state.bridgeDatasetRevision) && revision <= state.bridgeDatasetRevision) return false;
       await validateDataset(envelope?.dataset);
-      const imported = await send(MESSAGE_TYPES.IMPORT_DATASET, { dataset: envelope.dataset });
+      const imported = await send(MESSAGE_TYPES.IMPORT_DATASET, { dataset: envelope.dataset, preserveReviewed: true });
       if (!imported?.ok) throw new Error(responseFailure(imported, "dataset incremental rejeitado"));
       const hadIdentity = Boolean(state.snapshot?.process?.key && state.snapshot?.interested);
       state.dataset = envelope.dataset;
@@ -532,7 +542,8 @@ export function createPanelApp({
     render();
   }
 
-  async function resolveSnapshot(snapshot) {
+  async function resolveSnapshot(snapshot, refreshGeneration = state.refreshGeneration) {
+    if (refreshGeneration !== state.refreshGeneration) return false;
     state.snapshot = snapshot;
     const identity = identityFromSnapshot(snapshot);
     if (!snapshot?.process?.key || !state.dataset.batch.process_keys.includes(snapshot.process.key)) {
@@ -559,6 +570,7 @@ export function createPanelApp({
     }
     try {
       const payload = await getMatch(snapshot);
+      if (refreshGeneration !== state.refreshGeneration) return false;
       state.record = payload.record;
       state.rows = createRows(payload.record, snapshot, payload.matches);
       state.reviewed = payload.reviewed === true;
@@ -574,9 +586,10 @@ export function createPanelApp({
         : "Prévia pronta.";
       elements["identity-status"].textContent = `Processo ${identity.processKey} · Interessado: ${snapshot.interested.original}.`;
       render();
-      await publishBridgeSelection(snapshot, identity);
+      await publishBridgeSelection(snapshot, identity, refreshGeneration);
       return true;
     } catch (error) {
+      if (refreshGeneration !== state.refreshGeneration) return false;
       setBlocking(PANEL_STATES.INTERESTED_NOT_FOUND, "Registro atual não foi encontrado no lote.", `Interessado: ${text(snapshot.interested.original)}.`);
       setMessage(error instanceof Error ? error.message : String(error), true);
       render();
@@ -585,6 +598,8 @@ export function createPanelApp({
   }
 
   async function refresh() {
+    const refreshGeneration = state.refreshGeneration + 1;
+    state.refreshGeneration = refreshGeneration;
     if (!state.dataset) {
       state.kind = PANEL_STATES.NO_DATASET;
       state.result = null;
@@ -593,8 +608,10 @@ export function createPanelApp({
     }
     try {
       const snapshot = await getSnapshot();
-      return await resolveSnapshot(snapshot);
+      if (refreshGeneration !== state.refreshGeneration) return false;
+      return await resolveSnapshot(snapshot, refreshGeneration);
     } catch (error) {
+      if (refreshGeneration !== state.refreshGeneration) return false;
       state.snapshot = null;
       setBlocking(PANEL_STATES.INCOMPATIBLE_SCREEN, "Tela incompatível: formulário Complementar Ato não detectado.");
       setMessage(error instanceof Error ? error.message : String(error), true);

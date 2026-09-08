@@ -117,6 +117,31 @@ class PrepareTransferTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 prepare_transfer(root / "missing-package", destination)
 
+    def test_transfer_rejects_destination_inside_package(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _fixture_zip, _fixture = _build_fixture_zip(root)
+            package = root / "source-package"
+            destination = package / "exports" / "transfer.zip"
+
+            with self.assertRaises(ValueError):
+                prepare_transfer(package, destination)
+
+            self.assertFalse(destination.exists())
+
+    def test_transfer_requires_a_coherent_progress_snapshot(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _fixture_zip, _fixture = _build_fixture_zip(root)
+            package = root / "source-package"
+            (package / "acervo-tce" / "progresso.json").write_text(
+                '{"schema_version":1,"revision":"broken","processes":{}}',
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "progress"):
+                prepare_transfer(package, root / "transfer.zip")
+
 
 if __name__ == "__main__":
     unittest.main()

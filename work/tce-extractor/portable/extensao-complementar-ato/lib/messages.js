@@ -86,8 +86,15 @@ function validatePayload(type, payload) {
       exactKeys(payload, [], "GET_FORM_SNAPSHOT payload");
       break;
     case MESSAGE_TYPES.IMPORT_DATASET:
-      exactKeys(payload, ["dataset"], "IMPORT_DATASET payload");
+      exactKeys(
+        payload,
+        Object.hasOwn(payload, "preserveReviewed") ? ["dataset", "preserveReviewed"] : ["dataset"],
+        "IMPORT_DATASET payload",
+      );
       if (!isRecord(payload.dataset)) invalid("IMPORT_DATASET dataset must be an object");
+      if (Object.hasOwn(payload, "preserveReviewed") && typeof payload.preserveReviewed !== "boolean") {
+        invalid("IMPORT_DATASET preserveReviewed must be a boolean");
+      }
       break;
     case MESSAGE_TYPES.GET_MATCH:
       exactKeys(payload, ["processKey", "interestedNormalized", "options"], "GET_MATCH payload");

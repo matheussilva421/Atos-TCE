@@ -507,6 +507,80 @@ test("optionally pairs with the local mesa and publishes the current selection w
   assert.equal(documentRef.getElementById("fill-button").disabled, false);
 });
 
+test("rapid refreshes publish only the newest tab identity with increasing sequences", async () => {
+  const first = await makeDataset({ processKey: "103439/2023", interested: "Maria de Souza" });
+  const second = await makeDataset({ processKey: "103440/2023", interested: "Ana de Souza" });
+  const dataset = structuredClone(first);
+  dataset.batch = {
+    ...dataset.batch,
+    id: "batch-two-processes",
+    process_count: 2,
+    record_count: 2,
+    process_keys: [first.batch.process_keys[0], second.batch.process_keys[0]],
+  };
+  dataset.records = [first.records[0], second.records[0]];
+  dataset.batch.logical_sha256 = await computeLogicalSha256(dataset);
+
+  let snapshotCall = 0;
+  let rejectStale;
+  let releaseCurrent;
+  const staleSnapshot = new Promise((_resolveSnapshot, rejectSnapshot) => { rejectStale = rejectSnapshot; });
+  const currentSnapshot = new Promise((resolveSnapshot) => { releaseCurrent = resolveSnapshot; });
+  const selections = [];
+  const storage = makeStorageArea({
+    [STORAGE_KEYS.DATASET]: dataset,
+    [STORAGE_KEYS.BRIDGE_BASE_URL]: "http://127.0.0.1:18743",
+    [STORAGE_KEYS.BRIDGE_TOKEN]: "session-token",
+  });
+  const chromeApi = {
+    storage: { local: storage, session: storage },
+    runtime: {
+      async sendMessage(message) {
+        if (message.type === MESSAGE_TYPES.GET_FORM_SNAPSHOT) {
+          if (snapshotCall++ === 0) {
+            return { ok: true, payload: snapshot({ bridgeContext: { tab_id: 7, frame_id: 12 } }) };
+          }
+          return snapshotCall === 2
+            ? staleSnapshot.then((payload) => ({ ok: true, payload }))
+            : currentSnapshot.then((payload) => ({ ok: true, payload }));
+        }
+        if (message.type === MESSAGE_TYPES.GET_MATCH) {
+          const record = dataset.records.find((candidate) => candidate.process.key === message.payload.processKey);
+          return { ok: true, payload: { record, matches: fullMatches(), reviewed: false } };
+        }
+        throw new Error(`unexpected message ${message.type}`);
+      },
+    },
+  };
+  const app = createPanelApp({
+    documentRef: buildPanelDocument(),
+    chromeApi,
+    bridgeClientFactory: () => ({
+      async publishSelection(selection) { selections.push(selection); return { accepted: true, revision: selections.length }; },
+      async getState() { return { revision: selections.length }; },
+    }),
+  });
+  await app.init();
+
+  const staleRefresh = app.refresh();
+  const currentRefresh = app.refresh();
+  releaseCurrent(snapshot({
+    processKey: "103440/2023",
+    interested: { original: "Ana de Souza", normalized: "ana de souza" },
+    bridgeContext: { tab_id: 7, frame_id: 12 },
+    options: currentOptions(),
+  }));
+  assert.equal(await currentRefresh, true);
+  rejectStale(new Error("stale snapshot failed"));
+  assert.equal(await staleRefresh, false);
+
+  assert.equal(app.getState().previewIdentity.processKey, "103440/2023");
+  assert.deepEqual(selections.map(({ process_key, sequence }) => ({ process_key, sequence })), [
+    { process_key: "103439/2023", sequence: 1 },
+    { process_key: "103440/2023", sequence: 2 },
+  ]);
+});
+
 test("bridge dataset refresh updates the current panel without applying fields", async () => {
   const initial = await makeDataset();
   const updated = await makeDataset({ interested: "Maria Atualizada" });
@@ -532,6 +606,8 @@ test("bridge dataset refresh updates the current panel without applying fields",
   currentRevision = 2;
   await app.syncBridgeDataset();
   assert.equal(app.getState().dataset.records[0].interested.original, "Maria Atualizada");
+  const incrementalImport = chromeApi.calls.find((message) => message.type === MESSAGE_TYPES.IMPORT_DATASET);
+  assert.equal(incrementalImport.payload.preserveReviewed, true);
   assert.equal(chromeApi.calls.some((message) => message.type === MESSAGE_TYPES.APPLY_FIELDS), false);
   assert.equal(documentRef.getElementById("fill-button").disabled, true);
 });

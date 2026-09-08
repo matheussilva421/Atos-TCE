@@ -122,6 +122,10 @@ def _build_fixture_zip(root: Path) -> tuple[Path, dict[str, object]]:
     (archive / "dados-complementar-ato.json").write_text(
         '{"records":[]}', encoding="utf-8"
     )
+    (archive / "progresso.json").write_text(
+        '{"schema_version":1,"revision":0,"processes":{}}',
+        encoding="utf-8",
+    )
     resolution_text = (
         "RESOLUCAO ADMINISTRATIVA N 1, DE 01 DE JANEIRO DE 2000.\n"
         "Concede aposentadoria voluntaria por tempo de contribuicao.\n"
@@ -268,6 +272,23 @@ class PortableEndToEndTests(unittest.TestCase):
                     sys.modules.pop(name, None)
                 sys.modules.update(saved_modules)
                 sys.path[:] = previous
+
+    def test_zip_crc_and_extraction_survive_unicode_destination_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture_zip, _fixture = _build_fixture_zip(root)
+            extraction_root = root / "extração com acentuação e espaços"
+
+            with zipfile.ZipFile(fixture_zip) as archive:
+                self.assertIsNone(archive.testzip())
+                archive.extractall(extraction_root)
+
+            self.assertTrue(
+                (extraction_root / "acervo-tce" / "dados-complementar-ato.json").is_file()
+            )
+            self.assertTrue(
+                (extraction_root / "acervo-tce" / "processos" / "fixture-process").is_dir()
+            )
 
 
 if __name__ == "__main__":

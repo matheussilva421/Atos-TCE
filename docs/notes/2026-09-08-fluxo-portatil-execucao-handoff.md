@@ -2,6 +2,8 @@
 
 ## Estado atual
 
+Atualização de 08/09/2026: três subagentes Luna xhigh fizeram auditoria separada de bridge/estado, serviço e empacotamento. O agente principal revisou os diffs, corrigiu a liberação do lock no encerramento do serviço, o fallback manual em falha de porta e a transformação geométrica nativa para CropBox/rotação. O source da extensão foi reempacotado como v5; este handoff permanece candidato integrado até os gates externos.
+
 Implementação local do plano `docs/notes/2026-09-08-fluxo-portatil-plano-implementacao.md` avançada até um candidato integrado. O checkout continua em `main`; a última etapa local adiciona retry/autenticação sanitizados à coleta, documentada também em `docs/notes/2026-09-08-retry-autenticacao-coleta-handoff.md`. Não há push por falta de remoto `origin`. Não houve login, coleta real, envio de ato, instalação no Chrome, alteração de acervo pessoal ou exclusão de arquivos.
 
 O fluxo mantém a separação aprovada:
@@ -80,9 +82,9 @@ Criados `qa_integrated_workflow.py` e `test_integrated_workflow.py`. O relatóri
 
 | Gate | Resultado |
 |---|---:|
-| `node --test` em `portable/extensao-complementar-ato` | 118 pass, 0 falhas, 0 skips |
+| `node --test` em `portable/extensao-complementar-ato` | 124 pass, 0 falhas, 0 skips |
 | `node --test` em `portable/app/web` | 4 pass, 0 falhas |
-| `python -m unittest discover -s . -p 'test_*.py' -q` | 254 pass, 0 falhas, 3 skips |
+| `python -m unittest discover -s . -p 'test_*.py' -q` | 276 pass, 0 falhas, 5 skips |
 | pacote/auditoria/end-to-end + transferência quiescente | 47 pass, 0 falhas, 2 skips |
 | `tests/Test-TcePortable.ps1` | 114 pass, 0 falhas |
 | `tests/Test-PortableMenu.ps1` | 74 pass, 0 falhas |
@@ -95,6 +97,7 @@ Criados `qa_integrated_workflow.py` e `test_integrated_workflow.py`. O relatóri
 | `test_extension_zip_packager.py` + empacotamento oficial | 1 pass; 11 arquivos, CRC verificado |
 | smoke Chrome contra ZIP v4 oficial extraído | pass; Chrome 145; 7 linhas, persistência após restart, controles protegidos intactos |
 | `empacotar-extensao-complementar-ato.ps1` | ZIP v4 reproduzível; 11 arquivos; SHA-256 `8B0BBBA8131EA1D9B8156AAC60D374A85ED1D16D2AF1B55C77D1809ADCF61E46` |
+| `empacotar-extensao-complementar-ato.ps1` após a auditoria final | ZIP v5 reproduzível; 11 arquivos; SHA-256 `4CA334FECA7483B44429C12C6A6DFAAB126202F03D64F3296B3463F33B019E98` |
 | `test_review_live_browser.py` | seleção publicada, pausa/retomada e entrega em menos de 2 s; 1 pass |
 
 O handoff de retry/autenticação registra também três repetições do teste PowerShell (114/114), sem acesso ao portal real. O contrato mantém tokens fora de erros, resultados e checkpoints; a parada é cooperativa e deixa requests já iniciados terminarem.
@@ -125,11 +128,18 @@ Versão reproduzível pelo empacotador oficial:
 - gerado por `work/tce-extractor/empacotar-extensao-complementar-ato.ps1`; 11 entradas allowlisted, sem `package.json`, testes ou documentação.
 - handoff específico: `docs/notes/2026-09-08-extensao-complementar-ato-empacotamento-v4-handoff.md`.
 
+Versão atual após a auditoria do bridge, serviço e preservação de `Revisado`:
+
+- ZIP: `C:\Users\slvma\Downloads\Github\Complementação de Atos\artifacts\extensao-complementar-ato-2026-09-08-v5.zip`
+- tamanho: 34.364 bytes; 11 entradas; CRC verificado
+- SHA-256: `4CA334FECA7483B44429C12C6A6DFAAB126202F03D64F3296B3463F33B019E98`
+- handoff específico: `docs/notes/2026-09-08-bridge-servico-geometria-empacotamento-handoff.md`.
+
 O ZIP anterior foi preservado em `artifacts/extensao-complementar-ato-2026-09-08.zip`.
 
 ## Auditoria de montagens antigas
 
-Foi executado `python portable/app/package_audit.py staging-final --distribution private` apenas em leitura. A montagem histórica `staging-final` foi reprovada por conter `downloads/` privados, referências de PyMuPDF ausentes/divergentes e ausência de `acervo-tce/dados-complementar-ato.json`; ela não é o ZIP v4, não foi corrigida nem removida. O ZIP v4 da extensão foi auditado separadamente e passou: 11 entradas, 0 fora de `extensao-complementar-ato/`, seguido de smoke Chrome após extração.
+Foi executado `python portable/app/package_audit.py staging-final --distribution private` apenas em leitura. A montagem histórica `staging-final` foi reprovada por conter `downloads/` privados, referências de PyMuPDF ausentes/divergentes e ausência de `acervo-tce/dados-complementar-ato.json`; ela não é o ZIP v4/v5, não foi corrigida nem removida. O ZIP v5 da extensão foi auditado separadamente e passou: 11 entradas, 0 fora de `extensao-complementar-ato/`, CRC válido e teste do empacotador verde. O smoke Chrome do ZIP v4 continua sendo a última evidência de navegador extraído; o v5 ainda não teve smoke em Chrome.
 
 ## GitHub / retomada
 
@@ -148,4 +158,4 @@ Pendências reais para chamar de release validada:
 3. obter autorização humana para segundo PC, se esse gate for necessário.
 4. validar em ambiente restrito a retomada após 401/403 e o comportamento do ZIP extraído sem Python/Node no `PATH`.
 
-Para continuar: executar os gates supervisionados acima, validar o ZIP v4 pelo empacotador oficial, e só então preparar push quando um remoto autorizado existir. A API de transferência usa recusa segura em vez de drenagem formal do coordenador; essa limitação permanece documentada. Rechecar `git status` antes de retomar.
+Para continuar: executar os gates supervisionados acima, considerar o v5 como artefato correspondente ao source atual, e só então preparar push quando um remoto autorizado existir. A API de transferência usa recusa segura em vez de drenagem formal do coordenador; essa limitação permanece documentada. Rechecar `git status` antes de retomar.

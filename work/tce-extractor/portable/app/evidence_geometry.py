@@ -37,6 +37,30 @@ def _normalise_rect(rect: Sequence[object], page_width: float, page_height: floa
     ]
 
 
+def _display_rect(
+    rect: Sequence[object], *, width: float, height: float, rotation: int
+) -> list[float] | None:
+    """Map a crop-box-relative PDF rect into the displayed page coordinates."""
+    if len(rect) != 4 or width <= 0 or height <= 0:
+        return None
+    try:
+        x0, y0, x1, y1 = (float(value) for value in rect)
+    except (TypeError, ValueError):
+        return None
+    if x1 < x0 or y1 < y0:
+        return None
+    angle = int(rotation) % 360
+    if angle == 0:
+        return [x0, y0, x1, y1]
+    if angle == 90:
+        return [height - y1, x0, height - y0, x1]
+    if angle == 180:
+        return [width - x1, height - y1, width - x0, height - y0]
+    if angle == 270:
+        return [y0, width - x1, y1, width - x0]
+    return [x0, y0, x1, y1]
+
+
 def locate_evidence(
     words: Sequence[Mapping[str, object]],
     quote: str,
@@ -130,11 +154,19 @@ def read_page_words(pdf, page_number: int, *, tesseract, tessdata) -> dict:
     try:
         page = document.load_page(page_number)
         width, height = float(page.rect.width), float(page.rect.height)
+        crop_width, crop_height = float(page.cropbox.width), float(page.cropbox.height)
+        rotation = int(page.rotation) % 360
         native = []
         for item in page.get_text("words"):
             if len(item) < 5 or not str(item[4]).strip():
                 continue
-            rect = _normalise_rect(item[:4], width, height)
+            display_rect = _display_rect(
+                item[:4],
+                width=crop_width,
+                height=crop_height,
+                rotation=rotation,
+            )
+            rect = _normalise_rect(display_rect or [], width, height)
             if rect is not None:
                 native.append({"text": str(item[4]), "rect": rect, "method": "native"})
         text = page.get_text("text")
@@ -147,7 +179,7 @@ def read_page_words(pdf, page_number: int, *, tesseract, tessdata) -> dict:
             "page": page_number,
             "width": width,
             "height": height,
-            "rotation": int(page.rotation),
+            "rotation": rotation,
             "coordinates": "normalized",
             "text": text,
             "words": words,

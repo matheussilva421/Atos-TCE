@@ -209,6 +209,100 @@ class CompleteArchivePackageTests(unittest.TestCase):
                 any(name.startswith("tce-processos-completo-portatil/") for name in names)
             )
 
+    def test_excludes_auth_profiles_bridge_parts_backups_and_logs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "portable"
+            destination = root / "pacote.zip"
+            self._make_auditable_package(source, private=True)
+            forbidden = {
+                "auth/session.json": b"session",
+                "profiles/Default/Cookies": b"cookies",
+                "dados-locais/bridge/service.json": b"bridge",
+                "logs/transfer.log": b"log",
+                "backups-acervo/old.json": b"backup",
+                "acervo-tce/processos/fixture/document.pdf.part": b"partial",
+            }
+            for relative, contents in forbidden.items():
+                path = source / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(contents)
+
+            build_complete_zip(source, destination, distribution="private")
+
+            with zipfile.ZipFile(destination) as package:
+                names = set(package.namelist())
+            for relative in forbidden:
+                self.assertNotIn(relative.replace("\\", "/"), names)
+
+    def test_rejects_destination_inside_source_tree(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "portable"
+            self._make_auditable_package(source, private=True)
+            destination = source / "exports" / "pacote.zip"
+
+            with self.assertRaises(ValueError):
+                build_complete_zip(source, destination, distribution="private")
+
+            self.assertFalse(destination.exists())
+
+    def test_reports_crc_verification_for_created_zip(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "portable"
+            destination = root / "pacote.zip"
+            self._make_auditable_package(source, private=True)
+
+            stats = build_complete_zip(source, destination, distribution="private")
+
+            self.assertTrue(stats["crc_ok"])
+            with zipfile.ZipFile(destination) as package:
+                self.assertIsNone(package.testzip())
+
+    def test_rejects_incoherent_progress_snapshot(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "portable"
+            destination = root / "pacote.zip"
+            self._make_auditable_package(source, private=True)
+            (source / "acervo-tce" / "progresso.json").write_text(
+                json.dumps({"schema_version": 1, "revision": "stale", "processes": {}}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "progress"):
+                build_complete_zip(source, destination, distribution="private")
+
+            self.assertFalse(destination.exists())
+
+    def test_rejects_unresolved_archive_document_reference(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "portable"
+            destination = root / "pacote.zip"
+            self._make_auditable_package(source, private=True)
+            metadata = source / "acervo-tce" / "processos" / "ação" / "evento.json"
+            metadata.parent.mkdir(parents=True)
+            metadata.write_text(
+                json.dumps(
+                    {
+                        "documents": [
+                            {
+                                "path": "processos/ação/documento-ausente.pdf",
+                                "sha256": "0" * 64,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "reference_missing"):
+                build_complete_zip(source, destination, distribution="private")
+
+            self.assertFalse(destination.exists())
+
     def test_does_not_overwrite_without_force(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

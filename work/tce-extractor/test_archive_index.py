@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -213,6 +214,47 @@ class ArchiveIndexTests(unittest.TestCase):
             self.assertIsNone(document["sha256"])
             self.assertEqual(document["status"], "missing")
             self.assertNotIn("url", json.dumps(index).lower())
+
+    def test_scan_archive_rejects_corrupt_persisted_order_metadata(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            archive = make_archive(
+                Path(temporary),
+                layout="new",
+                events=[{"event": 1, "event_id": 9001, "files": []}],
+            )
+            (archive / "ordem-portal.json").write_text(
+                json.dumps({"schema_version": 1, "captured_at": "", "process_keys": []}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(ValueError):
+                scan_archive(archive)
+
+    def test_scan_archive_does_not_index_pdf_through_internal_reparse_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            archive = make_archive(
+                Path(temporary),
+                layout="new",
+                events=[{"event": 1, "event_id": 9001, "files": [("real.pdf", b"payload")]}],
+            )
+            event_dir = archive / "processos" / "103439-2023" / "evento-0001-9001"
+            alias = event_dir / "alias.pdf"
+            real = event_dir / "real.pdf"
+            try:
+                os.symlink(real, alias)
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"ambiente sem criação de symlink: {exc}")
+            event_json = event_dir / "evento.json"
+            event = json.loads(event_json.read_text(encoding="utf-8"))
+            event["documents"][0]["path"] = alias.relative_to(archive).as_posix()
+            event_json.write_text(json.dumps(event), encoding="utf-8")
+
+            index = scan_archive(archive)
+
+            document = index["processes"][0]["events"][0]["documents"][0]
+            self.assertIsNone(document["relative_path"])
+            self.assertIsNone(document["sha256"])
+            self.assertEqual(document["status"], "missing")
 
 
 if __name__ == "__main__":

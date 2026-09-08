@@ -109,13 +109,13 @@ def _current_publication_dataset(root: Path) -> tuple[int, Path] | None:
         pointer = _read_object(pointer_path)
         revision = pointer.get("revision")
         if type(revision) is not int or revision < 1:
-            return None
+            raise ValueError("revisão de publicação inválida")
         candidate = (root / "publicacoes" / str(revision) / "dataset.json").resolve()
         if not _inside(root, candidate) or not candidate.is_file():
-            return None
+            raise ValueError("dataset da publicação atual ausente")
         return revision, candidate
-    except (OSError, ValueError, json.JSONDecodeError):
-        return None
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError(f"ponteiro de publicação inválido: {pointer_path}") from exc
 
 
 def _current_publication_review(root: Path) -> tuple[int, Path] | None:
@@ -126,13 +126,13 @@ def _current_publication_review(root: Path) -> tuple[int, Path] | None:
         pointer = _read_object(pointer_path)
         revision = pointer.get("revision")
         if type(revision) is not int or revision < 1:
-            return None
+            raise ValueError("revisão de publicação inválida")
         candidate = (root / "publicacoes" / str(revision) / "review-data.json").resolve()
         if not _inside(root, candidate) or not candidate.is_file():
-            return None
+            raise ValueError("dados de revisão da publicação atual ausentes")
         return revision, candidate
-    except (OSError, ValueError, json.JSONDecodeError):
-        return None
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError(f"ponteiro de publicação inválido: {pointer_path}") from exc
 
 
 def _read_object(path: Path) -> dict:
@@ -214,6 +214,14 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
             raise
         self.workflow_state = workflow_state
         self.service_revision = self.workflow_state.snapshot()["revision"]
+
+    def server_close(self):
+        try:
+            super().server_close()
+        finally:
+            workflow_state = getattr(self, "workflow_state", None)
+            if workflow_state is not None:
+                workflow_state.close()
 
     def redeem_review_bootstrap(self, code: str) -> str:
         with self._review_lock:
@@ -338,7 +346,11 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
         self._send_text(200, _REVIEW_BOOTSTRAP_HTML, content_type="text/html; charset=utf-8", headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
 
     def _send_review_html(self):
-        publication = _current_publication_review(self.server_state.workflow_root)
+        try:
+            publication = _current_publication_review(self.server_state.workflow_root)
+        except (OSError, ValueError, json.JSONDecodeError):
+            self._error(500, "PUBLICATION_INVALID", "ponteiro de publicação inválido")
+            return
         if publication is None:
             self._error(404, "REVIEW_DATA_NOT_FOUND", "snapshot de revisão não encontrado")
             return
@@ -452,7 +464,11 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
         self._error(404, "NOT_FOUND", "rota não encontrada")
 
     def _send_dataset(self):
-        publication = _current_publication_dataset(self.server_state.workflow_root)
+        try:
+            publication = _current_publication_dataset(self.server_state.workflow_root)
+        except (OSError, ValueError, json.JSONDecodeError):
+            self._error(500, "PUBLICATION_INVALID", "ponteiro de publicação inválido")
+            return
         path = publication[1] if publication is not None else _sidecar(self.server_state.workflow_root, "dados-complementar-ato.json")
         if path is None:
             self._error(404, "DATASET_NOT_FOUND", "dataset não encontrado")
@@ -471,7 +487,11 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
         except (TypeError, ValueError):
             self._error(400, "INVALID_JSON", "since inválido")
             return
-        publication = _current_publication_review(self.server_state.workflow_root)
+        try:
+            publication = _current_publication_review(self.server_state.workflow_root)
+        except (OSError, ValueError, json.JSONDecodeError):
+            self._error(500, "PUBLICATION_INVALID", "ponteiro de publicação inválido")
+            return
         if publication is None:
             self._error(404, "REVIEW_DATA_NOT_FOUND", "snapshot de revisão não encontrado")
             return
@@ -690,11 +710,16 @@ def main(argv: list[str] | None = None) -> int:
         server.serve_forever(poll_interval=0.25)
     except KeyboardInterrupt:
         pass
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(
+            f"Serviço local indisponível; modo manual preservado: {exc}",
+            file=sys.stderr,
+        )
+        return 2
     finally:
         if server is not None:
             server.shutdown()
             server.server_close()
-            server.workflow_state.close()
             try:
                 metadata_path.unlink()
             except FileNotFoundError:

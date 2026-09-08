@@ -51,6 +51,31 @@ class EvidenceGeometryTests(unittest.TestCase):
         self.assertTrue(result["words"])
         self.assertTrue(all(0 <= value <= 1 for word in result["words"] for value in word["rect"]))
 
+    def test_native_words_follow_cropbox_and_rotation_in_display_coordinates(self):
+        try:
+            import pymupdf
+        except ImportError as exc:  # pragma: no cover - environment gate
+            self.skipTest(f"PyMuPDF indisponível: {exc}")
+        with TemporaryDirectory() as temporary:
+            for rotation, predicate in (
+                (90, lambda rect: rect[0] > 0.5 and rect[1] < 0.2),
+                (180, lambda rect: rect[2] > 0.8 and rect[1] > 0.6),
+                (270, lambda rect: rect[0] < 0.4 and rect[1] > 0.5),
+            ):
+                pdf_path = Path(temporary) / f"rotated-{rotation}.pdf"
+                document = pymupdf.open()
+                page = document.new_page(width=200, height=100)
+                page.insert_text((30, 30), "ROTATED EVIDENCE")
+                page.set_cropbox(pymupdf.Rect(20, 10, 180, 90))
+                page.set_rotation(rotation)
+                document.save(pdf_path)
+                document.close()
+
+                result = read_page_words(pdf_path, 0, tesseract=None, tessdata=None)
+                self.assertEqual(result["rotation"], rotation)
+                self.assertTrue(result["words"])
+                self.assertTrue(predicate(result["words"][0]["rect"]), result)
+
     def test_visual_sidecar_uses_occurrence_identity_and_relative_paths(self):
         records = [
             {

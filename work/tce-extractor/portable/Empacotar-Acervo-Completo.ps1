@@ -1,13 +1,13 @@
 ﻿param(
     [Parameter(Mandatory = $true)]
-    [string]$Destino,
-    [switch]$Force
+    [string]$Destino
 )
 
 $ErrorActionPreference = 'Stop'
 $portableRoot = $PSScriptRoot
 $python = Join-Path $portableRoot 'runtime\python\python.exe'
 $packager = Join-Path $portableRoot 'app\package_complete_archive.py'
+$transfer = Join-Path $portableRoot 'app\prepare_transfer.py'
 $archiveRoot = Join-Path $portableRoot 'acervo-tce'
 $extensionData = Join-Path $archiveRoot 'dados-complementar-ato.json'
 
@@ -17,6 +17,9 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $packager -PathType Leaf)) {
     throw "Empacotador não encontrado: $packager"
 }
+if (-not (Test-Path -LiteralPath $transfer -PathType Leaf)) {
+    throw "Preparador de transferência não encontrado: $transfer"
+}
 if (-not (Test-Path -LiteralPath $archiveRoot -PathType Container)) {
     throw "Acervo local não encontrado: $archiveRoot"
 }
@@ -25,14 +28,11 @@ if (-not (Test-Path -LiteralPath $extensionData -PathType Leaf)) {
 }
 
 $arguments = @(
-    $packager,
+    $transfer,
     '--source', $portableRoot,
-    '--output', $Destino
+    '--output', $Destino,
+    '--distribution', 'private'
 )
-if ($Force) {
-    $arguments += '--force'
-}
-$arguments += '--distribution', 'private'
 
 & $python @arguments
 if ($LASTEXITCODE -ne 0) {
