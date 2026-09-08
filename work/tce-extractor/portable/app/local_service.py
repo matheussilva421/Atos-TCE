@@ -29,6 +29,7 @@ for candidate in (APP_ROOT, PROJECT_ROOT):
 
 from bridge_auth import BridgeAuth, BridgeAuthError
 from html_generator import render_html
+from prepare_transfer import _acquire_operation_lock, _active_runtime, _release_operation_lock
 from workflow_state import RevisionConflict, WorkflowState
 
 
@@ -674,21 +675,31 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     args = parser.parse_args(argv)
-    server = create_server(args.root, host=args.host, port=args.port)
-    metadata_path = args.bridge_root / "service.json"
-    _write_runtime_metadata(metadata_path, server)
+    package_root = args.root.resolve().parent
+    operation_lock_path, operation_lock_token = _acquire_operation_lock(package_root)
+    server = None
     try:
+        active = _active_runtime(package_root)
+        if active is not None:
+            raise RuntimeError(
+                f"execução ativa ({active}); serviço local não será iniciado"
+            )
+        server = create_server(args.root, host=args.host, port=args.port)
+        metadata_path = args.bridge_root / "service.json"
+        _write_runtime_metadata(metadata_path, server)
         server.serve_forever(poll_interval=0.25)
     except KeyboardInterrupt:
         pass
     finally:
-        server.shutdown()
-        server.server_close()
-        server.workflow_state.close()
-        try:
-            metadata_path.unlink()
-        except FileNotFoundError:
-            pass
+        if server is not None:
+            server.shutdown()
+            server.server_close()
+            server.workflow_state.close()
+            try:
+                metadata_path.unlink()
+            except FileNotFoundError:
+                pass
+        _release_operation_lock(operation_lock_path, operation_lock_token)
     return 0
 
 

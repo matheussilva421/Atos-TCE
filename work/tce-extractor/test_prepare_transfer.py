@@ -1,7 +1,10 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import json
+import os
 import unittest
 import zipfile
+from unittest.mock import patch
 
 from package_complete_archive import build_complete_zip
 from test_portable_end_to_end import _build_fixture_zip
@@ -9,11 +12,11 @@ from test_portable_end_to_end import _build_fixture_zip
 APP_ROOT = Path(__file__).parent / "portable" / "app"
 import sys
 sys.path.insert(0, str(APP_ROOT))
-from prepare_transfer import prepare_transfer  # noqa: E402
+from prepare_transfer import TransferBusyError, prepare_transfer  # noqa: E402
 
 
 class PrepareTransferTests(unittest.TestCase):
-    def test_transfer_excludes_pairing_but_keeps_progress(self):
+    def test_transfer_excludes_pairing_but_keeps_progress_when_quiescent(self):
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
             _fixture_zip, _fixture = _build_fixture_zip(root)
@@ -21,9 +24,6 @@ class PrepareTransferTests(unittest.TestCase):
             (package / "acervo-tce" / "progresso.json").write_text(
                 '{"schema_version":1,"revision":0,"processes":{}}', encoding="utf-8"
             )
-            bridge = package / "dados-locais" / "bridge"
-            bridge.mkdir(parents=True)
-            (bridge / "service.json").write_text('{"pid":123}', encoding="utf-8")
             destination = root / "transfer.zip"
 
             result = prepare_transfer(package, destination)
@@ -34,6 +34,80 @@ class PrepareTransferTests(unittest.TestCase):
                 names = archive.namelist()
             self.assertIn("acervo-tce/progresso.json", names)
             self.assertFalse(any(name.startswith("dados-locais/") for name in names))
+
+    def test_transfer_refuses_active_bridge_without_creating_destination(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _fixture_zip, _fixture = _build_fixture_zip(root)
+            package = root / "source-package"
+            (package / "acervo-tce" / "progresso.json").write_text(
+                '{"schema_version":1,"revision":0,"processes":{}}', encoding="utf-8"
+            )
+            bridge = package / "dados-locais" / "bridge"
+            bridge.mkdir(parents=True)
+            (bridge / "service.json").write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+            destination = root / "transfer.zip"
+
+            with self.assertRaises(TransferBusyError):
+                prepare_transfer(package, destination)
+
+            self.assertFalse(destination.exists())
+
+    def test_transfer_refuses_active_collector_without_creating_destination(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _fixture_zip, _fixture = _build_fixture_zip(root)
+            package = root / "source-package"
+            bridge = package / "dados-locais" / "bridge"
+            bridge.mkdir(parents=True)
+            (bridge / "collector.json").write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+            destination = root / "transfer.zip"
+
+            with self.assertRaises(TransferBusyError):
+                prepare_transfer(package, destination)
+
+            self.assertFalse(destination.exists())
+
+    def test_transfer_releases_operation_lock_when_build_fails(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _fixture_zip, _fixture = _build_fixture_zip(root)
+            package = root / "source-package"
+            destination = root / "transfer.zip"
+
+            def fail_build(*_args, **_kwargs):
+                lock = package / "dados-locais" / "bridge" / ".operation.lock"
+                self.assertTrue(lock.exists())
+                raise RuntimeError("synthetic build failure")
+
+            with patch("prepare_transfer.build_complete_zip", side_effect=fail_build):
+                with self.assertRaisesRegex(RuntimeError, "synthetic build failure"):
+                    prepare_transfer(package, destination)
+
+            self.assertFalse((package / "dados-locais" / "bridge" / ".operation.lock").exists())
+
+    def test_transfer_recovers_stale_marker_and_operation_lock(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _fixture_zip, _fixture = _build_fixture_zip(root)
+            package = root / "source-package"
+            bridge = package / "dados-locais" / "bridge"
+            bridge.mkdir(parents=True)
+            (bridge / ".operation.lock").write_text(
+                json.dumps({"pid": 999, "token": "stale"}), encoding="utf-8"
+            )
+            (bridge / "collector.json").write_text(
+                json.dumps({"pid": 999}), encoding="utf-8"
+            )
+            destination = root / "transfer.zip"
+
+            with patch("prepare_transfer._pid_is_alive", return_value=False):
+                result = prepare_transfer(package, destination)
+
+            self.assertTrue(destination.exists())
+            self.assertEqual(result["collector_active_at_start"], False)
+            self.assertFalse((bridge / ".operation.lock").exists())
+            self.assertFalse((bridge / "collector.json").exists())
 
     def test_transfer_does_not_overwrite_existing_destination(self):
         with TemporaryDirectory() as temporary:

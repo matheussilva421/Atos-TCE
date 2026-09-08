@@ -31,6 +31,7 @@ Assert-True ($collectorText -match 'Sync-TceProcessManifest[\s\S]*MaxDownloads')
 Assert-True ($collectorText -match 'DownloaderContext') 'coletor separa contexto efêmero do worker de download'
 Assert-True ($collectorText -match 'incremental_pipeline\.py') 'coletor referencia preparação incremental por processo'
 Assert-True ($collectorText -match 'ModoPreparacao.*progressivo|progressivo.*ModoPreparacao') 'coletor usa o modo de preparação para decidir a publicação'
+Assert-True ($collectorText -match 'collector\.json') 'coletor publica marcador de execução para bloquear transferência concorrente'
 
 function Assert-Throws {
     param(

@@ -170,6 +170,10 @@ function Start-TceLocalService {
     $canonicalArchive = [IO.Path]::GetFullPath($ArchiveRoot)
     $bridgeRoot = Join-Path $canonicalPackage 'dados-locais\bridge'
     $metadataPath = Get-TceLocalServiceMetadataPath -PackageRoot $canonicalPackage
+    $operationLockPath = Join-Path $bridgeRoot '.operation.lock'
+    if (Test-Path -LiteralPath $operationLockPath -PathType Leaf) {
+        throw 'Transferência ou outra operação portátil em andamento; o serviço local não será iniciado.'
+    }
     New-Item -ItemType Directory -Path $bridgeRoot -Force | Out-Null
 
     if (Test-Path -LiteralPath $metadataPath -PathType Leaf) {

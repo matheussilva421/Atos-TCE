@@ -51,6 +51,8 @@ try {
 $options = @(Get-TceMenuOptions | ForEach-Object key)
 Assert-Equal $options @(1, 2, 3, 4, 5, 6, 7, 8) 'oferece exatamente as opções 1 a 8'
 Assert-Equal ((Get-TceMenuOptions | Where-Object key -eq 7).label) 'Diagnóstico do runtime' 'opção 7 descreve somente o diagnóstico do runtime'
+$menuText = Get-Content -LiteralPath $menuPath -Raw
+Assert-True ($menuText -match '\.operation\.lock') 'menu não inicia o serviço durante transferência do pacote'
 
 $codes = Get-TceExitCodes
 $distinctCodes = @(

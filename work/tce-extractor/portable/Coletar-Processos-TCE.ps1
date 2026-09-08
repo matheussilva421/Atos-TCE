@@ -168,6 +168,120 @@ function Write-SafeFailure {
     Add-TceFailure -ArchiveRoot $Destino -ProcessKey $ProcessKey -Message $Message
 }
 
+$script:CollectorLeaseStream = $null
+$script:CollectorLeasePath = $null
+$script:CollectorMarkerPath = $null
+$script:CollectorLeaseToken = $null
+
+function Test-TceProcessAlive {
+    param([Parameter(Mandatory)][int]$ProcessId)
+    try {
+        $process = Get-Process -Id $ProcessId -ErrorAction Stop
+        return -not $process.HasExited
+    } catch {
+        return $false
+    }
+}
+
+function Remove-TceStaleLeaseFiles {
+    param(
+        [Parameter(Mandatory)][string]$LockPath,
+        [Parameter(Mandatory)][string]$MarkerPath
+    )
+    if (Test-Path -LiteralPath $MarkerPath -PathType Leaf) {
+        try {
+            $marker = Get-Content -LiteralPath $MarkerPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($marker.pid -and (Test-TceProcessAlive -ProcessId ([int]$marker.pid))) {
+                throw 'Coleta já está em execução; aguarde ou encerre-a antes de tentar novamente.'
+            }
+            Remove-Item -LiteralPath $MarkerPath -Force -ErrorAction SilentlyContinue
+        } catch {
+            if ($_.Exception.Message -match 'já está em execução') { throw }
+            throw 'Marcador de coleta inválido; transferência/coleta recusada até revisão manual.'
+        }
+    }
+    if (Test-Path -LiteralPath $LockPath -PathType Leaf) {
+        try {
+            $lock = Get-Content -LiteralPath $LockPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            if (-not $lock.pid -or (Test-TceProcessAlive -ProcessId ([int]$lock.pid))) {
+                throw 'Outra operação portátil está em execução; aguarde ou encerre-a antes de tentar novamente.'
+            }
+            Remove-Item -LiteralPath $LockPath -Force -ErrorAction SilentlyContinue
+        } catch {
+            if ($_.Exception.Message -match 'está em execução') { throw }
+            throw 'Lock de operação inválido; transferência/coleta recusada até revisão manual.'
+        }
+    }
+}
+
+function Start-TceCollectorLease {
+    $bridgeRoot = Join-Path $scriptRoot 'dados-locais\bridge'
+    [IO.Directory]::CreateDirectory($bridgeRoot) | Out-Null
+    $lockPath = Join-Path $bridgeRoot '.operation.lock'
+    $markerPath = Join-Path $bridgeRoot 'collector.json'
+    $token = [guid]::NewGuid().ToString('N')
+    Remove-TceStaleLeaseFiles -LockPath $lockPath -MarkerPath $markerPath
+    try {
+        $stream = New-Object IO.FileStream($lockPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    } catch [IO.IOException] {
+        throw 'Outra operação portátil está fechando ou transferindo o pacote; tente novamente depois.'
+    }
+    try {
+        $metadata = [ordered]@{
+            schema_version = 1
+            kind = 'collector'
+            pid = [int]$PID
+            started_at = [DateTime]::UtcNow.ToString('o')
+            token = $token
+        }
+        $bytes = [Text.Encoding]::UTF8.GetBytes((($metadata | ConvertTo-Json -Compress) + "`n"))
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush()
+        Write-TceJsonAtomic -Path $markerPath -Value $metadata
+    } catch {
+        $stream.Dispose()
+        if (Test-Path -LiteralPath $lockPath -PathType Leaf) {
+            try {
+                $currentLock = Get-Content -LiteralPath $lockPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ([string]$currentLock.token -eq $token) { Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue }
+            } catch { }
+        }
+        throw
+    }
+    $script:CollectorLeaseStream = $stream
+    $script:CollectorLeasePath = $lockPath
+    $script:CollectorMarkerPath = $markerPath
+    $script:CollectorLeaseToken = $token
+}
+
+function Stop-TceCollectorLease {
+    $stream = $script:CollectorLeaseStream
+    $lockPath = $script:CollectorLeasePath
+    $markerPath = $script:CollectorMarkerPath
+    $token = $script:CollectorLeaseToken
+    $script:CollectorLeaseStream = $null
+    $script:CollectorLeasePath = $null
+    $script:CollectorMarkerPath = $null
+    $script:CollectorLeaseToken = $null
+    if ($null -eq $stream) { return }
+    try {
+        if (Test-Path -LiteralPath $markerPath -PathType Leaf) {
+            try {
+                $current = Get-Content -LiteralPath $markerPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ([string]$current.token -eq $token) { Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue }
+            } catch { }
+        }
+    } finally {
+        $stream.Dispose()
+        if (Test-Path -LiteralPath $lockPath -PathType Leaf) {
+            try {
+                $currentLock = Get-Content -LiteralPath $lockPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ([string]$currentLock.token -eq $token) { Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue }
+            } catch { }
+        }
+    }
+}
+
 function Invoke-TceIncrementalPreparation {
     param([Parameter(Mandatory)][string]$ProcessKey)
     if ([string]::IsNullOrWhiteSpace($Python) -or [string]::IsNullOrWhiteSpace($Tesseract) -or [string]::IsNullOrWhiteSpace($Tessdata)) {
@@ -224,6 +338,7 @@ try {
     }
     if (-not $selected.Count) { Write-Host 'Nenhum processo selecionado.'; exit 0 }
 
+    Start-TceCollectorLease
     Write-Host "`n$($selected.Count) processo(s) selecionado(s). Iniciando sincronização..." -ForegroundColor Cyan
     $totals = @{ downloaded = 0; skipped = 0; deduplicated = 0; failed = 0 }
     for ($index = 0; $index -lt $selected.Count; $index++) {
@@ -288,6 +403,7 @@ try {
     Write-Host "`nConcluído ($ModoPreparacao). Baixados: $($totals.downloaded); reutilizados: $($totals.skipped); deduplicados: $($totals.deduplicated); processos com falha: $($totals.failed)." -ForegroundColor Green
     Write-Host "Acervo: $Destino"
 } finally {
+    Stop-TceCollectorLease
     if ($script:CdpSocket) { $script:CdpSocket.Dispose() }
     if (-not $ManterNavegadorAberto -and $script:BrowserProcess -and -not $script:BrowserProcess.HasExited) {
         $script:BrowserProcess.CloseMainWindow() | Out-Null
