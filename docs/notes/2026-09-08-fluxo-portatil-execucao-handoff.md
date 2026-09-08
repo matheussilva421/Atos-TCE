@@ -4,7 +4,7 @@
 
 Atualização de 08/09/2026: três subagentes Luna xhigh fizeram auditoria separada de bridge/estado, serviço e empacotamento. O agente principal revisou os diffs, corrigiu a liberação do lock no encerramento do serviço, o fallback manual em falha de porta e a transformação geométrica nativa para CropBox/rotação. Nesta continuação foram endurecidos Origin/CSRF/seleção no servidor, bloqueada colisão de identidade normalizada, implementado pedido de pausa+drenagem de transferência e conectado o módulo servido da mesa. O source da extensão foi reempacotado como v5; este handoff permanece candidato integrado até os gates externos.
 
-Implementação local do plano `docs/notes/2026-09-08-fluxo-portatil-plano-implementacao.md` avançada até um candidato integrado. O checkout continua em `main`; a última etapa local adiciona retry/autenticação sanitizados à coleta, documentada também em `docs/notes/2026-09-08-retry-autenticacao-coleta-handoff.md`. Não há push por falta de remoto `origin`. Não houve login, coleta real, envio de ato, instalação no Chrome, alteração de acervo pessoal ou exclusão de arquivos.
+Implementação local do plano `docs/notes/2026-09-08-fluxo-portatil-plano-implementacao.md` avançada até um candidato integrado. O checkout continua em `main`; a última etapa local adiciona retry/autenticação sanitizados à coleta, documentada também em `docs/notes/2026-09-08-retry-autenticacao-coleta-handoff.md`. Não há push por falta de remoto `origin`. O usuário autenticou o Chrome separado do projeto e instalou a extensão unpacked a partir do pacote extraído para o QA; não houve coleta real, envio/finalização de ato, alteração de acervo pessoal ou exclusão de arquivos.
 
 O fluxo mantém a separação aprovada:
 
@@ -78,6 +78,27 @@ Criados `portable/app/prepare_transfer.py` e `test_prepare_transfer.py`; allowli
 
 Criados `qa_integrated_workflow.py` e `test_integrated_workflow.py`. O relatório exige `--fixture-only` e informa explicitamente `portal_login=not-run` e `portal_submission=not-run`; QA em Chrome/portal, medição humana de 20 processos, screenshot com dados pessoais e teste em segundo PC continuam checkpoints supervisionados.
 
+## QA manual no Chrome separado — 08/09/2026
+
+O Chrome aberto pelo projeto permaneceu conectado em CDP `127.0.0.1:63097`, sem ser fechado pelo agente. O usuário autenticou a sessão; as páginas de e-Contas e Área Restrita estavam abertas. A extensão foi instalada manualmente a partir de:
+
+`work/tce-extractor/qa-extracted-portable-acervo-v2-20260908/extensao-complementar-ato`
+
+Foi usado o formulário real da Área Restrita para `101440/2026`, interessado `MARIA DO SOCORRO LOPES DE SOUZA`, com os campos documentais vazios antes do teste.
+
+- importação do lote no painel: 227 processos e 235 interessados;
+- prévia real carregada, com as fontes de evidência exibidas e os botões `Preencher campos disponíveis` e `Sinalizar Complementar Ato` habilitados;
+- pesquisa por número `101440`: 1 resultado, seleção correta;
+- pesquisa por nome `MARIA DO SOCORRO`: 2 resultados, com seleção correta do registro `101440/2026`;
+- a mensagem da pesquisa informa que ela não altera o formulário;
+- o botão `Sinalizar Complementar Ato` despachou exatamente um evento no frame real, com `processKey=101440/2026` e `interestedNormalized=maria do socorro lopes de souza`;
+- após o sinal, os campos documentais permaneceram vazios/inalterados e o painel confirmou: `Sinal enviado à área restrita; nenhuma ação final foi executada pela extensão`;
+- não foram clicados envio, assinatura, tramitação ou finalização.
+
+O primeiro smoke após a instalação exigiu recarregar somente o frame do formulário, que estava sem edição pendente, e clicar `Atualizar prévia`: a extensão havia sido instalada depois de a página já estar aberta e ainda não tinha content script naquele documento. Depois disso a descoberta do frame e a prévia ficaram funcionais.
+
+Evidência visual fixture-only em 900×1440: `C:\Users\slvma\.codex\visualizations\2026\09\08\01a08073-a0f7-7c53-a436-ec585e281a5a\qa-html-extracted-900x1440.png`. O runtime confirmou splitter em 52%, PDF selecionado, persistência de `Concluído` após reload e ausência de overflow horizontal da raiz. Essa evidência não substitui os gates ainda pendentes de zoom/rotação, dois PDFs em abas e portal real.
+
 ## Verificação mais recente
 
 ### Pacote portátil completo montado a partir do acervo fornecido
@@ -126,6 +147,8 @@ Esse resultado comprova um pacote portátil completo baseado no snapshot forneci
 | `tests/Test-PortableReset.ps1` | 31 pass, 0 falhas, 1 skip ambiental |
 | teste focado estado/sessão + ativos da mesa | 2 pass, 0 falhas |
 | `qa_integrated_workflow.py --project-root . --fixture-only` | passed; login/submission not-run |
+| QA manual Chrome separado: busca por processo/nome + sinal no formulário real | pass; 1 evento capturado, campos documentais inalterados, sem envio/finalização |
+| `test_integrated_workflow.py` após QA | 2 pass, 0 falhas |
 | subconjunto browser/reset/runtime | 15 pass, 0 falhas |
 | sessão da mesa gravando progresso pelo cookie | 1 pass, 0 falhas |
 | smoke Chrome contra ZIP v3 extraído em pasta temporária | pass; Chrome 145; 7 linhas, persistência após restart, controles protegidos intactos |
@@ -181,7 +204,7 @@ Foi executado `python portable/app/package_audit.py staging-final --distribution
 ## GitHub / retomada
 
 - `git remote -v`: sem remoto configurado.
-- Commits locais relevantes: `f2c770b feat: sync incremental bridge datasets`, `9b9a473 feat: serve live portable review revisions`, `ca1e372 feat: follow live portal selection in review desk`, `4d0153c fix: synchronize review completion with local service`, `cefcdfc docs: record extracted extension smoke`, `c14580a docs: clarify shared portable completion state`, `a0424ac build: add reproducible extension-only package`, `50830bd test: verify live review selection in browser`, `6c88d2a fix: block transfer during active portable operations`, `3b24678 feat: harden portable download retries and auth` e `e041a93 feat: harden portable bridge and package validation`.
+- Commits locais relevantes: `f2c770b feat: sync incremental bridge datasets`, `9b9a473 feat: serve live portable review revisions`, `ca1e372 feat: follow live portal selection in review desk`, `4d0153c fix: synchronize review completion with local service`, `cefcdfc docs: record extracted extension smoke`, `c14580a docs: clarify shared portable completion state`, `a0424ac build: add reproducible extension-only package`, `50830bd test: verify live review selection in browser`, `6c88d2a fix: block transfer during active portable operations`, `3b24678 feat: harden portable download retries and auth`, `e041a93 feat: harden portable bridge and package validation`, `42fef65 feat: close portable security and transfer gaps` e `141db71 docs: record portable archive package validation`.
 - Push não executado porque não há `origin` configurado.
 - O bloco de acompanhamento da seleção e a conclusão compartilhada foram implementados em `html_generator.py` e `portable/app/local_service.py`, com RED→GREEN em `test_local_service.py` e `test_review_assets.py`; a implementação está em `4d0153c` e a evidência do ZIP extraído foi registrada nos commits de documentação.
 - Na primeira execução da suíte Python completa após um smoke concorrente, três testes do supervisor apresentaram falhas intermitentes e processos ainda vivos; os três casos passaram isoladamente, a suíte `test_qa_extension_runtime` passou 7/7 e novas execuções completas passaram 249/249 e 250/250. Nenhum ajuste foi feito no supervisor; o comportamento transitório fica registrado para retomada se voltar a ocorrer.
@@ -190,10 +213,10 @@ Foi executado `python portable/app/package_audit.py staging-final --distribution
 
 Pendências reais para chamar de release validada:
 
-1. executar QA manual no Chrome separado aberto pelo launcher do pacote, com usuário autenticado, sem envio/finalização;
-2. medir os mesmos 20 processos e p95 de sincronização, e repetir o teste sobre ZIP extraído em ambiente restrito;
-3. validar em ambiente restrito a retomada após 401/403 e o comportamento do ZIP extraído sem Python/Node no `PATH`.
+1. concluir os gates integrados de preenchimento em fixture e portal, HTML em outra janela acompanhando seleção em até 2 s, pause/resume, dois PDFs em abas, zoom/rotação, sete links de evidência e `Concluído` sem navegação;
+2. medir os mesmos 20 processos e p95 de sincronização, registrando hardware/rede/modo;
+3. repetir os gates de serviço bloqueado/fallback, retomada após 401/403 e pacote extraído em ambiente restrito; o smoke sem Python/Node no `PATH` já passou, mas não substitui todos esses cenários.
 
 O gate de segundo PC foi dispensado explicitamente pelo usuário e não será executado.
 
-Para continuar: concluir o login no Chrome separado já aberto pelo launcher e executar os gates supervisionados do portal real, sem envio/finalização. O pacote portátil completo agora existe a partir do snapshot fornecido, mas o snapshot é de 05/09/2026 e não deve ser tratado como acervo atualizado; uma nova coleta poderá substituir apenas os dados locais quando autorizada. Preparar commit/push somente quando o QA externo terminar e um remoto autorizado existir. Rechecar `git status` antes de retomar.
+Para continuar: executar os gates integrados restantes no mesmo Chrome separado, sem envio/finalização. O pacote portátil completo agora existe a partir do snapshot fornecido, mas o snapshot é de 05/09/2026 e não deve ser tratado como acervo atualizado; uma nova coleta poderá substituir apenas os dados locais quando autorizada. Preparar commit/push somente quando o QA externo terminar e um remoto autorizado existir. Rechecar `git status` antes de retomar.
