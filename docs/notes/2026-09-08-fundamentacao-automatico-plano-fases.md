@@ -568,7 +568,7 @@ Tokens propostos, a implementar em CSS custom properties:
 - Layout de uma coluna de 320 a 479 px; a partir de 480 px, comparação dentro de cada campo pode usar duas colunas. Nunca retomar seis colunas no side panel.
 - Documento original e opção proposta ficam empilhados em larguras estreitas e lado a lado apenas quando houver espaço. Referências completas quebram linha; não truncar conteúdo indispensável em reticências.
 - Controles com pelo menos 40 px de altura, ações primárias com 44 px, foco visível de 2 px + offset. Medir contraste texto/fundo >= 4,5:1 e controles/foco >= 3:1 antes de aprovar; os hex acima são proposta, não validação já realizada.
-- Cabeçalho de identidade fixo no topo e barra de ação contextual no rodapé, ambos no fluxo sticky. Reservar espaço e `scroll-padding` para não cobrir controles focados; com viewport baixo ou zoom alto, permitir rodapé no fluxo normal.
+- Cabeçalho de identidade e barra de ação contextual no topo, no fluxo sticky. Na aba Ato atual, colocar “Preencher campos disponíveis” e a indicação do modo manual logo abaixo das abas, antes da fundamentação e dos dados, conforme ajuste solicitado pelo usuário. Não duplicar a ação no rodapé. Reservar espaço e `scroll-padding` para não cobrir controles focados; com viewport baixo ou zoom alto, permitir que o conjunto superior volte ao fluxo normal.
 - Estado representado por texto e ícone SVG local/inline, com cor complementar. Ícones decorativos têm `aria-hidden`; botões de ícone precisam de nome acessível. Não usar emoji como único indicador.
 - Transições discretas de até 120 ms; respeitar `prefers-reduced-motion`. Sem animação contínua, confete ou barra que simule avanço não medido.
 
@@ -587,6 +587,9 @@ ATO ATUAL — exemplo sintético em 360 px
 ├─────────────────────────────────────┤
 │ Ato atual | Execução | Histórico    │
 ├─────────────────────────────────────┤
+│ [Preencher campos disponíveis]     │
+│ Modo manual: preenche para revisão │
+├─────────────────────────────────────┤
 │ Fundamentação             Por regra│
 │ Resolução                          │
 │ Art. 6º da EC 41/2003 ...           │
@@ -603,9 +606,6 @@ ATO ATUAL — exemplo sintético em 360 px
 │ Portal: valor existente            │
 │ [Ver fonte] [Revisar divergência]  │
 │ Outros campos…                     │
-├─────────────────────────────────────┤
-│ Modo manual: preenche para revisão │
-│ [Preencher campos disponíveis]     │
 └─────────────────────────────────────┘
 ```
 
@@ -703,6 +703,7 @@ test('resultado incerto não oferece reenvio direto', () => {
 Definir fixtures locais com contratos da seção 4: primeiro caso com ato `filled` e decisão por semelhança; segundo com execução `paused` e item `unconfirmed`. Evitar tests que apenas verificam classe CSS ou copiam toda a implementação.
 
 - [ ] Em 320, 360, 480 e 640 px, nenhuma rolagem horizontal de página ou corte de ações/fontes; comparar `scrollWidth` e `clientWidth` com tolerância de 1 px.
+- [ ] Em Ato atual, ação de preenchimento e indicação do modo manual aparecem antes da fundamentação na ordem visual e de leitura; nenhuma cópia da ação fica no rodapé.
 - [ ] Zoom 200%, textos legais longos, nome de interessado longo e aumento da fonte do sistema não ocultam valores ou controles.
 - [ ] Teclado percorre tabs, campos, fontes, iniciar/pausar e histórico; foco não se perde durante atualização de status.
 - [ ] Reabrir painel preserva tab escolhida e recupera execução real; navegar pelo Histórico nunca envia mensagem de retomada.

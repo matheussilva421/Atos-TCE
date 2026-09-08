@@ -21,6 +21,7 @@
 - Todos os disponíveis; pendências documentais e divergências são registradas e puladas; envio incerto pausa sem repetição automática.
 - Sete campos atuais; diário SQLite separado do progresso legado; relatórios HTML/CSV locais e painel.
 - Proposta visual para implementação futura: Ato atual / Execução / Histórico, configurações recolhidas, campos verticais e trilha Resolução → Regra → Opção. Tema claro azul-petróleo, fontes locais e nenhuma tabela larga no painel estreito.
+- Ajuste posterior solicitado no wireframe: botão “Preencher campos disponíveis” e indicação do modo manual no topo de Ato atual, logo abaixo das abas e antes da fundamentação. Plano, wireframe e critério de aceite atualizados; ação não será duplicada no rodapé. Somente documentação alterada.
 - Histórico passa a exigir endpoints autenticados paginados de execuções/eventos; contratos adicionados na seção 13.4 e vinculados à fase 4.
 
 ## Validação e testes
