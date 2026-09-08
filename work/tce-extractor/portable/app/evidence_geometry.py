@@ -161,13 +161,42 @@ def _ocr_page(pdf_path: Path, page, tesseract: str, tessdata: str | None) -> tup
     with tempfile.TemporaryDirectory(prefix="tce-ocr-") as temporary:
         image_path = Path(temporary) / "page.png"
         page.get_pixmap(matrix=__import__("pymupdf").Matrix(2, 2), alpha=False).save(str(image_path))
-        command = [str(tesseract), str(image_path), "stdout", "--psm", "6", "tsv"]
+        command = [str(tesseract), str(image_path), "stdout", "--psm", "6"]
         if tessdata:
             command.extend(["--tessdata-dir", str(tessdata)])
+        command.extend(["-c", "tessedit_create_tsv=1"])
         completed = subprocess.run(command, check=False, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if completed.returncode != 0:
             return [], ""
         return parse_ocr_tsv(completed.stdout, float(page.rect.width * 2), float(page.rect.height * 2))
+
+
+def read_native_page_words(page) -> dict:
+    """Read one already-open native page using display-space coordinates."""
+    width, height = float(page.rect.width), float(page.rect.height)
+    crop_width, crop_height = float(page.cropbox.width), float(page.cropbox.height)
+    rotation = int(page.rotation) % 360
+    words: list[dict] = []
+    for item in page.get_text("words"):
+        if len(item) < 5 or not str(item[4]).strip():
+            continue
+        display_rect = _display_rect(
+            item[:4],
+            width=crop_width,
+            height=crop_height,
+            rotation=rotation,
+        )
+        rect = _normalise_rect(display_rect or [], width, height)
+        if rect is not None:
+            words.append({"text": str(item[4]), "rect": rect, "method": "native"})
+    return {
+        "width": width,
+        "height": height,
+        "rotation": rotation,
+        "coordinates": "normalized",
+        "words": words,
+        "method": "native" if words else "none",
+    }
 
 
 def read_page_words(pdf, page_number: int, *, tesseract, tessdata) -> dict:
@@ -180,25 +209,13 @@ def read_page_words(pdf, page_number: int, *, tesseract, tessdata) -> dict:
     document = pymupdf.open(str(path))
     try:
         page = document.load_page(page_number)
-        width, height = float(page.rect.width), float(page.rect.height)
-        crop_width, crop_height = float(page.cropbox.width), float(page.cropbox.height)
-        rotation = int(page.rotation) % 360
-        native = []
-        for item in page.get_text("words"):
-            if len(item) < 5 or not str(item[4]).strip():
-                continue
-            display_rect = _display_rect(
-                item[:4],
-                width=crop_width,
-                height=crop_height,
-                rotation=rotation,
-            )
-            rect = _normalise_rect(display_rect or [], width, height)
-            if rect is not None:
-                native.append({"text": str(item[4]), "rect": rect, "method": "native"})
+        native_geometry = read_native_page_words(page)
+        width = native_geometry["width"]
+        height = native_geometry["height"]
+        rotation = native_geometry["rotation"]
         text = page.get_text("text")
         method = "native"
-        words = native
+        words = native_geometry["words"]
         if not words and tesseract:
             words, text = _ocr_page(path, page, str(tesseract), str(tessdata) if tessdata else None)
             method = "ocr" if words else "none"

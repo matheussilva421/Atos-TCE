@@ -17,6 +17,7 @@ from tce_extractor import (
     normalize_date,
     render_markdown,
 )
+from portable.app.evidence_geometry import read_page_words
 
 
 class DocumentClassificationTests(unittest.TestCase):
@@ -319,15 +320,41 @@ class FieldExtractionTests(unittest.TestCase):
                 pages, geometry = extract_pdf_pages(
                     pdf_path,
                     tesseract="tesseract-fixture",
+                    tessdata_dir=Path("fixture-tessdata"),
                     return_geometry=True,
                 )
 
         self.assertEqual(pages, ["PROFESSOR"])
         self.assertEqual(run.call_count, 1)
-        self.assertIn("tsv", run.call_args.args[0])
+        self.assertIn("tessedit_create_tsv=1", run.call_args.args[0])
+        self.assertLess(
+            run.call_args.args[0].index("--tessdata-dir"),
+            run.call_args.args[0].index("-c"),
+        )
         self.assertEqual(geometry[0]["method"], "ocr")
         self.assertEqual(geometry[0]["words"][0]["text"], "PROFESSOR")
         self.assertTrue(all(0 <= value <= 1 for value in geometry[0]["words"][0]["rect"]))
+
+    def test_native_geometry_in_extract_pdf_pages_matches_rotated_display_coordinates(self):
+        try:
+            import fitz
+        except ImportError as exc:  # pragma: no cover - environment gate
+            self.skipTest(f"PyMuPDF indisponível: {exc}")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pdf_path = Path(temp_dir) / "rotated-native.pdf"
+            document = fitz.open()
+            page = document.new_page(width=200, height=100)
+            page.insert_text((30, 30), "ROTATED EVIDENCE")
+            page.set_cropbox(fitz.Rect(20, 10, 180, 90))
+            page.set_rotation(90)
+            document.save(pdf_path)
+            document.close()
+
+            _pages, extracted_geometry = extract_pdf_pages(pdf_path, return_geometry=True)
+            expected = read_page_words(pdf_path, 0, tesseract=None, tessdata=None)
+
+        self.assertEqual(extracted_geometry[0]["rotation"], 90)
+        self.assertEqual(extracted_geometry[0]["words"], expected["words"])
 
     def test_extracts_resolution_narrative_without_form_labels(self):
         result = extract_fields(

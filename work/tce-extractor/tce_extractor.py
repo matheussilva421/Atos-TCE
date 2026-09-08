@@ -14,9 +14,9 @@ import unicodedata
 from typing import Iterable, Mapping, Sequence
 
 try:
-    from evidence_geometry import locate_evidence, parse_ocr_tsv
+    from evidence_geometry import locate_evidence, parse_ocr_tsv, read_native_page_words
 except ImportError:  # direct extractor tests run with the project root on sys.path
-    from portable.app.evidence_geometry import locate_evidence, parse_ocr_tsv
+    from portable.app.evidence_geometry import locate_evidence, parse_ocr_tsv, read_native_page_words
 
 
 FIELD_ORDER = (
@@ -781,39 +781,20 @@ def extract_pdf_pages(
         native = page.get_text("text").strip()
         if native:
             pages.append(native)
-            words = []
-            width, height = float(page.rect.width), float(page.rect.height)
-            for item in page.get_text("words"):
-                if len(item) < 5 or not str(item[4]).strip():
-                    continue
-                if width <= 0 or height <= 0:
-                    continue
-                words.append({
-                    "text": str(item[4]),
-                    "rect": [
-                        max(0.0, min(1.0, float(item[0]) / width)),
-                        max(0.0, min(1.0, float(item[1]) / height)),
-                        max(0.0, min(1.0, float(item[2]) / width)),
-                        max(0.0, min(1.0, float(item[3]) / height)),
-                    ],
-                    "method": "native",
-                })
+            native_geometry = read_native_page_words(page)
             geometry.append({
+                **native_geometry,
                 "page": page_number,
-                "width": width,
-                "height": height,
-                "rotation": int(page.rotation),
-                "coordinates": "normalized",
                 "text": native,
-                "words": words,
                 "method": "native",
             })
             continue
 
         pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
-        command = [tesseract, "stdin", "stdout", "-l", "por+eng", "--psm", "6", "tsv"]
+        command = [tesseract, "stdin", "stdout", "-l", "por+eng", "--psm", "6"]
         if tessdata_dir:
             command.extend(["--tessdata-dir", str(tessdata_dir)])
+        command.extend(["-c", "tessedit_create_tsv=1"])
         result = subprocess.run(
             command,
             input=pixmap.tobytes("png"),

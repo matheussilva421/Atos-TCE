@@ -282,10 +282,29 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(response)
 
+    def _discard_unread_request_body(self) -> None:
+        if getattr(self, "_request_body_consumed", False):
+            return
+        self._request_body_consumed = True
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            return
+        if length <= 0 or length > MAX_BODY_BYTES:
+            return
+        remaining = length
+        while remaining:
+            chunk = self.rfile.read(min(64 * 1024, remaining))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+
     def _error(self, status: int, code: str, message: str) -> None:
-        # Some auth failures happen before the JSON request body is consumed.
-        # Closing that connection prevents unread bytes from being parsed as a
-        # second HTTP request by the keep-alive server.
+        # Auth failures can happen before a JSON request body is consumed. Drain
+        # bounded bodies and close the connection so their bytes cannot be
+        # parsed as a second HTTP request by the keep-alive server.
+        self._discard_unread_request_body()
+        self.close_connection = True
         self._send(
             status,
             {"error": {"code": code, "message": message}},
@@ -345,7 +364,9 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
         except ValueError as exc:
             raise ValueError("Content-Length inválido") from exc
         if length < 0 or length > MAX_BODY_BYTES:
+            self._request_body_consumed = True
             raise ValueError("corpo excede o limite")
+        self._request_body_consumed = True
         value = json.loads(self.rfile.read(length).decode("utf-8"))
         if not isinstance(value, dict):
             raise ValueError("objeto JSON esperado")
@@ -366,7 +387,10 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
     def _require_private_mutation_auth(self) -> bool:
         if self._private_mutation_authorized():
             return True
-        self._error(403 if self.headers.get("Origin") or self.headers.get("Cookie") else 401, "UNAUTHORIZED", "autenticação local necessária")
+        origin = self.headers.get("Origin")
+        forbidden_origin = origin is not None and not self.server_state.auth.is_extension_origin(origin) and not self._valid_review_origin()
+        csrf_failure = self._review_authorized()
+        self._error(403 if forbidden_origin or csrf_failure else 401, "UNAUTHORIZED", "autenticação local necessária")
         return False
 
     def _send_text(self, status: int, value: str, *, content_type: str, headers: dict[str, str] | None = None) -> None:

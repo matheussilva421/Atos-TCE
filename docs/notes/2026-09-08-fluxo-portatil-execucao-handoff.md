@@ -260,3 +260,40 @@ Os testes PowerShell foram executados com Windows PowerShell 5.1 explícito. Os 
 ### Estado de release após esta atualização
 
 Os gates de layout 900×1440, controles de zoom/rotação, HTML regenerado no pacote, persistência de conclusão sem navegação e validação extraída estão comprovados. Continuam pendentes: benchmark dos mesmos 20 processos com p95, gate geométrico em PDF escaneado/rotacionado/hash modificado/checkpoint, teste do serviço bloqueado/fallback e o gate completo de preenchimento na fixture/portal real. A validação manual no Chrome separado permanece limitada à pesquisa por processo/nome e sinal real sem alteração dos campos e sem envio/finalização. Portanto o resultado continua sendo candidato integrado, não release portátil validada.
+
+## Atualização posterior — geometria real, serviço extraído, Chrome do projeto e pacote v6
+
+Esta seção substitui os limites temporais do bloco anterior e registra a rodada final de validação executada em 08/09/2026.
+
+### Correções integradas
+
+- `portable/app/evidence_geometry.py` passou a transformar palavras nativas pela mesma geometria de exibição do PDF, respeitando `CropBox` e rotação.
+- `tce_extractor.py` passou a reutilizar essa transformação para geometria nativa, sem normalização duplicada divergente.
+- O OCR TSV portátil foi corrigido para usar `-c tessedit_create_tsv=1`, depois de o runtime distribuído não localizar o arquivo de configuração textual `tsv`.
+- `local_service.py` agora drena de forma limitada o corpo de requisições rejeitadas e fecha a conexão após bearer inválido; o teste confirma que uma requisição válida posterior continua sendo aceita.
+
+### Gates concluídos
+
+- Geometria: 58 testes focados; PDF nativo com CropBox/rotação 90°, 180° e 270°; evento repetido e múltiplos candidatos sem destaque ambíguo; hash modificado; round-trip de checkpoint; PDF escaneado real de uma página com OCR/Tesseract e retângulo resolvido (`method=ocr`, confiança 95,28).
+- Regressão Python: `python -m unittest discover -s . -p 'test_*.py' -q` — 297 testes, 297 aprovados, 0 falhas, 5 skips ambientais/condicionados.
+- Serviço de origem: `test_local_service test_bridge_auth test_extension_exporter` — 43 aprovados, 0 falhas, 1 skip.
+- Serviço no pacote extraído: `qa_extracted_service.py` — pareamento e seleção aceitos; sequência antiga descartada; bearer inválido 401; mutação sem CSRF 403; conclusão com CSRF; transferência bloqueada; fallback selecionado na porta 18744.
+- Extensão em fixture: `test_extension_browser` — 5 testes, 5 aprovados, 0 falhas, em perfil Chrome descartável.
+- Chrome do projeto com autenticação humana: processo `101440/2026`, interessada `MARIA DO SOCORRO LOPES DE SOUZA`; antes do clique os sete campos documentais estavam vazios; `Preencher campos disponíveis` populou seis e manteve `Gênero` pendente; não houve navegação, envio, assinatura ou finalização; os sete campos foram restaurados aos valores vazios originais sem recarregar o formulário.
+- Pacote v6 extraído: `TESTAR-PACOTE.ps1` passou os 7 gates sem Python/Node no `PATH`; `qa_html_gates.py` passou pause/resume, zoom, rotação, reset, duas abas/PDFs, seis evidências resolvidas e `Concluído` sem navegação; `qa_real_geometry.py` passou no runtime interno.
+
+### Pacote portátil corrente
+
+- ZIP: `C:\Users\slvma\Downloads\Github\Complementação de Atos\artifacts\pacote-portatil-completo-2026-09-08-acervo-2026-09-05-v6.zip`
+- SHA-256: `9caec8f5a8d0c0b3eb6ce80e541b2c6e050cbd8bd1905d5bb23fd2f1337a4b42`
+- Conteúdo: 10.276 entradas, 227 processos, 5.236 eventos, 4.532 PDFs, 235 registros de extensão; CRC válido.
+- Extração validada: `work/tce-extractor/qa-extracted-portable-acervo-v2-20260908-v6`.
+- A origem continua sendo a cópia fornecida pelo usuário de 05/09/2026; nenhum PDF foi baixado novamente e o diretório de origem não foi alterado.
+
+### Gate ainda aberto
+
+O benchmark dos mesmos 20 processos permanece não medido: não há baseline humano exato, observações de cliques, tempos de preparação nem mediana/p95 registrados. `qa_benchmark_20.py` e `docs/notes/2026-09-08-benchmark-20-handoff.md` foram adicionados para aceitar somente uma execução observada real e rejeitar listas incompatíveis de 61 ou 227 processos. Não foi inventado ganho nem p95.
+
+### Retomada e Git
+
+O Chrome do projeto permanece aberto no CDP `127.0.0.1:63097`, com a Área Restrita e e-Contas abertas e o formulário real restaurado. Não fechar nem recarregar o formulário sem nova autorização; qualquer nova validação deve continuar sem envio/finalização. As alterações desta rodada ainda precisam ser registradas no commit local após `git diff --check` e os testes finais. Não há remoto `origin`, portanto não há push a realizar.

@@ -215,7 +215,11 @@ class EvidenceGeometryTests(unittest.TestCase):
             "method": "ocr",
         }])
         run.assert_called_once()
-        self.assertIn("tsv", run.call_args.args[0])
+        self.assertIn("tessedit_create_tsv=1", run.call_args.args[0])
+        self.assertLess(
+            run.call_args.args[0].index("--tessdata-dir"),
+            run.call_args.args[0].index("-c"),
+        )
 
     def test_visual_sidecar_uses_occurrence_identity_and_relative_paths(self):
         records = [

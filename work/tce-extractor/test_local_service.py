@@ -271,6 +271,41 @@ class LocalServiceTests(unittest.TestCase):
                 json_request(f"{base}/api/v1/state", token=token, omit_origin=True)
             self.assertEqual(error.exception.code, 401)
 
+    def test_invalid_extension_bearer_is_401_and_valid_bearer_can_resume(self):
+        with running_server() as (root, server, base):
+            code = server.auth.issue_pairing_code()
+            _status, _headers, pair_body = json_request(
+                f"{base}/api/v1/pair",
+                method="POST",
+                payload={"code": code},
+                origin="chrome-extension://test-extension",
+            )
+            token = json.loads(pair_body)["token"]
+            payload = {"completed": True, "expected_revision": 0}
+
+            with self.assertRaises(HTTPError) as error:
+                json_request(
+                    f"{base}/api/v1/progress/103439%2F2023",
+                    method="PUT",
+                    cookie=None,
+                    payload=payload,
+                    token="invalid-token",
+                    origin="chrome-extension://test-extension",
+                )
+            self.assertEqual(error.exception.code, 401)
+            error.exception.close()
+
+            status, _headers, body = json_request(
+                f"{base}/api/v1/progress/103439%2F2023",
+                method="PUT",
+                payload=payload,
+                token=token,
+                origin="chrome-extension://test-extension",
+            )
+            self.assertEqual(status, 200)
+            self.assertTrue(json.loads(body)["state"]["processes"]["103439/2023"]["completed"])
+            self.assertTrue((root / "progresso.json").is_file())
+
     def test_review_mutation_requires_local_origin_and_csrf_token(self):
         with running_server() as (_root, server, base):
             status, headers, body = json_request(f"{base}/api/v1/review-session", method="POST", payload={"code": server.review_bootstrap_code}, origin=base)
