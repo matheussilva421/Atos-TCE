@@ -70,7 +70,7 @@ Criado `portable/app/incremental_pipeline.py` e teste; criadas as opções `-Mod
 
 ### Fase 7 — transporte
 
-Criados `portable/app/prepare_transfer.py` e `test_prepare_transfer.py`; allowlists, auditoria, empacotadores e `TESTAR-PACOTE.ps1` incluem o bridge, sidecar, viewer e licença PDF.js, excluindo `dados-locais`, perfis, credenciais, `.part` e logs privados. Foi criado `empacotar-extensao-complementar-ato.ps1` com allowlist explícita e verificação CRC/entradas para reproduzir o ZIP somente da extensão. Cada revisão incremental também materializa `dataset.json` validável; o README portátil documenta modos progressivo/completo, pareamento, fallback e pesquisa manual.
+Criados `portable/app/prepare_transfer.py` e `test_prepare_transfer.py`; allowlists, auditoria, empacotadores e `TESTAR-PACOTE.ps1` incluem o bridge, sidecar, viewer e licença PDF.js, excluindo `dados-locais`, perfis, credenciais, `.part` e logs privados. Foi criado `empacotar-extensao-complementar-ato.ps1` com allowlist explícita e verificação CRC/entradas para reproduzir o ZIP somente da extensão. Cada revisão incremental também materializa `dataset.json` validável; o README portátil documenta modos progressivo/completo, pareamento, fallback e pesquisa manual. A transferência agora compartilha um lease exclusivo com o coletor e o serviço: recusa snapshot enquanto houver execução ativa, recupera marcadores obsoletos por PID morto e libera o lease em `finally`; detalhes em `docs/notes/2026-09-08-transferencia-quiescente-handoff.md`.
 
 ### Fase 8 — QA seguro
 
@@ -82,10 +82,10 @@ Criados `qa_integrated_workflow.py` e `test_integrated_workflow.py`. O relatóri
 |---|---:|
 | `node --test` em `portable/extensao-complementar-ato` | 118 pass, 0 falhas, 0 skips |
 | `node --test` em `portable/app/web` | 4 pass, 0 falhas |
-| `python -m unittest discover -s . -p 'test_*.py' -q` | 250 pass, 0 falhas, 3 skips |
-| pacote/auditoria/end-to-end (`test_package_audit test_portable_end_to_end test_prepare_transfer test_integrated_workflow`) | 43 pass, 0 falhas, 2 skips |
-| `tests/Test-TcePortable.ps1` | 83 pass, 0 falhas |
-| `tests/Test-PortableMenu.ps1` | 73 pass, 0 falhas |
+| `python -m unittest discover -s . -p 'test_*.py' -q` | 254 pass, 0 falhas, 3 skips |
+| pacote/auditoria/end-to-end + transferência quiescente | 47 pass, 0 falhas, 2 skips |
+| `tests/Test-TcePortable.ps1` | 84 pass, 0 falhas |
+| `tests/Test-PortableMenu.ps1` | 74 pass, 0 falhas |
 | `tests/Test-PortableReset.ps1` | 31 pass, 0 falhas, 1 skip ambiental |
 | teste focado estado/sessão + ativos da mesa | 2 pass, 0 falhas |
 | `qa_integrated_workflow.py --project-root . --fixture-only` | passed; login/submission not-run |
@@ -132,11 +132,12 @@ Foi executado `python portable/app/package_audit.py staging-final --distribution
 ## GitHub / retomada
 
 - `git remote -v`: sem remoto configurado.
-- Commits locais relevantes: `f2c770b feat: sync incremental bridge datasets`, `9b9a473 feat: serve live portable review revisions`, `ca1e372 feat: follow live portal selection in review desk`, `4d0153c fix: synchronize review completion with local service`, `cefcdfc docs: record extracted extension smoke`, `c14580a docs: clarify shared portable completion state`, `a0424ac build: add reproducible extension-only package` e `50830bd test: verify live review selection in browser`.
+- Commits locais relevantes: `f2c770b feat: sync incremental bridge datasets`, `9b9a473 feat: serve live portable review revisions`, `ca1e372 feat: follow live portal selection in review desk`, `4d0153c fix: synchronize review completion with local service`, `cefcdfc docs: record extracted extension smoke`, `c14580a docs: clarify shared portable completion state`, `a0424ac build: add reproducible extension-only package`, `50830bd test: verify live review selection in browser` e `6c88d2a fix: block transfer during active portable operations`.
 - Push não executado porque não há `origin` configurado.
 - O bloco de acompanhamento da seleção e a conclusão compartilhada foram implementados em `html_generator.py` e `portable/app/local_service.py`, com RED→GREEN em `test_local_service.py` e `test_review_assets.py`; a implementação está em `4d0153c` e a evidência do ZIP extraído foi registrada nos commits de documentação.
 - Na primeira execução da suíte Python completa após um smoke concorrente, três testes do supervisor apresentaram falhas intermitentes e processos ainda vivos; os três casos passaram isoladamente, a suíte `test_qa_extension_runtime` passou 7/7 e novas execuções completas passaram 249/249 e 250/250. Nenhum ajuste foi feito no supervisor; o comportamento transitório fica registrado para retomada se voltar a ocorrer.
 - O teste browser local `test_review_live_browser.py` confirma a seleção publicada pelo bridge, pausa manual e retomada em sessão autenticada; não acessa o portal real.
+- A correção `6c88d2a` adiciona lease compartilhado entre `prepare_transfer`, coletor e serviço; 16 testes focados Python cobrem serviço/auth/transferência, incluindo recusa de runtime ativo, recuperação de lock obsoleto e liberação após falha de build.
 
 Pendências reais para chamar de release validada:
 
@@ -144,4 +145,4 @@ Pendências reais para chamar de release validada:
 2. medir os mesmos 20 processos e p95 de sincronização, e repetir o teste sobre ZIP extraído em ambiente restrito;
 3. obter autorização humana para segundo PC, se esse gate for necessário.
 
-Para continuar: executar os gates supervisionados acima, validar o ZIP v4 pelo empacotador oficial, e só então preparar push quando um remoto autorizado existir. Rechecar `git status` antes de retomar.
+Para continuar: executar os gates supervisionados acima, validar o ZIP v4 pelo empacotador oficial, e só então preparar push quando um remoto autorizado existir. A API de transferência usa recusa segura em vez de drenagem formal do coordenador; essa limitação permanece documentada. Rechecar `git status` antes de retomar.
