@@ -193,6 +193,9 @@ export function createPanelApp({
     searchSelection: null,
     bridgeClient: null,
     bridgeRevision: null,
+    bridgeDatasetRevision: null,
+    bridgePollTimer: null,
+    bridgePollDelay: 500,
     bridgeSequence: 0,
     bridgeContext: null,
     message: "",
@@ -381,11 +384,67 @@ export function createPanelApp({
         frame_id: context.frame_id,
         sequence: state.bridgeSequence,
       });
-      if (Number.isInteger(result?.revision)) state.bridgeRevision = result.revision;
+      if (typeof state.bridgeClient.getState === "function") {
+        try {
+          const current = await state.bridgeClient.getState();
+          state.bridgeRevision = Number.isInteger(current?.revision) ? current.revision : null;
+        } catch {
+          state.bridgeRevision = null;
+        }
+      } else {
+        state.bridgeRevision = null;
+      }
       setBridgeStatus("Mesa local acompanhando a seleção atual.");
     } catch (error) {
       setBridgeStatus(`Mesa local desconectada: ${error instanceof Error ? error.message : String(error)}`, true);
     }
+  }
+
+  async function syncBridgeDataset({ force = false } = {}) {
+    if (!state.bridgeClient || typeof state.bridgeClient.getDataset !== "function") return false;
+    try {
+      const envelope = await state.bridgeClient.getDataset();
+      const revision = envelope?.revision;
+      if (!Number.isInteger(revision) || revision < 0) throw new Error("revisão do dataset inválida");
+      if (!force && Number.isInteger(state.bridgeDatasetRevision) && revision <= state.bridgeDatasetRevision) return false;
+      await validateDataset(envelope?.dataset);
+      const imported = await send(MESSAGE_TYPES.IMPORT_DATASET, { dataset: envelope.dataset });
+      if (!imported?.ok) throw new Error(responseFailure(imported, "dataset incremental rejeitado"));
+      const hadIdentity = Boolean(state.snapshot?.process?.key && state.snapshot?.interested);
+      state.dataset = envelope.dataset;
+      state.bridgeDatasetRevision = revision;
+      if (hadIdentity) await refresh();
+      else {
+        state.kind = PANEL_STATES.DATASET_IMPORTED;
+        setMessage("Dataset atualizado pela mesa local; atualize a prévia para conferir a tela atual.");
+        render();
+      }
+      setBridgeStatus("Dataset incremental sincronizado; nenhum campo foi preenchido.");
+      return true;
+    } catch (error) {
+      setBridgeStatus(`Mesa local desconectada: ${error instanceof Error ? error.message : String(error)}`, true);
+      return false;
+    }
+  }
+
+  function stopBridgePolling() {
+    if (state.bridgePollTimer !== null) {
+      clearTimeout(state.bridgePollTimer);
+      state.bridgePollTimer = null;
+    }
+  }
+
+  function scheduleBridgePolling() {
+    if (!state.bridgeClient || typeof state.bridgeClient.getDataset !== "function" || state.bridgePollTimer !== null) return;
+    const hidden = documentRef?.visibilityState === "hidden";
+    const delay = hidden ? 2000 : state.bridgePollDelay;
+    state.bridgePollTimer = setTimeout(async () => {
+      state.bridgePollTimer = null;
+      const synced = await syncBridgeDataset();
+      state.bridgePollDelay = synced ? 500 : Math.min(10000, Math.max(500, state.bridgePollDelay * 2));
+      scheduleBridgePolling();
+    }, delay);
+    if (typeof state.bridgePollTimer?.unref === "function") state.bridgePollTimer.unref();
   }
 
   async function connectBridge() {
@@ -396,6 +455,8 @@ export function createPanelApp({
       const token = await pairingFactory({ baseUrl, code });
       state.bridgeClient = bridgeClientFactory({ baseUrl, token });
       state.bridgeRevision = null;
+      state.bridgeDatasetRevision = null;
+      state.bridgePollDelay = 500;
       const session = chromeApi?.storage?.session;
       if (typeof session?.set === "function") {
         await session.set({
@@ -406,6 +467,8 @@ export function createPanelApp({
       }
       setBridgeStatus("Mesa local conectada. A seleção será publicada, sem preencher campos.");
       render();
+      await syncBridgeDataset({ force: true });
+      scheduleBridgePolling();
       return true;
     } catch (error) {
       state.bridgeClient = null;
@@ -432,6 +495,8 @@ export function createPanelApp({
       state.bridgeRevision = Number.isInteger(stored[STORAGE_KEYS.BRIDGE_REVISION]) ? stored[STORAGE_KEYS.BRIDGE_REVISION] : null;
       if (bridgeElements["bridge-base-url"]) bridgeElements["bridge-base-url"].value = stored[STORAGE_KEYS.BRIDGE_BASE_URL];
       setBridgeStatus("Mesa local restaurada nesta sessão.");
+      await syncBridgeDataset({ force: true });
+      scheduleBridgePolling();
     } catch {
       state.bridgeClient = null;
       setBridgeStatus("Pareamento salvo inválido; conecte novamente.", true);
@@ -768,6 +833,8 @@ export function createPanelApp({
     requestComplementarAto,
     refresh,
     setReviewed,
+    syncBridgeDataset,
+    stopBridgePolling,
   };
 }
 

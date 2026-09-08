@@ -83,6 +83,20 @@ class LocalServiceTests(unittest.TestCase):
             self.assertEqual(json.loads(body)["revision"], 0)
 
             status, _headers, body = json_request(
+                f"{base}/api/v1/selection",
+                method="POST",
+                payload={
+                    "process_key": "103439/2023",
+                    "interested_normalized": "pessoa teste",
+                    "tab_id": 1,
+                    "frame_id": 0,
+                    "sequence": 1,
+                },
+                token=token,
+            )
+            self.assertEqual(status, 200)
+
+            status, _headers, body = json_request(
                 f"{base}/api/v1/progress/103439%2F2023",
                 method="PUT",
                 payload={"completed": True, "expected_revision": 0},
@@ -100,6 +114,40 @@ class LocalServiceTests(unittest.TestCase):
                 )
             self.assertEqual(error.exception.code, 409)
             self.assertTrue((root / "progresso.json").is_file())
+
+    def test_dataset_prefers_the_current_incremental_publication(self):
+        with running_server() as (root, server, base):
+            publication = root / "publicacoes" / "7"
+            publication.mkdir(parents=True)
+            (root / "publicacao-atual.json").write_text(
+                json.dumps({"schema_version": 1, "revision": 7}), encoding="utf-8"
+            )
+            dataset = {
+                "schema_version": 1,
+                "generated_at": "2026-09-08T12:00:00+00:00",
+                "batch": {
+                    "id": "publication-7",
+                    "logical_sha256": "0" * 64,
+                    "process_count": 0,
+                    "record_count": 0,
+                    "process_keys": [],
+                },
+                "records": [],
+            }
+            (publication / "dataset.json").write_text(json.dumps(dataset), encoding="utf-8")
+            code = server.auth.issue_pairing_code()
+            _status, _headers, pair_body = json_request(
+                f"{base}/api/v1/pair",
+                method="POST",
+                payload={"code": code},
+                origin="chrome-extension://test-extension",
+            )
+            token = json.loads(pair_body)["token"]
+            status, _headers, body = json_request(f"{base}/api/v1/dataset", token=token)
+            payload = json.loads(body)
+            self.assertEqual(status, 200)
+            self.assertEqual(payload["revision"], 7)
+            self.assertEqual(payload["dataset"]["batch"]["id"], "publication-7")
 
     def test_pdf_is_served_only_by_document_id_and_supports_range(self):
         with running_server() as (root, server, base):

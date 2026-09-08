@@ -28,12 +28,16 @@ computador de destino. `TESTAR-PACOTE.ps1` faz a verificação offline sem login
 4. Execute `INICIAR.cmd` e escolha uma das opções 1–8. Para coletar, deixe
    **Meus Processos** visível na janela do Chrome/Edge e pressione `ENTER`.
 
-Em cada coleta, `-ModoPreparacao progressivo` (padrão) permite abrir os primeiros
-resultados enquanto a preparação continua; `-ModoPreparacao completo` aguarda o
-fim antes de abrir a mesa. `-MaxDownloads` aceita somente 1 ou 2 e limita os
-workers de download em runspaces; hash, deduplicação, versões e checkpoint
-continuam no coordenador único. O token de sessão é passado somente em memória
-ao worker e nunca entra no acervo, logs ou ZIP.
+Em cada coleta, `-ModoPreparacao progressivo` (padrão) analisa e publica cada
+processo assim que seus documentos são sincronizados; `-ModoPreparacao completo`
+faz a mesma preparação por processo depois da varredura e só então abre a mesa
+no fluxo completo. Com a mesa local pareada, o painel da extensão consulta as
+revisões incrementais e atualiza o dataset sem preencher campos. O HTML aberto
+como arquivo continua sendo o fallback estático e não recarrega sozinho.
+`-MaxDownloads` aceita somente 1 ou 2 e limita os workers de download em
+runspaces; hash, deduplicação, versões e checkpoint continuam no coordenador
+único. O token de sessão é passado somente em memória ao worker e nunca entra
+no acervo, logs ou ZIP.
 
 Seleções aceitas:
 

@@ -507,6 +507,35 @@ test("optionally pairs with the local mesa and publishes the current selection w
   assert.equal(documentRef.getElementById("fill-button").disabled, false);
 });
 
+test("bridge dataset refresh updates the current panel without applying fields", async () => {
+  const initial = await makeDataset();
+  const updated = await makeDataset({ interested: "Maria Atualizada" });
+  let currentDataset = initial;
+  let currentRevision = 1;
+  const bridge = {
+    async getDataset() { return { revision: currentRevision, dataset: currentDataset }; },
+    async getState() { return { revision: 0 }; },
+    async publishSelection() { return { accepted: true }; },
+  };
+  const { app, documentRef, chromeApi } = await startApp({
+    dataset: initial,
+    snapshots: [null],
+    bridgeClientFactory: () => bridge,
+    pairingFactory: async () => "token",
+  });
+  documentRef.getElementById("bridge-base-url").value = "http://127.0.0.1:18743";
+  documentRef.getElementById("bridge-pairing-code").value = "12345678";
+  documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(app.getState().dataset.batch.id, initial.batch.id);
+  currentDataset = updated;
+  currentRevision = 2;
+  await app.syncBridgeDataset();
+  assert.equal(app.getState().dataset.records[0].interested.original, "Maria Atualizada");
+  assert.equal(chromeApi.calls.some((message) => message.type === MESSAGE_TYPES.APPLY_FIELDS), false);
+  assert.equal(documentRef.getElementById("fill-button").disabled, true);
+});
+
 test("imports one file, reuses it after switching process, and restores it in a second panel instance", async () => {
   const dataset = await makeDataset();
   const sharedStorage = makeStorageArea();

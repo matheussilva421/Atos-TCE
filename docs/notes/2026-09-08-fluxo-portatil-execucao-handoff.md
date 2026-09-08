@@ -61,7 +61,7 @@ PDF.js está fixado em 5.7.284 com hashes no manifesto e origem oficial da relea
 
 ### Fase 5 — bridge da extensão
 
-Criado `portable/extensao-complementar-ato/lib/bridge-client.js` e seu teste; manifest agora permite somente o portal e `http://127.0.0.1/*`. O painel tem pareamento opcional em `chrome.storage.session`, publicação de seleção com `sequence` monotônica, conclusão via API local e fallback manual. A publicação nunca chama preenchimento.
+Criado `portable/extensao-complementar-ato/lib/bridge-client.js` e seu teste; manifest agora permite somente o portal e `http://127.0.0.1/*`. O painel tem pareamento opcional em `chrome.storage.session`, publicação de seleção com `sequence` monotônica, sincronização de datasets por revisão, conclusão via API local e fallback manual. A publicação nunca chama preenchimento; seleção e conclusão usam revisões distintas para não gerar conflito falso. Artefato atualizado: `artifacts/extensao-complementar-ato-2026-09-08-v3.zip`.
 
 ### Fase 6 — publicação incremental
 
@@ -69,7 +69,7 @@ Criado `portable/app/incremental_pipeline.py` e teste; criadas as opções `-Mod
 
 ### Fase 7 — transporte
 
-Criados `portable/app/prepare_transfer.py` e `test_prepare_transfer.py`; allowlists, auditoria, empacotadores e `TESTAR-PACOTE.ps1` incluem o bridge, sidecar, viewer e licença PDF.js, excluindo `dados-locais`, perfis, credenciais, `.part` e logs privados. README portátil documenta modos progressivo/completo, pareamento, fallback e pesquisa manual.
+Criados `portable/app/prepare_transfer.py` e `test_prepare_transfer.py`; allowlists, auditoria, empacotadores e `TESTAR-PACOTE.ps1` incluem o bridge, sidecar, viewer e licença PDF.js, excluindo `dados-locais`, perfis, credenciais, `.part` e logs privados. Cada revisão incremental também materializa `dataset.json` validável; o README portátil documenta modos progressivo/completo, pareamento, fallback e pesquisa manual.
 
 ### Fase 8 — QA seguro
 
@@ -79,10 +79,10 @@ Criados `qa_integrated_workflow.py` e `test_integrated_workflow.py`. O relatóri
 
 | Gate | Resultado |
 |---|---:|
-| `node --test` em `portable/extensao-complementar-ato` | 117 pass, 0 falhas, 0 skips |
+| `node --test` em `portable/extensao-complementar-ato` | 118 pass, 0 falhas, 0 skips |
 | `node --test` em `portable/app/web` | 4 pass, 0 falhas |
-| `python -m unittest discover -s . -p 'test_*.py' -q` | 243 pass, 0 falhas, 3 skips |
-| pacote/auditoria/end-to-end (`test_package_audit test_portable_end_to_end test_prepare_transfer`) | 41 pass, 0 falhas, 2 skips |
+| `python -m unittest discover -s . -p 'test_*.py' -q` | 245 pass, 0 falhas, 3 skips |
+| pacote/auditoria/end-to-end (`test_package_audit test_portable_end_to_end test_prepare_transfer test_integrated_workflow`) | 43 pass, 0 falhas, 2 skips |
 | `tests/Test-TcePortable.ps1` | 83 pass, 0 falhas |
 | `tests/Test-PortableMenu.ps1` | 73 pass, 0 falhas |
 | `tests/Test-PortableReset.ps1` | 31 pass, 0 falhas, 1 skip ambiental |
@@ -100,6 +100,12 @@ Gerado por subagent Luna xhigh e conferido novamente no checkout:
 - não inclui `package.json`, testes, `docs`, `work` ou acervo;
 - handoff específico: `docs/notes/2026-09-08-extensao-complementar-ato-empacotamento-v2-handoff.md`.
 
+Versão atualizada após o bridge incremental:
+
+- ZIP: `C:\Users\slvma\Downloads\Github\Complementação de Atos\artifacts\extensao-complementar-ato-2026-09-08-v3.zip`
+- SHA-256: `8B0BBBA8131EA1D9B8156AAC60D374A85ED1D16D2AF1B55C77D1809ADCF61E46`
+- handoff: `docs/notes/2026-09-08-extensao-complementar-ato-empacotamento-v3-handoff.md`.
+
 O ZIP anterior foi preservado em `artifacts/extensao-complementar-ato-2026-09-08.zip`.
 
 ## GitHub / retomada
@@ -111,7 +117,7 @@ O ZIP anterior foi preservado em `artifacts/extensao-complementar-ato-2026-09-08
 
 Pendências reais para chamar de release validada:
 
-1. fazer a mesa/serviço consumir as revisões incrementais enquanto permanece aberta, sem reexecutar a análise completa nem resetar foco/zoom;
+1. fazer o HTML da mesa servido pelo helper consumir as revisões incrementais enquanto permanece aberto, sem reexecutar a análise completa nem resetar foco/zoom; o painel da extensão e o endpoint do serviço já consomem o dataset publicado;
 2. executar QA manual em Chrome/Área Restrita com usuário autenticado, sem envio/finalização;
 3. medir os mesmos 20 processos e p95 de sincronização, e repetir o teste sobre ZIP extraído em ambiente restrito;
 4. obter autorização humana para segundo PC, se esse gate for necessário.

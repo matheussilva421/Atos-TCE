@@ -47,6 +47,23 @@ def _sidecar(root: Path, name: str) -> Path | None:
     return None
 
 
+def _current_publication_dataset(root: Path) -> tuple[int, Path] | None:
+    pointer_path = root / "publicacao-atual.json"
+    if not pointer_path.is_file():
+        return None
+    try:
+        pointer = _read_object(pointer_path)
+        revision = pointer.get("revision")
+        if type(revision) is not int or revision < 1:
+            return None
+        candidate = (root / "publicacoes" / str(revision) / "dataset.json").resolve()
+        if not _inside(root, candidate) or not candidate.is_file():
+            return None
+        return revision, candidate
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+
+
 def _read_object(path: Path) -> dict:
     value = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(value, dict):
@@ -221,7 +238,8 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
         self._error(404, "NOT_FOUND", "rota não encontrada")
 
     def _send_dataset(self):
-        path = _sidecar(self.server_state.workflow_root, "dados-complementar-ato.json")
+        publication = _current_publication_dataset(self.server_state.workflow_root)
+        path = publication[1] if publication is not None else _sidecar(self.server_state.workflow_root, "dados-complementar-ato.json")
         if path is None:
             self._error(404, "DATASET_NOT_FOUND", "dataset não encontrado")
             return
@@ -230,7 +248,8 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
         except (OSError, ValueError, json.JSONDecodeError):
             self._error(500, "DATASET_INVALID", "dataset inválido")
             return
-        self._send(200, {"api_version": API_VERSION, "revision": self.server_state.service_revision, "dataset": dataset})
+        revision = publication[0] if publication is not None else self.server_state.service_revision
+        self._send(200, {"api_version": API_VERSION, "revision": revision, "dataset": dataset})
 
     def _send_evidence(self, record_id: str):
         if not record_id or "/" in record_id or "\\" in record_id:

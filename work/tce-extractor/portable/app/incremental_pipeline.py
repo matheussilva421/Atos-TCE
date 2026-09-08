@@ -26,6 +26,7 @@ for candidate in (APP_ROOT, PROJECT_ROOT):
 from analysis_pipeline import build_target_manifest, classify_archive
 from archive_index import scan_archive
 from batch_runner import run_manifest
+from extension_exporter import build_extension_dataset
 
 
 _PROCESS_KEY = re.compile(r"^\d+/\d{4}$")
@@ -96,14 +97,31 @@ def publish_results(archive_root: Path, process_results: Mapping[str, Mapping[st
         publication_root.mkdir(parents=True, exist_ok=True)
         temporary_root = Path(tempfile.mkdtemp(prefix=f".revision-{revision}-", dir=publication_root))
         try:
+            published_at = datetime.now(timezone.utc).isoformat()
             _atomic_json(
                 temporary_root / "resultados.json",
                 {
                     "schema_version": 1,
                     "revision": revision,
-                    "published_at": datetime.now(timezone.utc).isoformat(),
+                    "published_at": published_at,
                     "results": merged,
                 },
+            )
+            checkpoint = {
+                "version": 1,
+                "run_id": f"publication-{revision}",
+                "created_at": published_at,
+                "processes": {
+                    process_key: {
+                        "status": str(result.get("status", "partial")),
+                        "result": dict(result),
+                    }
+                    for process_key, result in merged.items()
+                },
+            }
+            _atomic_json(
+                temporary_root / "dataset.json",
+                build_extension_dataset(checkpoint, generated_at=published_at),
             )
             final_root = publication_root / str(revision)
             os.replace(temporary_root, final_root)

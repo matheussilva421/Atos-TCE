@@ -115,6 +115,16 @@ class IncrementalPipelineTests(unittest.TestCase):
             revisions = sorted((root / "publicacoes").iterdir())
             self.assertEqual(len(revisions), 2)
 
+    def test_publication_materializes_valid_extension_dataset_for_each_revision(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            publish_results(root, {"1/2023": {"status": "partial", "blocks": []}})
+            dataset_path = root / "publicacoes" / "1" / "dataset.json"
+            dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
+            self.assertEqual(dataset["schema_version"], 1)
+            self.assertEqual(dataset["batch"]["process_keys"], ["1/2023"])
+            self.assertEqual(dataset["batch"]["record_count"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
