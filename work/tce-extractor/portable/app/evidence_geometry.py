@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import subprocess
 import tempfile
 import unicodedata
 from pathlib import Path, PurePosixPath
 from typing import Mapping, Sequence
+
+
+MIN_OCR_CONFIDENCE = 50.0
 
 
 def _fold(value: object) -> str:
@@ -21,13 +25,23 @@ def _token(value: object) -> str:
 
 
 def _normalise_rect(rect: Sequence[object], page_width: float, page_height: float) -> list[float] | None:
-    if len(rect) != 4 or page_width <= 0 or page_height <= 0:
+    if (
+        len(rect) != 4
+        or not math.isfinite(page_width)
+        or not math.isfinite(page_height)
+        or page_width <= 0
+        or page_height <= 0
+    ):
         return None
     try:
         x0, y0, x1, y1 = (float(value) for value in rect)
     except (TypeError, ValueError):
         return None
+    if not all(math.isfinite(value) for value in (x0, y0, x1, y1)):
+        return None
     if x1 < x0 or y1 < y0:
+        return None
+    if x0 < 0 or y0 < 0 or x1 > page_width or y1 > page_height:
         return None
     return [
         max(0.0, min(1.0, x0 / page_width)),
@@ -88,6 +102,19 @@ def locate_evidence(
             if not isinstance(rect, Sequence) or isinstance(rect, (str, bytes)):
                 valid = []
                 break
+            confidence = words[start + len(valid)].get("confidence")
+            if confidence is not None:
+                try:
+                    confidence_value = float(confidence)
+                except (TypeError, ValueError):
+                    valid = []
+                    break
+                if (
+                    not math.isfinite(confidence_value)
+                    or confidence_value < MIN_OCR_CONFIDENCE
+                ):
+                    valid = []
+                    break
             normalised = _normalise_rect(rect, page_width, page_height)
             if normalised is None:
                 valid = []

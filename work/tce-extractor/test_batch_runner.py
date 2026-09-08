@@ -48,6 +48,63 @@ class BatchRunnerTests(unittest.TestCase):
         self.assertEqual(restored_evidence.rects, ((0.1, 0.2, 0.4, 0.3),))
         self.assertEqual(restored_evidence.method, "native")
 
+    def test_checkpoint_round_trip_preserves_multiple_geometry_candidates(self):
+        candidates = (
+            FieldEvidence(
+                "cargo",
+                "PROFESSOR",
+                "found",
+                process="103439/2023",
+                event="9",
+                document="resolucao-9.pdf",
+                page=1,
+                quote="PROFESSOR",
+                rects=((0.1, 0.2, 0.4, 0.3),),
+                method="native",
+            ),
+            FieldEvidence(
+                "cargo",
+                "PROFESSOR II",
+                "found",
+                process="103439/2023",
+                event="12",
+                document="resolucao-12.pdf",
+                page=1,
+                quote="PROFESSOR II",
+                rects=((0.1, 0.6, 0.5, 0.7),),
+                method="ocr",
+            ),
+        )
+        evidence = FieldEvidence(
+            "cargo",
+            None,
+            "conflict",
+            process="103439/2023",
+            event="9",
+            document="resolucao-9.pdf",
+            page=1,
+            confidence="low",
+            candidates=candidates,
+        )
+        record = {
+            "process": "103439/2023",
+            "status": "partial",
+            "pending": ["cargo"],
+            "blocks": [{"interested": "JOANA DA SILVA", "pending": ["cargo"], "fields": {"cargo": evidence}}],
+        }
+
+        restored = _record_from_checkpoint(_record_to_checkpoint(record))
+        restored_evidence = restored["blocks"][0]["fields"]["cargo"]
+
+        self.assertEqual(restored_evidence.status, "conflict")
+        self.assertEqual(
+            [(item.event, item.quote, item.method, item.rects) for item in restored_evidence.candidates],
+            [
+                ("9", "PROFESSOR", "native", ((0.1, 0.2, 0.4, 0.3),)),
+                ("12", "PROFESSOR II", "ocr", ((0.1, 0.6, 0.5, 0.7),)),
+            ],
+        )
+
     def test_manifest_uses_geometry_returned_by_the_text_pass_without_second_reader(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -105,6 +162,58 @@ class BatchRunnerTests(unittest.TestCase):
             checkpoint = json.loads((root / "checkpoint.json").read_text(encoding="utf-8"))
             cargo = checkpoint["processes"]["103439/2023"]["result"]["blocks"][0]["fields"]["cargo"]
             self.assertEqual(cargo["method"], "ocr")
+            self.assertEqual(cargo["rects"], [[0.21, 0.2, 0.5, 0.25]])
+
+    def test_checkpoint_file_round_trip_restores_geometry_without_reextracting(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pdf_path = root / "one-page.pdf"
+            pdf_path.write_bytes(b"fixture")
+            manifest_path = root / "manifest.json"
+            manifest_path.write_text(json.dumps({
+                "version": 1,
+                "run_id": "checkpoint-geometry-run",
+                "processes": [{
+                    "process": "103439/2023",
+                    "documents": [{
+                        "event": "9",
+                        "title": "RESOLUÇÃO ADMINISTRATIVA",
+                        "pdf_path": str(pdf_path),
+                    }],
+                }],
+            }, ensure_ascii=False), encoding="utf-8")
+            pages = ["RESOLUÇÃO ADMINISTRATIVA Nº 156\nInteressada: JOANA DA SILVA\nCargo: PROFESSOR"]
+            geometry = [{
+                "page": 0,
+                "method": "native",
+                "coordinates": "normalized",
+                "words": [
+                    {"text": "Cargo:", "rect": [0.1, 0.2, 0.2, 0.25]},
+                    {"text": "PROFESSOR", "rect": [0.21, 0.2, 0.5, 0.25]},
+                ],
+            }]
+
+            with patch("batch_runner.extract_pdf_pages", return_value=(pages, geometry)) as extract:
+                run_manifest(
+                    manifest_path,
+                    root / "doc.md",
+                    root / "checkpoint.json",
+                    run_id="checkpoint-geometry-run",
+                    resume=False,
+                )
+                extract.reset_mock()
+                run_manifest(
+                    manifest_path,
+                    root / "doc.md",
+                    root / "checkpoint.json",
+                    run_id="checkpoint-geometry-run",
+                    resume=True,
+                )
+
+            self.assertEqual(extract.call_count, 0)
+            checkpoint = json.loads((root / "checkpoint.json").read_text(encoding="utf-8"))
+            cargo = checkpoint["processes"]["103439/2023"]["result"]["blocks"][0]["fields"]["cargo"]
+            self.assertEqual(cargo["method"], "native")
             self.assertEqual(cargo["rects"], [[0.21, 0.2, 0.5, 0.25]])
 
     def test_manifest_reuses_geometry_cache_without_running_ocr_again(self):
@@ -185,6 +294,90 @@ class BatchRunnerTests(unittest.TestCase):
             cargo = checkpoint["processes"]["103439/2023"]["result"]["blocks"][0]["fields"]["cargo"]
             self.assertEqual(cargo["method"], "ocr")
             self.assertEqual(cargo["rects"], [[0.21, 0.2, 0.5, 0.25]])
+
+    def test_modified_pdf_hash_invalidates_cached_geometry(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pdf_path = root / "scan.pdf"
+            pdf_path.write_bytes(b"fixture")
+            geometry_key = "stable-geometry-key"
+            manifest_path = root / "manifest.json"
+            geometry_cache = root / "cache-geometria.json"
+
+            def write_manifest(sha256):
+                manifest_path.write_text(
+                    json.dumps({
+                        "version": 1,
+                        "run_id": "geometry-hash-run",
+                        "processes": [{
+                            "process": "103439/2023",
+                            "documents": [{
+                                "event": "9",
+                                "title": "RESOLUÇÃO ADMINISTRATIVA",
+                                "pdf_path": str(pdf_path),
+                                "sha256": sha256,
+                                "geometry_cache_key": geometry_key,
+                            }],
+                        }],
+                    }, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+
+            old_geometry = [{
+                "page": 0,
+                "method": "ocr",
+                "coordinates": "normalized",
+                "words": [
+                    {"text": "Cargo:", "rect": [0.1, 0.2, 0.2, 0.25]},
+                    {"text": "PROFESSOR", "rect": [0.21, 0.2, 0.5, 0.25]},
+                ],
+            }]
+            geometry_cache.write_text(json.dumps({
+                "geometry_version": 1,
+                "entries": {geometry_key: {
+                    "sha256": "old-hash",
+                    "pages": ["RESOLUÇÃO ADMINISTRATIVA Nº 156\nInteressada: JOANA DA SILVA\nCargo: PROFESSOR"],
+                    "geometry": old_geometry,
+                }},
+            }), encoding="utf-8")
+            write_manifest("old-hash")
+
+            fresh_geometry = [{
+                "page": 0,
+                "method": "ocr",
+                "coordinates": "normalized",
+                "words": [
+                    {"text": "Cargo:", "rect": [0.2, 0.3, 0.3, 0.35]},
+                    {"text": "PROFESSOR", "rect": [0.31, 0.3, 0.6, 0.35]},
+                ],
+            }]
+            fresh_pages = ["RESOLUÇÃO ADMINISTRATIVA Nº 156\nInteressada: JOANA DA SILVA\nCargo: PROFESSOR"]
+            with patch(
+                "batch_runner.extract_pdf_pages",
+                return_value=(fresh_pages, fresh_geometry),
+            ) as extract:
+                run_manifest(
+                    manifest_path,
+                    root / "doc.md",
+                    root / "checkpoint.json",
+                    run_id="geometry-hash-run",
+                    resume=False,
+                    geometry_cache_path=geometry_cache,
+                )
+                write_manifest("new-hash")
+                run_manifest(
+                    manifest_path,
+                    root / "doc.md",
+                    root / "checkpoint.json",
+                    run_id="geometry-hash-run",
+                    resume=True,
+                    geometry_cache_path=geometry_cache,
+                )
+
+            self.assertEqual(extract.call_count, 1)
+            checkpoint = json.loads((root / "checkpoint.json").read_text(encoding="utf-8"))
+            cargo = checkpoint["processes"]["103439/2023"]["result"]["blocks"][0]["fields"]["cargo"]
+            self.assertEqual(cargo["rects"], [[0.31, 0.3, 0.6, 0.35]])
 
     @staticmethod
     def _write_hash_manifest(root: Path, hashes: tuple[str, str]) -> Path:

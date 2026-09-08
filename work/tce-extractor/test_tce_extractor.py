@@ -458,6 +458,48 @@ class MergeAndOutputTests(unittest.TestCase):
             ["PROFESSOR", "PROFESSOR II"],
         )
 
+    def test_conflicting_geometry_keeps_each_candidate_identity_and_rects(self):
+        first = extract_fields(
+            ["Cargo: PROFESSOR"],
+            "103439/2023",
+            "9",
+            "resolucao-9.pdf",
+            page_words=[{
+                "coordinates": "normalized",
+                "method": "native",
+                "words": [
+                    {"text": "Cargo:", "rect": [0.1, 0.1, 0.2, 0.2]},
+                    {"text": "PROFESSOR", "rect": [0.21, 0.1, 0.5, 0.2]},
+                ],
+            }],
+        )
+        second = extract_fields(
+            ["Cargo: PROFESSOR II"],
+            "103439/2023",
+            "12",
+            "resolucao-12.pdf",
+            page_words=[{
+                "coordinates": "normalized",
+                "method": "ocr",
+                "words": [
+                    {"text": "Cargo:", "rect": [0.1, 0.6, 0.2, 0.7]},
+                    {"text": "PROFESSOR", "rect": [0.21, 0.6, 0.5, 0.7]},
+                    {"text": "II", "rect": [0.51, 0.6, 0.55, 0.7]},
+                ],
+            }],
+        )
+
+        merged = merge_extractions([first, second])
+
+        self.assertEqual(merged["cargo"].status, "conflict")
+        self.assertEqual(
+            [(item.event, item.document, item.method, item.rects) for item in merged["cargo"].candidates],
+            [
+                ("9", "resolucao-9.pdf", "native", ((0.21, 0.1, 0.5, 0.2),)),
+                ("12", "resolucao-12.pdf", "ocr", ((0.21, 0.6, 0.55, 0.7),)),
+            ],
+        )
+
     def test_markdown_contains_field_source_and_partial_pending(self):
         extraction = extract_fields(
             ["Modalidade: aposentadoria especial"],
