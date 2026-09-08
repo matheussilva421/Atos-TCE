@@ -82,7 +82,7 @@ Criados `qa_integrated_workflow.py` e `test_integrated_workflow.py`. O relatóri
 |---|---:|
 | `node --test` em `portable/extensao-complementar-ato` | 118 pass, 0 falhas, 0 skips |
 | `node --test` em `portable/app/web` | 4 pass, 0 falhas |
-| `python -m unittest discover -s . -p 'test_*.py' -q` | 249 pass, 0 falhas, 3 skips |
+| `python -m unittest discover -s . -p 'test_*.py' -q` | 250 pass, 0 falhas, 3 skips |
 | pacote/auditoria/end-to-end (`test_package_audit test_portable_end_to_end test_prepare_transfer test_integrated_workflow`) | 43 pass, 0 falhas, 2 skips |
 | `tests/Test-TcePortable.ps1` | 83 pass, 0 falhas |
 | `tests/Test-PortableMenu.ps1` | 73 pass, 0 falhas |
@@ -95,6 +95,7 @@ Criados `qa_integrated_workflow.py` e `test_integrated_workflow.py`. O relatóri
 | `test_extension_zip_packager.py` + empacotamento oficial | 1 pass; 11 arquivos, CRC verificado |
 | smoke Chrome contra ZIP v4 oficial extraído | pass; Chrome 145; 7 linhas, persistência após restart, controles protegidos intactos |
 | `empacotar-extensao-complementar-ato.ps1` | ZIP v4 reproduzível; 11 arquivos; SHA-256 `D04B51D370277C90327BD60C1974D70AA7992FF2D4CCA64DB4A4D6DED004B29A` |
+| `test_review_live_browser.py` | seleção publicada, pausa/retomada e entrega em menos de 2 s; 1 pass |
 
 O Python exibiu apenas avisos ResourceWarning dos testes de erro HTTP e a mensagem de uso deliberada do caso `--timeout-seconds 0`; a suíte terminou verde. Os skips ambientais/fixture não validam OCR real, bridge em navegador ou portal.
 
@@ -135,6 +136,7 @@ Foi executado `python portable/app/package_audit.py staging-final --distribution
 - Push não executado porque não há `origin` configurado.
 - O bloco de acompanhamento da seleção e a conclusão compartilhada foram implementados em `html_generator.py` e `portable/app/local_service.py`, com RED→GREEN em `test_local_service.py` e `test_review_assets.py`; a implementação está em `4d0153c` e a evidência do ZIP extraído foi registrada nos commits de documentação.
 - Na primeira execução da suíte Python completa após um smoke concorrente, três testes do supervisor apresentaram falhas intermitentes e processos ainda vivos; os três casos passaram isoladamente, a suíte `test_qa_extension_runtime` passou 7/7 e uma nova execução completa passou 249/249. Nenhum ajuste foi feito no supervisor; o comportamento transitório fica registrado para retomada se voltar a ocorrer.
+- O teste browser local `test_review_live_browser.py` confirma a seleção publicada pelo bridge, pausa manual e retomada em sessão autenticada; não acessa o portal real.
 
 Pendências reais para chamar de release validada:
 
