@@ -9,8 +9,8 @@ teste, documentação, runtime, acervo e credenciais ficam fora do artefato.
 ## Artefato
 
 - Caminho: `C:\Users\slvma\Downloads\Github\Complementação de Atos\artifacts\extensao-complementar-ato-2026-09-08-v4.zip`
-- Tamanho: `33354` bytes
-- SHA-256: `D04B51D370277C90327BD60C1974D70AA7992FF2D4CCA64DB4A4D6DED004B29A`
+- Tamanho: `33440` bytes
+- SHA-256: `8B0BBBA8131EA1D9B8156AAC60D374A85ED1D16D2AF1B55C77D1809ADCF61E46`
 - Raiz interna: `extensao-complementar-ato/`
 - Entradas: `11`
 
@@ -43,11 +43,13 @@ allowlist, rejeita reparse points, valida as entradas internas e calcula SHA-256
 com .NET para funcionar no Windows PowerShell disponível.
 
 - `python -m unittest test_extension_zip_packager -q`: 1 pass, 0 falhas.
-- `python -m unittest discover -s . -p 'test_*.py' -q`: 249 pass, 3 skips, 0 falhas.
+- `python -m unittest discover -s . -p 'test_*.py' -q`: 250 pass, 3 skips, 0 falhas.
 - ZIP extraído em pasta temporária e smoke Chrome: pass; Chrome 145; 7 linhas,
   persistência após restart, troca de processo, empate recalculado e controles
   protegidos intactos.
 - CRC e allowlist: 11 entradas, 0 fora do escopo.
+- `test_review_live_browser.py`: 1 pass; seleção publicada chega à mesa em menos de
+  2 s e pausa/retomada manual foram verificadas em navegador local autenticado.
 
 ## Retomada
 
