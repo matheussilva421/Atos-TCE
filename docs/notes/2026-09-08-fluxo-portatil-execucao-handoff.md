@@ -114,6 +114,10 @@ Versão atualizada após o bridge incremental:
 
 O ZIP anterior foi preservado em `artifacts/extensao-complementar-ato-2026-09-08.zip`.
 
+## Auditoria de montagens antigas
+
+Foi executado `python portable/app/package_audit.py staging-final --distribution private` apenas em leitura. A montagem histórica `staging-final` foi reprovada por conter `downloads/` privados, referências de PyMuPDF ausentes/divergentes e ausência de `acervo-tce/dados-complementar-ato.json`; ela não é o ZIP v3, não foi corrigida nem removida. O ZIP v3 da extensão foi auditado separadamente e passou: 11 entradas, 0 fora de `extensao-complementar-ato/`, seguido de smoke Chrome após extração.
+
 ## GitHub / retomada
 
 - `git remote -v`: sem remoto configurado.
