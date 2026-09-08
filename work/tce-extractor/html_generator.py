@@ -534,7 +534,11 @@ HTML_TEMPLATE = r'''<!doctype html>
     .pdf-empty { position: absolute; inset: 17px; display: grid; place-items: center; color: #d5dfdd; background: repeating-linear-gradient(135deg, #303d48 0, #303d48 9px, #2b3741 9px, #2b3741 18px); text-align: center; }
     .pdf-empty div { max-width: 320px; padding: 20px; border: 1px dashed #71828a; }
     .pdf-empty strong { display: block; margin-bottom: 6px; color: #fff; font: 700 20px Georgia, serif; }
-    .viewer-foot { display: flex; justify-content: space-between; gap: 10px; padding: 9px 18px; color: #a9b8bb; background: #1d2d3d; font-size: 11px; }
+    .viewer-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 18px; color: #a9b8bb; background: #1d2d3d; font-size: 11px; }
+    .viewer-controls { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+    .pdf-control { min-width: 27px; height: 25px; padding: 0 5px; color: #eaf2ee; background: #2c4050; border: 1px solid #627b83; border-radius: 3px; font-size: 12px; font-weight: 800; }
+    .pdf-control:hover { background: #3a5967; border-color: #b5d1c9; }
+    .pdf-zoom-label { min-width: 38px; color: #d6e0dd; font-size: 10px; text-align: center; }
     .inspector { min-height: 0; overflow: auto; background: var(--paper); box-shadow: var(--shadow); }
     .inspector-head { background: var(--paper); border-bottom: 1px solid var(--line); }
     .process-line { display: flex; justify-content: space-between; gap: 15px; align-items: start; }
@@ -582,7 +586,7 @@ HTML_TEMPLATE = r'''<!doctype html>
       html, body { height: 100%; overflow: hidden; }
       .app-shell { height: 100vh; min-height: 0; }
       .topbar {
-        grid-template-columns: minmax(190px, .72fr) minmax(280px, 1.5fr) auto;
+        grid-template-columns: minmax(170px, .6fr) minmax(0, 2.5fr) minmax(150px, 1fr);
         gap: 12px; padding: 10px 14px 9px; border-bottom-width: 3px;
       }
       .brand { gap: 9px; }
@@ -590,7 +594,8 @@ HTML_TEMPLATE = r'''<!doctype html>
       .eyebrow { font-size: 8px; letter-spacing: .12em; }
       .brand h1 { font-size: 18px; }
       .brand-note { display: none; }
-      .toolbar { grid-template-columns: minmax(120px, 1fr) minmax(155px, 1.15fr) 31px 31px auto; gap: 5px; }
+      .toolbar { grid-template-columns: minmax(110px, 1fr) minmax(135px, 1.15fr) 31px 31px minmax(116px, auto); gap: 5px; }
+      .toolbar .follow-button { min-width: 116px; white-space: nowrap; }
       .toolbar input, .toolbar select { height: 31px; padding: 0 8px; font-size: 11px; }
       .icon-button, .outline-button { height: 31px; padding: 0 6px; font-size: 13px; }
       .stats { display: grid; grid-template-columns: repeat(3, minmax(45px, 1fr)); gap: 5px 7px; }
@@ -615,8 +620,10 @@ HTML_TEMPLATE = r'''<!doctype html>
       .pdf-empty div { max-width: 220px; padding: 12px; }
       .pdf-empty strong { font-size: 16px; }
       .pdf-empty span { font-size: 11px; }
-      .viewer-foot { padding: 6px 10px; font-size: 9px; }
+      .viewer-foot { padding: 6px 10px; gap: 5px; font-size: 9px; }
       .viewer-foot span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .pdf-control { min-width: 23px; height: 22px; padding: 0 3px; font-size: 10px; }
+      .pdf-zoom-label { min-width: 31px; font-size: 8px; }
       .inspector { overflow: auto; }
       .process-line { gap: 8px; }
       .process-code { font-size: 21px; }
@@ -719,7 +726,17 @@ HTML_TEMPLATE = r'''<!doctype html>
         </div>
         <div class="pdf-empty" id="pdf-empty"><div><strong>Selecione um documento</strong><span>O PDF aparecerá nesta área. Se o navegador bloquear a visualização local, use “Abrir PDF”.</span></div></div>
       </div>
-      <div class="viewer-foot"><span id="document-meta">Nenhum documento selecionado</span><span class="review-mode-note" id="review-mode-note">Modo integrado tentando carregar · fallback iframe disponível</span></div>
+      <div class="viewer-foot">
+        <span id="document-meta">Nenhum documento selecionado</span>
+        <div class="viewer-controls" aria-label="Controles do PDF">
+          <button class="pdf-control" id="pdf-zoom-out" type="button" title="Reduzir zoom" aria-label="Reduzir zoom">−</button>
+          <span class="pdf-zoom-label" id="pdf-zoom-label" aria-live="polite">150%</span>
+          <button class="pdf-control" id="pdf-zoom-in" type="button" title="Aumentar zoom" aria-label="Aumentar zoom">+</button>
+          <button class="pdf-control" id="pdf-rotate" type="button" title="Girar 90 graus" aria-label="Girar 90 graus">↻</button>
+          <button class="pdf-control" id="pdf-view-reset" type="button" title="Restaurar visualização" aria-label="Restaurar visualização">1:1</button>
+        </div>
+        <span class="review-mode-note" id="review-mode-note">Modo integrado tentando carregar · fallback iframe disponível</span>
+      </div>
     </section>
     <div class="splitter" id="splitter" title="Arraste ou use as setas para ajustar a largura dos painéis">
       <input id="split-slider" type="range" min="30" max="68" value="42" step="1" aria-label="Ajustar largura dos painéis">
@@ -767,6 +784,10 @@ HTML_TEMPLATE = r'''<!doctype html>
   let integratedPdfjs = null;
   let integratedLoad = null;
   let renderSequence = 0;
+  let pdfView = { scale: 1.5, rotation: 0 };
+  const PDF_MIN_SCALE = 0.75;
+  const PDF_MAX_SCALE = 3;
+  const PDF_SCALE_STEP = 0.25;
   let liveRevision = Number(data.live_revision || 0);
   let liveProgressRevision = 0;
   let followPortal = true;
@@ -798,6 +819,39 @@ HTML_TEMPLATE = r'''<!doctype html>
     } catch (_) {}
     return '';
   };
+
+  function updatePdfControls() {
+    const label = $('pdf-zoom-label');
+    if (label) label.textContent = `${Math.round(pdfView.scale * 100)}%`;
+    const stage = $('pdf-canvas-stage');
+    if (stage) {
+      stage.dataset.pdfScale = String(pdfView.scale);
+      stage.dataset.pdfRotation = String(pdfView.rotation);
+    }
+    const rotate = $('pdf-rotate');
+    if (rotate) rotate.title = `Girar 90 graus (atual: ${pdfView.rotation}°)`;
+  }
+
+  function currentPdfSelection() {
+    const process = currentProcess();
+    const documents = process.all_documents || process.documents || [];
+    const document = documents[state.documentIndex];
+    if (!document || !document.pdf_url) return null;
+    const evidence = state.evidence && state.evidence.documentId === document.document_id ? state.evidence : null;
+    return { document, page: evidence?.page || 1, rects: evidence?.rects || [] };
+  }
+
+  function rerenderCurrentPdf() {
+    const selection = currentPdfSelection();
+    if (!selection) return;
+    void renderIntegrated(selection.document, selection.page, selection.rects, pdfView);
+    updatePdfControls();
+  }
+
+  function resetPdfView() {
+    pdfView = { scale: 1.5, rotation: 0 };
+    rerenderCurrentPdf();
+  }
 
   function saveOfflineCompleted() {
     try { localStorage.setItem(COMPLETED_STORAGE_KEY, JSON.stringify([...completedProcesses])); } catch (_) {}
@@ -1148,7 +1202,7 @@ HTML_TEMPLATE = r'''<!doctype html>
     return integratedLoad;
   }
 
-  async function renderIntegrated(document, page, rects) {
+  async function renderIntegrated(document, page, rects, view = pdfView) {
     const sequence = ++renderSequence;
     if (!(await ensureIntegratedViewer()) || sequence !== renderSequence) return false;
     try {
@@ -1160,6 +1214,8 @@ HTML_TEMPLATE = r'''<!doctype html>
         overlay: $('pdf-overlay'),
         workerUrl: reviewAssets.pdfjs_worker,
         evidence: { rects },
+        scale: view.scale,
+        rotation: view.rotation,
       });
       if (sequence !== renderSequence) return false;
       $('pdf-frame').style.display = 'none';
@@ -1180,6 +1236,7 @@ HTML_TEMPLATE = r'''<!doctype html>
     select.innerHTML = documents.length ? documents.map((document, index) => `<option value="${index}">${esc(prefixes[document.classification] || 'OUTRO')} · Evento ${esc(document.event)} · ${esc(document.title || document.file)}</option>`).join('') : '<option value="-1">Nenhum arquivo disponível</option>';
     state.documentIndex = Math.min(state.documentIndex, Math.max(0, documents.length - 1)); select.value = String(documents.length ? state.documentIndex : -1);
     const document = documents[state.documentIndex]; const frame = $('pdf-frame'); const empty = $('pdf-empty'); const open = $('open-pdf'); const badges = $('document-badges');
+    frame.style.transform = 'none';
     if (!document) { frame.removeAttribute('src'); frame.style.visibility = 'hidden'; frame.style.display = 'block'; $('pdf-canvas-stage').style.display = 'none'; empty.style.display = 'grid'; open.classList.add('disabled'); open.removeAttribute('href'); badges.replaceChildren(); $('document-meta').textContent = 'Nenhum arquivo disponível'; return; }
     const kindBadges = {
       resolucao_administrativa: '<span class="document-badge badge-resolution" data-kind="resolucao_administrativa">RESOLUÇÃO</span>',
@@ -1200,7 +1257,8 @@ HTML_TEMPLATE = r'''<!doctype html>
     const evidence = state.evidence && state.evidence.documentId === document.document_id ? state.evidence : null;
     const page = evidence?.page || 1;
     frame.style.visibility = 'visible'; frame.style.display = 'block'; $('pdf-canvas-stage').style.display = 'none'; empty.style.display = 'none'; frame.src = `${document.pdf_url}#page=${page}&zoom=page-fit`; open.href = document.pdf_url; open.classList.remove('disabled'); $('document-meta').textContent = `Evento ${document.event} · ${document.file} · ${document.page_count || document.pages || '?'} página(s)`;
-    void renderIntegrated(document, page, evidence?.rects || []);
+    void renderIntegrated(document, page, evidence?.rects || [], pdfView);
+    updatePdfControls();
   }
 
   function selectDocument(documentId, eventId, page, rects = []) { const process = currentProcess(); const documents = process.all_documents || process.documents; const index = documents.findIndex((document) => document.pdf_url && ((documentId && document.document_id === documentId) || (!documentId && String(document.event) === String(eventId)))); if (index < 0) { notify('PDF da evidência não está disponível neste lote.'); return; } state.documentIndex = index; state.evidence = { documentId: documents[index].document_id, page: page || 1, rects }; renderDocuments(); notify(`PDF posicionado no Evento ${eventId || documents[index].event}, página ${page || 1}.`); }
@@ -1209,7 +1267,11 @@ HTML_TEMPLATE = r'''<!doctype html>
   $('search-process').addEventListener('input', (event) => { state.query = event.target.value; renderProcessOptions(); render(); });
   $('process-select').addEventListener('change', (event) => { setFollowPortal(false); state.processIndex = Number(event.target.value); state.blockIndex = 0; state.documentIndex = 0; render(); });
   $('block-select').addEventListener('change', (event) => { state.blockIndex = Number(event.target.value); renderFields(); renderPending(); });
-  $('document-select').addEventListener('change', (event) => { state.documentIndex = Number(event.target.value); state.evidence = null; renderDocuments(); });
+  $('document-select').addEventListener('change', (event) => { state.documentIndex = Number(event.target.value); state.evidence = null; pdfView = { scale: 1.5, rotation: 0 }; renderDocuments(); });
+  $('pdf-zoom-out').addEventListener('click', () => { pdfView.scale = Math.max(PDF_MIN_SCALE, Number((pdfView.scale - PDF_SCALE_STEP).toFixed(2))); rerenderCurrentPdf(); });
+  $('pdf-zoom-in').addEventListener('click', () => { pdfView.scale = Math.min(PDF_MAX_SCALE, Number((pdfView.scale + PDF_SCALE_STEP).toFixed(2))); rerenderCurrentPdf(); });
+  $('pdf-rotate').addEventListener('click', () => { pdfView.rotation = (pdfView.rotation + 90) % 360; rerenderCurrentPdf(); });
+  $('pdf-view-reset').addEventListener('click', resetPdfView);
   $('follow-toggle').addEventListener('click', () => setFollowPortal(!followPortal));
   $('prev-process').addEventListener('click', () => { if (state.processIndex > 0) { setFollowPortal(false); state.processIndex--; state.blockIndex = 0; state.documentIndex = 0; render(); } });
   $('next-process').addEventListener('click', () => { if (state.processIndex < data.processes.length - 1) { setFollowPortal(false); state.processIndex++; state.blockIndex = 0; state.documentIndex = 0; render(); } });
@@ -1247,6 +1309,7 @@ HTML_TEMPLATE = r'''<!doctype html>
   $('split-slider').addEventListener('input', (event) => applySplit(event.target.value, true));
   window.addEventListener('resize', updateSplitBounds);
   applySplit(storedSplit, false);
+  updatePdfControls();
   updateFollowButton();
   renderStats(); render();
   void pollLiveReview();

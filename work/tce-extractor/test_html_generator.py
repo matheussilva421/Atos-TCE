@@ -559,9 +559,16 @@ class HtmlGeneratorTests(unittest.TestCase):
 
         self.assertIn("@media (min-width: 680px) and (max-width: 1080px)", html)
         self.assertIn("grid-template-columns: minmax(0, var(--viewer-size)) 18px minmax(0, 1fr)", html)
+        self.assertIn(
+            "grid-template-columns: minmax(170px, .6fr) minmax(0, 2.5fr) minmax(150px, 1fr)",
+            html,
+        )
+        self.assertIn(".toolbar .follow-button { min-width: 116px; white-space: nowrap;", html)
         self.assertIn("height: 100vh;", html)
         self.assertIn("overflow: hidden;", html)
         self.assertIn("zoom=page-fit", html)
+        self.assertIn('id="pdf-zoom-in"', html)
+        self.assertIn('id="pdf-rotate"', html)
 
     def test_desktop_layout_confines_scrolling_and_mobile_restores_page_flow(self):
         html = render_html(

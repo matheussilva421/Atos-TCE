@@ -9,6 +9,7 @@ import shutil
 from pathlib import Path
 
 from package_complete_archive import EXTENSION_FILE_ALLOWLIST, build_complete_zip
+from test_portable_end_to_end import _build_fixture_zip
 
 
 class CompleteArchivePackageTests(unittest.TestCase):
@@ -208,6 +209,70 @@ class CompleteArchivePackageTests(unittest.TestCase):
             self.assertFalse(
                 any(name.startswith("tce-processos-completo-portatil/") for name in names)
             )
+
+    def test_private_zip_refreshes_stale_review_html_in_staging(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _fixture_zip, _fixture = _build_fixture_zip(root)
+            source = root / "source-package"
+            archive = source / "acervo-tce"
+            process = json.loads(
+                (archive / "processos" / "fixture-process" / "processo.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            documents = []
+            for event in process["events"]:
+                document = event["documents"][0]
+                documents.append(
+                    {
+                        "event": str(event["event"]),
+                        "title": document["title"],
+                        "classification": "resolucao_administrativa"
+                        if event["event"] == 2
+                        else "guia_financeira_taxacao",
+                        "relative_path": document["path"],
+                        "pdf_path": document["path"],
+                    }
+                )
+            (archive / "pdfs-alvo-manifest.json").write_text(
+                json.dumps(
+                    {"version": 1, "processes": [{"process": "0/0000", "documents": documents}]}
+                ),
+                encoding="utf-8",
+            )
+            (archive / "checkpoint-extracao.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "run_id": "fixture",
+                        "created_at": "2000-01-01T00:00:00+00:00",
+                        "processes": {
+                            "0/0000": {
+                                "status": "complete",
+                                "documents": [],
+                                "pendencias": [],
+                                "result": {"status": "complete", "blocks": []},
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (archive / "indice-classificado.json").write_text(
+                json.dumps({"version": 1, "processes": [process]}), encoding="utf-8"
+            )
+            stale_html = archive / "complementar-ato.html"
+            stale_html.write_text("<html>stale package html</html>", encoding="utf-8")
+            destination = root / "refreshed.zip"
+
+            build_complete_zip(source, destination, distribution="private")
+
+            self.assertEqual(stale_html.read_text(encoding="utf-8"), "<html>stale package html</html>")
+            with zipfile.ZipFile(destination) as package:
+                html = package.read("acervo-tce/complementar-ato.html").decode("utf-8")
+            self.assertIn('id="follow-toggle"', html)
+            self.assertIn('selection_module', html)
 
     def test_excludes_auth_profiles_bridge_parts_backups_and_logs(self):
         with tempfile.TemporaryDirectory() as temp_dir:

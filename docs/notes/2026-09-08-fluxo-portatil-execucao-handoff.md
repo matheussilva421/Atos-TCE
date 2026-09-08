@@ -220,3 +220,42 @@ Pendências reais para chamar de release validada:
 O gate de segundo PC foi dispensado explicitamente pelo usuário e não será executado.
 
 Para continuar: executar os gates integrados restantes no mesmo Chrome separado, sem envio/finalização. O pacote portátil completo agora existe a partir do snapshot fornecido, mas o snapshot é de 05/09/2026 e não deve ser tratado como acervo atualizado; uma nova coleta poderá substituir apenas os dados locais quando autorizada. Preparar commit/push somente quando o QA externo terminar e um remoto autorizado existir. Rechecar `git status` antes de retomar.
+
+## Atualização posterior — pacote v5, mesa responsiva e controles PDF
+
+Foi encontrado e corrigido um defeito de distribuição: o snapshot antigo de `acervo-tce/complementar-ato.html` podia ser copiado para o ZIP mesmo quando `app/html_generator.py` já estava atualizado. `package_complete_archive.py` agora regenera somente a cópia em staging do HTML privado quando os metadados de extração estão presentes; a pasta fonte e o acervo fornecido não são alterados. Há teste RED→GREEN para preservar o HTML fonte e verificar `follow-toggle`/metadados da mesa no ZIP.
+
+Também foi corrigido o layout em 900×1440: o botão de acompanhamento não invade os indicadores superiores. A mesa agora expõe controles integrados de reduzir/aumentar zoom, girar em quartos de volta e restaurar a visualização. `pdf-viewer.js` aplica escala limitada de 75% a 300% e rotação normalizada; o teste do adaptador confirma que esses valores chegam ao viewport PDF.js.
+
+Os assets planejados de `portable/app/web` passaram a ser explicitamente versionáveis no `.gitignore`, incluindo o adaptador, seleção, CSS, testes e PDF.js local fixado/licenciado. Acervo, PDFs, ZIPs e perfis continuam ignorados.
+
+### Pacote privado corrente
+
+- ZIP: `C:\Users\slvma\Downloads\Github\Complementação de Atos\artifacts\pacote-portatil-completo-2026-09-08-acervo-2026-09-05-v5.zip`
+- tamanho: 1.739.036.007 bytes; 10.276 entradas; 227 processos; 5.236 eventos; 4.532 PDFs; 235 registros da extensão;
+- SHA-256: `9D3E693B6D590A93CE6FF8073766242004F1A4E76429F54D1F8CFF2040BA8EAF`;
+- CRC, auditoria privada, manifesto e runtime interno verdes;
+- extração: `work/tce-extractor/qa-extracted-portable-acervo-v2-20260908-v5`.
+
+### QA do HTML extraído
+
+O utilitário `work/tce-extractor/qa_html_gates.py` foi executado contra o HTML do ZIP v5 extraído em Chrome headless 145, viewport 900×1440. No processo `102885/2023`, confirmou seleção manual pausando/retomando acompanhamento, zoom 150%→175%, rotação 90° e reset 150%/0°, seis fontes com resolução para PDF/página, a pendência de gênero explicitamente sem evidência, dois documentos distintos em duas páginas/abas, e `Concluído` persistido após reload sem navegação. O screenshot final está fora do Git em `C:\Users\slvma\.codex\visualizations\2026\09\08\01a08073-a0f7-7c53-a436-ec585e281a5a\qa-html-gates-extracted-v5-zoom-rotation-900x1440.png`.
+
+### Testes mais recentes
+
+| Comando | Resultado |
+|---|---:|
+| `node --test portable/extensao-complementar-ato/tests/*.test.mjs` | 124 pass, 0 falhas, 0 skips |
+| `node --test portable/app/web/tests/*.test.mjs` | 6 pass, 0 falhas |
+| `C:\Python314\python.exe -m unittest discover -s . -p 'test_*.py' -q` | 285 pass, 0 falhas, 5 skips |
+| `tests/Test-TcePortable.ps1` | 114 pass, 0 falhas |
+| `tests/Test-PortableMenu.ps1` | 74 pass, 0 falhas |
+| `tests/Test-PortableReset.ps1` | 31 pass, 0 falhas, 1 skip ambiental |
+| `TESTAR-PACOTE.ps1` no v5 extraído sem Python/Node no PATH | 7 gates passaram |
+| `qa_html_gates.py` no v5 extraído | passou; zoom/rotação/evidências/abas/conclusão |
+
+Os testes PowerShell foram executados com Windows PowerShell 5.1 explícito. Os avisos ResourceWarning e o caso deliberado de timeout permanecem esperados; não houve falha.
+
+### Estado de release após esta atualização
+
+Os gates de layout 900×1440, controles de zoom/rotação, HTML regenerado no pacote, persistência de conclusão sem navegação e validação extraída estão comprovados. Continuam pendentes: benchmark dos mesmos 20 processos com p95, gate geométrico em PDF escaneado/rotacionado/hash modificado/checkpoint, teste do serviço bloqueado/fallback e o gate completo de preenchimento na fixture/portal real. A validação manual no Chrome separado permanece limitada à pesquisa por processo/nome e sinal real sem alteração dos campos e sem envio/finalização. Portanto o resultado continua sendo candidato integrado, não release portátil validada.

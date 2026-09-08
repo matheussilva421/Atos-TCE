@@ -26,6 +26,8 @@
 /work/tce-extractor/portable/app/*
 !/work/tce-extractor/portable/app/*.py
 !/work/tce-extractor/portable/app/*.ps1
+!/work/tce-extractor/portable/app/web/
+!/work/tce-extractor/portable/app/web/**
 !/work/tce-extractor/portable/extensao-complementar-ato/
 /work/tce-extractor/portable/extensao-complementar-ato/*
 !/work/tce-extractor/portable/extensao-complementar-ato/manifest.json

@@ -1,0 +1,18 @@
+:root {
+  --review-ink: #162b35;
+  --review-muted: #63747b;
+  --review-line: #d5dfdf;
+  --review-accent: #0a756e;
+  --review-paper: #fbfaf5;
+}
+
+.review-app { min-height: 100vh; color: var(--review-ink); background: var(--review-paper); font: 14px/1.45 system-ui, sans-serif; }
+.review-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr); min-height: 78vh; }
+.review-viewer { min-width: 0; border-right: 1px solid var(--review-line); background: #28353d; }
+.review-inspector { min-width: 0; overflow: auto; padding: 1rem; background: #f6f4ec; }
+.review-toolbar { display: flex; align-items: center; gap: .6rem; padding: .7rem 1rem; border-bottom: 1px solid var(--review-line); background: #fff; }
+.review-document-select { min-width: 12rem; max-width: 100%; }
+.review-pdf-canvas { display: block; width: 100%; min-height: 32rem; background: #fff; }
+.review-evidence-rect { position: absolute; border: 2px solid #e5a62b; background: rgba(229, 166, 43, .22); pointer-events: none; }
+body[data-review-module="review-app"] .live-status { outline: 1px solid color-mix(in srgb, var(--review-accent) 35%, transparent); outline-offset: 2px; }
+@media (max-width: 900px) { .review-layout { grid-template-columns: 1fr; } .review-viewer { border-right: 0; border-bottom: 1px solid var(--review-line); } }
