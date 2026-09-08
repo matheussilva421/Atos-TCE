@@ -600,7 +600,7 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self):
         parsed = urlsplit(self.path)
-        if not self._require_auth():
+        if not self._require_private_auth():
             return
         if not parsed.path.startswith("/api/v1/progress/"):
             self._error(404, "NOT_FOUND", "rota não encontrada")

@@ -226,6 +226,15 @@ class LocalServiceTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertIn("selection", json.loads(body))
 
+            status, _headers, body = json_request(
+                f"{base}/api/v1/progress/103439%2F2023",
+                method="PUT",
+                cookie=cookie,
+                payload={"completed": True, "expected_revision": 0},
+            )
+            self.assertEqual(status, 200)
+            self.assertTrue(json.loads(body)["state"]["processes"]["103439/2023"]["completed"])
+
     def test_pdf_is_served_only_by_document_id_and_supports_range(self):
         with running_server() as (root, server, base):
             pdf = root / "sample.pdf"

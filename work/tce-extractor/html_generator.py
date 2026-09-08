@@ -768,9 +768,11 @@ HTML_TEMPLATE = r'''<!doctype html>
   let integratedLoad = null;
   let renderSequence = 0;
   let liveRevision = Number(data.live_revision || 0);
+  let liveProgressRevision = 0;
   let followPortal = true;
   let liveFailureCount = 0;
   let livePollTimer = null;
+  let progressPending = false;
   const COMPLETED_STORAGE_KEY = data.archive_cycle_id
     ? `tce-completed-processes-v1:${data.archive_cycle_id}`
     : 'tce-completed-processes-v1';
@@ -787,6 +789,66 @@ HTML_TEMPLATE = r'''<!doctype html>
   const currentBlock = () => currentProcess().blocks[state.blockIndex] || {interested: 'Não identificado', pending: [], fields: {}};
   const notify = (message) => { const toast = $('toast'); toast.textContent = message; toast.classList.add('show'); clearTimeout(notify.timer); notify.timer = setTimeout(() => toast.classList.remove('show'), 2200); };
   const normalizeIdentity = (value) => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').replace(/[^a-z0-9]+/g, ' ').trim();
+
+  function saveOfflineCompleted() {
+    try { localStorage.setItem(COMPLETED_STORAGE_KEY, JSON.stringify([...completedProcesses])); } catch (_) {}
+  }
+
+  function applyWorkflowState(envelope) {
+    if (!envelope || !envelope.processes || typeof envelope.processes !== 'object') return false;
+    if (Number.isInteger(envelope.revision) && envelope.revision >= 0) liveProgressRevision = envelope.revision;
+    const nextCompleted = new Set(Object.entries(envelope.processes)
+      .filter(([, value]) => value && value.completed === true)
+      .map(([processKey]) => processKey));
+    const changed = nextCompleted.size !== completedProcesses.size
+      || [...nextCompleted].some((processKey) => !completedProcesses.has(processKey));
+    completedProcesses = nextCompleted;
+    if (changed) {
+      renderStats();
+      renderProcessOptions();
+      renderIdentity();
+    }
+    return true;
+  }
+
+  async function setProcessCompleted(completed) {
+    const processId = currentProcess().process;
+    if (!processId) return false;
+    const previous = completedProcesses.has(processId);
+    progressPending = true;
+    $('process-done').disabled = true;
+    try {
+      if (window.location.protocol === 'http:') {
+        const response = await fetch(`/api/v1/progress/${encodeURIComponent(processId)}`, {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({completed: completed === true, expected_revision: liveProgressRevision}),
+        });
+        if (!response.ok) throw new Error('não foi possível salvar a conclusão');
+        const envelope = await response.json();
+        if (!applyWorkflowState(envelope.state)) throw new Error('não foi possível salvar a conclusão');
+      } else {
+        if (completed === true) completedProcesses.add(processId); else completedProcesses.delete(processId);
+        saveOfflineCompleted();
+        renderStats();
+        renderProcessOptions();
+        renderIdentity();
+      }
+      notify(completed === true ? 'Processo marcado como feito.' : 'Marcação de processo removida.');
+      return true;
+    } catch (_) {
+      if (previous) completedProcesses.add(processId); else completedProcesses.delete(processId);
+      renderStats();
+      renderProcessOptions();
+      renderIdentity();
+      notify('não foi possível salvar a conclusão; estado revertido.');
+      return false;
+    } finally {
+      progressPending = false;
+      renderIdentity();
+    }
+  }
 
   function setLiveStatus(message) {
     const status = $('live-status');
@@ -875,6 +937,7 @@ HTML_TEMPLATE = r'''<!doctype html>
       const stateResponse = await fetch('/api/v1/state?since=-1', {credentials: 'same-origin', cache: 'no-store'});
       if (!stateResponse.ok) throw new Error('live state unavailable');
       const stateEnvelope = await stateResponse.json();
+      applyWorkflowState(stateEnvelope);
       applyPortalSelection(stateEnvelope.selection);
       liveFailureCount = 0;
       updateFollowButton();
@@ -971,6 +1034,7 @@ HTML_TEMPLATE = r'''<!doctype html>
     status.textContent = statusLabel(process.status).toUpperCase();
     status.className = `status ${process.status === 'complete' ? 'complete' : process.status === 'pending' ? 'pending' : ''}`;
     $('process-done').checked = completedProcesses.has(process.process);
+    $('process-done').disabled = progressPending || !process.process;
     $('process-count').textContent = `${state.processIndex + 1} / ${data.processes.length}`;
     const blockSelect = $('block-select');
     blockSelect.innerHTML = process.blocks.length ? process.blocks.map((block, index) => `<option value="${index}">${esc(block.interested)}</option>`).join('') : '<option value="0">Não identificado</option>';
@@ -1133,16 +1197,7 @@ HTML_TEMPLATE = r'''<!doctype html>
   $('follow-toggle').addEventListener('click', () => setFollowPortal(!followPortal));
   $('prev-process').addEventListener('click', () => { if (state.processIndex > 0) { setFollowPortal(false); state.processIndex--; state.blockIndex = 0; state.documentIndex = 0; render(); } });
   $('next-process').addEventListener('click', () => { if (state.processIndex < data.processes.length - 1) { setFollowPortal(false); state.processIndex++; state.blockIndex = 0; state.documentIndex = 0; render(); } });
-  $('process-done').addEventListener('change', (event) => {
-    const processId = currentProcess().process;
-    if (!processId) return;
-    if (event.target.checked) completedProcesses.add(processId); else completedProcesses.delete(processId);
-    try { localStorage.setItem(COMPLETED_STORAGE_KEY, JSON.stringify([...completedProcesses])); } catch (_) {}
-    renderStats();
-    renderProcessOptions();
-    $('process-done').checked = completedProcesses.has(processId);
-    notify(event.target.checked ? 'Processo marcado como feito.' : 'Marcação de processo removida.');
-  });
+  $('process-done').addEventListener('change', (event) => { void setProcessCompleted(event.target.checked); });
   let storedSplit = 42;
   try {
     const savedValue = localStorage.getItem('tce-split-percent');

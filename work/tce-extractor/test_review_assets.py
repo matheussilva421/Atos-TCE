@@ -131,10 +131,12 @@ class ReviewAssetTests(unittest.TestCase):
             self.assertIn("data-review-mode", html)
             self.assertIn("api/v1/review-data", html)
             self.assertIn("api/v1/state", html)
+            self.assertIn("api/v1/progress/", html)
             self.assertIn("localFileProtocol", html)
             self.assertIn("preserveViewer", html)
             self.assertIn("Retomar acompanhamento", html)
             self.assertIn("liveFailureCount", html)
+            self.assertIn("não foi possível salvar a conclusão", html)
 
 
 if __name__ == "__main__":

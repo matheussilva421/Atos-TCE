@@ -56,13 +56,13 @@ Criados `portable/app/web/review-app.js`, `pdf-viewer.js`, `review.css`, `web/pa
 - consumir o sidecar visual sem inserir dados extras no exportador v1;
 - usar PDF.js local fixado com fallback explícito para iframe nativo;
 - abrir evidência por `document_id + page`, nunca por número de evento isolado;
-- preservar busca, ordem, marca manual e modo offline.
+- preservar busca, ordem, marca manual e modo offline; quando servido pelo helper, o controle de feito usa a mesma API de progresso da extensão e reverte em conflito/erro.
 
 PDF.js está fixado em 5.7.284 com hashes no manifesto e origem oficial da release; não há CDN ou `latest` flutuante.
 
 ### Fase 5 — bridge da extensão
 
-Criado `portable/extensao-complementar-ato/lib/bridge-client.js` e seu teste; manifest agora permite somente o portal e `http://127.0.0.1/*`. O painel tem pareamento opcional em `chrome.storage.session`, publicação de seleção com `sequence` monotônica, sincronização de datasets por revisão, conclusão via API local e fallback manual. A publicação nunca chama preenchimento; seleção e conclusão usam revisões distintas para não gerar conflito falso. Artefato atualizado: `artifacts/extensao-complementar-ato-2026-09-08-v3.zip`.
+Criado `portable/extensao-complementar-ato/lib/bridge-client.js` e seu teste; manifest agora permite somente o portal e `http://127.0.0.1/*`. O painel tem pareamento opcional em `chrome.storage.session`, publicação de seleção com `sequence` monotônica, sincronização de datasets por revisão, conclusão via API local e fallback manual. A publicação nunca chama preenchimento; seleção e conclusão usam revisões distintas para não gerar conflito falso. A mesa HTML servida pelo helper usa o mesmo endpoint `/api/v1/progress/<processo>` para o controle Concluído; no modo `file:` mantém persistência local. Artefato atualizado: `artifacts/extensao-complementar-ato-2026-09-08-v3.zip`.
 
 ### Fase 6 — publicação incremental
 
@@ -90,6 +90,7 @@ Criados `qa_integrated_workflow.py` e `test_integrated_workflow.py`. O relatóri
 | teste focado estado/sessão + ativos da mesa | 2 pass, 0 falhas |
 | `qa_integrated_workflow.py --project-root . --fixture-only` | passed; login/submission not-run |
 | subconjunto browser/reset/runtime | 15 pass, 0 falhas |
+| sessão da mesa gravando progresso pelo cookie | 1 pass, 0 falhas |
 
 O Python exibiu apenas avisos ResourceWarning dos testes de erro HTTP e a mensagem de uso deliberada do caso `--timeout-seconds 0`; a suíte terminou verde. Os skips ambientais/fixture não validam OCR real, bridge em navegador ou portal.
 

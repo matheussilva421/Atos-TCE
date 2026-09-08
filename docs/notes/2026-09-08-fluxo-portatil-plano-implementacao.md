@@ -255,7 +255,7 @@ test('selection update never applies fields', async () => {
 - [ ] Enquanto painel aberto, publicar mudanças de identidade com sequence monotônica. Ao suspender/reiniciar worker, reconstruir associação pela descoberta atual; não usar snapshot antigo para escrever.
 - [ ] Ao importar revisão do serviço, manter conclusão independente de batch.id; atualização automática não chama a rotina que zera reviewed legado.
 - [ ] Preservar `fillAvailableFields`, guardas `validateBeforeWrite` e confirmação individual de override. Revalidar identidade antes e durante aplicação; se mudar, abortar restantes. Manter clique explícito Preencher.
-- [ ] Adicionar controle Concluído nos dois clientes chamando mesma API; erro de gravação mostra não salvo e reverte check otimista. Correções no portal não são copiadas de volta ao dataset.
+- [x] Adicionar controle Concluído nos dois clientes chamando mesma API; erro de gravação mostra não salvo e reverte check otimista. Correções no portal não são copiadas de volta ao dataset.
 - [ ] Modo desconectado mantém JSON manual; importar progresso antigo só mediante confirmação. `Revisado` não migra implicitamente.
 - [ ] Gate: troca rápida de processo, homônimos, nome com/sem acento, duas abas, iframe invisível, worker reiniciado, serviço caído, correção manual preservada e zero ações de envio.
 
@@ -366,4 +366,8 @@ Ao interromper: registrar última fase/tarefa verde, teste RED em aberto, arquiv
 
 ## 7. Estado deste documento
 
-Plano elaborado em 08/09/2026 a partir dos fontes existentes. Nenhuma fase funcional foi executada nesta sessão. Testes apresentados são especificações para implementação futura, não resultados já obtidos. Caminhos abreviados devem ser expandidos pelas convenções do cabeçalho. Release/version pin de PDF.js é um gate explícito da fase 4, dependente do navegador alvo, não autorização para buscar dependências flutuantes durante execução normal.
+Plano elaborado em 08/09/2026 a partir dos fontes existentes. A execução posterior implementou as fases 1–7 como candidato integrado e adicionou QA fixture-only na fase 8. A extensão continua sendo o único componente autorizado a escrever nos sete campos; o botão de Complementar Ato apenas envia o sinal tipado, e a pesquisa manual não altera a identidade do portal.
+
+Evidências atuais: `docs/notes/2026-09-08-fluxo-portatil-execucao-handoff.md`, commits locais `ca1e372`/`439fba5`, suítes Python/Node/PowerShell verdes, auditoria do ZIP v3 e `qa_integrated_workflow.py --fixture-only`. A mesa HTML e o painel da extensão agora usam a mesma API `/api/v1/progress/<processo>` quando o serviço está ativo; o modo `file:` permanece fallback local.
+
+Não estão autorizados nem comprovados neste checkout: login/QA no portal real, benchmark dos mesmos 20 processos, instalação/pareamento em um segundo PC e teste do ZIP extraído sem Python/Node no PATH. Esses gates dependem de acesso humano/ambiente externo e permanecem explicitamente como candidato, não release validada. Caminhos abreviados devem ser expandidos pelas convenções do cabeçalho. Release/version pin de PDF.js é um gate explícito da fase 4, dependente do navegador alvo, não autorização para buscar dependências flutuantes durante execução normal.
