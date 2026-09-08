@@ -8,8 +8,7 @@ Brief: `.superpowers/sdd/2026-09-08-fundamentacao-automatico-plano-fases/task-1-
 
 Implementação local da Fase 1 concluída, com testes focais verdes e sem
 qualquer ação no portal. O matcher JavaScript da Fase 0 permanece
-intencionalmente RED. O commit solicitado será registrado após este relatório
-ser incluído no conjunto de mudanças.
+intencionalmente RED. Commit de implementação: `f0a72b5`.
 
 ## Implementação
 
@@ -112,8 +111,8 @@ exatos. Nenhum arquivo do matcher, portal ou exportador foi alterado.
 ## GitHub e retomada
 
 O checkout não possui remoto configurado; nenhum push foi realizado. O commit
-de implementação é `feat: publish versioned legal evidence context`.
+de implementação é `f0a72b5 feat: publish versioned legal evidence context`.
 
-Retomada: confirmar o SHA final deste commit, revisar o diff limitado aos
-arquivos listados, e somente então decidir a fase/autoridade para incluir o
-novo módulo no pacote portátil. Não corrigir o matcher nesta retomada.
+Retomada: revisar o diff limitado aos arquivos listados e somente então decidir
+a fase/autoridade para incluir o novo módulo no pacote portátil. Não corrigir o
+matcher nesta retomada.

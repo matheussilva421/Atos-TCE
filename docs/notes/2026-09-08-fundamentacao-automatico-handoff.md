@@ -80,7 +80,7 @@
 
 ## Registro por fase — Fase 1
 
-- Estado: implementação local concluída; aguardando o commit específico da fase.
+- Estado: implementação local concluída no commit `f0a72b5`.
 - Arquivos: `work/tce-extractor/portable/app/legal_context.py`,
   `work/tce-extractor/test_legal_context.py`,
   `work/tce-extractor/portable/app/analysis_pipeline.py` e
@@ -97,5 +97,5 @@
   `test_portable_end_to_end.py` estão byte a byte no HEAD `08cf8b9`. Como
   consequência, o teste do ZIP autocontido falha por não incluir o novo módulo;
   não tratar esse concern sem autorização/fase apropriada.
-- Retomada: confirmar SHA do commit da Fase 1, manter o matcher RED e resolver
-  a dependência do empacotador somente em escopo posterior autorizado.
+- Retomada: manter o matcher RED e resolver a dependência do empacotador somente
+  em escopo posterior autorizado.
