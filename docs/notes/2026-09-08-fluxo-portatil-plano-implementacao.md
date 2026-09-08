@@ -332,7 +332,7 @@ def test_transfer_excludes_pairing_but_keeps_progress(self):
 - [ ] Meta: seleção duplicada zero; clique Preencher único por aplicação; nenhum envio; 100% das fontes resolvem o documento/hash/página correto ou mostram ausência explícita. p95 sincronização <=2s no ambiente registrado.
 - [ ] Repetir QA sobre ZIP extraído, não apenas source tree. Testar serviço bloqueado e fallback; teste em segundo PC real requer usuário se não houver acesso.
 - [x] Documentar limites, falhas de documentos e testes não executados. Se gate falhar, entregar como candidato, não release validada.
-- [ ] Commit final, verificar remoto, push somente se houver destino autorizado e sem dados privados. Não criar/publicar remoto automaticamente.
+- [x] Commit final, verificar remoto, push somente se houver destino autorizado e sem dados privados. Não criar/publicar remoto automaticamente. Commit local `e041a93`; sem `origin`, portanto sem push.
 
 ## 5. Sequência, revisão e rollback
 

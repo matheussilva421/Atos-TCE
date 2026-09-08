@@ -59,7 +59,8 @@ O v4 foi preservado. O v5 é o pacote que corresponde ao source atual.
 - branch: `main`
 - base antes deste bloco: `ffc6c08 docs: record retry auth verification`
 - `origin`: inexistente; push não foi possível nem foi simulado
-- ainda é necessário criar o commit deste bloco depois da atualização dos handoffs e do plano
+- commit deste bloco: `e041a93 feat: harden portable bridge and package validation`
+- checkout verificado limpo em `main`; não há `origin`, portanto nenhum push foi executado
 
 ## Pendências de release
 
@@ -78,5 +79,5 @@ O resultado permanece candidato integrado, não release validada. Faltam gates q
 1. Reexecutar `git status --short --branch` e revisar o diff documental.
 2. Atualizar os checkboxes do plano apenas para gates locais evidenciados; manter os gates externos desmarcados.
 3. Executar `git diff --check`, as suítes acima e uma auditoria final do v5.
-4. Criar commit local; não tentar push enquanto `origin` não existir.
+4. O commit local já existe como `e041a93`; não tentar push enquanto `origin` não existir.
 5. Se houver autorização para QA real, parar no checkpoint antes de qualquer envio/finalização e registrar evidência sanitizada.
