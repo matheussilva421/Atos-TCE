@@ -49,6 +49,48 @@ RED antes da implementação:
 GREEN após a implementação e ajuste das fixtures sintéticas para declarar o
 vínculo nominal e o page_count que a nova regra exige.
 
+## Fix round 2 — revisão da Fase 1
+
+Data: 2026-09-08
+Commit incremental: `8b3a411 fix: preserve physical legal context coverage`
+
+O round corrigiu somente os três achados solicitados:
+
+1. A contagem física observada no leitor nativo é preservada como lower bound
+   quando o cache OCR contém apenas duas de três páginas. O manifesto mantém
+   page_count 3, o sidecar materializa a página descoberta sem texto e o
+   contexto fica incomplete; não há declaração enganosa de duas páginas.
+2. A vinculação do interessado compara sequências de tokens normalizados com
+   fronteira inequívoca, impedindo ANA de casar com MARIANA. Fontes homônimas
+   ficam conflict sem identificador; matrícula normalizada desambigua a fonte
+   quando fornecida, inclusive com pontuação/separadores.
+3. EXTRACTOR_VERSION voltou a analysis-pipeline-v2, preservando caches OCR
+   válidos. A assinatura independente LEGAL_CONTEXT_VERSION=legal-context-v3
+   identifica a lógica do sidecar sem invalidar globalmente o cache de
+   extração; teste explícito prova a reutilização de cache antigo sem OCR.
+
+### TDD do fix
+
+RED antes da implementação:
+
+    python -m unittest test_legal_context -q
+    15 testes; 12 passaram; 3 falharam nos novos casos de identidade.
+
+    python -m unittest test_analysis_pipeline.AnalysisPipelineTests.test_physical_page_count_is_lower_bound_when_ocr_cache_covers_only_two_of_three_pages test_analysis_pipeline.AnalysisPipelineTests.test_legal_context_version_is_separate_and_old_ocr_cache_remains_valid test_analysis_pipeline.AnalysisPipelineTests.test_classification_records_page_count_from_native_and_ocr_pages -q
+    3 testes; 1 passou; 2 deram erro por contratos ainda não implementados.
+
+GREEN após a implementação:
+
+    python -m unittest test_legal_context test_tce_extractor test_analysis_pipeline test_extension_exporter -q
+    87 testes; 87 passaram; 0 falharam.
+
+    python -m unittest test_batch_runner -q
+    19 testes; 19 passaram; 0 falharam.
+
+O handoff global `docs/notes/2026-09-08-fundamentacao-automatico-handoff.md`
+foi atualizado com o estado do round 2, ownership, gates e instruções de
+retomada. O matcher permanece a única RED JavaScript conhecida (33/34).
+
 ## Implementação
 
 Foi criado `portable/app/legal_context.py` com as interfaces:

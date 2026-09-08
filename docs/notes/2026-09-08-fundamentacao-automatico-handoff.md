@@ -124,3 +124,29 @@
 - GitHub: nenhum remoto configurado; não houve push.
 - Retomada: não corrigir matcher nem incluir empacotamento. Qualquer release
   portátil que dependa de `legal_context.py` requer autorização posterior.
+
+## Registro por fase — Fase 1 fix round 2
+
+- Estado: código e testes no commit
+  `8b3a411 fix: preserve physical legal context coverage`; relatório
+  atualizado neste mesmo bloco documental.
+- Ownership: somente `portable/app/analysis_pipeline.py`,
+  `portable/app/legal_context.py`, `test_analysis_pipeline.py` e
+  `test_legal_context.py` foram alterados no código. Nenhum empacotamento
+  ou matcher foi tocado.
+- Cobertura física: a contagem nativa observada é lower bound; cache OCR menor
+  não reduz `page_count`, páginas faltantes são evidenciadas e o status
+  não pode ser `complete`.
+- Identidade: nomes usam sequência de tokens normalizados com fronteira;
+  ANA/MARIANA não colidem, homônimos ficam `conflict` sem identificador e
+  matrícula pode desambiguar a fonte.
+- Versões: `EXTRACTOR_VERSION` permanece `analysis-pipeline-v2`;
+  `LEGAL_CONTEXT_VERSION` é independente em `legal-context-v3`.
+  Cache OCR antigo foi validado sem nova chamada de OCR.
+- TDD/gates: RED registrado no task-1-report; GREEN em 87/87 focais Python e
+  19/19 batch runner; `git diff --check` passou. Matcher permanece 33/34
+  por RED intencional.
+- Escopo: os arquivos `empacotar-coletor-portatil.ps1` e
+  `test_portable_end_to_end.py` continuam idênticos ao HEAD `08cf8b9`.
+- Retomada: nenhum novo trabalho nesta fase sem revisão; manter a RED do matcher
+  e a dependência do empacotador como concern separado.
