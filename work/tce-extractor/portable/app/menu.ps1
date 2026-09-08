@@ -336,7 +336,26 @@ function Start-TcePortableMenu {
         return $LASTEXITCODE
     }.GetNewClosure()
     $html = { param($root) & $analyzer $root; return $LASTEXITCODE }.GetNewClosure()
-    $open = { param($path) if (-not (Test-Path -LiteralPath $path)) { throw 'HTML local ausente.' }; Start-Process -FilePath $path; return 0 }
+    $open = {
+        param($path)
+        $target = $path
+        if ([IO.Path]::GetFullPath($path) -eq [IO.Path]::GetFullPath($htmlPath)) {
+            $metadataPath = Get-TceLocalServiceMetadataPath -PackageRoot $packageRoot
+            if (Test-Path -LiteralPath $metadataPath -PathType Leaf) {
+                try {
+                    $serviceMetadata = Get-Content -LiteralPath $metadataPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if ($serviceMetadata.review_url) { $target = [string]$serviceMetadata.review_url }
+                } catch { }
+            }
+        }
+        if ($target -is [string] -and $target -match '^http://127\.0\.0\.1:\d+/review(?:#|$)') {
+            Start-Process -FilePath $target
+            return 0
+        }
+        if (-not (Test-Path -LiteralPath $target)) { throw 'HTML local ausente.' }
+        Start-Process -FilePath $target
+        return 0
+    }.GetNewClosure()
     $extension = {
         param($root)
         & $runtime.Python $extensionExporterPath --checkpoint (Join-Path $root 'checkpoint-extracao.json') --output (Join-Path $root 'dados-complementar-ato.json')

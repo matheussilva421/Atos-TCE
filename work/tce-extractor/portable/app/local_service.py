@@ -2,18 +2,33 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import argparse
+from hmac import compare_digest
 import os
 from pathlib import Path, PurePosixPath
 import re
+import secrets
+import sys
 import tempfile
+import threading
 import time
+from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import quote
+
+APP_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = APP_ROOT.parent.parent
+for candidate in (APP_ROOT, PROJECT_ROOT):
+    candidate_text = str(candidate)
+    if candidate_text not in sys.path:
+        sys.path.insert(0, candidate_text)
 
 from bridge_auth import BridgeAuth, BridgeAuthError
+from html_generator import render_html
 from workflow_state import RevisionConflict, WorkflowState
 
 
@@ -26,6 +41,44 @@ PROCESS_KEY_RE = re.compile(r"^\d+/\d{4}$")
 
 class _DocumentNotFound(Exception):
     pass
+
+
+_REVIEW_BOOTSTRAP_HTML = """<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Autorizando mesa local</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+</head>
+<body>
+  <p id="status">Autorizando a mesa local…</p>
+  <script src="/review-bootstrap.js" defer></script>
+</body>
+</html>
+"""
+
+_REVIEW_BOOTSTRAP_JS = """(() => {
+  const status = document.getElementById('status');
+  const code = new URLSearchParams(window.location.hash.slice(1)).get('bootstrap');
+  if (!code) {
+    status.textContent = 'Abra a mesa pelo iniciador do pacote portátil.';
+    return;
+  }
+  fetch('/api/v1/review-session', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({code}),
+  }).then((response) => {
+    if (!response.ok) throw new Error('session rejected');
+    history.replaceState(null, '', '/review');
+    window.location.replace('/review');
+  }).catch(() => {
+    status.textContent = 'Código expirado ou inválido. Feche esta aba e abra a mesa pelo iniciador.';
+  });
+})();
+"""
 
 
 def _json_bytes(value: object) -> bytes:
@@ -57,6 +110,23 @@ def _current_publication_dataset(root: Path) -> tuple[int, Path] | None:
         if type(revision) is not int or revision < 1:
             return None
         candidate = (root / "publicacoes" / str(revision) / "dataset.json").resolve()
+        if not _inside(root, candidate) or not candidate.is_file():
+            return None
+        return revision, candidate
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _current_publication_review(root: Path) -> tuple[int, Path] | None:
+    pointer_path = root / "publicacao-atual.json"
+    if not pointer_path.is_file():
+        return None
+    try:
+        pointer = _read_object(pointer_path)
+        revision = pointer.get("revision")
+        if type(revision) is not int or revision < 1:
+            return None
+        candidate = (root / "publicacoes" / str(revision) / "review-data.json").resolve()
         if not _inside(root, candidate) or not candidate.is_file():
             return None
         return revision, candidate
@@ -132,6 +202,10 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
         workflow_state = WorkflowState(self.workflow_root)
         self.auth = BridgeAuth()
         self.selection: dict | None = None
+        self.review_bootstrap_code: str | None = secrets.token_urlsafe(32)
+        self._review_session_token: str | None = None
+        self._review_session_expires_at = 0.0
+        self._review_lock = threading.RLock()
         try:
             super().__init__(address, _WorkflowHandler)
         except Exception:
@@ -139,6 +213,22 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
             raise
         self.workflow_state = workflow_state
         self.service_revision = self.workflow_state.snapshot()["revision"]
+
+    def redeem_review_bootstrap(self, code: str) -> str:
+        with self._review_lock:
+            if self.review_bootstrap_code is None or not compare_digest(self.review_bootstrap_code, code):
+                raise ValueError("código de mesa inválido")
+            self.review_bootstrap_code = None
+            token = secrets.token_urlsafe(32)
+            self._review_session_token = token
+            self._review_session_expires_at = time.time() + 8 * 60 * 60
+            return token
+
+    def validate_review_session(self, token: str) -> bool:
+        with self._review_lock:
+            if not token or self._review_session_token is None or time.time() >= self._review_session_expires_at:
+                return False
+            return compare_digest(self._review_session_token, token)
 
 
 class _WorkflowHandler(BaseHTTPRequestHandler):
@@ -181,6 +271,24 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             return False
         return self.server_state.auth.validate(value[7:].strip(), self.headers.get("Origin"))
 
+    def _valid_review_origin(self) -> bool:
+        origin = self.headers.get("Origin")
+        return origin is None or origin == f"http://127.0.0.1:{self.server.server_port}"
+
+    def _review_cookie(self) -> str | None:
+        try:
+            cookies = SimpleCookie(self.headers.get("Cookie", ""))
+            morsel = cookies.get("tce_review")
+            return morsel.value if morsel is not None else None
+        except CookieError:
+            return None
+
+    def _review_authorized(self) -> bool:
+        return self._valid_host() and self._valid_review_origin() and self.server_state.validate_review_session(self._review_cookie() or "")
+
+    def _private_authorized(self) -> bool:
+        return self._authorized() or self._review_authorized()
+
     def _read_json(self) -> dict:
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -199,6 +307,82 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             return False
         return True
 
+    def _require_private_auth(self) -> bool:
+        if self._private_authorized():
+            return True
+        self._error(403 if self.headers.get("Origin") and not self.server_state.auth.is_extension_origin(self.headers.get("Origin")) and not self._valid_review_origin() else 401, "UNAUTHORIZED", "autenticação local necessária")
+        return False
+
+    def _send_text(self, status: int, value: str, *, content_type: str, headers: dict[str, str] | None = None) -> None:
+        self._send(status, body=value.encode("utf-8"), headers={"Content-Type": content_type, **(headers or {})})
+
+    def _review_payload_for_browser(self, payload: dict) -> dict:
+        result = copy.deepcopy(payload)
+        for process in result.get("processes", []):
+            if not isinstance(process, dict):
+                continue
+            for collection_name in ("documents", "all_documents"):
+                for document in process.get(collection_name, []):
+                    if not isinstance(document, dict):
+                        continue
+                    document_id = document.get("document_id")
+                    if isinstance(document_id, str) and document_id:
+                        document["pdf_url"] = f"/api/v1/pdf/{quote(document_id, safe='')}"
+        return result
+
+    def _send_review_bootstrap(self):
+        if not self._valid_host():
+            self._error(403, "FORBIDDEN_HOST", "Host não permitido")
+            return
+        self._send_text(200, _REVIEW_BOOTSTRAP_HTML, content_type="text/html; charset=utf-8", headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+
+    def _send_review_html(self):
+        publication = _current_publication_review(self.server_state.workflow_root)
+        if publication is None:
+            self._error(404, "REVIEW_DATA_NOT_FOUND", "snapshot de revisão não encontrado")
+            return
+        try:
+            payload = self._review_payload_for_browser(_read_object(publication[1]))
+            html = render_html(payload)
+        except (OSError, ValueError, json.JSONDecodeError, TypeError):
+            self._error(500, "REVIEW_DATA_INVALID", "snapshot de revisão inválido")
+            return
+        nonce = secrets.token_urlsafe(18)
+        html = html.replace("<style>", f'<style nonce="{nonce}">', 1)
+        html = html.replace("<script>\n(() => {", f'<script nonce="{nonce}">\n(() => {{', 1)
+        self._send_text(
+            200,
+            html,
+            content_type="text/html; charset=utf-8",
+            headers={
+                "Cache-Control": "no-store",
+                "Referrer-Policy": "no-referrer",
+                "Content-Security-Policy": f"default-src 'self'; script-src 'self' 'nonce-{nonce}'; style-src 'self' 'nonce-{nonce}'; connect-src 'self'; frame-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'",
+            },
+        )
+
+    def _send_review_asset(self, relative_path: str):
+        normalized = relative_path.replace("\\", "/")
+        parsed = PurePosixPath(normalized)
+        asset_root = (self.server_state.workflow_root.parent / "app" / "web").resolve()
+        candidate = (asset_root / Path(*parsed.parts)).resolve()
+        if parsed.is_absolute() or ".." in parsed.parts or not _inside(asset_root, candidate) or not candidate.is_file():
+            self._error(404, "NOT_FOUND", "asset não encontrado")
+            return
+        current = candidate
+        while current != asset_root:
+            if current.is_symlink():
+                self._error(404, "NOT_FOUND", "asset não encontrado")
+                return
+            current = current.parent
+        content_types = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8", ".mjs": "text/javascript; charset=utf-8"}
+        try:
+            body = candidate.read_bytes()
+        except OSError:
+            self._error(404, "NOT_FOUND", "asset não encontrado")
+            return
+        self._send(200, body=body, headers={"Content-Type": content_types.get(candidate.suffix.lower(), "application/octet-stream"), "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+
     def do_GET(self):
         parsed = urlsplit(self.path)
         if parsed.path == "/api/v1/health":
@@ -206,6 +390,39 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
                 self._error(403, "FORBIDDEN_ORIGIN", "Host ou Origin não permitido")
                 return
             self._send(200, {"api_version": API_VERSION, "service": "tce-portable"})
+            return
+        if parsed.path == "/review":
+            if self._review_authorized():
+                self._send_review_html()
+            else:
+                self._send_review_bootstrap()
+            return
+        if parsed.path == "/review-bootstrap.js":
+            if not self._valid_host():
+                self._error(403, "FORBIDDEN_HOST", "Host não permitido")
+                return
+            self._send_text(200, _REVIEW_BOOTSTRAP_JS, content_type="text/javascript; charset=utf-8", headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+            return
+        if parsed.path.startswith("/app/web/"):
+            if not self._valid_host():
+                self._error(403, "FORBIDDEN_HOST", "Host não permitido")
+                return
+            self._send_review_asset(unquote(parsed.path.removeprefix("/app/web/")))
+            return
+        if parsed.path == "/api/v1/review-data":
+            if not self._require_private_auth():
+                return
+            self._send_review_data(parse_qs(parsed.query))
+            return
+        if parsed.path.startswith("/api/v1/evidence/"):
+            if not self._require_private_auth():
+                return
+            self._send_evidence(unquote(parsed.path.removeprefix("/api/v1/evidence/")))
+            return
+        if parsed.path.startswith("/api/v1/pdf/"):
+            if not self._require_private_auth():
+                return
+            self._send_pdf(unquote(parsed.path.removeprefix("/api/v1/pdf/")))
             return
         if not self._require_auth():
             return
@@ -229,12 +446,6 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/v1/dataset":
             self._send_dataset()
             return
-        if parsed.path.startswith("/api/v1/evidence/"):
-            self._send_evidence(unquote(parsed.path.removeprefix("/api/v1/evidence/")))
-            return
-        if parsed.path.startswith("/api/v1/pdf/"):
-            self._send_pdf(unquote(parsed.path.removeprefix("/api/v1/pdf/")))
-            return
         self._error(404, "NOT_FOUND", "rota não encontrada")
 
     def _send_dataset(self):
@@ -250,6 +461,27 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             return
         revision = publication[0] if publication is not None else self.server_state.service_revision
         self._send(200, {"api_version": API_VERSION, "revision": revision, "dataset": dataset})
+
+    def _send_review_data(self, params: dict[str, list[str]]):
+        try:
+            since = int(params.get("since", ["-1"])[0])
+        except (TypeError, ValueError):
+            self._error(400, "INVALID_JSON", "since inválido")
+            return
+        publication = _current_publication_review(self.server_state.workflow_root)
+        if publication is None:
+            self._error(404, "REVIEW_DATA_NOT_FOUND", "snapshot de revisão não encontrado")
+            return
+        revision, path = publication
+        if since == revision:
+            self._send(200, {"api_version": API_VERSION, "revision": revision, "unchanged": True})
+            return
+        try:
+            data = _read_object(path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            self._error(500, "REVIEW_DATA_INVALID", "snapshot de revisão inválido")
+            return
+        self._send(200, {"api_version": API_VERSION, "revision": revision, "unchanged": False, "data": self._review_payload_for_browser(data)})
 
     def _send_evidence(self, record_id: str):
         if not record_id or "/" in record_id or "\\" in record_id:
@@ -328,6 +560,20 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
                 return
             self._send(200, {"api_version": API_VERSION, "token": token})
             return
+        if parsed.path == "/api/v1/review-session":
+            if not self._valid_host() or self.headers.get("Origin") != f"http://127.0.0.1:{self.server.server_port}":
+                self._error(403, "FORBIDDEN_ORIGIN", "origem local necessária")
+                return
+            try:
+                payload = self._read_json()
+                if set(payload) != {"code"} or not isinstance(payload["code"], str):
+                    raise ValueError
+                token = self.server_state.redeem_review_bootstrap(payload["code"])
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+                self._error(401, "REVIEW_SESSION_REJECTED", "código da mesa rejeitado")
+                return
+            self._send(200, {"api_version": API_VERSION, "authenticated": True}, headers={"Set-Cookie": f"tce_review={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={8 * 60 * 60}"})
+            return
         if not self._require_auth():
             return
         if parsed.path == "/api/v1/selection":
@@ -394,6 +640,7 @@ def create_server(root: Path, host: str = "127.0.0.1", port: int = DEFAULT_PORT)
 
 def _write_runtime_metadata(path: Path, server: _WorkflowHTTPServer) -> dict[str, object]:
     pairing_code = server.auth.issue_pairing_code()
+    review_code = server.review_bootstrap_code
     metadata = {
         "schema_version": 1,
         "pid": os.getpid(),
@@ -401,6 +648,7 @@ def _write_runtime_metadata(path: Path, server: _WorkflowHTTPServer) -> dict[str
         "executable": str(Path(os.environ.get("PYTHONEXECUTABLE", os.sys.executable)).resolve()),
         "started_at": time.time(),
         "pairing_code": pairing_code,
+        "review_url": f"http://127.0.0.1:{server.server_port}/review#bootstrap={quote(review_code or '', safe='')}" if review_code else None,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)

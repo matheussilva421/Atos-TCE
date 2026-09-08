@@ -129,6 +129,9 @@ class ReviewAssetTests(unittest.TestCase):
             self.assertIn("pdf-canvas", html)
             self.assertIn("document_id", html)
             self.assertIn("data-review-mode", html)
+            self.assertIn("api/v1/review-data", html)
+            self.assertIn("localFileProtocol", html)
+            self.assertIn("preserveViewer", html)
 
 
 if __name__ == "__main__":

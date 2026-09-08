@@ -77,7 +77,9 @@ será retomado e os documentos inalterados não serão baixados outra vez.
 
 ## Conferir pelo HTML local
 
-Abra `acervo-tce\complementar-ato.html` ou use a opção 5.
+Use a opção 5 para abrir a mesa pelo helper local autenticado. Se o serviço
+estiver indisponível, abra `acervo-tce\complementar-ato.html` como fallback
+estático.
 
 - Escolha o processo na lista superior.
 - Troque entre Resolução Administrativa e Guia Financeira quando disponíveis.
@@ -90,7 +92,8 @@ O check do HTML fica salvo no navegador daquele computador. Ele é independente
 da marca **Revisado** da extensão e pode não acompanhar a pasta para outro PC.
 
 Se o PDF aparecer vazio, confirme que o ZIP foi totalmente extraído e use
-**Abrir PDF**. Não mova apenas o HTML sem a pasta `processos`.
+**Abrir PDF**. Não mova apenas o HTML sem a pasta `processos`. A mesa servida
+pelo helper atualiza revisões incrementais; o fallback `file:` não faz polling.
 
 ## Preencher com a Extensão
 

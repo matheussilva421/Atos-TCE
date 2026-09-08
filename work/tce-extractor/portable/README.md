@@ -109,9 +109,11 @@ nativo e ao botão **Abrir PDF**. Clicar numa fonte nunca altera o formulário.
 
 O serviço local opcional fica somente em `127.0.0.1`, usa código temporário de
 pareamento e mantém tokens em memória/sessão. Para usá-lo, inicie o helper pela
-opção própria do menu, informe o código em **Mesa local** na extensão e pare-o
-com `INICIAR.cmd parar`. Se a ponte estiver indisponível, importação manual do
-JSON e HTML estático continuam válidos. A pesquisa da extensão por número de
+opção própria do menu: a mesa aberta pelo menu usa uma sessão local temporária
+e acompanha as revisões incrementais sem expor caminhos absolutos; o código da
+extensão continua sendo informado em **Mesa local**. Pare-o com
+`INICIAR.cmd parar`. Se a ponte estiver indisponível, importação manual do JSON
+e HTML estático continuam válidos. A pesquisa da extensão por número de
 processo ou interessado apenas localiza o registro; a seleção no portal e o
 clique **Preencher campos disponíveis** continuam deliberados.
 

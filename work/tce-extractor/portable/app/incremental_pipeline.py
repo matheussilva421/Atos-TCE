@@ -27,10 +27,18 @@ from analysis_pipeline import build_target_manifest, classify_archive
 from archive_index import scan_archive
 from batch_runner import run_manifest
 from extension_exporter import build_extension_dataset
+from html_generator import build_interface_payload
 
 
 _PROCESS_KEY = re.compile(r"^\d+/\d{4}$")
 _PUBLISH_LOCK = threading.RLock()
+
+
+def _sidecar_path(root: Path, name: str) -> Path | None:
+    for candidate in (root / name, root / "acervo-tce" / name):
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def _read_json(path: Path) -> dict:
@@ -78,7 +86,13 @@ def current_results(archive_root: Path) -> dict[str, dict]:
     return copy.deepcopy(results)
 
 
-def publish_results(archive_root: Path, process_results: Mapping[str, Mapping[str, object]]) -> int:
+def publish_results(
+    archive_root: Path,
+    process_results: Mapping[str, Mapping[str, object]],
+    *,
+    review_manifest: Mapping[str, object] | None = None,
+    review_index: Mapping[str, object] | None = None,
+) -> int:
     """Merge process results into a new revision and atomically repoint readers."""
     root = Path(archive_root).resolve()
     with _PUBLISH_LOCK:
@@ -123,6 +137,39 @@ def publish_results(archive_root: Path, process_results: Mapping[str, Mapping[st
                 temporary_root / "dataset.json",
                 build_extension_dataset(checkpoint, generated_at=published_at),
             )
+            if review_manifest is not None:
+                manifest_processes = {
+                    str(item.get("process", "")): copy.deepcopy(dict(item))
+                    for item in review_manifest.get("processes", [])
+                    if isinstance(item, Mapping) and str(item.get("process", ""))
+                }
+                previous_manifest_path = None
+                if pointer:
+                    previous_manifest_path = publication_root / str(pointer["revision"]) / "manifest.json"
+                if previous_manifest_path is not None and previous_manifest_path.is_file():
+                    previous_manifest = _read_json(previous_manifest_path)
+                    for item in previous_manifest.get("processes", []):
+                        if isinstance(item, Mapping) and str(item.get("process", "")) not in manifest_processes:
+                            manifest_processes[str(item["process"])] = copy.deepcopy(dict(item))
+                merged_manifest = {
+                    "version": 1,
+                    "processes": list(manifest_processes.values()),
+                }
+                review_index_value = dict(review_index) if isinstance(review_index, Mapping) else scan_archive(root)
+                manifest_path = temporary_root / "manifest.json"
+                checkpoint_path = temporary_root / "checkpoint.json"
+                archive_index_path = temporary_root / "archive-index.json"
+                _atomic_json(manifest_path, merged_manifest)
+                _atomic_json(checkpoint_path, checkpoint)
+                _atomic_json(archive_index_path, review_index_value)
+                review_payload = build_interface_payload(
+                    manifest_path,
+                    checkpoint_path,
+                    archive_index_path=archive_index_path,
+                    visual_evidence_path=_sidecar_path(root, "evidencias-visuais.json"),
+                )
+                review_payload["live_revision"] = revision
+                _atomic_json(temporary_root / "review-data.json", review_payload)
             final_root = publication_root / str(revision)
             os.replace(temporary_root, final_root)
             temporary_root = None
@@ -192,7 +239,7 @@ def analyze_process(archive_root: Path, process_key: str, *, tesseract, tessdata
         )
         saved = _read_json(checkpoint)
         process_result = saved.get("processes", {}).get(process_key, {}).get("result", {"status": "partial", "blocks": []})
-    publish_results(root, {process_key: process_result})
+    publish_results(root, {process_key: process_result}, review_manifest=manifest, review_index=index)
     return {"process": process_key, **dict(process_result)}
 
 

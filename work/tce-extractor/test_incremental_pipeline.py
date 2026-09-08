@@ -72,7 +72,7 @@ class IncrementalPipelineTests(unittest.TestCase):
             manifest = {"version": 1, "processes": [{"process": "1/2023", "documents": []}]}
             observed = []
 
-            def fake_publish(_root, results):
+            def fake_publish(_root, results, **_kwargs):
                 observed.append(dict(results))
                 return len(observed)
 
@@ -124,6 +124,52 @@ class IncrementalPipelineTests(unittest.TestCase):
             self.assertEqual(dataset["schema_version"], 1)
             self.assertEqual(dataset["batch"]["process_keys"], ["1/2023"])
             self.assertEqual(dataset["batch"]["record_count"], 0)
+
+    def test_publication_materializes_safe_review_snapshot_for_incremental_revision(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = {
+                "version": 1,
+                "processes": [{
+                    "process": "1/2023",
+                    "documents": [{
+                        "event": "9",
+                        "id": "doc-9",
+                        "title": "RESOLUÇÃO",
+                        "relative_path": "acervo-tce/processos/1-2023/evento-0009/resolucao.pdf",
+                        "pdf_path": str(root / "acervo-tce" / "processos" / "1-2023" / "evento-0009" / "resolucao.pdf"),
+                    }],
+                }],
+            }
+            review_index = {
+                "version": 1,
+                "processes": [{
+                    "key": "1/2023",
+                    "events": [{
+                        "event": "9",
+                        "documents": [{
+                            "id": "doc-9",
+                            "title": "RESOLUÇÃO",
+                            "relative_path": "acervo-tce/processos/1-2023/evento-0009/resolucao.pdf",
+                        }],
+                    }],
+                }],
+            }
+
+            publish_results(
+                root,
+                {"1/2023": {"status": "partial", "blocks": []}},
+                review_manifest=manifest,
+                review_index=review_index,
+            )
+
+            review = json.loads(
+                (root / "publicacoes" / "1" / "review-data.json").read_text(encoding="utf-8")
+            )
+            document = review["processes"][0]["documents"][0]
+            self.assertEqual(review["live_revision"], 1)
+            self.assertEqual(document["pdf_url"], "acervo-tce/processos/1-2023/evento-0009/resolucao.pdf")
+            self.assertNotIn(str(root), json.dumps(review, ensure_ascii=False))
 
 
 if __name__ == "__main__":

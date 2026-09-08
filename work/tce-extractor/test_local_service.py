@@ -15,7 +15,7 @@ sys.path.insert(0, str(APP_ROOT))
 from local_service import create_server  # noqa: E402
 
 
-def json_request(url, *, method="GET", payload=None, token=None, origin=None, host=None, range_header=None):
+def json_request(url, *, method="GET", payload=None, token=None, origin=None, host=None, range_header=None, cookie=None):
     headers = {}
     if payload is not None:
         headers["Content-Type"] = "application/json"
@@ -27,6 +27,8 @@ def json_request(url, *, method="GET", payload=None, token=None, origin=None, ho
         headers["Host"] = host
     if range_header is not None:
         headers["Range"] = range_header
+    if cookie is not None:
+        headers["Cookie"] = cookie
     body = None if payload is None else json.dumps(payload).encode("utf-8")
     with urlopen(Request(url, data=body, headers=headers, method=method), timeout=3) as response:
         return response.status, response.headers, response.read()
@@ -148,6 +150,77 @@ class LocalServiceTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertEqual(payload["revision"], 7)
             self.assertEqual(payload["dataset"]["batch"]["id"], "publication-7")
+
+    def test_review_data_exposes_revision_and_supports_unchanged_poll(self):
+        with running_server() as (root, server, base):
+            publication = root / "publicacoes" / "7"
+            publication.mkdir(parents=True)
+            (root / "publicacao-atual.json").write_text(
+                json.dumps({"schema_version": 1, "revision": 7}), encoding="utf-8"
+            )
+            review_data = {"live_revision": 7, "processes": [], "stats": {}}
+            (publication / "review-data.json").write_text(json.dumps(review_data), encoding="utf-8")
+            code = server.auth.issue_pairing_code()
+            _status, _headers, pair_body = json_request(
+                f"{base}/api/v1/pair",
+                method="POST",
+                payload={"code": code},
+                origin="chrome-extension://test-extension",
+            )
+            token = json.loads(pair_body)["token"]
+            status, _headers, body = json_request(f"{base}/api/v1/review-data?since=6", token=token)
+            payload = json.loads(body)
+            self.assertEqual(status, 200)
+            self.assertFalse(payload["unchanged"])
+            self.assertEqual(payload["revision"], 7)
+            self.assertEqual(payload["data"]["live_revision"], 7)
+
+            status, _headers, body = json_request(f"{base}/api/v1/review-data?since=7", token=token)
+            payload = json.loads(body)
+            self.assertEqual(status, 200)
+            self.assertTrue(payload["unchanged"])
+            self.assertNotIn("data", payload)
+
+    def test_review_bootstrap_exchanges_fragment_code_for_authenticated_html_session(self):
+        with running_server() as (root, server, base):
+            publication = root / "publicacoes" / "1"
+            publication.mkdir(parents=True)
+            (root / "publicacao-atual.json").write_text(
+                json.dumps({"schema_version": 1, "revision": 1}), encoding="utf-8"
+            )
+            (publication / "review-data.json").write_text(
+                json.dumps({"live_revision": 1, "processes": [], "stats": {}}), encoding="utf-8"
+            )
+
+            status, _headers, body = json_request(f"{base}/review")
+            self.assertEqual(status, 200)
+            self.assertIn("review-bootstrap.js", body.decode("utf-8"))
+            status, _headers, bootstrap = json_request(f"{base}/review-bootstrap.js")
+            self.assertEqual(status, 200)
+            self.assertIn("review-session", bootstrap.decode("utf-8"))
+
+            status, headers, _body = json_request(
+                f"{base}/api/v1/review-session",
+                method="POST",
+                payload={"code": server.review_bootstrap_code},
+                origin=base,
+            )
+            self.assertEqual(status, 200)
+            cookie = headers["Set-Cookie"].split(";", 1)[0]
+            with self.assertRaises(HTTPError) as error:
+                json_request(
+                    f"{base}/api/v1/review-session",
+                    method="POST",
+                    payload={"code": server.review_bootstrap_code or "consumed"},
+                    origin=base,
+                )
+            self.assertEqual(error.exception.code, 401)
+
+            status, headers, body = json_request(f"{base}/review", cookie=cookie)
+            self.assertEqual(status, 200)
+            self.assertIn("api/v1/review-data", body.decode("utf-8"))
+            self.assertNotIn("review-session", body.decode("utf-8"))
+            self.assertIn("Content-Security-Policy", headers)
 
     def test_pdf_is_served_only_by_document_id_and_supports_range(self):
         with running_server() as (root, server, base):

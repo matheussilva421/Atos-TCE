@@ -749,7 +749,7 @@ HTML_TEMPLATE = r'''<!doctype html>
 <script type="application/json" id="app-data">__APP_DATA__</script>
 <script>
 (() => {
-  const data = JSON.parse(document.getElementById('app-data').textContent);
+  let data = JSON.parse(document.getElementById('app-data').textContent);
   const reviewAssets = data.review_assets || {};
   const labels = {
     modalidade: 'Modalidade', fundamento_legal: 'Fundamento legal',
@@ -762,6 +762,7 @@ HTML_TEMPLATE = r'''<!doctype html>
   let integratedPdfjs = null;
   let integratedLoad = null;
   let renderSequence = 0;
+  let liveRevision = Number(data.live_revision || 0);
   const COMPLETED_STORAGE_KEY = data.archive_cycle_id
     ? `tce-completed-processes-v1:${data.archive_cycle_id}`
     : 'tce-completed-processes-v1';
@@ -777,6 +778,57 @@ HTML_TEMPLATE = r'''<!doctype html>
   const currentProcess = () => data.processes[state.processIndex] || {process: '', status: 'pending', documents: [], all_documents: [], blocks: []};
   const currentBlock = () => currentProcess().blocks[state.blockIndex] || {interested: 'Não identificado', pending: [], fields: {}};
   const notify = (message) => { const toast = $('toast'); toast.textContent = message; toast.classList.add('show'); clearTimeout(notify.timer); notify.timer = setTimeout(() => toast.classList.remove('show'), 2200); };
+
+  function applyLivePayload(next) {
+    if (!next || !Array.isArray(next.processes)) return;
+    const previousProcessKey = currentProcess().process;
+    const previousInterested = currentBlock().interested;
+    const previousDocuments = currentProcess().all_documents || currentProcess().documents || [];
+    const previousDocumentId = previousDocuments[state.documentIndex]?.document_id || null;
+    const previousProcess = JSON.stringify(currentProcess());
+    data = next;
+    const nextProcessIndex = data.processes.findIndex((process) => process.process === previousProcessKey);
+    state.processIndex = nextProcessIndex >= 0 ? nextProcessIndex : Math.min(state.processIndex, Math.max(0, data.processes.length - 1));
+    const nextBlocks = currentProcess().blocks || [];
+    const nextBlockIndex = nextBlocks.findIndex((block) => block.interested === previousInterested);
+    state.blockIndex = nextBlockIndex >= 0 ? nextBlockIndex : Math.min(state.blockIndex, Math.max(0, nextBlocks.length - 1));
+    const nextDocuments = currentProcess().all_documents || currentProcess().documents || [];
+    const nextDocumentIndex = nextDocuments.findIndex((document) => document.document_id === previousDocumentId);
+    state.documentIndex = nextDocumentIndex >= 0 ? nextDocumentIndex : Math.min(state.documentIndex, Math.max(0, nextDocuments.length - 1));
+    const currentProcessChanged = previousProcess !== JSON.stringify(currentProcess());
+    renderStats();
+    renderProcessOptions();
+    if (currentProcessChanged) {
+      state.evidence = state.evidence && nextDocuments[state.documentIndex]?.document_id === state.evidence.documentId
+        ? state.evidence
+        : null;
+      const preserveViewer = Boolean(previousDocumentId && nextDocuments[state.documentIndex]?.document_id === previousDocumentId);
+      renderIdentity(); renderFields(); renderPending(); renderDocuments(preserveViewer);
+    }
+  }
+
+  async function pollLiveReview() {
+    const localFileProtocol = 'file' + ':';
+    if (window.location.protocol === localFileProtocol) return;
+    if (window.location.protocol !== 'http:') return;
+    try {
+      const response = await fetch(`/api/v1/review-data?since=${encodeURIComponent(liveRevision)}`, {
+        credentials: 'same-origin',
+        cache: 'no-store',
+      });
+      if (response.ok) {
+        const envelope = await response.json();
+        if (!envelope.unchanged && envelope.data) {
+          liveRevision = Number(envelope.revision || envelope.data.live_revision || liveRevision);
+          applyLivePayload(envelope.data);
+        }
+      }
+    } catch (_) {
+      // The desk remains usable when the optional live service is unavailable.
+    }
+    const delay = document.visibilityState === 'hidden' ? 2000 : 500;
+    window.setTimeout(pollLiveReview, delay);
+  }
 
   function splitBounds() {
     const workspace = document.querySelector('.workspace');
@@ -981,7 +1033,7 @@ HTML_TEMPLATE = r'''<!doctype html>
     }
   }
 
-  function renderDocuments() {
+  function renderDocuments(preserveViewer = false) {
     const process = currentProcess(); const select = $('document-select');
     const documents = process.all_documents || process.documents;
     const prefixes = {resolucao_administrativa: 'RESOLUÇÃO', guia_financeira_taxacao: 'GUIA', outro_documento: 'OUTRO', pendente_ocr: 'PENDENTE', erro_leitura: 'PENDENTE'};
@@ -1000,6 +1052,11 @@ HTML_TEMPLATE = r'''<!doctype html>
     if (document.classification_conflict) badges.insertAdjacentHTML('beforeend', '<span class="document-badge badge-conflict">CONFLITO</span>');
     if (document.pending && !['pendente_ocr', 'erro_leitura'].includes(document.classification)) badges.insertAdjacentHTML('beforeend', '<span class="document-badge badge-pending">PENDENTE</span>');
     if (!document.pdf_url) { frame.removeAttribute('src'); frame.style.visibility = 'hidden'; frame.style.display = 'block'; $('pdf-canvas-stage').style.display = 'none'; empty.style.display = 'grid'; open.classList.add('disabled'); open.removeAttribute('href'); $('document-meta').textContent = `Evento ${document.event} · ${document.file || document.title} · arquivo indisponível`; return; }
+    if (preserveViewer && frame.getAttribute('src')) {
+      frame.style.visibility = 'visible'; open.href = document.pdf_url; open.classList.remove('disabled');
+      $('document-meta').textContent = `Evento ${document.event} · ${document.file} · ${document.page_count || document.pages || '?'} página(s)`;
+      return;
+    }
     const evidence = state.evidence && state.evidence.documentId === document.document_id ? state.evidence : null;
     const page = evidence?.page || 1;
     frame.style.visibility = 'visible'; frame.style.display = 'block'; $('pdf-canvas-stage').style.display = 'none'; empty.style.display = 'none'; frame.src = `${document.pdf_url}#page=${page}&zoom=page-fit`; open.href = document.pdf_url; open.classList.remove('disabled'); $('document-meta').textContent = `Evento ${document.event} · ${document.file} · ${document.page_count || document.pages || '?'} página(s)`;
@@ -1059,6 +1116,7 @@ HTML_TEMPLATE = r'''<!doctype html>
   window.addEventListener('resize', updateSplitBounds);
   applySplit(storedSplit, false);
   renderStats(); render();
+  void pollLiveReview();
 })();
 </script>
 </body>
