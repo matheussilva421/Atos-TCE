@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-Implementação local do plano `docs/notes/2026-09-08-fluxo-portatil-plano-implementacao.md` avançada até um candidato integrado. O checkout continua em `main`; o bloco mais recente foi validado localmente e será registrado em commit, mas não há push por falta de remoto `origin`. Não houve login, coleta real, envio de ato, instalação no Chrome, alteração de acervo pessoal ou exclusão de arquivos.
+Implementação local do plano `docs/notes/2026-09-08-fluxo-portatil-plano-implementacao.md` avançada até um candidato integrado. O checkout continua em `main`; o bloco mais recente foi validado localmente e está no commit `ca1e372`. Não há push por falta de remoto `origin`. Não houve login, coleta real, envio de ato, instalação no Chrome, alteração de acervo pessoal ou exclusão de arquivos.
 
 O fluxo mantém a separação aprovada:
 
@@ -115,9 +115,9 @@ O ZIP anterior foi preservado em `artifacts/extensao-complementar-ato-2026-09-08
 ## GitHub / retomada
 
 - `git remote -v`: sem remoto configurado.
-- Commits locais relevantes: `f2c770b feat: sync incremental bridge datasets` e `9b9a473 feat: serve live portable review revisions`.
+- Commits locais relevantes: `f2c770b feat: sync incremental bridge datasets`, `9b9a473 feat: serve live portable review revisions` e `ca1e372 feat: follow live portal selection in review desk`.
 - Push não executado porque não há `origin` configurado.
-- O bloco de acompanhamento da seleção foi implementado em `html_generator.py` e `portable/app/local_service.py`, com RED→GREEN em `test_local_service.py` e `test_review_assets.py`; o working tree deve ser rechecado após o commit deste handoff.
+- O bloco de acompanhamento da seleção foi implementado em `html_generator.py` e `portable/app/local_service.py`, com RED→GREEN em `test_local_service.py` e `test_review_assets.py`; o commit local é `ca1e372`.
 
 Pendências reais para chamar de release validada:
 
@@ -125,4 +125,4 @@ Pendências reais para chamar de release validada:
 2. medir os mesmos 20 processos e p95 de sincronização, e repetir o teste sobre ZIP extraído em ambiente restrito;
 3. obter autorização humana para segundo PC, se esse gate for necessário.
 
-Para continuar: executar os gates supervisionados acima, validar o ZIP v3 por `Get-FileHash`, e só então preparar push quando um remoto autorizado existir. O commit local mais recente e o status final devem ser registrados nesta seção antes de encerrar a próxima sessão.
+Para continuar: executar os gates supervisionados acima, validar o ZIP v3 por `Get-FileHash`, e só então preparar push quando um remoto autorizado existir. Rechecar `git status` antes de retomar.
