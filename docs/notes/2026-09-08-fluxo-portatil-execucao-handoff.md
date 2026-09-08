@@ -70,7 +70,7 @@ Criado `portable/app/incremental_pipeline.py` e teste; criadas as opções `-Mod
 
 ### Fase 7 — transporte
 
-Criados `portable/app/prepare_transfer.py` e `test_prepare_transfer.py`; allowlists, auditoria, empacotadores e `TESTAR-PACOTE.ps1` incluem o bridge, sidecar, viewer e licença PDF.js, excluindo `dados-locais`, perfis, credenciais, `.part` e logs privados. Cada revisão incremental também materializa `dataset.json` validável; o README portátil documenta modos progressivo/completo, pareamento, fallback e pesquisa manual.
+Criados `portable/app/prepare_transfer.py` e `test_prepare_transfer.py`; allowlists, auditoria, empacotadores e `TESTAR-PACOTE.ps1` incluem o bridge, sidecar, viewer e licença PDF.js, excluindo `dados-locais`, perfis, credenciais, `.part` e logs privados. Foi criado `empacotar-extensao-complementar-ato.ps1` com allowlist explícita e verificação CRC/entradas para reproduzir o ZIP somente da extensão. Cada revisão incremental também materializa `dataset.json` validável; o README portátil documenta modos progressivo/completo, pareamento, fallback e pesquisa manual.
 
 ### Fase 8 — QA seguro
 
@@ -82,7 +82,7 @@ Criados `qa_integrated_workflow.py` e `test_integrated_workflow.py`. O relatóri
 |---|---:|
 | `node --test` em `portable/extensao-complementar-ato` | 118 pass, 0 falhas, 0 skips |
 | `node --test` em `portable/app/web` | 4 pass, 0 falhas |
-| `python -m unittest discover -s . -p 'test_*.py' -q` | 248 pass, 0 falhas, 3 skips |
+| `python -m unittest discover -s . -p 'test_*.py' -q` | 249 pass, 0 falhas, 3 skips |
 | pacote/auditoria/end-to-end (`test_package_audit test_portable_end_to_end test_prepare_transfer test_integrated_workflow`) | 43 pass, 0 falhas, 2 skips |
 | `tests/Test-TcePortable.ps1` | 83 pass, 0 falhas |
 | `tests/Test-PortableMenu.ps1` | 73 pass, 0 falhas |
@@ -92,6 +92,9 @@ Criados `qa_integrated_workflow.py` e `test_integrated_workflow.py`. O relatóri
 | subconjunto browser/reset/runtime | 15 pass, 0 falhas |
 | sessão da mesa gravando progresso pelo cookie | 1 pass, 0 falhas |
 | smoke Chrome contra ZIP v3 extraído em pasta temporária | pass; Chrome 145; 7 linhas, persistência após restart, controles protegidos intactos |
+| `test_extension_zip_packager.py` + empacotamento oficial | 1 pass; 11 arquivos, CRC verificado |
+| smoke Chrome contra ZIP v4 oficial extraído | pass; Chrome 145; 7 linhas, persistência após restart, controles protegidos intactos |
+| `empacotar-extensao-complementar-ato.ps1` | ZIP v4 reproduzível; 11 arquivos; SHA-256 `D04B51D370277C90327BD60C1974D70AA7992FF2D4CCA64DB4A4D6DED004B29A` |
 
 O Python exibiu apenas avisos ResourceWarning dos testes de erro HTTP e a mensagem de uso deliberada do caso `--timeout-seconds 0`; a suíte terminou verde. Os skips ambientais/fixture não validam OCR real, bridge em navegador ou portal.
 
@@ -112,16 +115,23 @@ Versão atualizada após o bridge incremental:
 - SHA-256: `8B0BBBA8131EA1D9B8156AAC60D374A85ED1D16D2AF1B55C77D1809ADCF61E46`
 - handoff: `docs/notes/2026-09-08-extensao-complementar-ato-empacotamento-v3-handoff.md`.
 
+Versão reproduzível pelo empacotador oficial:
+
+- ZIP: `C:\Users\slvma\Downloads\Github\Complementação de Atos\artifacts\extensao-complementar-ato-2026-09-08-v4.zip`
+- SHA-256: `D04B51D370277C90327BD60C1974D70AA7992FF2D4CCA64DB4A4D6DED004B29A`
+- gerado por `work/tce-extractor/empacotar-extensao-complementar-ato.ps1`; 11 entradas allowlisted, sem `package.json`, testes ou documentação.
+- handoff específico: `docs/notes/2026-09-08-extensao-complementar-ato-empacotamento-v4-handoff.md`.
+
 O ZIP anterior foi preservado em `artifacts/extensao-complementar-ato-2026-09-08.zip`.
 
 ## Auditoria de montagens antigas
 
-Foi executado `python portable/app/package_audit.py staging-final --distribution private` apenas em leitura. A montagem histórica `staging-final` foi reprovada por conter `downloads/` privados, referências de PyMuPDF ausentes/divergentes e ausência de `acervo-tce/dados-complementar-ato.json`; ela não é o ZIP v3, não foi corrigida nem removida. O ZIP v3 da extensão foi auditado separadamente e passou: 11 entradas, 0 fora de `extensao-complementar-ato/`, seguido de smoke Chrome após extração.
+Foi executado `python portable/app/package_audit.py staging-final --distribution private` apenas em leitura. A montagem histórica `staging-final` foi reprovada por conter `downloads/` privados, referências de PyMuPDF ausentes/divergentes e ausência de `acervo-tce/dados-complementar-ato.json`; ela não é o ZIP v4, não foi corrigida nem removida. O ZIP v4 da extensão foi auditado separadamente e passou: 11 entradas, 0 fora de `extensao-complementar-ato/`, seguido de smoke Chrome após extração.
 
 ## GitHub / retomada
 
 - `git remote -v`: sem remoto configurado.
-- Commits locais relevantes: `f2c770b feat: sync incremental bridge datasets`, `9b9a473 feat: serve live portable review revisions`, `ca1e372 feat: follow live portal selection in review desk`, `4d0153c fix: synchronize review completion with local service`, `cefcdfc docs: record extracted extension smoke` e `c14580a docs: clarify shared portable completion state`.
+- Commits locais relevantes: `f2c770b feat: sync incremental bridge datasets`, `9b9a473 feat: serve live portable review revisions`, `ca1e372 feat: follow live portal selection in review desk`, `4d0153c fix: synchronize review completion with local service`, `cefcdfc docs: record extracted extension smoke`, `c14580a docs: clarify shared portable completion state` e os commits locais de empacotamento/documentação desta rodada.
 - Push não executado porque não há `origin` configurado.
 - O bloco de acompanhamento da seleção e a conclusão compartilhada foram implementados em `html_generator.py` e `portable/app/local_service.py`, com RED→GREEN em `test_local_service.py` e `test_review_assets.py`; a implementação está em `4d0153c` e a evidência do ZIP extraído foi registrada nos commits de documentação.
 
@@ -131,4 +141,4 @@ Pendências reais para chamar de release validada:
 2. medir os mesmos 20 processos e p95 de sincronização, e repetir o teste sobre ZIP extraído em ambiente restrito;
 3. obter autorização humana para segundo PC, se esse gate for necessário.
 
-Para continuar: executar os gates supervisionados acima, validar o ZIP v3 por `Get-FileHash`, e só então preparar push quando um remoto autorizado existir. Rechecar `git status` antes de retomar.
+Para continuar: executar os gates supervisionados acima, validar o ZIP v4 pelo empacotador oficial, e só então preparar push quando um remoto autorizado existir. Rechecar `git status` antes de retomar.
