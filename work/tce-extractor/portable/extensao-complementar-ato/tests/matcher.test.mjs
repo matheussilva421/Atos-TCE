@@ -27,14 +27,47 @@ test("loads the sanitized v1 catalog with canonical and auxiliary foundation opt
     legalFoundationFixture.options.slice(0, 3).map((option) => option.rule_id),
     ["EC41_SEM_P5", "EC41_COM_P5", "EC47_ART3"],
   );
+  assert.deepEqual(legalFoundationFixture.options.slice(0, 3), [
+    {
+      rule_id: "EC41_SEM_P5",
+      value: "synthetic-ec41-without-p5",
+      label: "Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 2º da Emenda Constitucional nº 47/2005",
+      selectable: true,
+    },
+    {
+      rule_id: "EC41_COM_P5",
+      value: "synthetic-ec41-with-p5",
+      label: "Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 40, § 5º, Constituição Federal e artigo 2º da Emenda Constitucional nº 47/2005",
+      selectable: true,
+    },
+    {
+      rule_id: "EC47_ART3",
+      value: "synthetic-ec47-art3",
+      label: "Civil - Artigo 3º, incisos I a III e parágrafo único, da Emenda Constitucional nº 47/2005",
+      selectable: true,
+    },
+  ]);
   assert.deepEqual(
     legalFoundationFixture.options.slice(3).map((option) => option.rule_id),
     ["EC41_ART6A", "CF40_P1_II", "MILITAR", "PLACEHOLDER"],
   );
-  assert.ok(legalFoundationFixture.options.every(({ value }) => (
+  const selectableValues = legalFoundationFixture.options
+    .filter((option) => option.selectable)
+    .map((option) => option.value);
+  assert.ok(selectableValues.every((value) => (
     value === "" || /^synthetic-[a-z0-9-]+$/u.test(value)
   )));
-  assert.ok(legalFoundationFixture.options.some(({ selectable }) => selectable === false));
+  assert.ok(selectableValues.every((value) => value !== ""));
+  assert.equal(new Set(selectableValues).size, selectableValues.length);
+  assert.deepEqual(
+    legalFoundationFixture.options.find((option) => option.rule_id === "PLACEHOLDER"),
+    {
+      rule_id: "PLACEHOLDER",
+      value: "",
+      label: "Selecione uma fundamentação",
+      selectable: false,
+    },
+  );
 });
 
 test("keeps each automatic portal surface in a distinct sanitized simulated fixture", () => {
@@ -46,11 +79,21 @@ test("keeps each automatic portal surface in a distinct sanitized simulated fixt
     ["buttons-frame.html", "buttons-frame"],
   ];
 
+  const listPages = [
+    readFileSync(join(fixtureRoot, "automatic-portal", "process-list-page-1.html"), "utf8"),
+    readFileSync(join(fixtureRoot, "automatic-portal", "process-list-page-2.html"), "utf8"),
+  ];
+  assert.notEqual(listPages[0], listPages[1]);
+  assert.match(listPages[0], /SYN-0001\/2099/u);
+  assert.match(listPages[1], /SYN-0003\/2099/u);
+
   for (const [filename, kind] of fixtures) {
     const content = readFileSync(join(fixtureRoot, "automatic-portal", filename), "utf8");
     assert.match(content, new RegExp(`data-fixture-kind="${kind}"`, "u"));
     assert.match(content, /data-fixture-status="simulated"/u);
     if (filename === "buttons-frame.html") {
+      assert.equal((content.match(/id="botao"/gu) ?? []).length, 2);
+      assert.equal((content.match(/data-action="signal-only"/gu) ?? []).length, 2);
       assert.match(content, /data-submission-mode="manual-signal-only"/u);
     }
   }
@@ -58,9 +101,13 @@ test("keeps each automatic portal surface in a distinct sanitized simulated fixt
   const result = JSON.parse(
     readFileSync(join(fixtureRoot, "automatic-portal", "simulator-result.json"), "utf8"),
   );
+  assert.equal(result.fixture_status, "simulated");
   assert.equal(result.simulation.is_simulated, true);
+  assert.match(result.simulation.notice, /não comprova sucesso no portal real/u);
   assert.equal(result.request.sent, false);
+  assert.equal(result.request.mode, "manual-signal-only");
   assert.equal(result.result.status, "simulated-success");
+  assert.equal(result.result.persistent_portal_id, null);
 });
 
 test("matches a short voluntary retirement source to the voluntary portal family, never compulsory", () => {

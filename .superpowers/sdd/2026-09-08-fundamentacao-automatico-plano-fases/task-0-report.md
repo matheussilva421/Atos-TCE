@@ -137,6 +137,56 @@ Próxima retomada: implementar o contrato de resolução específico da Fase 2
 contra este catálogo e fechar a regressão com testes RED/GREEN próprios, sem
 promover o resultado simulado a sucesso real.
 
+## Fix report — revisão incremental da Fase 0
+
+Data: 2026-09-08
+
+Os três achados da revisão foram corrigidos sem alterar o handoff ou o ledger do
+controlador:
+
+1. `matcher.test.mjs` agora fixa por igualdade os três pares canônicos de
+   `rule_id`, `value` e `label`, confirma que são selecionáveis, exige valores
+   selecionáveis não vazios e únicos, e associa explicitamente
+   `PLACEHOLDER` a `value: ""` e `selectable: false`.
+2. O teste lê as duas páginas da lista, exige conteúdo diferente e verifica
+   processos distintos (`SYN-0001/2099` e `SYN-0003/2099`). Também cobre os
+   marcadores do resultado JSON: `fixture_status`, `is_simulated`, aviso de
+   não comprovação real, `sent: false`, modo manual, `simulated-success` e
+   ausência de identificador persistente.
+3. `buttons-frame.html` reproduz a não exclusividade do ID `botao` com dois
+   botões homônimos. O teste exige os dois elementos e duas ações
+   `signal-only`; a mensagem manual permanece presente e nenhuma submissão é
+   realizada.
+
+### RED/GREEN deste fix
+
+Após escrever as novas asserções, antes de alterar a fixture de botões:
+
+```text
+node --test tests/matcher.test.mjs tests/normalizer.test.mjs
+```
+
+Resultado RED: 34 testes, 32 passaram e 2 falharam. Uma falha foi a nova
+asserção de dois `id="botao"` contra a fixture antiga (1 encontrado); a outra
+foi a regressão conhecida do matcher, que retornou
+`synthetic-ec41-without-p5` em vez de `null`.
+
+Após a alteração mínima de `buttons-frame.html`, o teste focal ficou em 34
+testes, 33 passando e 1 falhando. Todos os contratos novos passaram; resta
+somente a regressão intencional do matcher, sem mudança de produção.
+
+A suíte completa final:
+
+```text
+npm test
+```
+
+Resultado: 126 testes, 125 passaram, 1 falhou e 0 foram omitidos. A única falha
+é a mesma regressão RED de score zero/ordem; não surgiram falhas adicionais.
+
+Commit incremental: `test: harden phase 0 fixtures and catalog contracts` (SHA
+informado na resposta final; o relatório integra o commit).
+
 ## Commit e GitHub
 
 Commit: `test: reproduce legal foundation selection failures` (SHA informado
