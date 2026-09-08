@@ -48,7 +48,7 @@ O contrato RED/GREEN foi inicialmente criado por worker Luna xhigh e revisado/in
 
 ## GitHub / retomada
 
-- Alterações ainda precisam ser commitadas após a revisão final.
+- Alterações commitadas em `3b24678` após a revisão final.
 - `origin` não está configurado; push não é possível neste checkout.
 - O ZIP isolado da extensão não muda com esta etapa:
   `artifacts/extensao-complementar-ato-2026-09-08-v4.zip`, SHA-256 `8B0BBBA813EA1D9B8156AAC60D374A85ED1D16D2AF1B55C77D1809ADCF61E46`.
