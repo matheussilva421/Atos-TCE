@@ -150,3 +150,30 @@
   `test_portable_end_to_end.py` continuam idênticos ao HEAD `08cf8b9`.
 - Retomada: nenhum novo trabalho nesta fase sem revisão; manter a RED do matcher
   e a dependência do empacotador como concern separado.
+
+## Registro por fase — Fase 1 fix round 3
+
+- Estado: código e testes no commit
+  e85aa35 fix: close legal context evidence and cache gaps; o report foi
+  atualizado no mesmo bloco documental.
+- Ownership: somente portable/app/analysis_pipeline.py,
+  portable/app/legal_context.py, test_analysis_pipeline.py e
+  test_legal_context.py foram alterados no código. Empacotamento e matcher
+  permaneceram intocados.
+- Fontes concorrentes: source_evidence preserva todas as resoluções do
+  processo, incluindo fontes sem page_texts; status_reasons registra
+  source_evidence_missing, e a ausência impede complete.
+- Matrícula: identificadores numéricos exigem rótulo de identificação e
+  segmento contíguo; Ano: 12 + Página: 34 não vira 1234.
+- Versões: EXTRACTOR_VERSION permanece analysis-pipeline-v3, compatível com o
+  cache OCR v3 anterior; LEGAL_CONTEXT_VERSION é independente em
+  legal-context-v4. Mudança de contexto não dispara OCR nem rejeita cache.
+- TDD/gates: RED de 18 testes com 3 falhas esperadas antes do código; GREEN
+  em 89/89 testes Python focais e 19/19 batch runner; git diff --check e
+  comparação dos arquivos proibidos ao HEAD 08cf8b9 passaram.
+- Concerns: a RED intencional do matcher continua 33/34; o teste de pacote
+  continua fora do escopo porque o empacotador preservado não inclui
+  legal_context.py. Nenhum BLOCKED no round 3.
+- Retomada: não corrigir matcher nem incluir empacotamento; qualquer mudança
+  futura de cache deve preservar a compatibilidade v3 ou registrar migração
+  explícita e autorizada.

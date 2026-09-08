@@ -199,3 +199,64 @@ fix round 1 é `e84ac95 fix: harden legal context evidence publication`.
 Retomada: revisar o diff limitado aos arquivos listados e somente então decidir
 a fase/autoridade para incluir o novo módulo no pacote portátil. Não corrigir o
 matcher nesta retomada.
+
+## Fix round 3 — revisão da Fase 1
+
+Data: 2026-09-08
+Commit incremental de código/testes: e85aa35 fix: close legal context evidence and cache gaps
+
+O round corrigiu os três achados solicitados, mantendo o ownership da Fase 1:
+
+1. Quando o manifesto contém resoluções concorrentes e somente uma possui
+   page_texts, o sidecar não pode publicar complete. O registro preserva
+   source_evidence para todas as fontes do processo, inclusive a fonte sem
+   evidência com state=missing, e registra status_reasons com
+   source_evidence_missing e seus identificadores seguros. A seleção de
+   páginas desambiguada continua separada do inventário completo; a fonte
+   desconhecida não é descartada silenciosamente.
+2. Matrícula numérica só é reconhecida em valor contíguo sob rótulo de
+   identificação (matricula, registro, inscricao, identificador ou id). Ano: 12
+   e Página: 34 não são concatenados para formar 1234; separadores internos do
+   próprio valor continuam aceitos.
+3. EXTRACTOR_VERSION permanece monotônico em analysis-pipeline-v3 e continua
+   compatível com caches OCR v3 do round anterior. A versão independente do
+   sidecar avançou para LEGAL_CONTEXT_VERSION=legal-context-v4. O teste
+   comprova que uma mudança apenas na lógica de contexto não rejeita o cache v3
+   nem dispara OCR.
+
+### TDD do fix
+
+RED antes da implementação:
+
+    python -m unittest test_legal_context test_analysis_pipeline.AnalysisPipelineTests.test_legal_context_version_is_separate_and_v3_ocr_cache_remains_valid -q
+    18 testes; 15 passaram; 3 falharam nos novos contratos:
+    fonte concorrente foi publicada como complete, grupos numéricos foram
+    concatenados e EXTRACTOR_VERSION ainda estava em v2.
+
+GREEN após cada slice e integração:
+
+    python -m unittest test_legal_context test_tce_extractor test_analysis_pipeline test_extension_exporter -q
+    89 testes; 89 passaram; 0 falharam.
+
+    python -m unittest test_batch_runner -q
+    19 testes; 19 passaram; 0 falharam.
+
+    git diff --check
+    Passou.
+
+    git diff --exit-code 08cf8b9 -- work/tce-extractor/empacotar-coletor-portatil.ps1 work/tce-extractor/test_portable_end_to_end.py
+    Passou; ambos os arquivos proibidos permanecem exatos.
+
+### Self-review, concerns e retomada
+
+- O comportamento ambíguo é fail-closed: evidência concorrente ausente ou
+  incompleta mantém incomplete/conflict e explicita a razão.
+- Nenhum arquivo de empacotamento, matcher, portal, dataset v1 ou exportador foi
+  alterado. A RED conhecida do matcher permanece 33/34 e não pertence a este
+  round.
+- O teste de pacote autocontido continua sendo concern separado porque o
+  empacotador preservado no HEAD 08cf8b9 não inclui legal_context.py.
+- O handoff global
+  docs/notes/2026-09-08-fundamentacao-automatico-handoff.md foi atualizado
+  com este round, ownership, gates, concerns e instruções de retomada.
+- O checkout não possui remoto configurado; nenhum push foi realizado.
