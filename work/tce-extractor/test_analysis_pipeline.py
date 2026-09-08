@@ -152,6 +152,12 @@ class AnalysisPipelineTests(unittest.TestCase):
                 json.loads(expected_path.read_text(encoding="utf-8"))["batch"]["id"],
                 "pipeline-run",
             )
+            legal_context_path = root / "fundamentos-contexto.v1.json"
+            self.assertEqual(summary.legal_context_path, legal_context_path)
+            self.assertEqual(
+                json.loads(legal_context_path.read_text(encoding="utf-8"))["dataset_sha256"],
+                json.loads(expected_path.read_text(encoding="utf-8"))["batch"]["logical_sha256"],
+            )
 
     def test_local_pipeline_html_uses_the_same_encoded_archive_link_for_priority_and_all_documents(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -260,6 +266,100 @@ class AnalysisPipelineTests(unittest.TestCase):
             html = summary.html_path.read_text(encoding="utf-8")
             self.assertEqual(html.count(expected_url), 2)
             self.assertNotIn("file:", html)
+
+    def test_local_pipeline_publishes_complete_legal_context_from_existing_page_cache(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            document = {
+                "event": "9",
+                "event_id": "9",
+                "id": "resolution-9",
+                "title": "RESOLUCAO ADMINISTRATIVA SINTETICA",
+                "classification": "resolucao_administrativa",
+                "automatic_source": True,
+                "sha256": "a" * 64,
+                "geometry_cache_key": "cached-resolution-9",
+                "relative_path": "processos/103439-2023/resolution-9.pdf",
+            }
+            manifest = {
+                "version": 1,
+                "processes": [{"process": "103439/2023", "documents": [document]}],
+            }
+            checkpoint = {
+                "batch_id": "pipeline-run",
+                "processes": {
+                    "103439/2023": {
+                        "status": "complete",
+                        "result": {
+                            "process": "103439/2023",
+                            "status": "complete",
+                            "blocks": [
+                                {
+                                    "interested": "MARIA DA SILVA",
+                                    "fields": {
+                                        "fundamento_legal": {
+                                            "status": "found",
+                                            "value": "Art. 6º",
+                                            "process": "103439/2023",
+                                            "event": "9",
+                                            "document": "RESOLUCAO ADMINISTRATIVA SINTETICA",
+                                            "page": 1,
+                                        }
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                },
+            }
+            cache_payload = {
+                "geometry_version": 1,
+                "extractor_version": EXTRACTOR_VERSION,
+                "ocr_version": OCR_VERSION,
+                "runtime_identity": "cached-runtime",
+                "entries": {
+                    "cached-resolution-9": {
+                        "sha256": document["sha256"],
+                        "pages": [
+                            "RESOLUCAO ADMINISTRATIVA SINTETICA\nRESOLVE:",
+                            "Art. 1º A concessão observa o art. 6º, § 5º e ambos os requisitos.",
+                        ],
+                        "geometry": [{}, {}],
+                    }
+                },
+            }
+
+            (root / "cache-ocr-geometria.json").write_text(
+                json.dumps(cache_payload), encoding="utf-8"
+            )
+
+            def fake_run_manifest(manifest_path, markdown_path, checkpoint_path, **kwargs):
+                Path(checkpoint_path).write_text(json.dumps(checkpoint), encoding="utf-8")
+                return {"total": 1, "completed": 1, "partial": 0}
+
+            with (
+                patch("analysis_pipeline.write_index", return_value={"version": 1, "processes": []}),
+                patch("analysis_pipeline.classify_archive", return_value={"version": 1, "processes": []}),
+                patch("analysis_pipeline.build_target_manifest", return_value=manifest),
+                patch("analysis_pipeline.run_manifest", side_effect=fake_run_manifest),
+                patch("analysis_pipeline.write_html"),
+                patch("analysis_pipeline.extract_pdf_pages", side_effect=AssertionError("OCR must not run")),
+            ):
+                summary = run_local_pipeline(
+                    root,
+                    tesseract=root / "runtime" / "tesseract.exe",
+                    tessdata=root / "runtime" / "tessdata",
+                    run_id="pipeline-run",
+                )
+
+            sidecar = json.loads(summary.legal_context_path.read_text(encoding="utf-8"))
+            self.assertEqual(sidecar["records"][0]["resolution_status"], "complete")
+            self.assertIn("§ 5º", sidecar["records"][0]["operative_text"])
+            dataset = json.loads(summary.extension_data_path.read_text(encoding="utf-8"))
+            self.assertEqual(sidecar["dataset_sha256"], dataset["batch"]["logical_sha256"])
+            self.assertEqual(
+                set(dataset), {"schema_version", "generated_at", "batch", "records"}
+            )
 
     def test_cli_help_exposes_archive_and_runtime_paths(self):
         result = subprocess.run(

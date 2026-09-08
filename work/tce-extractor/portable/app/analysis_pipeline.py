@@ -29,6 +29,7 @@ from batch_runner import run_manifest
 from evidence_geometry import build_visual_evidence
 from extension_exporter import export_extension_dataset
 from html_generator import write_html
+from legal_context import build_legal_contexts, write_legal_contexts
 from tce_extractor import classify_document, extract_pdf_pages
 
 
@@ -57,6 +58,7 @@ class PipelineSummary:
     html_path: Path
     extension_data_path: Path
     visual_evidence_path: Path | None = None
+    legal_context_path: Path | None = None
 
 
 def _write_json_atomic(path: Path, value: Mapping[str, object]) -> None:
@@ -143,6 +145,50 @@ def write_visual_evidence(manifest_path: Path, checkpoint_path: Path, output_pat
     sidecar = build_visual_evidence(records, documents)
     _write_json_atomic(Path(output_path), sidecar)
     return Path(output_path)
+
+
+def _cached_page_texts(*paths: Path) -> dict[str, object]:
+    """Read already persisted page text without invoking an OCR reader."""
+    page_texts: dict[str, object] = {}
+    for path in paths:
+        try:
+            payload = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+        except (OSError, TypeError, ValueError):
+            continue
+        if not isinstance(payload, Mapping) or not isinstance(payload.get("entries"), Mapping):
+            continue
+        entries = payload["entries"]
+        for key, value in entries.items():
+            if isinstance(value, Mapping) and isinstance(value.get("pages"), list):
+                entry: dict[str, object] = {
+                    "pages": list(value["pages"]),
+                    "pdf_sha256": str(value.get("sha256", "")),
+                }
+                page_texts[str(key)] = entry
+                if value.get("sha256"):
+                    page_texts[str(value["sha256"])] = entry
+                continue
+            if isinstance(value, list):
+                entry = {"pages": list(value)}
+                key_text = str(key)
+                page_texts[key_text] = entry
+                page_texts[key_text.split(":", 1)[0]] = entry
+    return page_texts
+
+
+def _exported_dataset_sha256(dataset: object, output_path: Path) -> str:
+    if isinstance(dataset, Mapping):
+        batch = dataset.get("batch")
+        if isinstance(batch, Mapping) and isinstance(batch.get("logical_sha256"), str):
+            return str(batch["logical_sha256"])
+    try:
+        persisted = json.loads(Path(output_path).read_text(encoding="utf-8-sig"))
+    except (OSError, TypeError, ValueError):
+        return ""
+    if isinstance(persisted, Mapping) and isinstance(persisted.get("batch"), Mapping):
+        value = persisted["batch"].get("logical_sha256")
+        return value if isinstance(value, str) else ""
+    return ""
 
 
 def _event_number(value: object) -> int | None:
@@ -924,6 +970,7 @@ def run_local_pipeline(
     html_path = root / "complementar-ato.html"
     extension_data_path = root / "dados-complementar-ato.json"
     visual_evidence_path = root / "evidencias-visuais.json"
+    legal_context_path = root / "fundamentos-contexto.v1.json"
 
     index = write_index(root, index_path)
     classified = classify_archive(
@@ -955,7 +1002,16 @@ def run_local_pipeline(
         archive_index_path=classified_index_path,
         visual_evidence_path=visual_evidence_path,
     )
-    export_extension_dataset(checkpoint_path, extension_data_path)
+    dataset = export_extension_dataset(checkpoint_path, extension_data_path)
+    write_legal_contexts(
+        legal_context_path,
+        build_legal_contexts(
+            manifest=json.loads(manifest_path.read_text(encoding="utf-8-sig")),
+            checkpoint=json.loads(checkpoint_path.read_text(encoding="utf-8-sig")),
+            page_texts=_cached_page_texts(cache_path, geometry_cache_path),
+            dataset_sha256=_exported_dataset_sha256(dataset, extension_data_path),
+        ),
+    )
     priority_documents = sum(
         len(process.get("documents", []))
         for process in manifest.get("processes", [])
@@ -973,6 +1029,7 @@ def run_local_pipeline(
         html_path=html_path,
         extension_data_path=extension_data_path,
         visual_evidence_path=visual_evidence_path,
+        legal_context_path=legal_context_path,
     )
 
 

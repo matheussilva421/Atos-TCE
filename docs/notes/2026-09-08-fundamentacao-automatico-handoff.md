@@ -77,3 +77,25 @@
 - Validação: somente fixtures sintéticas; nenhum clique, preenchimento ou envio real.
 - Limitação: a Fase 0 não corrige produção; a falha RED é esperada até o resolvedor da Fase 2.
 - Próximo passo: implementar `legal_context.py`/testes da Fase 1, preservando o dataset v1 e publicando sidecar atômico.
+
+## Registro por fase — Fase 1
+
+- Estado: implementação local concluída; aguardando o commit específico da fase.
+- Arquivos: `work/tce-extractor/portable/app/legal_context.py`,
+  `work/tce-extractor/test_legal_context.py`,
+  `work/tce-extractor/portable/app/analysis_pipeline.py` e
+  `work/tce-extractor/test_analysis_pipeline.py`.
+- Contrato: sidecar `fundamentos-contexto.v1.json` com contexto multipágina,
+  citações `{document_id,event_id,page,pdf_sha256}`, texto operativo sem
+  truncamento, versão de extração e estados `complete`/`missing`/`incomplete`/
+  `conflict`.
+- Integração: `run_local_pipeline` reutiliza caches locais e vincula o sidecar
+  ao `batch.logical_sha256` do dataset v1; não chama OCR adicional nem portal.
+- TDD: suíte obrigatória Python 75/75; `test_batch_runner` 19/19; `git diff
+  --check` verde. A RED JavaScript do matcher permanece 1 falha intencional.
+- Escopo deliberadamente preservado: `empacotar-coletor-portatil.ps1` e
+  `test_portable_end_to_end.py` estão byte a byte no HEAD `08cf8b9`. Como
+  consequência, o teste do ZIP autocontido falha por não incluir o novo módulo;
+  não tratar esse concern sem autorização/fase apropriada.
+- Retomada: confirmar SHA do commit da Fase 1, manter o matcher RED e resolver
+  a dependência do empacotador somente em escopo posterior autorizado.
