@@ -112,9 +112,9 @@ O ZIP anterior foi preservado em `artifacts/extensao-complementar-ato-2026-09-08
 ## GitHub / retomada
 
 - `git remote -v`: sem remoto configurado.
-- Commit local: `feat: integrate portable workflow and extension bridge` (hash atual disponível em `git log -1`).
+- Commits locais relevantes: `f2c770b feat: sync incremental bridge datasets` e `9b9a473 feat: serve live portable review revisions`.
 - Push não executado porque não há `origin` configurado.
-- O working tree recebeu a implementação da sessão HTML/revisão incremental; o lock observado durante a execução não está mais presente. Após o commit desta etapa, verifique novamente o status.
+- Working tree verificado limpo após `9b9a473`; o lock observado durante a execução não está mais presente.
 
 Pendências reais para chamar de release validada:
 
