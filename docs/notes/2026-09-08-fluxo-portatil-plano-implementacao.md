@@ -333,7 +333,7 @@ def test_transfer_excludes_pairing_but_keeps_progress(self):
 - [x] Repetir QA sobre ZIP extraído, não apenas source tree: `TESTAR-PACOTE.ps1` passou sem Python/Node no `PATH` e o gate HTML confirmou mesa, evidências, abas, zoom/rotação e conclusão.
 - [ ] Testar serviço bloqueado e fallback, retomada após 401/403 e pareamento funcional no pacote extraído. O gate de segundo PC foi dispensado explicitamente pelo usuário.
 - [x] Documentar limites, falhas de documentos e testes não executados. Se gate falhar, entregar como candidato, não release validada.
-- [x] Commit final, verificar remoto, push somente se houver destino autorizado e sem dados privados. Não criar/publicar remoto automaticamente. Commit local `e041a93`; sem `origin`, portanto sem push.
+- [x] Commit final, verificar remoto, push somente se houver destino autorizado e sem dados privados. Não criar/publicar remoto automaticamente. Commit local desta continuação `e2d2016`; sem `origin`, portanto sem push.
 
 ## 5. Sequência, revisão e rollback
 

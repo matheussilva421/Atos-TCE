@@ -204,6 +204,7 @@ Foi executado `python portable/app/package_audit.py staging-final --distribution
 ## GitHub / retomada
 
 - `git remote -v`: sem remoto configurado.
+- commit desta continuação: `e2d2016 feat: complete portable review package gates`; árvore limpa após o registro documental.
 - Commits locais relevantes: `f2c770b feat: sync incremental bridge datasets`, `9b9a473 feat: serve live portable review revisions`, `ca1e372 feat: follow live portal selection in review desk`, `4d0153c fix: synchronize review completion with local service`, `cefcdfc docs: record extracted extension smoke`, `c14580a docs: clarify shared portable completion state`, `a0424ac build: add reproducible extension-only package`, `50830bd test: verify live review selection in browser`, `6c88d2a fix: block transfer during active portable operations`, `3b24678 feat: harden portable download retries and auth`, `e041a93 feat: harden portable bridge and package validation`, `42fef65 feat: close portable security and transfer gaps` e `141db71 docs: record portable archive package validation`.
 - Push não executado porque não há `origin` configurado.
 - O bloco de acompanhamento da seleção e a conclusão compartilhada foram implementados em `html_generator.py` e `portable/app/local_service.py`, com RED→GREEN em `test_local_service.py` e `test_review_assets.py`; a implementação está em `4d0153c` e a evidência do ZIP extraído foi registrada nos commits de documentação.
