@@ -5,6 +5,7 @@
 - Entrevista de requisitos consolidada em plano detalhado de 11 fases (0 a 10), vinculado aos módulos reais da extensão e serviço Python.
 - Inspecionados contratos de dataset/mensagens, matcher, detector, worker, cliente HTTP, serviço, progresso, extração, pipeline e empacotador.
 - Registrados interfaces propostas, TDD por fase, critérios de aceite, regras operacionais, relatório incremental, matriz de interrupções e gates reais.
+- Revisão solicitada posteriormente: redesign completo acrescentado à fase 8, com entregas 8A–8E, tokens visuais, wireframes, estados, acessibilidade, componentes, testes e impacto no pacote.
 
 ## Arquivos
 
@@ -19,6 +20,8 @@
 - EC47 art. 3º para terceira família; outras opções por maior semelhança conforme escolha expressa, com risco e rastreabilidade documentados.
 - Todos os disponíveis; pendências documentais e divergências são registradas e puladas; envio incerto pausa sem repetição automática.
 - Sete campos atuais; diário SQLite separado do progresso legado; relatórios HTML/CSV locais e painel.
+- Proposta visual para implementação futura: Ato atual / Execução / Histórico, configurações recolhidas, campos verticais e trilha Resolução → Regra → Opção. Tema claro azul-petróleo, fontes locais e nenhuma tabela larga no painel estreito.
+- Histórico passa a exigir endpoints autenticados paginados de execuções/eventos; contratos adicionados na seção 13.4 e vinculados à fase 4.
 
 ## Validação e testes
 
@@ -27,6 +30,8 @@
 - Inspeção manual anterior: portal autenticado, 170 processos/9 páginas, catálogo e frames verificados; nenhum envio ou preenchimento realizado, retorno à lista confirmado.
 - Verificação documental executada: 8 verificações, 8 passaram, 0 falharam. Conferidos 11 fases, 18 seções, blocos de código balanceados, ausência de TBD/TODO, critérios de aceite, contrato de consumo único, handoff e fontes de empacotamento.
 - Plano com mais de 600 linhas; revisão adicionou contrato explícito de consumo único e procedimento de habilitação após piloto.
+- Redesign fundamentado na leitura de `panel.html`, `panel.css`, `panel.js` e contratos de testes; tabela atual tem largura mínima de 42rem. Não houve renderização, screenshot ou QA visual real nesta revisão; esses gates constam nas entregas 8A/8D.
+- Verificação da revisão de redesign: 8 verificações, 8 passaram, 0 falharam (11 fases preservadas, cinco subseções, fences balanceadas, wireframes, API de histórico, QA responsiva, empacotamento e escopo documental). `git diff --check` passou. Suíte funcional não reexecutada, pois somente Markdown mudou.
 - `git diff --cached --check` deve passar antes do commit. Nenhuma suíte funcional adicional necessária para estes dois arquivos Markdown.
 
 ## GitHub
@@ -49,3 +54,4 @@
 4. Confirmação real após envio ainda não foi observada. Fase 9 define como obter e transformar em fixture/teste.
 5. Não executar lote real apenas porque o plano foi salvo. Esta solicitação foi de documentação.
 6. Nenhuma reversão funcional necessária; só dois documentos novos nesta entrega.
+7. Para o redesign, ler toda a seção 13.1–13.5 antes de trocar a marcação: `ELEMENT_IDS`, `renderRows`, mensagem permanente, fixtures e allowlist precisam ser atualizados juntos na implementação. Nesta revisão apenas os dois documentos existentes foram alterados.

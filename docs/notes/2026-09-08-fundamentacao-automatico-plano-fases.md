@@ -2,7 +2,7 @@
 
 > Para agentes executores: usar `superpowers:executing-plans` ou `superpowers:subagent-driven-development` para executar tarefa por tarefa, com revisão de integração. As caixas abaixo rastreiam implementação futura; a criação deste documento não significa que a funcionalidade foi implementada.
 
-**Objetivo:** corrigir a seleção do fundamento legal e executar a complementação sequencial dos atos disponíveis, com relatório incremental durável e retomada sem repetição cega de envios.
+**Objetivo:** corrigir a seleção do fundamento legal, redesenhar a extensão para conferência e acompanhamento claros e executar a complementação sequencial dos atos disponíveis, com relatório incremental durável e retomada sem repetição cega de envios.
 
 **Arquitetura:** reaproveitar a extensão Manifest V3 para operar o DOM do portal e o serviço Python local autenticado para dados, fila, eventos e relatórios. Separar interpretação documental, classificação jurídica operacional, navegação e envio. O banco local será a fonte do histórico de execução; HTML, CSV e painel serão projeções recuperáveis desse histórico.
 
@@ -11,6 +11,8 @@
 **Especificação:** seção 1 deste documento consolida as decisões da entrevista de 08/09/2026. O plano anterior na conversa é substituído por esta versão detalhada. Não depende de outro documento não salvo.
 
 **Estado:** PLANEJADO. Nenhuma fase funcional iniciada. Arquivos, funções e endpoints marcados como novos são propostas, não APIs existentes.
+
+**Revisão de 08/09/2026:** redesign solicitado após a primeira versão. A fase 8 foi ampliada em cinco entregas de design e implementação, com wireframes, tokens, acessibilidade, testes e impactos no empacotamento. A direção visual é uma proposta documentada; nenhuma interface foi implementada nesta revisão.
 
 ## 1. Decisões confirmadas e limites
 
@@ -28,6 +30,7 @@
 | Campos | Apenas modalidade, fundamento legal, data DOE, cargo, matrícula, nascimento e gênero. |
 | Envio | O usuário inicia o lote uma vez; os atos elegíveis são enviados sem confirmação individual. |
 | Relatório | Pasta local e painel, atualizado incrementalmente. |
+| Redesign | Reorganizar visual e navegação da extensão no mesmo plano, integrando conferência, execução e histórico. |
 | Falhas sistêmicas | Pausar quando não for possível persistir, identificar a tela, manter a sessão ou determinar o resultado do envio. |
 
 ### 1.1 Opções canônicas do catálogo
@@ -73,6 +76,7 @@ Convenções de caminhos neste plano:
 | `E/content/form-detector.js` | `getFormSnapshot`, `applyFields`, `overrideField`, `installContentScript`; registro inicial depende de formulário completo. |
 | `E/lib/messages.js` | Mensagens tipadas e validação de payload; ampliar sem permitir comandos genéricos ou JavaScript arbitrário. |
 | `E/sidepanel/panel.js` | `fillAvailableFields`, `requestComplementarAto`; preenchimento e sinalização manuais. |
+| `E/sidepanel/panel.html` e `panel.css` | Painel linear com configuração antes da prévia; tabela de seis colunas com `min-width:42rem` e rolagem horizontal; redesign detalhado na fase 8. |
 | `E/lib/bridge-client.js` | Cliente autenticado loopback, portas 18743–18752, timeout e validação de envelopes. |
 | `A/local_service.py` | `_WorkflowHTTPServer`, `_WorkflowHandler`, `create_server`; servidor multithread e autenticação existente. |
 | `A/workflow_state.py` | `WorkflowState`; `progresso.json`, `ordem-portal.json`, revisões e escrita atômica. `completed` não é comprovante de envio. |
@@ -112,7 +116,7 @@ Convenções de caminhos neste plano:
 | 5 | Navegação e formação da fila | 0, 4 | Sim, simulação |
 | 6 | Validação e preenchimento automático | 2, 5 | Sim, sem envio |
 | 7 | Envio único, confirmação e recuperação | 3, 4, 6 | Apenas no simulador até fase 9 |
-| 8 | Painel e experiência completa | 4–7 | Com envio real ainda bloqueado |
+| 8 | Redesign completo: Ato atual, Execução, Histórico e configurações | 4–7; especificação visual pode começar após 0 | Com envio real ainda bloqueado |
 | 9 | Qualificação real e regressão | 1–8 | Gate de liberação |
 | 10 | Pacotes, documentação e entrega | 9 | Release |
 
@@ -493,7 +497,7 @@ Construir harness com store falso durável e mesmo `command_id` em ambas chamada
 
 **Aceite:** nenhuma variante da matriz causa reenvio automático; nenhuma simples navegação é classificada como sucesso. Envio real permanece desabilitado até fase 9. Commit: `feat: add auditable submission and uncertain-result recovery`.
 
-## 13. Fase 8 — painel, progresso e operação
+## 13. Fase 8 — redesign completo da extensão, progresso e operação
 
 **Alterar:** `E/sidepanel/panel.html`, `panel.js`, `panel.css`, `E/tests/panel.test.mjs`; integrar relatório no serviço sem reimplementar a mesa web inteira.
 
@@ -512,6 +516,205 @@ Comando em E: `node --test tests/panel.test.mjs tests/service-worker.test.mjs te
 
 **Aceite:** painel fecha/reabre sem perder histórico; contagens reconciliam com itens; stop/pause são testados antes e depois do clique. Commit: `feat: add automatic mode controls and live reporting`.
 
+### 13.1 Diagnóstico e direção visual
+
+**Público e tarefa:** operador que confere a resolução ao lado do portal e precisa identificar rapidamente qual ato está aberto, quais dados serão usados e se houve gravação. Priorizar legibilidade de textos legais e rastreabilidade, sem transformar o painel em uma apresentação comercial.
+
+Problemas comprovados no código atual:
+
+- `panel.html` apresenta sete seções empilhadas. Importação, estado da tela, pareamento e pesquisa ocupam espaço antes da prévia.
+- `panel.css` impõe `table {min-width:42rem}` com seis colunas. Em uma largura de 360 px, a comparação exige rolagem horizontal.
+- Botões têm o mesmo peso visual, inclusive ações de configuração e ações operacionais.
+- `render()` reescreve incondicionalmente “A extensão não conclui o ato”; essa frase será falsa no novo modo automático.
+- `renderRows()` produz linhas/células; o redesign requer trocar a estrutura sem perder fontes, estados, divergências e ação manual de substituição.
+- O painel depende de `ELEMENT_IDS` e dos fixtures em `panel.test.mjs`. Trocar HTML sem adaptar contrato/renderização/testes quebrará a inicialização.
+
+Alternativas consideradas: (1) apenas recolorir a tabela preserva o problema de largura; (2) dashboard com muitos cartões dificulta leitura das referências; (3) painel documental com três áreas de trabalho separa tarefas e mantém identidade sempre visível. Adotar a alternativa 3.
+
+**Identidade escolhida:** superfícies claras, cabeçalho azul-petróleo contido, texto grafite, divisores suaves e cores semânticas de estado. Elemento característico: trilha de evidência da fundamentação — **Resolução → Regra aplicada → Opção no portal** — que torna a escolha auditável sem exigir abrir configurações.
+
+Proposta usa tema claro único nesta versão; sem seletor de temas, bibliotecas de UI, fontes remotas, gráficos decorativos ou imagens geradas. Não é redesenho do portal do TCE nem da mesa web completa. O relatório HTML compartilha tokens visuais e terminologia, mantendo formato próprio para impressão.
+
+### 13.2 Sistema visual e comportamento responsivo
+
+**Criar:** `E/sidepanel/panel-tokens.css`, `E/sidepanel/panel-view.js` e `E/tests/panel-view.test.mjs`. **Alterar:** `panel.html`, `panel.css`, `panel.js`, `panel.test.mjs`; os módulos de operações continuam fora da renderização.
+
+Tokens propostos, a implementar em CSS custom properties:
+
+```css
+:root {
+  --surface-canvas: #f2f5f7;
+  --surface-panel: #ffffff;
+  --text-primary: #182b36;
+  --text-secondary: #526572;
+  --accent-primary: #145b6b;
+  --line-subtle: #ccd7de;
+  --status-success: #176343;
+  --status-attention: #875300;
+  --status-error: #a52b35;
+  --focus-ring: #075fc6;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --radius-control: 6px;
+  --radius-panel: 10px;
+}
+```
+
+- Tipografia local: títulos em `"Segoe UI Variable Display", "Segoe UI", sans-serif`; corpo em `"Segoe UI", system-ui, sans-serif`; números de processo e horários com `"Cascadia Mono", Consolas, monospace`. Usar fallbacks, sem baixar fontes.
+- Escala: título 20/26 px, seção 16/22 px, corpo 14/21 px, legenda 12/18 px. Fundamentação permanece em corpo 14 px; não diminuir fonte para caber.
+- Layout de uma coluna de 320 a 479 px; a partir de 480 px, comparação dentro de cada campo pode usar duas colunas. Nunca retomar seis colunas no side panel.
+- Documento original e opção proposta ficam empilhados em larguras estreitas e lado a lado apenas quando houver espaço. Referências completas quebram linha; não truncar conteúdo indispensável em reticências.
+- Controles com pelo menos 40 px de altura, ações primárias com 44 px, foco visível de 2 px + offset. Medir contraste texto/fundo >= 4,5:1 e controles/foco >= 3:1 antes de aprovar; os hex acima são proposta, não validação já realizada.
+- Cabeçalho de identidade fixo no topo e barra de ação contextual no rodapé, ambos no fluxo sticky. Reservar espaço e `scroll-padding` para não cobrir controles focados; com viewport baixo ou zoom alto, permitir rodapé no fluxo normal.
+- Estado representado por texto e ícone SVG local/inline, com cor complementar. Ícones decorativos têm `aria-hidden`; botões de ícone precisam de nome acessível. Não usar emoji como único indicador.
+- Transições discretas de até 120 ms; respeitar `prefers-reduced-motion`. Sem animação contínua, confete ou barra que simule avanço não medido.
+
+### 13.3 Arquitetura de informação e wireframes
+
+Cabeçalho compartilhado: nome “Complementar Ato”, estado da conexão, acesso “Configurações”. Abaixo, processo e nome completos do interessado. Esses dados correspondem à aba vinculada; busca manual nunca os substitui como se mudasse a seleção real.
+
+Navegação por tabs acessíveis: **Ato atual | Execução | Histórico**. Guardar tab selecionada em `chrome.storage.local` com chave nova `panel:view:v1`; reabrir painel restaura a preferência, mas problemas críticos aparecem em banner comum. Sem troca automática de tab a cada processo.
+
+```text
+ATO ATUAL — exemplo sintético em 360 px
+┌─────────────────────────────────────┐
+│ Complementar Ato    Conectado   ⚙   │
+│ 100001/2020                         │
+│ Interessado de exemplo              │
+├─────────────────────────────────────┤
+│ Ato atual | Execução | Histórico    │
+├─────────────────────────────────────┤
+│ Fundamentação             Por regra│
+│ Resolução                          │
+│ Art. 6º da EC 41/2003 ...           │
+│ Documento · página 2   [Ver fonte] │
+│ Regra aplicada                     │
+│ EC41 — sem referência ao § 5º      │
+│ Opção no portal                    │
+│ Civil - Artigo 6º, incisos I a IV… │
+│ [Expandir referências completas]   │
+├─────────────────────────────────────┤
+│ Dados do ato         6 de 7 prontos│
+│ Cargo                   Divergente │
+│ Documento: PROFESSOR               │
+│ Portal: valor existente            │
+│ [Ver fonte] [Revisar divergência]  │
+│ Outros campos…                     │
+├─────────────────────────────────────┤
+│ Modo manual: preenche para revisão │
+│ [Preencher campos disponíveis]     │
+└─────────────────────────────────────┘
+```
+
+O wireframe abrevia texto apenas para caber no desenho. Na implementação, referências ficam integralmente disponíveis e a opção selecionada nunca perde artigos por corte silencioso. “Ver fonte” abre a evidência existente no serviço/mesa; fonte indisponível mostra motivo e citação textual, sem inventar URL de PDF.
+
+```text
+EXECUÇÃO
+┌─────────────────────────────────────┐
+│ Lote em andamento                  │
+│ 18 analisados de 40                │
+│ 15 confirmados · 3 pendentes       │
+│ ━━━━━━━━━━━━━░░░░░░░░░░░░░░░      │
+│ Agora: 100019/2020                 │
+│ Preenchido → Aguardando confirmação│
+│ Último confirmado: 100018/2020     │
+│ [Pausar]  [Encerrar execução]      │
+│ [Ver relatório parcial]           │
+│ Pendências do lote                │
+│ 100004/2020 · Cargo divergente     │
+└─────────────────────────────────────┘
+
+HISTÓRICO
+┌─────────────────────────────────────┐
+│ Execuções                          │
+│ 08/09 14:20 · Pausada              │
+│ 15 confirmados · 3 pendentes       │
+│ [Abrir detalhes] [HTML] [CSV]      │
+│ 08/09 10:05 · Concluída            │
+│ ...                               │
+└─────────────────────────────────────┘
+```
+
+- **Ato atual:** fundamentação primeiro; sete campos preservados, apresentados em blocos sem tabela larga. Fonte, valor documental, valor atual do portal e proposta são rótulos distintos. Estado “Sem alteração” quando os valores conferem; “Divergente” quando diferem.
+- **Execução:** antes de iniciar, informar setor, fonte dos dados e que os atos elegíveis serão complementados. Durante descoberta, progresso indeterminado com páginas lidas; depois da fila congelada, denominador fixo. “Analisados” inclui terminais confirmados/pendentes/falhados; “Confirmados” contabiliza apenas persistência comprovada. Pausa, encerramento e incerto aparecem por extenso.
+- **Histórico:** lista por início decrescente, 20 execuções por carregamento, botão “Carregar mais”; detalhe mostra cronologia, valores e evidências persistidos. Abrir histórico não muda aba do portal nem retoma execução.
+- **Configurações:** seção expansível dentro do painel, contendo conexão ao serviço, código de pareamento, importação JSON e versão. Endereço técnico fica em “Opções avançadas”. Quando desconectado, mostrar ação “Conectar serviço local”; modo manual por JSON permanece acessível.
+- **Pesquisa:** seção recolhida “Localizar dados” em Ato atual, usando busca existente. Resultado explicitamente rotulado “Consulta local — não altera o interessado no portal”.
+- “Revisado” mantém significado de revisão manual; não usar check verde de envio para essa marca. Ação manual de substituir campo permanece individual e com confirmação existente.
+- Sinal manual legado permanece em ação secundária “Sinalizar no portal”, com descrição “Não envia o ato”; não transformá-lo em CTA principal nem fazê-lo enviar silenciosamente.
+
+### 13.4 Estados, acessibilidade e separação de responsabilidades
+
+| Estado | Conteúdo e ação principal |
+|---|---|
+| Sem dados | Explicar necessidade de dados locais; “Conectar serviço local” e alternativa “Importar JSON”. |
+| Portal não detectado | “Abra Meus Processos Eletrônicos na Área Restrita”; nenhuma ação de preencher habilitada. |
+| Interessado não selecionado | Orientação para seleção no portal; identificação do processo continua visível. |
+| Prévia pronta | Documento e proposta por campo; botão de preencher no modo manual. |
+| Fundamentação por semelhança | Badge textual “Por semelhança”; motivo e ranking em detalhe expansível; sem porcentagem de certeza. |
+| Divergência | Valor atual e documental lado a lado/empilhados; automático marca pendência. |
+| Envio em andamento | “Envio iniciado — aguardando confirmação”; bloquear cliques duplicados. |
+| Resultado incerto | Banner persistente “Não foi possível confirmar o envio”; orientar conferir/reconciliar; nunca oferecer “Enviar novamente” como solução direta. |
+| Falha do relatório | Mostrar último evento persistido e revisão disponível do relatório; lote pausado. |
+| Concluído com pendências | Exibir contagens e acesso às pendências; não usar “Todos complementados”. |
+
+**Interface de apresentação proposta:** `buildPanelViewModel({record,snapshot,matches,run,connection,selectedView}) -> PanelViewModel`; `renderPanelView(root,model,handlers) -> void` em `panel-view.js`. `PanelViewModel` contém `identity`, `selectedView`, `connection`, `legalDecision`, `fields`, `runSummary`, `history`, `actions` e `banner`. Cada `action` possui `id`, `label`, `enabled` e `disabledReason`. Não incluir tokens nesse modelo.
+
+- `panel.js` permanece responsável por chamadas, estado e handlers; `panel-view.js` apenas produz/atualiza DOM com `textContent` e componentes pequenos. Não usar `innerHTML` com documentos, nomes ou erros.
+- Preservar IDs de comandos existentes quando o comportamento não mudar (`fill-button`, `refresh-button`, importação, pareamento, pesquisa). Migrar `preview-body`/tbody para `fields-list` conscientemente, atualizando `ELEMENT_IDS`, `renderRows` e fixtures no mesmo commit.
+- Substituir a mensagem permanente por `mode-status`: manual “Preenchimento para revisão”; automático “O lote complementa os atos elegíveis”; pausado “Nenhum novo envio será iniciado”. Testar as três mensagens; não deixar aviso contraditório antigo.
+- Usar `role=tablist`, `tab`, `tabpanel`, `aria-selected`, relações `aria-controls` e navegação por setas/Home/End; configurações com `button`/`aria-expanded` ou `details` nativo. Resultados da pesquisa devem usar botões/lista comuns, salvo implementação completa do padrão listbox atual.
+- Uma região `aria-live=polite` resume transições relevantes; erro crítico usa `role=alert` apenas ao surgir. Polling de 2 s não anuncia repetidamente toda a tela.
+- Renderização não perde foco, seleção de texto nem posição de scroll a cada refresh. Restaurar foco ao controle que abriu detalhes; novo ato atualiza identidade sem mover foco automaticamente.
+- Histórico requer endpoint adicional autenticado `GET /api/v1/automation/runs?limit=20&before=<cursor>` e `GET /api/v1/automation/runs/<id>/events?after=<seq>&limit=100`. Cursores são opacos, ordenação estável por início/ID e sequência; limites máximos 100/500. Retornar `{api_version:1,runs,next_cursor}` e `{api_version:1,events,next_after,has_more}` respectivamente.
+- Acrescentar `list_runs(limit:int,before:str|None) -> dict` ao store, e `listAutomationRuns({limit,before})`/`getAutomationEvents(runId,{after,limit})` ao bridge client. Aplicar testes de auth, paginação e não vazamento de outras raízes. Incluir esses contratos na fase 4 antes de integrar Histórico.
+
+### 13.5 Entregas 8A–8E, TDD e aceite visual
+
+**8A — especificação e fixtures visuais:** criar fixtures sintéticas para todos os estados da tabela acima e congelar tokens/wireframes desta seção. Gerar screenshots do painel atual em 360 e 480 px como referência local, sem dados pessoais. Nenhum screenshot já foi produzido por esta revisão documental.
+
+**8B — estrutura e componentes:** implementar `panel-tokens.css` e `panel-view.js` com tabs, identidade, campos e trilha de fundamentação. Primeiro testar que todos os campos e fontes continuam acessíveis; depois substituir tabela. Não manter simultaneamente duas cópias ocultas da prévia.
+
+**8C — integração operacional:** conectar Execução, Histórico e Configurações aos contratos das fases 4–7; não duplicar estado de execução no DOM. Preservar funcionamento manual, sinal legado e confirmação individual de override.
+
+**8D — validação visual e acessibilidade:** criar `P/test_panel_redesign_browser.py` usando o harness de navegador já adotado no projeto. Screenshots são evidência complementar a assertions de layout e comportamento; não exigir igualdade pixel a pixel entre máquinas.
+
+**8E — acabamento e pacote:** rever linguagem, contraste, foco, espaçamentos e estados vazios, atualizar guide e allowlist; só encerrar após QA do ZIP carregado no Chrome.
+
+Testes RED/GREEN proporcionais:
+
+```javascript
+test('view model não apresenta semelhança como confirmação de envio', () => {
+  const model = buildPanelViewModel(similarityPendingFixture());
+  assert.equal(model.legalDecision.method, 'similarity');
+  assert.equal(model.runSummary.confirmed, 0);
+});
+
+test('resultado incerto não oferece reenvio direto', () => {
+  const model = buildPanelViewModel(unconfirmedRunFixture());
+  assert.equal(model.actions.some(action => action.id === 'resend'), false);
+  assert.ok(model.banner);
+});
+```
+
+Definir fixtures locais com contratos da seção 4: primeiro caso com ato `filled` e decisão por semelhança; segundo com execução `paused` e item `unconfirmed`. Evitar tests que apenas verificam classe CSS ou copiam toda a implementação.
+
+- [ ] Em 320, 360, 480 e 640 px, nenhuma rolagem horizontal de página ou corte de ações/fontes; comparar `scrollWidth` e `clientWidth` com tolerância de 1 px.
+- [ ] Zoom 200%, textos legais longos, nome de interessado longo e aumento da fonte do sistema não ocultam valores ou controles.
+- [ ] Teclado percorre tabs, campos, fontes, iniciar/pausar e histórico; foco não se perde durante atualização de status.
+- [ ] Reabrir painel preserva tab escolhida e recupera execução real; navegar pelo Histórico nunca envia mensagem de retomada.
+- [ ] Fonte indisponível, contexto incompleto e serviço antigo têm mensagens acionáveis e não parecem estados de sucesso.
+- [ ] Campos “Por regra”, “Por semelhança”, “Revisado” e “Confirmado no portal” são visualmente e semanticamente distintos.
+- [ ] Conferir contraste com medição automática, e manualmente nomes acessíveis, leitura linear e significado das cores.
+- [ ] Anexar screenshots sintéticos por estado/largura à evidência privada de QA; nenhuma captura de produção no Git.
+
+Comandos: em E, `node --test tests/panel-view.test.mjs tests/panel.test.mjs tests/bridge-client.test.mjs`; em P, `python -m unittest test_panel_redesign_browser -q`; ao integrar, `npm test` e testes de automação da fase 9.
+
+**Aceite do redesign:** operador identifica processo/interessado e estado sem procurar nas configurações; fundamentação e fonte podem ser comparadas em 360 px sem rolagem horizontal; ações manuais/automáticas não se confundem; histórico e relatório permanecem acessíveis durante falha; nenhuma regressão de identidade, preenchimento ou envio. Commits separados sugeridos: `feat: redesign act review panel`, `feat: integrate execution and history views`, `test: qualify responsive extension redesign`.
+
 ## 14. Fase 9 — qualificação ponta a ponta
 
 **Criar:** `P/test_automation_browser.py`, `P/test_automation_integration.py`; ampliar fixtures do portal simulado e testes de recuperação.
@@ -519,6 +722,7 @@ Comando em E: `node --test tests/panel.test.mjs tests/service-worker.test.mjs te
 ### 14.1 Testes automatizados
 
 - [ ] Executar ciclo completo em portal local simulado com lista, seleção, frames separados, envio validado e retorno. FakeElement sozinho não encerra este gate.
+- [ ] Executar também a matriz visual e de acessibilidade da fase 8; a revisão do redesign faz parte da liberação, não fica como acabamento posterior opcional.
 - [ ] Cobrir 25 atos em duas páginas, 3 pendências documentais e um timeout de envio: resultado esperado antes de retomar deve refletir posição exata do timeout, nunca 25 concluídos.
 - [ ] Reiniciar worker, serviço e navegador separadamente; testar duas abas concorrentes e troca de dataset.
 - [ ] Confirmar que API em falta ou SQLite indisponível impede envio, e que HTML anterior continua abrindo.
@@ -543,6 +747,7 @@ Comando em E: `node --test tests/panel.test.mjs tests/service-worker.test.mjs te
 **Alterar:** `P/empacotar-extensao-complementar-ato.ps1`, `P/test_extension_zip_packager.py`, `P/empacotar-coletor-portatil.ps1`, `P/package_complete_archive.py`, `A/prepare_transfer.py`, `A/package_audit.py` e testes correspondentes; README raiz/portátil e guia rápido conforme necessário.
 
 - [ ] Acrescentar à allowlist os módulos novos da extensão: `lib/legal-foundation.js`, `lib/automation-schema.js`, `lib/automation-preflight.js`, `content/portal-navigation.js`, `content/portal-submit.js`, `background/automation-controller.js`. Teste deve comparar exatamente a lista final.
+- [ ] Incluir também `sidepanel/panel-tokens.css` e `sidepanel/panel-view.js`; testar imports e CSS no ZIP extraído. SVGs ficam inline estáticos; se forem separados em arquivos no futuro, atualizar a allowlist antes de empacotar.
 - [ ] Incluir módulos Python novos no pacote completo; conferir carregamento de `sqlite3` no runtime portátil real, não só no Python do desenvolvedor.
 - [ ] Publicar versão de extensão `1.1.0`, capacidade automática schema 1 e regras `legal-foundation-v1`. Serviço informa capacidades; incompatibilidade mantém manual.
 - [ ] Parar execução e fechar banco antes da transferência. Copiar histórico/relatórios privados com o acervo, sem tokens e sem execução marcada para retomada automática no destino.
@@ -609,6 +814,9 @@ Limitação / próxima ação:
 | Queda no meio do envio | 7, 9 | Matriz de crash e nenhuma reemissão cega |
 | Histórico legado | 3, 4 | `completed` manual não vira comprovante |
 | Compatibilidade do pacote | 4, 10 | Cliente antigo/novo, allowlist, sqlite portátil |
+| Redesign adaptado ao side panel | 8, 9 | 320–640 px, zoom 200%, comparação completa sem rolagem horizontal |
+| Navegação e acessibilidade | 8, 9 | Tabs/teclado, foco preservado, contraste medido, anúncios sem repetição |
+| Histórico sem efeitos colaterais | 4, 8 | Paginação, acesso autenticado e nenhum comando de retomada ao consultar |
 | Dados privados | 3, 4, 10 | Escapes de relatório, auth e diff/ZIP sem segredos |
 
 ### Checklist de encerramento por fase
