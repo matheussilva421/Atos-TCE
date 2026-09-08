@@ -25,6 +25,7 @@ from analysis_pipeline import (
 )
 from archive_index import scan_archive
 from html_generator import build_interface_payload, write_html
+from legal_context import LEGAL_CONTEXT_VERSION, build_legal_contexts
 
 
 def doc(*, event: int, title: str, text: str, sha256: str | None = None) -> dict:
@@ -403,6 +404,130 @@ class AnalysisPipelineTests(unittest.TestCase):
             classified["documents"][0]["page_texts"],
             ["RESOLUÇÃO ADMINISTRATIVA página 1", "continuação página 2"],
         )
+
+    def test_physical_page_count_is_lower_bound_when_ocr_cache_covers_only_two_of_three_pages(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sha256 = "a" * 64
+            document = doc(
+                event=9,
+                title="RESOLUÇÃO ADMINISTRATIVA",
+                text="",
+                sha256=sha256,
+            )
+            document["id"] = "resolution-physical-9"
+            index = {
+                "version": 1,
+                "processes": [
+                    {
+                        "key": "103439/2023",
+                        "events": [{"event": 9, "documents": [document]}],
+                    }
+                ],
+            }
+            cache_path = root / "cache.json"
+            cache_path.write_text(
+                json.dumps(
+                    {
+                        "version": 2,
+                        "extractor_version": EXTRACTOR_VERSION,
+                        "ocr_version": OCR_VERSION,
+                        "runtime_identity": "injected-ocr-reader-v1",
+                        "entries": {
+                            f"{sha256}:injected-ocr-reader-v1": {
+                                "pages": [
+                                    "Interessada: ANA\nRESOLVE:",
+                                    "Art. 1º Página cacheada.",
+                                ]
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            classified = classify_archive(
+                index,
+                cache_path,
+                text_reader=lambda path: ["", "", ""],
+                ocr_reader=lambda path: (_ for _ in ()).throw(AssertionError("OCR inesperado")),
+                geometry_cache_path=root / "geometry.json",
+            )
+            classified_document = classified["processes"][0]["events"][0]["documents"][0]
+            manifest = build_target_manifest(classified)
+            checkpoint = {
+                "processes": {
+                    "103439/2023": {
+                        "result": {
+                            "process": "103439/2023",
+                            "blocks": [{"interested": "ANA", "fields": {}}],
+                        }
+                    }
+                }
+            }
+            contexts = build_legal_contexts(
+                manifest,
+                checkpoint,
+                {
+                    "resolution-physical-9": {
+                        "pdf_sha256": sha256,
+                        "pages": classified_document["page_texts"],
+                    }
+                },
+                "d" * 64,
+            )
+
+        record = contexts["records"][0]
+        self.assertEqual(classified_document["page_count"], 3)
+        self.assertEqual(
+            manifest["processes"][0]["documents"][0]["page_count"], 3
+        )
+        self.assertNotEqual(manifest["processes"][0]["documents"][0]["page_count"], 2)
+        self.assertEqual(len(record["pages"]), 3)
+        self.assertEqual(record["pages"][2]["text"], "")
+        self.assertEqual(record["resolution_status"], "incomplete")
+
+    def test_legal_context_version_is_separate_and_old_ocr_cache_remains_valid(self):
+        self.assertNotEqual(LEGAL_CONTEXT_VERSION, EXTRACTOR_VERSION)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sha256 = "a" * 64
+            document = doc(
+                event=9,
+                title="RESOLUÇÃO ADMINISTRATIVA",
+                text="",
+                sha256=sha256,
+            )
+            cache_path = root / "cache.json"
+            cache_path.write_text(
+                json.dumps(
+                    {
+                        "version": 2,
+                        "extractor_version": "analysis-pipeline-v2",
+                        "ocr_version": OCR_VERSION,
+                        "runtime_identity": "injected-ocr-reader-v1",
+                        "entries": {
+                            f"{sha256}:injected-ocr-reader-v1": [
+                                "RESOLUÇÃO ADMINISTRATIVA\nRESOLVE:",
+                                "Art. 1º Texto OCR cacheado.",
+                            ]
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            classified = classify_archive(
+                {"version": 1, "documents": [document]},
+                cache_path,
+                text_reader=lambda path: [""],
+                ocr_reader=lambda path: (_ for _ in ()).throw(AssertionError("cache invalidado")),
+                geometry_cache_path=root / "geometry.json",
+            )
+
+        result = classified["documents"][0]
+        self.assertEqual(result["text_source"], "ocr_cache")
+        self.assertEqual(result["page_count"], 2)
 
     def test_target_manifest_preserves_classified_page_count_for_sidecar_validation(self):
         classified = {

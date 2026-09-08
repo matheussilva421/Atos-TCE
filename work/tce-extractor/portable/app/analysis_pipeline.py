@@ -34,7 +34,7 @@ from tce_extractor import classify_document, extract_pdf_pages
 
 
 CACHE_VERSION = 2
-EXTRACTOR_VERSION = "analysis-pipeline-v3"
+EXTRACTOR_VERSION = "analysis-pipeline-v2"
 OCR_VERSION = "tesseract-por+eng-psm6-v2"
 GEOMETRY_CACHE_VERSION = 1
 TARGET_CLASSIFICATIONS = frozenset(
@@ -622,6 +622,7 @@ def classify_document_record(
         }
     result["page_count"] = len(pages)
     result["page_texts"] = list(pages)
+    physical_page_count = len(pages)
 
     label_priority = any(
         classify_document(str(document.get(key, "")), "") in TARGET_CLASSIFICATIONS
@@ -695,7 +696,7 @@ def classify_document_record(
                     text_source = "ocr_geometry"
                 else:
                     text_source = "ocr"
-        result["page_count"] = len(pages)
+        result["page_count"] = max(physical_page_count, len(pages))
         result["page_texts"] = list(pages)
         if not _has_useful_text(pages):
             return {

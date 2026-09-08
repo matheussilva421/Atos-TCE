@@ -12,12 +12,14 @@ from tempfile import NamedTemporaryFile
 
 
 SCHEMA_VERSION = 1
-EXTRACTION_VERSION = "legal-context-v2"
+LEGAL_CONTEXT_VERSION = "legal-context-v3"
+EXTRACTION_VERSION = LEGAL_CONTEXT_VERSION
 _RESOLUTION_CLASSIFICATION = "resolucao_administrativa"
 _FAILED_PAGE_STATUSES = frozenset(
     {"failed", "error", "erro", "missing", "unavailable", "pendente_ocr"}
 )
 _URL_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://", re.IGNORECASE)
+_NAME_TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
 
 
 def _normalise_interested(value: object) -> str:
@@ -26,6 +28,45 @@ def _normalise_interested(value: object) -> str:
         char for char in decomposed if not unicodedata.combining(char)
     )
     return re.sub(r"\s+", " ", without_marks.casefold()).strip()
+
+
+def _normalised_tokens(value: object) -> tuple[str, ...]:
+    return tuple(_NAME_TOKEN_RE.findall(_normalise_interested(value)))
+
+
+def _contains_token_sequence(text: object, target: object) -> bool:
+    target_tokens = _normalised_tokens(target)
+    page_tokens = _normalised_tokens(text)
+    if not target_tokens or len(target_tokens) > len(page_tokens):
+        return False
+    width = len(target_tokens)
+    return any(
+        page_tokens[index : index + width] == target_tokens
+        for index in range(len(page_tokens) - width + 1)
+    )
+
+
+def _normalise_identifier(value: object) -> str:
+    return "".join(_normalised_tokens(value))
+
+
+def _contains_identifier(text: object, target: object) -> bool:
+    if _contains_token_sequence(text, target):
+        return True
+    normalized_target = _normalise_identifier(target)
+    target_digits = "".join(re.findall(r"\d+", str(target)))
+    if not target_digits or normalized_target != target_digits:
+        return False
+    page_chunks = re.findall(r"\d+", _normalise_interested(text))
+    for index in range(len(page_chunks)):
+        joined = ""
+        for chunk in page_chunks[index:]:
+            joined += chunk
+            if len(joined) >= len(target_digits):
+                if joined == target_digits:
+                    return True
+                break
+    return False
 
 
 def _safe_document_id(value: object) -> str:
@@ -154,6 +195,32 @@ def _checkpoint_blocks(checkpoint: Mapping[str, object]) -> list[tuple[str, Mapp
             if isinstance(block, Mapping)
         )
     return blocks
+
+
+def _block_identifiers(block: Mapping[str, object]) -> frozenset[str]:
+    values: list[object] = []
+    for key in (
+        "interested_identifier",
+        "interested_id",
+        "identifier",
+        "matricula",
+        "registration",
+    ):
+        if block.get(key) is not None:
+            values.append(block[key])
+    fields = block.get("fields")
+    if isinstance(fields, Mapping):
+        for key in ("matricula", "identifier"):
+            field = fields.get(key)
+            if isinstance(field, Mapping):
+                for value_key in ("form_value", "source_value", "value", "raw_value"):
+                    if field.get(value_key) is not None:
+                        values.append(field[value_key])
+    return frozenset(
+        normalized
+        for normalized in (_normalise_identifier(value) for value in values)
+        if normalized
+    )
 
 
 def _block_references(block: Mapping[str, object]) -> list[tuple[str, str]]:
@@ -288,21 +355,44 @@ def _operative_text(pages: list[str]) -> str:
     return full_text[marker.start() :].strip() if marker else ""
 
 
-def _interested_is_verified(
+def _snapshot_matches_identity(
+    snapshot: Mapping[str, object],
     interested_normalized: str,
-    snapshots: Sequence[Mapping[str, object]],
+    identifiers: frozenset[str],
 ) -> bool:
     if not interested_normalized or interested_normalized == _normalise_interested("Não identificado"):
         return False
-    for snapshot in snapshots:
-        for page in snapshot.get("pages", []):
-            if not isinstance(page, Mapping):
-                continue
-            if interested_normalized in _normalise_interested(page.get("text", "")):
-                citation = page.get("citation")
-                if isinstance(citation, Mapping) and citation.get("page"):
-                    return True
+    for page in snapshot.get("pages", []):
+        if not isinstance(page, Mapping):
+            continue
+        citation = page.get("citation")
+        page_number = citation.get("page") if isinstance(citation, Mapping) else None
+        if (
+            not isinstance(page_number, int)
+            or isinstance(page_number, bool)
+            or page_number <= 0
+        ):
+            continue
+        text = page.get("text", "")
+        if not _contains_token_sequence(text, interested_normalized):
+            continue
+        if identifiers and not any(
+            _contains_identifier(text, identifier) for identifier in identifiers
+        ):
+            continue
+        return True
     return False
+
+
+def _identity_match_count(
+    interested_normalized: str,
+    identifiers: frozenset[str],
+    snapshots: Sequence[Mapping[str, object]],
+) -> int:
+    return sum(
+        _snapshot_matches_identity(snapshot, interested_normalized, identifiers)
+        for snapshot in snapshots
+    )
 
 
 def _select_sources(
@@ -314,23 +404,30 @@ def _select_sources(
     process_sources = [source for source in sources if source["process_key"] == process_key]
     references = _block_references(block)
     if references:
-        return [
+        candidates = [
             source
             for source in process_sources
             if any(_source_matches_reference(source, reference) for reference in references)
         ]
+    else:
+        candidates = process_sources
     interested = _normalise_interested(
         block.get("interested", block.get("interested_normalized", ""))
     )
-    if len(process_sources) > 1 and interested and interested != _normalise_interested("Não identificado"):
-        matched = []
-        for source in process_sources:
-            snapshot = _snapshot(page_texts, source)
-            if interested in _normalise_interested("\n".join(str(page["text"]) for page in snapshot["pages"])):
-                matched.append(source)
+    identifiers = _block_identifiers(block)
+    if len(candidates) > 1 and interested and interested != _normalise_interested("Não identificado"):
+        matched = [
+            source
+            for source in candidates
+            if _snapshot_matches_identity(
+                _snapshot(page_texts, source),
+                interested,
+                identifiers,
+            )
+        ]
         if matched:
             return matched
-    return process_sources
+    return candidates
 
 
 def _record(
@@ -343,7 +440,13 @@ def _record(
     interested_normalized = _normalise_interested(
         block.get("interested", block.get("interested_normalized", "Não identificado"))
     ) or _normalise_interested("Não identificado")
+    identifiers = _block_identifiers(block)
     snapshots = [_snapshot(page_texts, source) for source in sources]
+    identity_match_count = _identity_match_count(
+        interested_normalized,
+        identifiers,
+        snapshots,
+    )
     pages = [page for snapshot in snapshots for page in snapshot["pages"]]
     operative_values = [
         str(snapshot["operative_text"])
@@ -355,7 +458,7 @@ def _record(
         status = "missing"
         pages = []
         operative_text = ""
-    elif len(distinct_operative) > 1:
+    elif len(distinct_operative) > 1 or identity_match_count > 1:
         status = "conflict"
         operative_text = "\n\n".join(operative_values)
     else:
@@ -365,7 +468,7 @@ def _record(
             not operative_text
             or any(snapshot["state"] != "complete" for snapshot in snapshots)
             or not all(str(page["text"]).strip() for page in pages)
-            or not _interested_is_verified(interested_normalized, snapshots)
+            or identity_match_count != 1
         ):
             status = "incomplete"
     return {

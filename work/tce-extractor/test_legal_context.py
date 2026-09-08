@@ -50,13 +50,21 @@ def _manifest(*documents: dict) -> dict:
     }
 
 
-def _checkpoint(*, interested: str = "MARIA DA SILVA", fields: dict | None = None) -> dict:
+def _checkpoint(
+    *,
+    interested: str = "MARIA DA SILVA",
+    fields: dict | None = None,
+    identifier: str | None = None,
+) -> dict:
+    block = {"interested": interested, "fields": fields or {}}
+    if identifier is not None:
+        block["interested_identifier"] = identifier
     return {
         "processes": {
             "103439/2023": {
                 "result": {
                     "process": "103439/2023",
-                    "blocks": [{"interested": interested, "fields": fields or {}}],
+                    "blocks": [block],
                 }
             }
         }
@@ -127,6 +135,94 @@ class LegalContextTests(unittest.TestCase):
         )
 
         self.assertEqual(contexts["records"][0]["resolution_status"], "incomplete")
+
+    def test_uses_name_token_boundaries_instead_of_matching_embedded_names(self):
+        document = _resolution_document()
+        contexts = build_legal_contexts(
+            _manifest(document),
+            _checkpoint(interested="ANA", fields={"fundamento_legal": _foundation_field()}),
+            {
+                "resolution-9": {
+                    "pdf_sha256": PDF_SHA256,
+                    "pages": [
+                        "Interessada: MARIANA DA SILVA\nRESOLVE:",
+                        "Art. 1º Conceder o benefício.",
+                    ],
+                }
+            },
+            DATASET_SHA256,
+        )
+
+        self.assertEqual(contexts["records"][0]["resolution_status"], "incomplete")
+
+        exact = build_legal_contexts(
+            _manifest(document),
+            _checkpoint(interested="ANA", fields={"fundamento_legal": _foundation_field()}),
+            {
+                "resolution-9": {
+                    "pdf_sha256": PDF_SHA256,
+                    "pages": [
+                        "Interessada: ANA\nRESOLVE:",
+                        "Art. 1º Conceder o benefício.",
+                    ],
+                }
+            },
+            DATASET_SHA256,
+        )
+
+        self.assertEqual(exact["records"][0]["resolution_status"], "complete")
+
+    def test_marks_same_name_on_multiple_resolution_sources_as_conflict_without_identifier(self):
+        first = _resolution_document(event="9", document_id="resolution-9")
+        second = _resolution_document(
+            event="10", document_id="resolution-10", sha256="b" * 64
+        )
+        first["page_count"] = second["page_count"] = 1
+        contexts = build_legal_contexts(
+            _manifest(first, second),
+            _checkpoint(interested="ANA"),
+            {
+                "resolution-9": {
+                    "pdf_sha256": first["sha256"],
+                    "pages": ["Interessada: ANA\nRESOLVE:\nArt. 1º Conceder."],
+                },
+                "resolution-10": {
+                    "pdf_sha256": second["sha256"],
+                    "pages": ["Interessada: ANA\nRESOLVE:\nArt. 1º Conceder."],
+                },
+            },
+            DATASET_SHA256,
+        )
+
+        self.assertEqual(contexts["records"][0]["resolution_status"], "conflict")
+
+    def test_uses_identifier_to_disambiguate_homonymous_resolution_sources(self):
+        first = _resolution_document(event="9", document_id="resolution-9")
+        second = _resolution_document(
+            event="10", document_id="resolution-10", sha256="b" * 64
+        )
+        first["page_count"] = second["page_count"] = 1
+        contexts = build_legal_contexts(
+            _manifest(first, second),
+            _checkpoint(interested="ANA", identifier="103.870-2/1"),
+            {
+                "resolution-9": {
+                    "pdf_sha256": first["sha256"],
+                    "pages": ["Interessada: ANA\nMatrícula: 103.870-2/0\nRESOLVE:\nArt. 1º."],
+                },
+                "resolution-10": {
+                    "pdf_sha256": second["sha256"],
+                    "pages": ["Interessada: ANA\nMatrícula: 1038702/1\nRESOLVE:\nArt. 1º."],
+                },
+            },
+            DATASET_SHA256,
+        )
+
+        record = contexts["records"][0]
+        self.assertEqual(record["resolution_status"], "complete")
+        self.assertEqual(
+            record["pages"][0]["citation"]["document_id"], "resolution-10"
+        )
 
     def test_extracts_operativo_block_after_historical_resolve_marker(self):
         document = _resolution_document()
