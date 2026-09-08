@@ -29,6 +29,9 @@ Assert-True ($collectorText -match "ValidateSet\('progressivo','completo'\).*Mod
 Assert-True ($collectorText -match 'MaxDownloads') 'coletor expõe limite de downloads'
 Assert-True ($collectorText -match 'Sync-TceProcessManifest[\s\S]*MaxDownloads') 'coletor encaminha limite ao coordenador'
 Assert-True ($collectorText -match 'DownloaderContext') 'coletor separa contexto efêmero do worker de download'
+Assert-True ($collectorText -match '\$result\.auth_required' -and $collectorText -match '\$result\.suspended') 'coletor interrompe coleta quando a sessão exige autenticação ou suspensão'
+Assert-True ($collectorText -match 'pedir login|login necessário|autenticação necessária|Faça login' -and $collectorText -match 'break') 'coletor informa autenticação e não continua silenciosamente'
+Assert-True ($collectorText -match '\$collectionSuspended\s*=\s*\$false' -and $collectorText -match 'ModoPreparacao.*-and\s*-not\s*\$collectionSuspended') 'coletor não analisa processos após suspensão de autenticação'
 Assert-True ($collectorText -match 'incremental_pipeline\.py') 'coletor referencia preparação incremental por processo'
 Assert-True ($collectorText -match 'ModoPreparacao.*progressivo|progressivo.*ModoPreparacao') 'coletor usa o modo de preparação para decidir a publicação'
 Assert-True ($collectorText -match 'collector\.json') 'coletor publica marcador de execução para bloquear transferência concorrente'
@@ -51,6 +54,59 @@ function Assert-Throws {
             $script:failed++
             Write-Host "FALHOU: $Name`n  mensagem recebida: $($_.Exception.Message)" -ForegroundColor Red
         }
+    }
+}
+
+if ($null -eq ('TceSyntheticWebResponse' -as [type])) {
+    Add-Type -TypeDefinition @"
+using System.Net;
+
+public sealed class TceSyntheticWebResponse : WebResponse
+{
+    private readonly int statusCode;
+    private readonly WebHeaderCollection headers;
+
+    public TceSyntheticWebResponse(int statusCode, string retryAfter)
+    {
+        this.statusCode = statusCode;
+        this.headers = new WebHeaderCollection();
+        if (!string.IsNullOrEmpty(retryAfter)) this.headers["Retry-After"] = retryAfter;
+    }
+
+    public int StatusCode { get { return this.statusCode; } }
+    public string StatusDescription { get { return "synthetic"; } }
+    public override WebHeaderCollection Headers { get { return this.headers; } }
+}
+"@
+}
+
+function New-SyntheticHttpException {
+    param(
+        [Parameter(Mandatory)][int]$StatusCode,
+        [AllowEmptyString()][string]$RetryAfter = '0'
+    )
+    $response = New-Object TceSyntheticWebResponse -ArgumentList $StatusCode, $RetryAfter
+    return New-Object System.Net.WebException -ArgumentList @(
+        "HTTP $StatusCode https://tce.invalid/download?token=synthetic-secret",
+        $null,
+        [Net.WebExceptionStatus]::ProtocolError,
+        $response
+    )
+}
+
+function New-RetryContractManifest {
+    param([Parameter(Mandatory)][string]$ProcessKey)
+    $parts = $ProcessKey -split '/'
+    return [pscustomobject]@{
+        process = [pscustomobject]@{ key = $ProcessKey; id = $parts[0]; number = $parts[0]; year = [int]$parts[1] }
+        events = @(
+            [pscustomobject]@{
+                event = 1; event_id = "retry-$($parts[0])"; date = '2026-09-08T00:00:00'; title = 'Retry fixture'; active = $true
+                documents = @(
+                    [pscustomobject]@{ id = 'retry-document'; title = 'fixture'; extension = '.pdf'; url = 'memory://synthetic'; remote_signature = 'retry-v1' }
+                )
+            }
+        )
     }
 }
 
@@ -172,18 +228,39 @@ try {
     $parallelDownloader = {
         param($Document, $Destination)
         $marker = [IO.Path]::Combine([string]$Document.marker_root, [IO.Path]::GetFileName($Destination))
-        [IO.File]::WriteAllText("$marker.start", [DateTime]::UtcNow.Ticks.ToString())
+        function Get-ParallelSequence {
+            param([Parameter(Mandatory)][string]$Root)
+            $mutex = [Threading.Mutex]::new($false, 'TcePortableParallelSequence')
+            try {
+                [void]$mutex.WaitOne()
+                $sequencePath = Join-Path $Root 'sequence.txt'
+                $current = 0
+                if ([IO.File]::Exists($sequencePath)) { $current = [int](Get-Content -LiteralPath $sequencePath -Raw) }
+                $next = $current + 1
+                [IO.File]::WriteAllText($sequencePath, $next.ToString())
+                return $next
+            } finally {
+                $mutex.ReleaseMutex()
+                $mutex.Dispose()
+            }
+        }
+        [IO.File]::WriteAllText("$marker.start", (Get-ParallelSequence -Root $Document.marker_root).ToString())
         try {
+            $deadline = [DateTime]::UtcNow.AddSeconds(5)
+            while (@(Get-ChildItem -LiteralPath $Document.marker_root -Filter '*.start' -File).Count -lt 2) {
+                if ([DateTime]::UtcNow -gt $deadline) { throw 'concorrência sintética não iniciou dois workers' }
+                [Threading.Thread]::Sleep(20)
+            }
             [Threading.Thread]::Sleep(180)
             [IO.File]::WriteAllText($Destination, "%PDF-$($Document.id)")
         } finally {
-            [IO.File]::WriteAllText("$marker.end", [DateTime]::UtcNow.Ticks.ToString())
+            [IO.File]::WriteAllText("$marker.end", (Get-ParallelSequence -Root $Document.marker_root).ToString())
         }
     }
     $parallelResult = Sync-TceProcessManifest -Manifest $parallelManifest -ArchiveRoot $parallelRoot -MaxDownloads 2 -Downloader $parallelDownloader -DownloaderContext @{}
     Assert-Equal $parallelResult.downloaded 4 'limite de downloads processa todos os documentos'
     $events = @()
-    foreach ($marker in Get-ChildItem -LiteralPath $parallelMarkerRoot -File) {
+    foreach ($marker in Get-ChildItem -LiteralPath $parallelMarkerRoot -File | Where-Object { $_.Name -match '\.(start|end)$' }) {
         $events += [pscustomobject]@{ kind = if ($marker.Name -match '\.start$') { 'start' } else { 'end' }; ticks = [int64](Get-Content -LiteralPath $marker.FullName -Raw) }
     }
     $active = 0
@@ -195,6 +272,96 @@ try {
     Assert-True ($maximum -gt 1 -and $maximum -le 2) 'limite de downloads mantem concorrencia efetiva de no maximo dois'
 } finally {
     Remove-Item -LiteralPath $parallelRoot -Recurse -Force
+}
+
+$retryContractRoot = Join-Path ([IO.Path]::GetTempPath()) ("tce-portable-retry-contract-test-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $retryContractRoot | Out-Null
+try {
+    $retryManifest = New-RetryContractManifest -ProcessKey '103491/2026'
+    $rateLimitAttempts = 0
+    $rateLimitDownloader = {
+        param($Document, $Destination)
+        $script:rateLimitAttempts++
+        throw (New-SyntheticHttpException -StatusCode 429 -RetryAfter '0')
+    }
+    $rateLimitResult = Sync-TceProcessManifest -Manifest $retryManifest -ArchiveRoot (Join-Path $retryContractRoot 'rate-limit') -MaxDownloads 2 -Downloader $rateLimitDownloader
+    Assert-Equal $script:rateLimitAttempts 3 'HTTP 429 encerra após no máximo três tentativas'
+    Assert-Equal $rateLimitResult.status 'rate_limited' 'HTTP 429 propaga estado de limitação'
+    Assert-True $rateLimitResult.rate_limited 'HTTP 429 marca limitação de taxa'
+    Assert-True $rateLimitResult.reduce_concurrency 'HTTP 429 sinaliza redução de concorrência'
+    Assert-Equal $rateLimitResult.recommended_max_downloads 1 'HTTP 429 recomenda MaxDownloads igual a um'
+    Assert-Equal $rateLimitResult.retry_after_seconds 0 'HTTP 429 lê Retry-After da resposta'
+    $rateLimitCheckpoint = Get-Content -LiteralPath (Join-Path $retryContractRoot 'rate-limit\checkpoint.json') -Raw -Encoding UTF8
+    Assert-True (-not ($rateLimitCheckpoint -match 'synthetic-secret|Authorization|Bearer|token=')) 'HTTP 429 não persiste token na mensagem de erro'
+
+    $laterResult = Sync-TceProcessManifest -Manifest (New-RetryContractManifest -ProcessKey '103492/2026') -ArchiveRoot (Join-Path $retryContractRoot 'later') -MaxDownloads 2 -Downloader {
+        param($Document, $Destination)
+        [IO.File]::WriteAllText($Destination, '%PDF-later')
+    }
+    Assert-Equal $laterResult.max_downloads 1 'chamada posterior ao HTTP 429 reduz MaxDownloads efetivo para um'
+
+    $transientAttempts = 0
+    $transientDownloader = {
+        param($Document, $Destination)
+        $script:transientAttempts++
+        if ($script:transientAttempts -eq 1) { throw (New-SyntheticHttpException -StatusCode 429 -RetryAfter '0') }
+        [IO.File]::WriteAllText($Destination, '%PDF-transient-success')
+    }
+    $transientResult = Sync-TceProcessManifest -Manifest (New-RetryContractManifest -ProcessKey '103493/2026') -ArchiveRoot (Join-Path $retryContractRoot 'transient-success') -MaxDownloads 2 -Downloader $transientDownloader
+    Assert-Equal $script:transientAttempts 2 'HTTP 429 transitório tenta novamente uma vez antes do sucesso'
+    Assert-Equal $transientResult.downloaded 1 'sucesso após HTTP 429 é persistido'
+    Assert-Equal $transientResult.status 'complete' 'sucesso após HTTP 429 mantém estado completo'
+    Assert-True $transientResult.reduce_concurrency 'sucesso após HTTP 429 mantém sinal para reduzir concorrência'
+
+    foreach ($authCase in @(
+        [pscustomobject]@{ statusCode = 401; expectedStatus = 'auth_required'; expectedAuth = $true; expectedSuspended = $false; name = 'HTTP 401 exige login' },
+        [pscustomobject]@{ statusCode = 403; expectedStatus = 'suspended'; expectedAuth = $false; expectedSuspended = $true; name = 'HTTP 403 sinaliza suspensão' }
+    )) {
+        $authState = [pscustomobject]@{ attempts = 0; status_code = $authCase.statusCode }
+        $authDownloader = {
+            param($Document, $Destination)
+            $authState.attempts++
+            throw (New-SyntheticHttpException -StatusCode $authState.status_code -RetryAfter '0')
+        }.GetNewClosure()
+        $authProcessKey = if ($authCase.statusCode -eq 401) { '103494/2026' } else { '103495/2026' }
+        $authResult = Sync-TceProcessManifest -Manifest (New-RetryContractManifest -ProcessKey $authProcessKey) -ArchiveRoot (Join-Path $retryContractRoot ("auth-$($authCase.statusCode)")) -MaxDownloads 2 -Downloader $authDownloader
+        Assert-Equal $authState.attempts 1 "$($authCase.name) não faz retry"
+        Assert-Equal $authResult.status $authCase.expectedStatus "$($authCase.name) propaga status ao coordenador"
+        Assert-Equal $authResult.auth_required $authCase.expectedAuth "$($authCase.name) propaga auth_required"
+        Assert-Equal $authResult.suspended $authCase.expectedSuspended "$($authCase.name) propaga suspended"
+        Assert-True (-not ($authResult | ConvertTo-Json -Depth 20 | Select-String -Quiet 'synthetic-secret|Authorization|Bearer|token=')) "$($authCase.name) mantém token fora do resultado"
+    }
+
+    $authStopManifest = New-RetryContractManifest -ProcessKey '103497/2026'
+    $authStopManifest.events = @($authStopManifest.events) + @(
+        [pscustomobject]@{
+            event = 2; event_id = 'retry-after-auth'; date = '2026-09-08T00:01:00'; title = 'Não baixar após autenticação'; active = $true
+            documents = @([pscustomobject]@{ id = 'must-not-download'; title = 'não deve baixar'; extension = '.pdf'; url = 'memory://must-not-download'; remote_signature = 'never' })
+        }
+    )
+    $authStopAttempts = 0
+    $authStopDownloader = {
+        param($Document, $Destination)
+        $script:authStopAttempts++
+        if ($Document.id -eq 'retry-document') { throw (New-SyntheticHttpException -StatusCode 401 -RetryAfter '0') }
+        [IO.File]::WriteAllText($Destination, '%PDF-must-not-download')
+    }
+    $authStopResult = Sync-TceProcessManifest -Manifest $authStopManifest -ArchiveRoot (Join-Path $retryContractRoot 'auth-stop') -MaxDownloads 1 -Downloader $authStopDownloader
+    Assert-Equal $script:authStopAttempts 1 '401 interrompe eventos posteriores do mesmo processo'
+    Assert-Equal $authStopResult.status 'auth_required' '401 mantém estado de autenticação ao interromper o processo'
+
+    $badRequestAttempts = 0
+    $badRequestDownloader = {
+        param($Document, $Destination)
+        $script:badRequestAttempts++
+        throw (New-SyntheticHttpException -StatusCode 400 -RetryAfter '0')
+    }
+    $badRequestResult = Sync-TceProcessManifest -Manifest (New-RetryContractManifest -ProcessKey '103496/2026') -ArchiveRoot (Join-Path $retryContractRoot 'bad-request') -MaxDownloads 2 -Downloader $badRequestDownloader
+    Assert-Equal $script:badRequestAttempts 1 'HTTP 400 não faz retry'
+    Assert-Equal $badRequestResult.http_statuses 400 'HTTP 400 propaga código HTTP'
+    Assert-True (-not $badRequestResult.auth_required -and -not $badRequestResult.suspended) 'HTTP 400 não é tratado como autenticação ou suspensão'
+} finally {
+    if (Test-Path -LiteralPath $retryContractRoot) { Remove-Item -LiteralPath $retryContractRoot -Recurse -Force }
 }
 
 $legacyRoot = Join-Path ([IO.Path]::GetTempPath()) ("tce-portable-legacy-test-" + [guid]::NewGuid().ToString('N'))

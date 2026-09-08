@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-Implementação local do plano `docs/notes/2026-09-08-fluxo-portatil-plano-implementacao.md` avançada até um candidato integrado. O checkout continua em `main`; a implementação está no commit `4d0153c` e o handoff registra os commits de documentação subsequentes. Não há push por falta de remoto `origin`. Não houve login, coleta real, envio de ato, instalação no Chrome, alteração de acervo pessoal ou exclusão de arquivos.
+Implementação local do plano `docs/notes/2026-09-08-fluxo-portatil-plano-implementacao.md` avançada até um candidato integrado. O checkout continua em `main`; a última etapa local adiciona retry/autenticação sanitizados à coleta, documentada também em `docs/notes/2026-09-08-retry-autenticacao-coleta-handoff.md`. Não há push por falta de remoto `origin`. Não houve login, coleta real, envio de ato, instalação no Chrome, alteração de acervo pessoal ou exclusão de arquivos.
 
 O fluxo mantém a separação aprovada:
 
@@ -66,7 +66,7 @@ Criado `portable/extensao-complementar-ato/lib/bridge-client.js` e seu teste; ma
 
 ### Fase 6 — publicação incremental
 
-Criado `portable/app/incremental_pipeline.py` e teste; criadas as opções `-ModoPreparacao progressivo|completo` e `-MaxDownloads 1..2`, com publicação atômica por processo e retenção da revisão atual/anterior. `analyze_process` filtra o índice antes do OCR, publica `preparando` e depois o resultado em revisão própria. Cada revisão final também materializa `review-data.json` sanitizado e `dataset.json`; o serviço expõe `/api/v1/review-data?since=N`. A mesa servida em `/review` é aberta pelo menu com bootstrap de uso único, consulta revisões a cada 500 ms visível/2 s oculta e preserva processo, interessado, documento e viewport quando possível. O acompanhamento também lê `/api/v1/state` pela sessão autenticada, segue a seleção publicada pela extensão, pausa quando o usuário navega manualmente e oferece retomada explícita; falhas usam backoff limitado a 10 s. O coletor agora chama essa preparação por processo no modo progressivo e depois da varredura no modo completo, usando o runtime explícito; o menu pergunta o modo e mantém a abertura da mesa após a etapa completa. `Sync-TceProcessManifest` usa runspaces somente para o downloader quando recebe contexto explícito isolável; o pico efetivo é limitado a 1–2 e hash/deduplicação/versões/checkpoint permanecem no coordenador. O token de sessão passa apenas em memória.
+Criado `portable/app/incremental_pipeline.py` e teste; criadas as opções `-ModoPreparacao progressivo|completo` e `-MaxDownloads 1..2`, com publicação atômica por processo e retenção da revisão atual/anterior. `analyze_process` filtra o índice antes do OCR, publica `preparando` e depois o resultado em revisão própria. Cada revisão final também materializa `review-data.json` sanitizado e `dataset.json`; o serviço expõe `/api/v1/review-data?since=N`. A mesa servida em `/review` é aberta pelo menu com bootstrap de uso único, consulta revisões a cada 500 ms visível/2 s oculta e preserva processo, interessado, documento e viewport quando possível. O acompanhamento também lê `/api/v1/state` pela sessão autenticada, segue a seleção publicada pela extensão, pausa quando o usuário navega manualmente e oferece retomada explícita; falhas usam backoff limitado a 10 s. O coletor agora chama essa preparação por processo no modo progressivo e depois da varredura no modo completo, usando o runtime explícito; o menu pergunta o modo e mantém a abertura da mesa após a etapa completa. `Sync-TceProcessManifest` usa runspaces somente para o downloader quando recebe contexto explícito isolável; o pico efetivo é limitado a 1–2 e hash/deduplicação/versões/checkpoint permanecem no coordenador. O token de sessão passa apenas em memória. A política de download trata 429 com `Retry-After` e no máximo três tentativas, reduz chamadas posteriores a um worker, retorna 401/403 como `auth_required`/`suspended`, mantém 400 sem retry e faz o coletor parar/solicitar login sem continuar análise de processos não coletados.
 
 ### Fase 7 — transporte
 
@@ -84,7 +84,7 @@ Criados `qa_integrated_workflow.py` e `test_integrated_workflow.py`. O relatóri
 | `node --test` em `portable/app/web` | 4 pass, 0 falhas |
 | `python -m unittest discover -s . -p 'test_*.py' -q` | 254 pass, 0 falhas, 3 skips |
 | pacote/auditoria/end-to-end + transferência quiescente | 47 pass, 0 falhas, 2 skips |
-| `tests/Test-TcePortable.ps1` | 84 pass, 0 falhas |
+| `tests/Test-TcePortable.ps1` | 114 pass, 0 falhas |
 | `tests/Test-PortableMenu.ps1` | 74 pass, 0 falhas |
 | `tests/Test-PortableReset.ps1` | 31 pass, 0 falhas, 1 skip ambiental |
 | teste focado estado/sessão + ativos da mesa | 2 pass, 0 falhas |
@@ -96,6 +96,8 @@ Criados `qa_integrated_workflow.py` e `test_integrated_workflow.py`. O relatóri
 | smoke Chrome contra ZIP v4 oficial extraído | pass; Chrome 145; 7 linhas, persistência após restart, controles protegidos intactos |
 | `empacotar-extensao-complementar-ato.ps1` | ZIP v4 reproduzível; 11 arquivos; SHA-256 `8B0BBBA8131EA1D9B8156AAC60D374A85ED1D16D2AF1B55C77D1809ADCF61E46` |
 | `test_review_live_browser.py` | seleção publicada, pausa/retomada e entrega em menos de 2 s; 1 pass |
+
+O handoff de retry/autenticação registra também três repetições do teste PowerShell (114/114), sem acesso ao portal real. O contrato mantém tokens fora de erros, resultados e checkpoints; a parada é cooperativa e deixa requests já iniciados terminarem.
 
 O Python exibiu apenas avisos ResourceWarning dos testes de erro HTTP e a mensagem de uso deliberada do caso `--timeout-seconds 0`; a suíte terminou verde. Os skips ambientais/fixture não validam OCR real, bridge em navegador ou portal.
 
@@ -144,5 +146,6 @@ Pendências reais para chamar de release validada:
 1. executar QA manual em Chrome/Área Restrita com usuário autenticado, sem envio/finalização;
 2. medir os mesmos 20 processos e p95 de sincronização, e repetir o teste sobre ZIP extraído em ambiente restrito;
 3. obter autorização humana para segundo PC, se esse gate for necessário.
+4. validar em ambiente restrito a retomada após 401/403 e o comportamento do ZIP extraído sem Python/Node no `PATH`.
 
 Para continuar: executar os gates supervisionados acima, validar o ZIP v4 pelo empacotador oficial, e só então preparar push quando um remoto autorizado existir. A API de transferência usa recusa segura em vez de drenagem formal do coordenador; essa limitação permanece documentada. Rechecar `git status` antes de retomar.

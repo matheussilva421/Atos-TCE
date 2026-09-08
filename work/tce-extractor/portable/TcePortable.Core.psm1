@@ -1,5 +1,7 @@
 ﻿Set-StrictMode -Version 2.0
 
+$script:TceDownloadMaxDownloads = 2
+
 function ConvertTo-TceComparableText {
     param([AllowNull()][string]$Text)
     if ($null -eq $Text) { return '' }
@@ -347,36 +349,182 @@ function Invoke-TceDownloadBatch {
 
     $worker = {
         param($downloadSource, $document, $destination, $context)
-        try {
-            $downloadScript = [scriptblock]::Create([string]$downloadSource)
-            & $downloadScript $document $destination $context | Out-Null
-            if (-not [IO.File]::Exists([string]$destination)) {
-                throw "Downloader não criou $destination"
+        function Get-WorkerHttpStatus {
+            param([AllowNull()][object]$Exception)
+            if ($null -eq $Exception) { return $null }
+            try {
+                $response = $Exception.Response
+                if ($null -ne $response) {
+                    $statusProperty = $response.PSObject.Properties['StatusCode']
+                    if ($null -ne $statusProperty) {
+                        try { return [int]$statusProperty.Value } catch { }
+                    }
+                }
+            } catch { }
+            $message = [string]$Exception.Message
+            $match = [regex]::Match($message, '(?i)(?:HTTP\s*|\()(?<status>\d{3})\b')
+            if ($match.Success) { return [int]$match.Groups['status'].Value }
+            return $null
+        }
+
+        function Get-WorkerRetryAfterSeconds {
+            param([AllowNull()][object]$Exception)
+            if ($null -eq $Exception) { return $null }
+            $rawValue = $null
+            try {
+                $response = $Exception.Response
+                if ($null -ne $response) {
+                    $headersProperty = $response.PSObject.Properties['Headers']
+                    if ($null -ne $headersProperty -and $null -ne $headersProperty.Value) {
+                        $rawValue = [string]$headersProperty.Value['Retry-After']
+                    }
+                }
+            } catch { }
+            if ([string]::IsNullOrWhiteSpace($rawValue)) {
+                try {
+                    if ($null -ne $Exception.Data -and $Exception.Data.Contains('Retry-After')) {
+                        $rawValue = [string]$Exception.Data['Retry-After']
+                    }
+                } catch { }
             }
-            [pscustomobject]@{ success = $true; error = $null }
-        } catch {
-            [pscustomobject]@{ success = $false; error = $_.Exception.Message }
+            if ([string]::IsNullOrWhiteSpace($rawValue)) { return $null }
+            $rawValue = $rawValue.Trim()
+            $deltaSeconds = 0
+            if ([int]::TryParse($rawValue, [Globalization.NumberStyles]::Integer, [Globalization.CultureInfo]::InvariantCulture, [ref]$deltaSeconds)) {
+                if ($deltaSeconds -lt 0) { return 0 }
+                return $deltaSeconds
+            }
+            $retryDate = [DateTimeOffset]::MinValue
+            if ([DateTimeOffset]::TryParse($rawValue, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AllowWhiteSpaces, [ref]$retryDate)) {
+                return [Math]::Max(0, [int][Math]::Ceiling(($retryDate - [DateTimeOffset]::UtcNow).TotalSeconds))
+            }
+            return $null
+        }
+
+        function ConvertTo-WorkerSafeText {
+            param([AllowNull()][object]$Value)
+            if ($null -eq $Value) { return '' }
+            $safe = [string]$Value
+            $safe = $safe -replace '(?i)\b[a-z][a-z0-9+.-]{1,31}://[^\s"''<>]+', '[URL REMOVIDA]'
+            $safe = $safe -replace '(?i)\b(?:authorization|cookie|token|credential|credencial|session|senha|password)\b\s*(?:(?:[:=]\s*)|(?:\s+))(?:bearer|basic)?\s*[^,\s;|]+', '[CREDENCIAL REMOVIDA]'
+            $safe = $safe -replace '(?i)\b(?:url|authorization|cookie|token|credential|credencial|session|senha|password)\b', '[DADO SENSIVEL REMOVIDO]'
+            return $safe
+        }
+
+        $downloadScript = if ($downloadSource -is [scriptblock]) {
+            $downloadSource
+        } else {
+            [scriptblock]::Create([string]$downloadSource)
+        }
+        $attempt = 0
+        $rateLimited = $false
+        $lastRetryAfterSeconds = $null
+        while ($attempt -lt 3) {
+            $attempt++
+            try {
+                if ([IO.File]::Exists([string]$destination)) {
+                    Remove-Item -LiteralPath $destination -Force -ErrorAction SilentlyContinue
+                }
+                & $downloadScript $document $destination $context | Out-Null
+                if (-not [IO.File]::Exists([string]$destination)) {
+                    throw "Downloader não criou $destination"
+                }
+                return [pscustomobject]@{
+                    success = $true; status = 'complete'; error = $null; attempts = $attempt; retry_count = $attempt - 1
+                    retry_after_seconds = $lastRetryAfterSeconds; http_status = $null; auth_required = $false
+                    suspended = $false; rate_limited = $rateLimited; reduce_concurrency = $rateLimited
+                }
+            } catch {
+                $exception = $_.Exception
+                $httpStatus = Get-WorkerHttpStatus -Exception $exception
+                $retryAfterSeconds = Get-WorkerRetryAfterSeconds -Exception $exception
+                if ($null -ne $retryAfterSeconds) { $lastRetryAfterSeconds = $retryAfterSeconds }
+                $safeError = ConvertTo-WorkerSafeText $exception.Message
+                try {
+                    if ([IO.File]::Exists([string]$destination)) {
+                        Remove-Item -LiteralPath $destination -Force -ErrorAction SilentlyContinue
+                    }
+                } catch { }
+
+                if ($httpStatus -eq 429) {
+                    $rateLimited = $true
+                    if ($attempt -lt 3) {
+                        $waitSeconds = if ($null -ne $retryAfterSeconds) { [int]$retryAfterSeconds } else { 0 }
+                        if ($waitSeconds -gt 0) { Start-Sleep -Seconds $waitSeconds }
+                        continue
+                    }
+                    return [pscustomobject]@{
+                        success = $false; status = 'rate_limited'; error = $safeError; attempts = $attempt; retry_count = $attempt - 1
+                        retry_after_seconds = $lastRetryAfterSeconds; http_status = $httpStatus; auth_required = $false
+                        suspended = $false; rate_limited = $true; reduce_concurrency = $true
+                    }
+                }
+                if ($httpStatus -eq 401) {
+                    return [pscustomobject]@{
+                        success = $false; status = 'auth_required'; error = $safeError; attempts = $attempt; retry_count = $attempt - 1
+                        retry_after_seconds = $lastRetryAfterSeconds; http_status = $httpStatus; auth_required = $true
+                        suspended = $false; rate_limited = $rateLimited; reduce_concurrency = $rateLimited
+                    }
+                }
+                if ($httpStatus -eq 403) {
+                    return [pscustomobject]@{
+                        success = $false; status = 'suspended'; error = $safeError; attempts = $attempt; retry_count = $attempt - 1
+                        retry_after_seconds = $lastRetryAfterSeconds; http_status = $httpStatus; auth_required = $false
+                        suspended = $true; rate_limited = $rateLimited; reduce_concurrency = $rateLimited
+                    }
+                }
+                return [pscustomobject]@{
+                    success = $false; status = 'failed'; error = $safeError; attempts = $attempt; retry_count = $attempt - 1
+                    retry_after_seconds = $lastRetryAfterSeconds; http_status = $httpStatus; auth_required = $false
+                    suspended = $false; rate_limited = $rateLimited; reduce_concurrency = $rateLimited
+                }
+            }
+        }
+        return [pscustomobject]@{
+            success = $false; status = 'failed'; error = 'Downloader não retornou resultado.'; attempts = $attempt
+            retry_count = [Math]::Max(0, $attempt - 1); retry_after_seconds = $lastRetryAfterSeconds; http_status = $null
+            auth_required = $false; suspended = $false; rate_limited = $rateLimited; reduce_concurrency = $rateLimited
+        }
+    }
+
+    $effectiveMaxDownloads = [Math]::Min($MaxDownloads, [int]$script:TceDownloadMaxDownloads)
+    $wrapResult = {
+        param($job, $workerOutput, $effectiveLimit)
+        $workerResult = @($workerOutput) | Where-Object {
+            $_ -and $_.PSObject.Properties['success']
+        } | Select-Object -Last 1
+        if ($workerResult) {
+            return [pscustomobject]@{
+                job = $job; success = [bool]$workerResult.success; status = [string]$workerResult.status; error = [string]$workerResult.error
+                attempts = [int]$workerResult.attempts; retry_count = [int]$workerResult.retry_count
+                retry_after_seconds = $workerResult.retry_after_seconds; http_status = $workerResult.http_status
+                auth_required = [bool]$workerResult.auth_required; suspended = [bool]$workerResult.suspended
+                rate_limited = [bool]$workerResult.rate_limited; reduce_concurrency = [bool]$workerResult.reduce_concurrency
+                effective_max_downloads = $effectiveLimit
+            }
+        }
+        return [pscustomobject]@{
+            job = $job; success = $false; status = 'failed'; error = 'Worker de download não retornou resultado.'
+            attempts = 0; retry_count = 0; retry_after_seconds = $null; http_status = $null
+            auth_required = $false; suspended = $false; rate_limited = $false; reduce_concurrency = $false
+            effective_max_downloads = $effectiveLimit
         }
     }
 
     $isolatedWorker = $null -ne $DownloaderContext
-    if ($MaxDownloads -eq 1 -or -not $isolatedWorker) {
+    if ($effectiveMaxDownloads -eq 1 -or -not $isolatedWorker) {
         $serialResults = New-Object System.Collections.ArrayList
         foreach ($job in $Jobs) {
-            try {
-                & $Downloader $job.document $job.temporary $DownloaderContext | Out-Null
-                if (-not [IO.File]::Exists([string]$job.temporary)) {
-                    throw "Downloader não criou $($job.temporary)"
-                }
-                [void]$serialResults.Add([pscustomobject]@{ job = $job; success = $true; error = $null })
-            } catch {
-                [void]$serialResults.Add([pscustomobject]@{ job = $job; success = $false; error = $_.Exception.Message })
-            }
+            $workerOutput = @(& $worker $Downloader $job.document $job.temporary $DownloaderContext)
+            [void]$serialResults.Add((& $wrapResult $job $workerOutput $effectiveMaxDownloads))
+        }
+        if (@($serialResults | Where-Object { $_.reduce_concurrency }).Count -gt 0) {
+            $script:TceDownloadMaxDownloads = 1
         }
         return @($serialResults.ToArray())
     }
 
-    $pool = [RunspaceFactory]::CreateRunspacePool(1, $MaxDownloads)
+    $pool = [RunspaceFactory]::CreateRunspacePool(1, $effectiveMaxDownloads)
     $pool.Open()
     $pending = New-Object System.Collections.ArrayList
     $results = New-Object System.Collections.ArrayList
@@ -403,15 +551,18 @@ function Invoke-TceDownloadBatch {
                 $workerResult = $workerOutput | Where-Object {
                     $_ -and $_.PSObject.Properties['success']
                 } | Select-Object -Last 1
-                if ($workerResult -and [bool]$workerResult.success) {
-                    [void]$results.Add([pscustomobject]@{ job = $item.job; success = $true; error = $null })
-                } elseif ($workerResult) {
-                    [void]$results.Add([pscustomobject]@{ job = $item.job; success = $false; error = [string]$workerResult.error })
+                if ($workerResult) {
+                    [void]$results.Add((& $wrapResult $item.job @($workerResult) $effectiveMaxDownloads))
                 } else {
-                    [void]$results.Add([pscustomobject]@{ job = $item.job; success = $false; error = 'Worker de download não retornou resultado.' })
+                    [void]$results.Add((& $wrapResult $item.job @() $effectiveMaxDownloads))
                 }
             } catch {
-                [void]$results.Add([pscustomobject]@{ job = $item.job; success = $false; error = $_.Exception.Message })
+                [void]$results.Add([pscustomobject]@{
+                    job = $item.job; success = $false; status = 'failed'; error = (ConvertTo-TceSafeText $_.Exception.Message)
+                    attempts = 0; retry_count = 0; retry_after_seconds = $null; http_status = $null
+                    auth_required = $false; suspended = $false; rate_limited = $false; reduce_concurrency = $false
+                    effective_max_downloads = $effectiveMaxDownloads
+                })
             } finally {
                 $item.powershell.Dispose()
             }
@@ -419,6 +570,9 @@ function Invoke-TceDownloadBatch {
     } finally {
         $pool.Close()
         $pool.Dispose()
+    }
+    if (@($results | Where-Object { $_.reduce_concurrency }).Count -gt 0) {
+        $script:TceDownloadMaxDownloads = 1
     }
     return @($results.ToArray())
 }
@@ -461,6 +615,14 @@ function Sync-TceProcessManifest {
     $skipped = 0
     $deduplicated = 0
     $hadErrors = $false
+    $authRequired = $false
+    $suspended = $false
+    $rateLimited = $false
+    $reduceConcurrency = [int]$script:TceDownloadMaxDownloads -lt 2
+    $retryCount = 0
+    $retryAfterSeconds = $null
+    $httpStatuses = New-Object System.Collections.ArrayList
+    $initialMaxDownloads = [Math]::Min($MaxDownloads, [int]$script:TceDownloadMaxDownloads)
     $safeEvents = New-Object System.Collections.ArrayList
 
     foreach ($event in @($Manifest.events | Sort-Object event, event_id)) {
@@ -532,6 +694,19 @@ function Sync-TceProcessManifest {
         $downloadResults = @(Invoke-TceDownloadBatch -Jobs @($downloadJobs.ToArray()) -MaxDownloads $MaxDownloads -Downloader $Downloader -DownloaderContext $DownloaderContext)
         foreach ($downloadResult in $downloadResults) {
             $job = $downloadResult.job
+            $authRequired = $authRequired -or [bool]$downloadResult.auth_required
+            $suspended = $suspended -or [bool]$downloadResult.suspended
+            $rateLimited = $rateLimited -or [bool]$downloadResult.rate_limited
+            $reduceConcurrency = $reduceConcurrency -or [bool]$downloadResult.reduce_concurrency
+            $retryCount += [int]$downloadResult.retry_count
+            if ($null -ne $downloadResult.retry_after_seconds) {
+                if ($null -eq $retryAfterSeconds -or [int]$downloadResult.retry_after_seconds -gt $retryAfterSeconds) {
+                    $retryAfterSeconds = [int]$downloadResult.retry_after_seconds
+                }
+            }
+            if ($null -ne $downloadResult.http_status -and -not $httpStatuses.Contains([int]$downloadResult.http_status)) {
+                [void]$httpStatuses.Add([int]$downloadResult.http_status)
+            }
             if (-not $downloadResult.success) {
                 $hadErrors = $true
                 $safeDocumentByOrdinal[$job.ordinal] = [pscustomobject]@{
@@ -618,6 +793,7 @@ function Sync-TceProcessManifest {
         }
         Write-TceJsonAtomic -Path (Join-Path $eventFolder 'evento.json') -Value $safeEvent
         [void]$safeEvents.Add($safeEvent)
+        if ($authRequired -or $suspended) { break }
     }
 
     $safeProcess = [pscustomobject]@{
@@ -640,7 +816,24 @@ function Sync-TceProcessManifest {
         documents = @($documentRecords)
     }
     Write-TceJsonAtomic -Path (Join-Path $ArchiveRoot 'checkpoint.json') -Value $safeCheckpoint
-    return [pscustomobject]@{ process = $processKey; downloaded = $downloaded; skipped = $skipped; deduplicated = $deduplicated }
+    $controlStatus = if ($suspended) { 'suspended' } elseif ($authRequired) { 'auth_required' } elseif ($rateLimited -and $hadErrors) { 'rate_limited' } elseif ($hadErrors) { 'partial' } else { 'complete' }
+    $httpStatusValue = if ($httpStatuses.Count -eq 1) { $httpStatuses[0] } else { @($httpStatuses.ToArray()) }
+    return [pscustomobject]@{
+        process = $processKey
+        downloaded = $downloaded
+        skipped = $skipped
+        deduplicated = $deduplicated
+        status = $controlStatus
+        auth_required = $authRequired
+        suspended = $suspended
+        rate_limited = $rateLimited
+        reduce_concurrency = $reduceConcurrency
+        retry_count = $retryCount
+        retry_after_seconds = $retryAfterSeconds
+        http_statuses = $httpStatusValue
+        max_downloads = $initialMaxDownloads
+        recommended_max_downloads = [int]$script:TceDownloadMaxDownloads
+    }
 }
 
 Export-ModuleMember -Function ConvertTo-TceSafeName, ConvertTo-TceSafeText, Get-TceObjectPropertyValue, Get-TceLiveDevToolsPort, Search-TceProcesses, Resolve-TceSelection, Write-TceJsonAtomic, Add-TceFailure, Get-TceCheckpoint, Get-TceCheckpointFromSource, Get-TceCompletedProcessKeys, ConvertTo-TceCanonicalProcessKey, Get-TceSha256, Sync-TceProcessManifest

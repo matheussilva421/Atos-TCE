@@ -341,6 +341,7 @@ try {
     Start-TceCollectorLease
     Write-Host "`n$($selected.Count) processo(s) selecionado(s). Iniciando sincronização..." -ForegroundColor Cyan
     $totals = @{ downloaded = 0; skipped = 0; deduplicated = 0; failed = 0 }
+    $collectionSuspended = $false
     for ($index = 0; $index -lt $selected.Count; $index++) {
         $item = $selected[$index]
         Write-Host "[$($index + 1)/$($selected.Count)] $($item.key)" -ForegroundColor Cyan
@@ -378,6 +379,21 @@ try {
             $totals.downloaded += $result.downloaded
             $totals.skipped += $result.skipped
             $totals.deduplicated += $result.deduplicated
+            if ($result.rate_limited) {
+                Write-Warning "$($item.key): servidor limitou a taxa; próximas chamadas usarão um download por vez."
+            }
+            if ($result.auth_required -or $result.suspended) {
+                $totals.failed++
+                $authMessage = if ($result.auth_required) {
+                    'Sessão expirada ou não autorizada. Faça login novamente antes de retomar a coleta.'
+                } else {
+                    'Acesso suspenso pelo servidor. Aguarde a liberação antes de retomar a coleta.'
+                }
+                Write-Warning "$($item.key): $authMessage"
+                Write-SafeFailure -ProcessKey $item.key -Message $authMessage
+                $collectionSuspended = $true
+                break
+            }
             Write-Host "  baixados: $($result.downloaded); já existentes: $($result.skipped); duplicados: $($result.deduplicated)" -ForegroundColor Green
             if ($ModoPreparacao -eq 'progressivo') {
                 Invoke-TceIncrementalPreparation -ProcessKey $item.key
@@ -389,7 +405,7 @@ try {
         }
     }
 
-    if ($ModoPreparacao -eq 'completo') {
+    if ($ModoPreparacao -eq 'completo' -and -not $collectionSuspended) {
         foreach ($item in $selected) {
             try {
                 Invoke-TceIncrementalPreparation -ProcessKey $item.key

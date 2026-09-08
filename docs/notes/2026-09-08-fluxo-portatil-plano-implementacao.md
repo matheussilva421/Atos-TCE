@@ -279,9 +279,9 @@ def test_publication_keeps_unaffected_process(self):
 ```
 
 - [ ] Testar merge incremental e helper `current_results` lendo ponteiro/publicação; confirmar RED.
-- [ ] Refatorar `Sync-TceProcessManifest` em planejamento de documentos, download e commit, mantendo wrapper compatível. Runspaces limitados executam apenas downloader; coordenador único faz hash/dedup/versões/checkpoint.
+- [x] Refatorar `Sync-TceProcessManifest` em planejamento de documentos, download e commit, mantendo wrapper compatível. Runspaces limitados executam apenas downloader; coordenador único faz hash/dedup/versões/checkpoint.
 - [ ] Capturar ordem da listagem antes de filtrar seleção. Prioridade: títulos alvo após evento1, genéricos após evento1, outros documentos, capas. Não eliminar genéricos por título nem parar depois do primeiro alvo.
-- [ ] Sessões/URLs autenticadas só em memória dos workers; nenhum spool ou log com token. Em 401/403 suspender e pedir login; 429 respeita Retry-After, reduz a um download; máximo três tentativas para falhas transitórias. HTTP400 documental permanece erro explícito sem retry infinito.
+- [x] Sessões/URLs autenticadas só em memória dos workers; nenhum spool ou log com token. Em 401/403 suspender e pedir login; 429 respeita Retry-After, reduz a um download; máximo três tentativas para falhas transitórias. HTTP400 documental permanece erro explícito sem retry infinito.
 - [ ] Após arquivo validado, emitir evento local sanitizado para análise. Um worker OCR; evitar duas escritas simultâneas do cache-ocr. Publicar por processo quando houver resultado novo, com estado preparando enquanto varredura continua.
 - [ ] No modo completo, não abrir mesa automaticamente até término; em falha terminal, abrir resultado parcial somente com indicação clara. No progressivo, abrir com primeiro resultado e atualizar sem resetar documento/zoom do usuário.
 - [ ] Publicação: montar revisão em diretório temporário, validar datasets, mover snapshot e trocar ponteiro atomicamente. Leitor fixa revisão por leitura. HTML/JSON estáticos atualizados ao finalizar ou empacotar.
