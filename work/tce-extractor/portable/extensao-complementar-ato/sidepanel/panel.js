@@ -3,8 +3,10 @@ import { createMessage, MESSAGE_TYPES } from "../lib/messages.js";
 import {
   ALLOWED_FIELDS,
   STORAGE_KEYS,
+  normalizeInterestedName,
   validateDataset,
 } from "../lib/schema.js";
+import { createBridgeClient, pairBridge } from "../lib/bridge-client.js";
 
 export const PANEL_FIELD_ORDER = Object.freeze([...ALLOWED_FIELDS]);
 
@@ -20,6 +22,13 @@ export const PANEL_STATES = Object.freeze({
   EXISTING_DIVERGENCE: "existing-divergence",
   FILLED_FOR_REVIEW: "filled-for-review",
 });
+
+const BRIDGE_ELEMENT_IDS = Object.freeze([
+  "bridge-base-url",
+  "bridge-pairing-code",
+  "bridge-connect-button",
+  "bridge-status",
+]);
 
 const FIELD_LABELS = Object.freeze({
   modalidade: "Modalidade",
@@ -50,6 +59,11 @@ const ELEMENT_IDS = Object.freeze([
   "dataset-file",
   "refresh-button",
   "fill-button",
+  "complement-button",
+  "search-process",
+  "search-interested",
+  "search-results",
+  "search-selection",
   "review-section",
   "reviewed-checkbox",
   "preview-body",
@@ -161,6 +175,8 @@ export function createPanelApp({
   chromeApi = globalThis.chrome,
   confirmFn = (message) => typeof globalThis.confirm === "function" && globalThis.confirm(message),
   ranker = rankPortalOptions,
+  bridgeClientFactory = createBridgeClient,
+  pairingFactory = pairBridge,
 } = {}) {
   const elements = Object.fromEntries(ELEMENT_IDS.map((id) => [id, documentRef?.getElementById?.(id)]));
   const missingElement = ELEMENT_IDS.find((id) => !elements[id]);
@@ -174,9 +190,22 @@ export function createPanelApp({
     reviewed: false,
     previewIdentity: null,
     result: null,
+    searchSelection: null,
+    bridgeClient: null,
+    bridgeRevision: null,
+    bridgeSequence: 0,
+    bridgeContext: null,
     message: "",
     listenersInstalled: false,
   };
+
+  const bridgeElements = Object.fromEntries(BRIDGE_ELEMENT_IDS.map((id) => [id, documentRef?.getElementById?.(id)]));
+
+  function setBridgeStatus(message, error = false) {
+    if (!bridgeElements["bridge-status"]) return;
+    bridgeElements["bridge-status"].textContent = text(message);
+    bridgeElements["bridge-status"].setAttribute("data-state", error ? "error" : "info");
+  }
 
   function setMessage(message, error = false) {
     state.message = text(message);
@@ -253,6 +282,48 @@ export function createPanelApp({
     elements["result-summary"].textContent = `Alterados: ${state.result.changed.length} · Preservados: ${state.result.preserved.length} · Pendentes: ${pending}`;
   }
 
+  function matchingSearchRecords() {
+    if (!state.dataset) return [];
+    const processQuery = text(elements["search-process"].value).trim().toLowerCase();
+    const interestedQuery = normalizeInterestedName(elements["search-interested"].value);
+    return state.dataset.records.filter((record) => (
+      (!processQuery || record.process.key.toLowerCase().includes(processQuery))
+      && (!interestedQuery || record.interested.normalized.includes(interestedQuery))
+    )).slice(0, 50);
+  }
+
+  function selectSearchRecord(record) {
+    state.searchSelection = {
+      processKey: record.process.key,
+      interestedNormalized: record.interested.normalized,
+    };
+    elements["search-selection"].textContent = `${record.process.key} · ${record.interested.original}`;
+    setMessage("Registro localizado. Selecione o mesmo interessado no portal e atualize a prévia; a busca não altera o formulário.");
+    render();
+  }
+
+  function renderSearchResults() {
+    const results = elements["search-results"];
+    results.replaceChildren();
+    const records = matchingSearchRecords();
+    if (!state.dataset) {
+      results.textContent = "Importe um lote para pesquisar.";
+      return;
+    }
+    if (records.length === 0) {
+      results.textContent = "Nenhum registro encontrado.";
+      return;
+    }
+    for (const record of records) {
+      const button = documentRef.createElement("button");
+      button.setAttribute("type", "button");
+      button.setAttribute("data-role", "search-result");
+      button.textContent = `${record.process.key} · ${record.interested.original}`;
+      button.addEventListener("click", () => selectSearchRecord(record));
+      results.append(button);
+    }
+  }
+
   function render() {
     const datasetStatus = state.dataset
       ? `Lote importado: ${state.dataset.batch.process_count} processo${state.dataset.batch.process_count === 1 ? "" : "s"}, ${state.dataset.batch.record_count} interessado${state.dataset.batch.record_count === 1 ? "" : "s"}.`
@@ -265,12 +336,18 @@ export function createPanelApp({
     const canFill = Boolean(state.dataset && state.record && state.previewIdentity
       && (state.kind === PANEL_STATES.PREVIEW_READY || state.kind === PANEL_STATES.EXISTING_DIVERGENCE));
     elements["fill-button"].disabled = !canFill;
+    elements["complement-button"].disabled = !canFill;
     elements["refresh-button"].disabled = !state.dataset;
+    elements["search-process"].disabled = !state.dataset;
+    elements["search-interested"].disabled = !state.dataset;
     elements["review-section"].hidden = !state.record;
     elements["reviewed-checkbox"].disabled = !state.record;
     elements["reviewed-checkbox"].checked = state.reviewed;
     renderRows();
     renderResult();
+    renderSearchResults();
+    if (bridgeElements["bridge-connect-button"]) bridgeElements["bridge-connect-button"].disabled = !bridgeElements["bridge-pairing-code"]?.value?.trim();
+    if (bridgeElements["bridge-status"] && state.bridgeClient && !bridgeElements["bridge-status"].textContent) setBridgeStatus("Mesa local conectada.");
   }
 
   async function send(type, payload) {
@@ -285,6 +362,80 @@ export function createPanelApp({
     const payload = forwarded.payload;
     if (!payload || !isRecord(payload.process)) throw new Error("snapshot do formulário inválido");
     return payload;
+  }
+
+  async function publishBridgeSelection(snapshot, identity) {
+    if (!state.bridgeClient) return;
+    const context = snapshot?.bridgeContext;
+    if (!context || !Number.isInteger(context.tab_id) || !Number.isInteger(context.frame_id)) {
+      setBridgeStatus("Ponte conectada, mas a aba/frame atual não foi identificado.", true);
+      return;
+    }
+    state.bridgeSequence += 1;
+    state.bridgeContext = context;
+    try {
+      const result = await state.bridgeClient.publishSelection({
+        process_key: identity.processKey,
+        interested_normalized: identity.interestedNormalized,
+        tab_id: context.tab_id,
+        frame_id: context.frame_id,
+        sequence: state.bridgeSequence,
+      });
+      if (Number.isInteger(result?.revision)) state.bridgeRevision = result.revision;
+      setBridgeStatus("Mesa local acompanhando a seleção atual.");
+    } catch (error) {
+      setBridgeStatus(`Mesa local desconectada: ${error instanceof Error ? error.message : String(error)}`, true);
+    }
+  }
+
+  async function connectBridge() {
+    if (!bridgeElements["bridge-base-url"] || !bridgeElements["bridge-pairing-code"]) return false;
+    try {
+      const baseUrl = bridgeElements["bridge-base-url"].value.trim();
+      const code = bridgeElements["bridge-pairing-code"].value.trim();
+      const token = await pairingFactory({ baseUrl, code });
+      state.bridgeClient = bridgeClientFactory({ baseUrl, token });
+      state.bridgeRevision = null;
+      const session = chromeApi?.storage?.session;
+      if (typeof session?.set === "function") {
+        await session.set({
+          [STORAGE_KEYS.BRIDGE_BASE_URL]: baseUrl,
+          [STORAGE_KEYS.BRIDGE_TOKEN]: token,
+          [STORAGE_KEYS.BRIDGE_REVISION]: null,
+        });
+      }
+      setBridgeStatus("Mesa local conectada. A seleção será publicada, sem preencher campos.");
+      render();
+      return true;
+    } catch (error) {
+      state.bridgeClient = null;
+      setBridgeStatus(`Falha no pareamento: ${error instanceof Error ? error.message : String(error)}`, true);
+      render();
+      return false;
+    }
+  }
+
+  async function restoreBridge() {
+    const session = chromeApi?.storage?.session;
+    if (typeof session?.get !== "function") return;
+    const stored = await session.get([
+      STORAGE_KEYS.BRIDGE_BASE_URL,
+      STORAGE_KEYS.BRIDGE_TOKEN,
+      STORAGE_KEYS.BRIDGE_REVISION,
+    ]);
+    if (typeof stored?.[STORAGE_KEYS.BRIDGE_BASE_URL] !== "string" || typeof stored?.[STORAGE_KEYS.BRIDGE_TOKEN] !== "string") return;
+    try {
+      state.bridgeClient = bridgeClientFactory({
+        baseUrl: stored[STORAGE_KEYS.BRIDGE_BASE_URL],
+        token: stored[STORAGE_KEYS.BRIDGE_TOKEN],
+      });
+      state.bridgeRevision = Number.isInteger(stored[STORAGE_KEYS.BRIDGE_REVISION]) ? stored[STORAGE_KEYS.BRIDGE_REVISION] : null;
+      if (bridgeElements["bridge-base-url"]) bridgeElements["bridge-base-url"].value = stored[STORAGE_KEYS.BRIDGE_BASE_URL];
+      setBridgeStatus("Mesa local restaurada nesta sessão.");
+    } catch {
+      state.bridgeClient = null;
+      setBridgeStatus("Pareamento salvo inválido; conecte novamente.", true);
+    }
   }
 
   async function getMatch(snapshot) {
@@ -358,6 +509,7 @@ export function createPanelApp({
         : "Prévia pronta.";
       elements["identity-status"].textContent = `Processo ${identity.processKey} · Interessado: ${snapshot.interested.original}.`;
       render();
+      await publishBridgeSelection(snapshot, identity);
       return true;
     } catch (error) {
       setBlocking(PANEL_STATES.INTERESTED_NOT_FOUND, "Registro atual não foi encontrado no lote.", `Interessado: ${text(snapshot.interested.original)}.`);
@@ -403,6 +555,8 @@ export function createPanelApp({
       state.rows = [];
       state.previewIdentity = null;
       state.result = null;
+      state.searchSelection = null;
+      elements["search-selection"].textContent = "";
       state.message = "Lote importado; selecione ou atualize a tela atual para calcular a prévia.";
       render();
       return await refresh();
@@ -414,6 +568,7 @@ export function createPanelApp({
       state.reviewed = previous.reviewed;
       state.previewIdentity = previous.previewIdentity;
       state.result = previous.result;
+      state.searchSelection = previous.searchSelection;
       state.kind = previous.kind;
       setMessage(`Lote inválido ou rejeitado: ${error instanceof Error ? error.message : String(error)}`, true);
       render();
@@ -469,6 +624,25 @@ export function createPanelApp({
     }
   }
 
+  async function requestComplementarAto() {
+    if (!state.dataset || !state.record || !state.previewIdentity) return false;
+    try {
+      const freshSnapshot = await getSnapshot();
+      const freshIdentity = identityFromSnapshot(freshSnapshot);
+      if (!sameIdentity(state.previewIdentity, freshIdentity)) {
+        showSnapshotChange(freshSnapshot);
+        return false;
+      }
+      const response = await send(MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO, freshIdentity);
+      if (!response?.ok) throw new Error(responseFailure(response, "sinal bloqueado"));
+      setMessage("Sinal enviado à área restrita; nenhuma ação final foi executada pela extensão.");
+      render();
+      return true;
+    } catch (error) {
+      return transitionToOperationBlocked(error);
+    }
+  }
+
   async function overrideField(fieldName) {
     const row = state.rows.find((candidate) => candidate.field === fieldName);
     if (!row?.divergent || row.proposedValue === null || !state.previewIdentity) return false;
@@ -511,6 +685,29 @@ export function createPanelApp({
       render();
       return false;
     }
+    if (state.bridgeClient) {
+      try {
+        if (!Number.isInteger(state.bridgeRevision)) {
+          const current = await state.bridgeClient.getState();
+          state.bridgeRevision = Number.isInteger(current?.revision) ? current.revision : 0;
+        }
+        const progress = await state.bridgeClient.setCompleted(
+          state.previewIdentity.processKey,
+          reviewedValue === true,
+          state.bridgeRevision,
+        );
+        if (Number.isInteger(progress?.revision)) state.bridgeRevision = progress.revision;
+      } catch (error) {
+        await send(MESSAGE_TYPES.SET_REVIEWED, {
+          processKey: state.previewIdentity.processKey,
+          interestedNormalized: state.previewIdentity.interestedNormalized,
+          reviewed: state.reviewed,
+        }).catch(() => undefined);
+        setMessage(`Conclusão não sincronizada com a mesa local: ${error instanceof Error ? error.message : String(error)}`, true);
+        render();
+        return false;
+      }
+    }
     state.reviewed = reviewedValue === true;
     render();
     return true;
@@ -522,9 +719,14 @@ export function createPanelApp({
       elements["dataset-file"].addEventListener("change", () => { void importSelectedFile(); });
       elements["refresh-button"].addEventListener("click", () => { void refresh(); });
       elements["fill-button"].addEventListener("click", () => { void fillAvailableFields(); });
+      elements["complement-button"].addEventListener("click", () => { void requestComplementarAto(); });
+      elements["search-process"].addEventListener("input", () => { render(); });
+      elements["search-interested"].addEventListener("input", () => { render(); });
       elements["reviewed-checkbox"].addEventListener("change", () => { void setReviewed(elements["reviewed-checkbox"].checked); });
+      bridgeElements["bridge-connect-button"]?.addEventListener("click", () => { void connectBridge(); });
       state.listenersInstalled = true;
     }
+    await restoreBridge();
     try {
       const stored = await chromeApi?.storage?.local?.get?.([STORAGE_KEYS.DATASET]);
       if (stored?.[STORAGE_KEYS.DATASET] !== undefined) {
@@ -552,6 +754,7 @@ export function createPanelApp({
       reviewed: state.reviewed,
       previewIdentity: state.previewIdentity,
       result: state.result,
+      searchSelection: state.searchSelection,
       message: state.message,
     };
   }
@@ -562,6 +765,7 @@ export function createPanelApp({
     init,
     fillAvailableFields,
     overrideField,
+    requestComplementarAto,
     refresh,
     setReviewed,
   };

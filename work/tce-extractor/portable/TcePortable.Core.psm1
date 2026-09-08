@@ -336,11 +336,100 @@ function Get-TceSha256 {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Invoke-TceDownloadBatch {
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Jobs,
+        [ValidateRange(1,2)][int]$MaxDownloads = 2,
+        [Parameter(Mandatory)][scriptblock]$Downloader,
+        [AllowNull()][object]$DownloaderContext = $null
+    )
+    if (-not $Jobs.Count) { return @() }
+
+    $worker = {
+        param($downloadSource, $document, $destination, $context)
+        try {
+            $downloadScript = [scriptblock]::Create([string]$downloadSource)
+            & $downloadScript $document $destination $context | Out-Null
+            if (-not [IO.File]::Exists([string]$destination)) {
+                throw "Downloader não criou $destination"
+            }
+            [pscustomobject]@{ success = $true; error = $null }
+        } catch {
+            [pscustomobject]@{ success = $false; error = $_.Exception.Message }
+        }
+    }
+
+    $isolatedWorker = $null -ne $DownloaderContext
+    if ($MaxDownloads -eq 1 -or -not $isolatedWorker) {
+        $serialResults = New-Object System.Collections.ArrayList
+        foreach ($job in $Jobs) {
+            try {
+                & $Downloader $job.document $job.temporary $DownloaderContext | Out-Null
+                if (-not [IO.File]::Exists([string]$job.temporary)) {
+                    throw "Downloader não criou $($job.temporary)"
+                }
+                [void]$serialResults.Add([pscustomobject]@{ job = $job; success = $true; error = $null })
+            } catch {
+                [void]$serialResults.Add([pscustomobject]@{ job = $job; success = $false; error = $_.Exception.Message })
+            }
+        }
+        return @($serialResults.ToArray())
+    }
+
+    $pool = [RunspaceFactory]::CreateRunspacePool(1, $MaxDownloads)
+    $pool.Open()
+    $pending = New-Object System.Collections.ArrayList
+    $results = New-Object System.Collections.ArrayList
+    try {
+        foreach ($job in $Jobs) {
+            $powershell = [PowerShell]::Create()
+            $powershell.RunspacePool = $pool
+            [void]$powershell.AddScript($worker).
+                AddArgument($Downloader.ToString()).
+                AddArgument($job.document).
+                AddArgument($job.temporary).
+                AddArgument($DownloaderContext)
+            $handle = $powershell.BeginInvoke()
+            [void]$pending.Add([pscustomobject]@{
+                job = $job
+                powershell = $powershell
+                handle = $handle
+            })
+        }
+
+        foreach ($item in $pending) {
+            try {
+                $workerOutput = @($item.powershell.EndInvoke($item.handle))
+                $workerResult = $workerOutput | Where-Object {
+                    $_ -and $_.PSObject.Properties['success']
+                } | Select-Object -Last 1
+                if ($workerResult -and [bool]$workerResult.success) {
+                    [void]$results.Add([pscustomobject]@{ job = $item.job; success = $true; error = $null })
+                } elseif ($workerResult) {
+                    [void]$results.Add([pscustomobject]@{ job = $item.job; success = $false; error = [string]$workerResult.error })
+                } else {
+                    [void]$results.Add([pscustomobject]@{ job = $item.job; success = $false; error = 'Worker de download não retornou resultado.' })
+                }
+            } catch {
+                [void]$results.Add([pscustomobject]@{ job = $item.job; success = $false; error = $_.Exception.Message })
+            } finally {
+                $item.powershell.Dispose()
+            }
+        }
+    } finally {
+        $pool.Close()
+        $pool.Dispose()
+    }
+    return @($results.ToArray())
+}
+
 function Sync-TceProcessManifest {
     param(
         [Parameter(Mandatory)]$Manifest,
         [Parameter(Mandatory)][string]$ArchiveRoot,
-        [Parameter(Mandatory)][scriptblock]$Downloader
+        [ValidateRange(1,2)][int]$MaxDownloads = 2,
+        [Parameter(Mandatory)][scriptblock]$Downloader,
+        [AllowNull()][object]$DownloaderContext = $null
     )
     [IO.Directory]::CreateDirectory($ArchiveRoot) | Out-Null
     $checkpoint = Get-TceCheckpoint -ArchiveRoot $ArchiveRoot
@@ -380,7 +469,8 @@ function Sync-TceProcessManifest {
         $eventFolderName = 'evento-{0:D4}-{1}' -f $eventNumber, (ConvertTo-TceSafeName $eventId)
         $eventFolder = Join-Path $processFolder $eventFolderName
         [IO.Directory]::CreateDirectory($eventFolder) | Out-Null
-        $safeDocuments = New-Object System.Collections.ArrayList
+        $safeDocumentByOrdinal = @{}
+        $downloadJobs = New-Object System.Collections.ArrayList
         $ordinal = 0
 
         foreach ($document in @($event.documents)) {
@@ -402,14 +492,14 @@ function Sync-TceProcessManifest {
                     status = 'error'
                     error = $safeError
                 }
-                [void]$safeDocuments.Add($errorRecord)
+                $safeDocumentByOrdinal[$ordinal] = $errorRecord
                 continue
             }
             $safeRemoteSignature = ConvertTo-TceSafeText (Get-TceObjectPropertyValue -InputObject $document -Name 'remote_signature' -Default '')
             $known = $existingByKey[$documentKey]
             if ($known -and $known.remote_signature -eq $safeRemoteSignature -and $known.path -and (Test-Path -LiteralPath (Join-Path $ArchiveRoot $known.path))) {
                 $skipped++
-                [void]$safeDocuments.Add($known)
+                $safeDocumentByOrdinal[$ordinal] = $known
                 continue
             }
 
@@ -425,58 +515,97 @@ function Sync-TceProcessManifest {
             $destination = Join-Path $eventFolder $fileName
             $relativePath = $destination.Substring($ArchiveRoot.TrimEnd('\').Length).TrimStart('\')
             $temporary = $destination + '.' + [guid]::NewGuid().ToString('N') + '.part'
+            [void]$downloadJobs.Add([pscustomobject]@{
+                ordinal = $ordinal
+                document = $document
+                document_key = $documentKey
+                known = $known
+                safe_remote_signature = $safeRemoteSignature
+                extension = $extension
+                title = $title
+                destination = $destination
+                relative_path = $relativePath
+                temporary = $temporary
+            })
+        }
+
+        $downloadResults = @(Invoke-TceDownloadBatch -Jobs @($downloadJobs.ToArray()) -MaxDownloads $MaxDownloads -Downloader $Downloader -DownloaderContext $DownloaderContext)
+        foreach ($downloadResult in $downloadResults) {
+            $job = $downloadResult.job
+            if (-not $downloadResult.success) {
+                $hadErrors = $true
+                $safeDocumentByOrdinal[$job.ordinal] = [pscustomobject]@{
+                    key = $job.document_key
+                    id = [string](Get-TceObjectPropertyValue -InputObject $job.document -Name 'id' -Default "documento-$($job.ordinal)")
+                    title = $job.title
+                    extension = $job.extension
+                    remote_signature = $job.safe_remote_signature
+                    sha256 = $null
+                    path = $null
+                    duplicate_of = $null
+                    status = 'error'
+                    error = ConvertTo-TceSafeText ([string]$downloadResult.error)
+                }
+                if (Test-Path -LiteralPath $job.temporary) { Remove-Item -LiteralPath $job.temporary -Force }
+                continue
+            }
+
             try {
-                & $Downloader $document $temporary
-                if (-not (Test-Path -LiteralPath $temporary)) { throw "Downloader não criou $temporary" }
-                $hash = Get-TceSha256 -Path $temporary
+                if (-not (Test-Path -LiteralPath $job.temporary)) { throw "Downloader não criou $($job.temporary)" }
+                $hash = Get-TceSha256 -Path $job.temporary
                 $duplicateOf = $null
                 $previousVersions = New-Object System.Collections.ArrayList
-                if ($known -and $known.previous_versions) {
-                    foreach ($version in @($known.previous_versions)) { [void]$previousVersions.Add($version) }
+                if ($job.known -and $job.known.previous_versions) {
+                    foreach ($version in @($job.known.previous_versions)) { [void]$previousVersions.Add($version) }
                 }
                 if ($existingByHash.ContainsKey($hash) -and (Test-Path -LiteralPath (Join-Path $ArchiveRoot $existingByHash[$hash]))) {
                     $duplicateOf = $existingByHash[$hash]
-                    Remove-Item -LiteralPath $temporary -Force
+                    Remove-Item -LiteralPath $job.temporary -Force
                     $deduplicated++
                     $storedPath = $duplicateOf
                 } else {
-                    if (Test-Path -LiteralPath $destination) {
-                        $oldHash = Get-TceSha256 -Path $destination
-                        $oldExtension = [IO.Path]::GetExtension($destination)
-                        $oldStem = [IO.Path]::GetFileNameWithoutExtension($destination)
+                    if (Test-Path -LiteralPath $job.destination) {
+                        $oldHash = Get-TceSha256 -Path $job.destination
+                        $oldExtension = [IO.Path]::GetExtension($job.destination)
+                        $oldStem = [IO.Path]::GetFileNameWithoutExtension($job.destination)
                         $versionName = "$oldStem--versao-$($oldHash.Substring(0, 8))$oldExtension"
-                        $versionPath = Join-Path (Split-Path -Parent $destination) $versionName
+                        $versionPath = Join-Path (Split-Path -Parent $job.destination) $versionName
                         if (-not (Test-Path -LiteralPath $versionPath)) {
-                            Move-Item -LiteralPath $destination -Destination $versionPath
+                            Move-Item -LiteralPath $job.destination -Destination $versionPath
                         }
                         $versionRelative = $versionPath.Substring($ArchiveRoot.TrimEnd('\').Length).TrimStart('\')
                         $existingByHash[$oldHash] = $versionRelative
                         [void]$previousVersions.Add([pscustomobject]@{ sha256 = $oldHash; path = $versionRelative })
                     }
-                    Move-Item -LiteralPath $temporary -Destination $destination -Force
-                    $storedPath = $relativePath
+                    Move-Item -LiteralPath $job.temporary -Destination $job.destination -Force
+                    $storedPath = $job.relative_path
                     $existingByHash[$hash] = $storedPath
                 }
                 $downloaded++
                 $safeRecord = [pscustomobject]@{
-                    key = $documentKey
-                    id = [string]$document.id
-                    title = $title
-                    extension = $extension.ToLowerInvariant()
-                    remote_signature = $safeRemoteSignature
+                    key = $job.document_key
+                    id = [string]$job.document.id
+                    title = $job.title
+                    extension = $job.extension.ToLowerInvariant()
+                    remote_signature = $job.safe_remote_signature
                     sha256 = $hash
                     path = $storedPath
                     duplicate_of = $duplicateOf
                     previous_versions = @($previousVersions)
                     status = 'complete'
                 }
-                if ($known) { [void]$documentRecords.Remove($known) }
+                if ($job.known) { [void]$documentRecords.Remove($job.known) }
                 [void]$documentRecords.Add($safeRecord)
-                $existingByKey[$documentKey] = $safeRecord
-                [void]$safeDocuments.Add($safeRecord)
+                $existingByKey[$job.document_key] = $safeRecord
+                $safeDocumentByOrdinal[$job.ordinal] = $safeRecord
             } finally {
-                if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
+                if (Test-Path -LiteralPath $job.temporary) { Remove-Item -LiteralPath $job.temporary -Force }
             }
+        }
+
+        $safeDocuments = New-Object System.Collections.ArrayList
+        foreach ($documentOrdinal in @($safeDocumentByOrdinal.Keys | Sort-Object { [int]$_ })) {
+            [void]$safeDocuments.Add($safeDocumentByOrdinal[$documentOrdinal])
         }
 
         $safeEvent = [pscustomobject]@{

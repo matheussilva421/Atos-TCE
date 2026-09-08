@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import sys
 import uuid
@@ -20,7 +21,9 @@ import uuid
 ARCHIVE_NAME = "acervo-tce"
 BACKUP_NAME = "backups-acervo"
 CYCLE_FILE_NAME = "ciclo-acervo.json"
+PROGRESS_FILE_NAME = "progresso.json"
 REPARSE_POINT_ATTRIBUTE = 0x0400
+PROCESS_KEY_PATTERN = re.compile(r"^\s*(\d+)\s*/\s*(\d{4})\s*$")
 
 
 class ResetArchiveError(RuntimeError):
@@ -115,6 +118,54 @@ def _write_cycle_marker(directory: Path, cycle_id: str) -> None:
             temporary.unlink()
 
 
+def _empty_progress() -> dict[str, object]:
+    return {"schema_version": 1, "revision": 0, "processes": {}}
+
+
+def _load_progress_for_reset(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return _empty_progress()
+    try:
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ResetArchiveError(f"progresso.json inválido: {path}") from exc
+    if not isinstance(value, dict) or value.get("schema_version") != 1:
+        raise ResetArchiveError(f"progresso.json inválido: {path}")
+    revision = value.get("revision")
+    processes = value.get("processes")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+        raise ResetArchiveError(f"progresso.json inválido: {path}")
+    if not isinstance(processes, dict):
+        raise ResetArchiveError(f"progresso.json inválido: {path}")
+
+    normalized: dict[str, dict[str, object]] = {}
+    for raw_key, entry in processes.items():
+        match = PROCESS_KEY_PATTERN.fullmatch(str(raw_key))
+        if match is None:
+            raise ResetArchiveError(f"progresso.json inválido: {path}")
+        key = f"{match.group(1)}/{match.group(2)}"
+        if key in normalized or not isinstance(entry, dict):
+            raise ResetArchiveError(f"progresso.json inválido: {path}")
+        if type(entry.get("completed")) is not bool:
+            raise ResetArchiveError(f"progresso.json inválido: {path}")
+        updated_at = entry.get("updated_at")
+        if not isinstance(updated_at, str) or not updated_at.strip():
+            raise ResetArchiveError(f"progresso.json inválido: {path}")
+        normalized[key] = {
+            "completed": entry["completed"],
+            "updated_at": updated_at,
+        }
+    return {"schema_version": 1, "revision": revision, "processes": normalized}
+
+
+def _write_staged_json(path: Path, value: dict[str, object]) -> None:
+    with path.open("w", encoding="utf-8", newline="\n") as stream:
+        json.dump(value, stream, ensure_ascii=False)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
 def _new_backup_root(package_root: Path, transaction_id: str) -> Path:
     backup_parent = package_root / BACKUP_NAME
     if _is_reparse_point(backup_parent):
@@ -138,6 +189,7 @@ def reset_archive(
     root = _assert_package_root(_absolute(package_root))
     target = _absolute(archive_root) if archive_root is not None else root / ARCHIVE_NAME
     target = _validate_archive_target(root, target)
+    preserved_progress = _load_progress_for_reset(target / PROGRESS_FILE_NAME)
 
     cycle_id = str(uuid.uuid4())
     transaction_id = uuid.uuid4().hex
@@ -152,6 +204,7 @@ def reset_archive(
         staging_root = root / BACKUP_NAME / f".reset-staging-{transaction_id}"
         staging_root.mkdir()
         _write_cycle_marker(staging_root, cycle_id)
+        _write_staged_json(staging_root / PROGRESS_FILE_NAME, preserved_progress)
 
         if target.exists():
             os.replace(target, backup_archive)

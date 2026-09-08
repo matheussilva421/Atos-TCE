@@ -91,6 +91,73 @@ class ResetArchiveSafetyTests(unittest.TestCase):
                 with self.assertRaises(reset_archive.ResetArchiveError):
                     reset_archive._assert_no_reparse_points(archive_root)
 
+    def test_reset_preserves_valid_workflow_progress_in_new_cycle(self):
+        with TemporaryDirectory() as temporary:
+            package_root = Path(temporary)
+            archive_root = package_root / "acervo-tce"
+            archive_root.mkdir()
+            progress = {
+                "schema_version": 1,
+                "revision": 4,
+                "processes": {
+                    "103439/2023": {
+                        "completed": True,
+                        "updated_at": "2026-09-08T00:00:00+00:00",
+                    }
+                },
+            }
+            (archive_root / "progresso.json").write_text(
+                __import__("json").dumps(progress), encoding="utf-8"
+            )
+
+            summary = reset_archive.reset_archive(package_root)
+
+            active = __import__("json").loads(
+                (archive_root / "progresso.json").read_text(encoding="utf-8")
+            )
+            backup = __import__("json").loads(
+                (
+                    Path(summary["backup_root"])
+                    / "acervo-tce"
+                    / "progresso.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(active, progress)
+            self.assertEqual(backup, progress)
+
+    def test_reset_does_not_promote_legacy_reviewed_checkpoint(self):
+        with TemporaryDirectory() as temporary:
+            package_root = Path(temporary)
+            archive_root = package_root / "acervo-tce"
+            archive_root.mkdir()
+            (archive_root / "checkpoint.json").write_text(
+                '{"processes": [{"key": "103439/2023", "status": "reviewed:v1"}]}',
+                encoding="utf-8",
+            )
+
+            reset_archive.reset_archive(package_root)
+
+            active = __import__("json").loads(
+                (archive_root / "progresso.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(active["schema_version"], 1)
+            self.assertEqual(active["revision"], 0)
+            self.assertEqual(active["processes"], {})
+
+    def test_reset_rejects_corrupt_workflow_progress_before_moving_archive(self):
+        with TemporaryDirectory() as temporary:
+            package_root = Path(temporary)
+            archive_root = package_root / "acervo-tce"
+            archive_root.mkdir()
+            old_file = archive_root / "progresso.json"
+            old_file.write_text("{broken", encoding="utf-8")
+
+            with self.assertRaises(reset_archive.ResetArchiveError):
+                reset_archive.reset_archive(package_root)
+
+            self.assertEqual(old_file.read_text(encoding="utf-8"), "{broken")
+            self.assertFalse((package_root / "backups-acervo").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

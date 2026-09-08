@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import sys
 import subprocess
@@ -20,6 +21,7 @@ from analysis_pipeline import (
     build_target_manifest,
     classify_archive,
     run_local_pipeline,
+    write_visual_evidence,
 )
 from archive_index import scan_archive
 from html_generator import build_interface_payload, write_html
@@ -43,6 +45,75 @@ def make_index(documents: list[dict]) -> dict:
 
 
 class AnalysisPipelineTests(unittest.TestCase):
+    def test_visual_evidence_sidecar_projects_manifest_documents_without_absolute_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = root / "manifest.json"
+            checkpoint = root / "checkpoint.json"
+            sidecar = root / "evidencias-visuais.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "processes": [
+                            {
+                                "process": "103439/2023",
+                                "documents": [
+                                    {
+                                        "event": "6",
+                                        "event_id": "6",
+                                        "id": "portal-doc-1",
+                                        "title": "resolucao.pdf",
+                                        "relative_path": "processos/103439-2023/resolucao.pdf",
+                                        "sha256": "a" * 64,
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            checkpoint.write_text(
+                json.dumps(
+                    {
+                        "processes": {
+                            "103439/2023": {
+                                "result": {
+                                    "process": "103439/2023",
+                                    "blocks": [
+                                        {
+                                            "interested": "JOANA DA SILVA",
+                                            "fields": {
+                                                "cargo": {
+                                                    "status": "found",
+                                                    "value": "PROFESSOR",
+                                                    "process": "103439/2023",
+                                                    "event": "6",
+                                                    "document": "resolucao.pdf",
+                                                    "page": 1,
+                                                    "quote": "PROFESSOR",
+                                                    "rects": [[0.1, 0.2, 0.4, 0.3]],
+                                                }
+                                            },
+                                        }
+                                    ],
+                                }
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            write_visual_evidence(manifest, checkpoint, sidecar)
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(len(payload["documents"]), 1)
+        record_id = hashlib.sha256("103439/2023|joana da silva".encode()).hexdigest()
+        self.assertEqual(payload["records"][record_id]["cargo"]["page"], 1)
+        self.assertNotIn(str(root), json.dumps(payload))
+
     def test_local_pipeline_exports_extension_dataset_after_checkpoint_and_html(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -605,6 +676,50 @@ class AnalysisPipelineTests(unittest.TestCase):
             )
 
         self.assertEqual(calls["ocr"], 2)
+
+    def test_geometry_cache_keeps_text_and_boxes_from_the_same_ocr_result(self):
+        documents = [doc(event=9, title="Resolução", text="", sha256="d" * 64)]
+        geometry = [
+            {
+                "page": 0,
+                "method": "ocr",
+                "coordinates": "normalized",
+                "words": [{"text": "RESOLUÇÃO", "rect": [0.1, 0.1, 0.4, 0.2]}],
+            }
+        ]
+        calls = {"ocr": 0}
+
+        def fake_ocr(path: Path):
+            calls["ocr"] += 1
+            return (["RESOLUÇÃO ADMINISTRATIVA Nº 156"], geometry)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cache_path = root / "cache.json"
+            geometry_path = root / "cache-geometria.json"
+            first = classify_archive(
+                make_index(documents),
+                cache_path=cache_path,
+                geometry_cache_path=geometry_path,
+                text_reader=lambda path: [],
+                ocr_reader=fake_ocr,
+            )
+            second = classify_archive(
+                make_index(documents),
+                cache_path=cache_path,
+                geometry_cache_path=geometry_path,
+                text_reader=lambda path: [],
+                ocr_reader=lambda path: (_ for _ in ()).throw(AssertionError("OCR repetido")),
+            )
+            manifest = build_target_manifest(first)
+            saved_geometry = json.loads(geometry_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(calls["ocr"], 1)
+        self.assertEqual(first["documents"][0]["text_source"], "ocr_geometry")
+        self.assertEqual(second["documents"][0]["text_source"], "ocr_geometry_cache")
+        self.assertIn("geometry_cache_key", manifest["processes"][0]["documents"][0])
+        self.assertEqual(saved_geometry["geometry_version"], 1)
+        self.assertEqual(len(saved_geometry["entries"]), 1)
 
     def test_empty_or_failed_reading_is_not_an_automatic_target(self):
         empty = [doc(event=9, title="Documento", text="", sha256="b" * 64)]

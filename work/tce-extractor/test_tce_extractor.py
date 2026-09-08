@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,6 +20,35 @@ from tce_extractor import (
 
 
 class DocumentClassificationTests(unittest.TestCase):
+    def test_extract_fields_preserves_original_quote_and_geometry_when_words_are_supplied(self):
+        pages = [
+            "RESOLUÇÃO ADMINISTRATIVA Nº 156\n"
+            "Interessada: JOANA DA SILVA\n"
+            "Cargo: PROFESSOR"
+        ]
+        page_words = [
+            {
+                "width": 200,
+                "height": 100,
+                "words": [
+                    {"text": "Cargo:", "rect": [10, 20, 35, 30]},
+                    {"text": "PROFESSOR", "rect": [40, 20, 100, 30]},
+                ],
+            }
+        ]
+        extraction = extract_fields(
+            pages,
+            process="103439/2023",
+            event="6",
+            document="resolucao.pdf",
+            kind="resolucao_administrativa",
+            page_words=page_words,
+        )
+        cargo = extraction.fields["cargo"]
+        self.assertEqual(cargo.quote, "PROFESSOR")
+        self.assertEqual(cargo.rects, ((0.2, 0.2, 0.5, 0.3),))
+        self.assertEqual(cargo.method, "native")
+
     def test_classifies_priority_documents_without_relying_on_ellipsis(self):
         self.assertEqual(
             classify_document(
@@ -264,6 +294,40 @@ class FieldExtractionTests(unittest.TestCase):
             )
 
             self.assertIn("PROFESSOR", " ".join(pages).upper())
+
+    def test_ocr_geometry_comes_from_the_same_tsv_pass_as_text(self):
+        try:
+            import fitz
+        except ImportError as error:  # pragma: no cover - environment gate
+            self.skipTest(str(error))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pdf_path = Path(temp_dir) / "scan.pdf"
+            document = fitz.open()
+            document.new_page(width=200, height=100)
+            document.save(pdf_path)
+            document.close()
+            tsv = (
+                "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\t"
+                "top\twidth\theight\tconf\ttext\n"
+                "5\t1\t1\t1\t1\t1\t10\t20\t60\t10\t95\tPROFESSOR\n"
+            )
+            with patch(
+                "tce_extractor.subprocess.run",
+                return_value=type("Completed", (), {"returncode": 0, "stdout": tsv.encode("utf-8")})(),
+            ) as run:
+                pages, geometry = extract_pdf_pages(
+                    pdf_path,
+                    tesseract="tesseract-fixture",
+                    return_geometry=True,
+                )
+
+        self.assertEqual(pages, ["PROFESSOR"])
+        self.assertEqual(run.call_count, 1)
+        self.assertIn("tsv", run.call_args.args[0])
+        self.assertEqual(geometry[0]["method"], "ocr")
+        self.assertEqual(geometry[0]["words"][0]["text"], "PROFESSOR")
+        self.assertTrue(all(0 <= value <= 1 for value in geometry[0]["words"][0]["rect"]))
 
     def test_extracts_resolution_narrative_without_form_labels(self):
         result = extract_fields(

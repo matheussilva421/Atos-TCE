@@ -6,7 +6,12 @@ param(
     [string]$BaseConcluidos = '',
     [switch]$BaselineAllComplete,
     [switch]$SomenteDiagnostico,
-    [switch]$ManterNavegadorAberto
+    [switch]$ManterNavegadorAberto,
+    [ValidateSet('progressivo','completo')][string]$ModoPreparacao = 'progressivo',
+    [ValidateRange(1,2)][int]$MaxDownloads = 2,
+    [string]$Python = '',
+    [string]$Tesseract = '',
+    [string]$Tessdata = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -163,6 +168,18 @@ function Write-SafeFailure {
     Add-TceFailure -ArchiveRoot $Destino -ProcessKey $ProcessKey -Message $Message
 }
 
+function Invoke-TceIncrementalPreparation {
+    param([Parameter(Mandatory)][string]$ProcessKey)
+    if ([string]::IsNullOrWhiteSpace($Python) -or [string]::IsNullOrWhiteSpace($Tesseract) -or [string]::IsNullOrWhiteSpace($Tessdata)) {
+        Write-Warning "Preparação incremental indisponível para ${ProcessKey}: runtime não informado; a coleta continuará e a análise poderá ser executada pelo menu."
+        return
+    }
+    $pipelinePath = Join-Path $scriptRoot 'app\incremental_pipeline.py'
+    if (-not (Test-Path -LiteralPath $pipelinePath -PathType Leaf)) { throw "Pipeline incremental ausente: $pipelinePath" }
+    & $Python -B -s $pipelinePath --archive-root $Destino --process-key $ProcessKey --tesseract $Tesseract --tessdata $Tessdata
+    if ($LASTEXITCODE -ne 0) { throw "Preparação incremental falhou para $ProcessKey (código $LASTEXITCODE)." }
+}
+
 try {
     Write-Host 'TCE/RN - coletor portátil de todos os eventos' -ForegroundColor Cyan
     Write-Host "Destino: $Destino"
@@ -221,14 +238,35 @@ try {
                 Write-Warning (ConvertTo-TceSafeText "$($item.key): $badTitle - $badError")
             }
             $token = [string]$session.token
-            $result = Sync-TceProcessManifest -Manifest $manifest -ArchiveRoot $Destino -Downloader {
-                param($document, $destination)
-                Invoke-TceDownload -Document $document -Destination $destination -Token $token
+            $downloader = {
+                param($document, $destination, $context)
+                $documentId = [string]$document.id
+                $documentUrl = [string]$document.url
+                if (-not $documentUrl) { throw "Documento $documentId não possui endereço de download." }
+                $uri = [Uri]::new([Uri]'https://processos.tce.rn.gov.br/', $documentUrl)
+                $client = [Activator]::CreateInstance([Net.WebClient])
+                try {
+                    $client.Headers['User-Agent'] = 'TCE-Processos-Portatil/1.0'
+                    if ([bool]$document.requires_auth -or $uri.Host -eq 'processos.tce.rn.gov.br') {
+                        if (-not $context -or -not $context.token) { throw 'Sessão sem token para baixar um arquivo autenticado.' }
+                        $client.Headers['Authorization'] = [string]$context.token
+                    }
+                    $client.DownloadFile($uri.AbsoluteUri, $destination)
+                } finally {
+                    $client.Dispose()
+                }
+                if (-not [IO.File]::Exists($destination) -or [IO.File]::GetLength($destination) -eq 0) {
+                    throw 'O arquivo baixado veio vazio.'
+                }
             }
+            $result = Sync-TceProcessManifest -Manifest $manifest -ArchiveRoot $Destino -MaxDownloads $MaxDownloads -Downloader $downloader -DownloaderContext @{ token = $token }
             $totals.downloaded += $result.downloaded
             $totals.skipped += $result.skipped
             $totals.deduplicated += $result.deduplicated
             Write-Host "  baixados: $($result.downloaded); já existentes: $($result.skipped); duplicados: $($result.deduplicated)" -ForegroundColor Green
+            if ($ModoPreparacao -eq 'progressivo') {
+                Invoke-TceIncrementalPreparation -ProcessKey $item.key
+            }
         } catch {
             $totals.failed++
             Write-Warning (ConvertTo-TceSafeText "$($item.key): $($_.Exception.Message)")
@@ -236,7 +274,18 @@ try {
         }
     }
 
-    Write-Host "`nConcluído. Baixados: $($totals.downloaded); reutilizados: $($totals.skipped); deduplicados: $($totals.deduplicated); processos com falha: $($totals.failed)." -ForegroundColor Green
+    if ($ModoPreparacao -eq 'completo') {
+        foreach ($item in $selected) {
+            try {
+                Invoke-TceIncrementalPreparation -ProcessKey $item.key
+            } catch {
+                Write-Warning (ConvertTo-TceSafeText "$($item.key): $($_.Exception.Message)")
+                Write-SafeFailure -ProcessKey $item.key -Message $_.Exception.Message
+            }
+        }
+    }
+
+    Write-Host "`nConcluído ($ModoPreparacao). Baixados: $($totals.downloaded); reutilizados: $($totals.skipped); deduplicados: $($totals.deduplicated); processos com falha: $($totals.failed)." -ForegroundColor Green
     Write-Host "Acervo: $Destino"
 } finally {
     if ($script:CdpSocket) { $script:CdpSocket.Dispose() }

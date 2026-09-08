@@ -68,6 +68,7 @@ def _build_fixture_zip(root: Path) -> tuple[Path, dict[str, object]]:
     app_sources = {
         "archive_index.py": ROOT / "portable" / "app" / "archive_index.py",
         "analysis_pipeline.py": ROOT / "portable" / "app" / "analysis_pipeline.py",
+        "evidence_geometry.py": ROOT / "portable" / "app" / "evidence_geometry.py",
         "runtime_paths.py": ROOT / "portable" / "app" / "runtime_paths.py",
         "package_audit.py": ROOT / "portable" / "app" / "package_audit.py",
         "extension_exporter.py": ROOT / "portable" / "app" / "extension_exporter.py",

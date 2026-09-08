@@ -13,6 +13,11 @@ from tempfile import NamedTemporaryFile
 import unicodedata
 from typing import Iterable, Mapping, Sequence
 
+try:
+    from evidence_geometry import locate_evidence, parse_ocr_tsv
+except ImportError:  # direct extractor tests run with the project root on sys.path
+    from portable.app.evidence_geometry import locate_evidence, parse_ocr_tsv
+
 
 FIELD_ORDER = (
     "modalidade",
@@ -210,6 +215,9 @@ class FieldEvidence:
     confidence: str = "high"
     raw_value: str | None = None
     candidates: tuple["FieldEvidence", ...] = ()
+    quote: str | None = None
+    rects: tuple[tuple[float, float, float, float], ...] = ()
+    method: str | None = None
 
     @property
     def citation(self) -> str | None:
@@ -231,6 +239,29 @@ class Extraction:
 
 def _empty_field(key: str) -> FieldEvidence:
     return FieldEvidence(key=key, value=None, status="missing")
+
+
+def _attach_geometry(evidence: FieldEvidence, page_words: Mapping[str, object] | None) -> FieldEvidence:
+    if page_words is None:
+        return evidence
+    words = page_words.get("words", [])
+    if not isinstance(words, Sequence) or isinstance(words, (str, bytes)):
+        return evidence
+    quote = evidence.raw_value or evidence.value
+    if not quote:
+        return evidence
+    coordinates = str(page_words.get("coordinates", "raw"))
+    page_width = 1.0 if coordinates == "normalized" else float(page_words.get("width", 1) or 1)
+    page_height = 1.0 if coordinates == "normalized" else float(page_words.get("height", 1) or 1)
+    rects = locate_evidence(words, quote, page_width=page_width, page_height=page_height)
+    return FieldEvidence(
+        **{
+            **evidence.__dict__,
+            "quote": quote,
+            "rects": tuple(tuple(rect) for rect in rects),
+            "method": str(page_words.get("method", "native")),
+        }
+    )
 
 
 def _normalize_matricula(value: str) -> str:
@@ -511,7 +542,8 @@ def extract_interested(extraction: Extraction) -> str | None:
 
 
 def extract_fields(
-    pages: Sequence[str], process: str, event: str, document: str, kind: str | None = None
+    pages: Sequence[str], process: str, event: str, document: str, kind: str | None = None,
+    page_words: Sequence[Mapping[str, object]] | None = None,
 ) -> Extraction:
     fields = {key: _empty_field(key) for key in FIELD_ORDER}
     full_text = "\n".join(pages)
@@ -528,7 +560,7 @@ def extract_fields(
                     continue
                 found = _field_from_line(key, line, process, event, document, page_number)
                 if found:
-                    fields[key] = found
+                    fields[key] = _attach_geometry(found, page_words[page_number - 1] if page_words and page_number <= len(page_words) else None)
         for key in ("modalidade", "cargo", "matricula"):
             if fields[key].status == "missing":
                 narrative_text = (
@@ -540,21 +572,21 @@ def extract_fields(
                     key, narrative_text, process, event, document, page_number
                 )
                 if found:
-                    fields[key] = found
+                    fields[key] = _attach_geometry(found, page_words[page_number - 1] if page_words and page_number <= len(page_words) else None)
         for key in ("data_nascimento", "cargo"):
             if fields[key].status == "missing":
                 found = _guide_evidence(
                     key, page_text, process, event, document, page_number
                 )
                 if found:
-                    fields[key] = found
+                    fields[key] = _attach_geometry(found, page_words[page_number - 1] if page_words and page_number <= len(page_words) else None)
         for key in ("fundamento_legal", "data_publicacao_doe"):
             if fields[key].status == "missing":
                 found = _narrative_evidence(
                     key, page_text, process, event, document, page_number
                 )
                 if found:
-                    fields[key] = found
+                    fields[key] = _attach_geometry(found, page_words[page_number - 1] if page_words and page_number <= len(page_words) else None)
     return Extraction(
         process=process,
         event=event,
@@ -728,8 +760,15 @@ def extract_pdf_pages(
     pdf_path: Path,
     tesseract: str = "tesseract",
     tessdata_dir: Path | None = None,
-) -> list[str]:
-    """Extract native PDF text and use local OCR only for pages without text."""
+    *,
+    return_geometry: bool = False,
+) -> list[str] | tuple[list[str], list[dict]]:
+    """Extract text, optionally retaining geometry from the same OCR pass.
+
+    The default return value remains the historical ``list[str]``. When
+    ``return_geometry`` is true, scanned pages are sent to Tesseract once as
+    TSV; the returned text and word boxes come from that same response.
+    """
     try:
         import fitz
     except ImportError as error:  # pragma: no cover - environment guard
@@ -737,14 +776,42 @@ def extract_pdf_pages(
 
     document = fitz.open(pdf_path)
     pages: list[str] = []
-    for page in document:
+    geometry: list[dict] = []
+    for page_number, page in enumerate(document):
         native = page.get_text("text").strip()
         if native:
             pages.append(native)
+            words = []
+            width, height = float(page.rect.width), float(page.rect.height)
+            for item in page.get_text("words"):
+                if len(item) < 5 or not str(item[4]).strip():
+                    continue
+                if width <= 0 or height <= 0:
+                    continue
+                words.append({
+                    "text": str(item[4]),
+                    "rect": [
+                        max(0.0, min(1.0, float(item[0]) / width)),
+                        max(0.0, min(1.0, float(item[1]) / height)),
+                        max(0.0, min(1.0, float(item[2]) / width)),
+                        max(0.0, min(1.0, float(item[3]) / height)),
+                    ],
+                    "method": "native",
+                })
+            geometry.append({
+                "page": page_number,
+                "width": width,
+                "height": height,
+                "rotation": int(page.rotation),
+                "coordinates": "normalized",
+                "text": native,
+                "words": words,
+                "method": "native",
+            })
             continue
 
         pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
-        command = [tesseract, "stdin", "stdout", "-l", "por+eng", "--psm", "6"]
+        command = [tesseract, "stdin", "stdout", "-l", "por+eng", "--psm", "6", "tsv"]
         if tessdata_dir:
             command.extend(["--tessdata-dir", str(tessdata_dir)])
         result = subprocess.run(
@@ -756,6 +823,35 @@ def extract_pdf_pages(
         )
         if result.returncode != 0:
             pages.append("")
+            geometry.append({
+                "page": page_number,
+                "width": float(page.rect.width),
+                "height": float(page.rect.height),
+                "rotation": int(page.rotation),
+                "coordinates": "normalized",
+                "text": "",
+                "words": [],
+                "method": "none",
+            })
         else:
-            pages.append(result.stdout.decode("utf-8", errors="replace").strip())
-    return pages
+            raw_tsv = result.stdout
+            if isinstance(raw_tsv, bytes):
+                raw_tsv = raw_tsv.decode("utf-8", errors="replace")
+            words, text = parse_ocr_tsv(
+                str(raw_tsv),
+                float(pixmap.width),
+                float(pixmap.height),
+            )
+            pages.append(text.strip())
+            geometry.append({
+                "page": page_number,
+                "width": float(page.rect.width),
+                "height": float(page.rect.height),
+                "rotation": int(page.rotation),
+                "coordinates": "normalized",
+                "text": text.strip(),
+                "words": words,
+                "method": "ocr" if words else "none",
+            })
+    document.close()
+    return (pages, geometry) if return_geometry else pages

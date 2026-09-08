@@ -146,6 +146,7 @@ _PRIVATE_PACKAGE_DIRECTORY_ALLOWLIST = {
 }
 _ALLOWED_HOST = "https://novaarearestrita.tce.rn.gov.br"
 _ALLOWED_HOST_PATTERN = f"{_ALLOWED_HOST}/*"
+_ALLOWED_BRIDGE_HOST_PATTERN = "http://127.0.0.1/*"
 _EXTENSION_FILE_ALLOWLIST = frozenset(
     {
         "manifest.json",
@@ -155,6 +156,7 @@ _EXTENSION_FILE_ALLOWLIST = frozenset(
         "background/service-worker.js",
         "lib/matcher.js",
         "lib/messages.js",
+        "lib/bridge-client.js",
         "lib/normalizer.js",
         "lib/schema.js",
         "sidepanel/panel.css",
@@ -630,7 +632,7 @@ def _audit_extension(
         )
 
     host_permissions = manifest.get("host_permissions")
-    if host_permissions != [_ALLOWED_HOST_PATTERN]:
+    if host_permissions != [_ALLOWED_HOST_PATTERN, _ALLOWED_BRIDGE_HOST_PATTERN]:
         report.add(
             "extension_hosts",
             _relative_name(root, manifest_path),
@@ -902,7 +904,9 @@ def _audit_extension(
             raw_url = match.group(0).rstrip(".,;:)]}>")
             parsed = urlsplit(raw_url)
             origin = f"{parsed.scheme}://{parsed.netloc}".casefold()
-            if origin != _ALLOWED_HOST.casefold() or parsed.scheme.casefold() != "https":
+            is_portal = origin == _ALLOWED_HOST.casefold() and parsed.scheme.casefold() == "https"
+            is_loopback_bridge = parsed.scheme.casefold() == "http" and parsed.hostname == "127.0.0.1"
+            if not (is_portal or is_loopback_bridge):
                 report.add(
                     "extension_remote_code",
                     relative,

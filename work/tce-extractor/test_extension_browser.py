@@ -179,7 +179,7 @@ def _assert_manifest_contract(test: unittest.TestCase) -> dict[str, Any]:
     test.assertEqual(manifest["manifest_version"], 3)
     test.assertEqual(manifest["permissions"], ["storage", "sidePanel"])
     test.assertEqual(
-        manifest["host_permissions"], [f"https://{ALLOWED_HOST}/*"]
+        manifest["host_permissions"], [f"https://{ALLOWED_HOST}/*", "http://127.0.0.1/*"]
     )
     test.assertEqual(
         manifest["content_scripts"][0]["matches"],

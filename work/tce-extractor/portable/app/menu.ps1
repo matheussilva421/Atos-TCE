@@ -153,6 +153,110 @@ function Resolve-TceArchiveResetPackageRoot {
     return $canonicalPackage
 }
 
+function Get-TceLocalServiceMetadataPath {
+    param([Parameter(Mandatory)][string]$PackageRoot)
+    $canonicalPackage = [IO.Path]::GetFullPath($PackageRoot)
+    return Join-Path $canonicalPackage 'dados-locais\bridge\service.json'
+}
+
+function Start-TceLocalService {
+    param(
+        [Parameter(Mandatory)][string]$PackageRoot,
+        [Parameter(Mandatory)][string]$ArchiveRoot,
+        [Parameter(Mandatory)][string]$Python,
+        [scriptblock]$ProcessStarter
+    )
+    $canonicalPackage = [IO.Path]::GetFullPath($PackageRoot)
+    $canonicalArchive = [IO.Path]::GetFullPath($ArchiveRoot)
+    $bridgeRoot = Join-Path $canonicalPackage 'dados-locais\bridge'
+    $metadataPath = Get-TceLocalServiceMetadataPath -PackageRoot $canonicalPackage
+    New-Item -ItemType Directory -Path $bridgeRoot -Force | Out-Null
+
+    if (Test-Path -LiteralPath $metadataPath -PathType Leaf) {
+        try {
+            $existing = Get-Content -LiteralPath $metadataPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $existingProcess = Get-Process -Id ([int]$existing.pid) -ErrorAction Stop
+            if (-not $existingProcess.HasExited) { return $existing }
+        } catch {
+            Remove-Item -LiteralPath $metadataPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    $serviceScript = Join-Path $canonicalPackage 'app\local_service.py'
+    if (-not (Test-Path -LiteralPath $serviceScript -PathType Leaf)) {
+        throw 'Helper do serviço local ausente; o modo manual permanece disponível.'
+    }
+    $arguments = @('-B', $serviceScript, '--root', $canonicalArchive, '--bridge-root', $bridgeRoot, '--port', '18743')
+    try {
+        $process = if ($null -ne $ProcessStarter) {
+            & $ProcessStarter $Python $arguments (Join-Path $canonicalPackage 'app')
+        } else {
+            Start-Process -FilePath $Python -ArgumentList $arguments -WorkingDirectory (Join-Path $canonicalPackage 'app') -WindowStyle Hidden -PassThru
+        }
+    } catch {
+        throw 'Não foi possível iniciar o serviço local; use o HTML/JSON manual.'
+    }
+    if ($null -eq $process -or -not ($process.PSObject.Properties.Name -contains 'Id')) {
+        throw 'O serviço local não retornou um PID; use o HTML/JSON manual.'
+    }
+
+    if ($null -eq $ProcessStarter) {
+        $readyUntil = [DateTime]::UtcNow.AddSeconds(3)
+        while ([DateTime]::UtcNow -lt $readyUntil) {
+            if (Test-Path -LiteralPath $metadataPath -PathType Leaf) {
+                try {
+                    $ready = Get-Content -LiteralPath $metadataPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if ([int]$ready.pid -eq [int]$process.Id -and $ready.port) { return $ready }
+                } catch { }
+            }
+            Start-Sleep -Milliseconds 100
+        }
+    }
+
+    $metadata = [ordered]@{
+        schema_version = 1
+        pid = [int]$process.Id
+        port = 18743
+        executable = [IO.Path]::GetFullPath($Python)
+        started_at = [DateTime]::UtcNow.ToString('o')
+    }
+    [IO.File]::WriteAllText($metadataPath, (($metadata | ConvertTo-Json -Compress) + "`n"), (New-Object Text.UTF8Encoding($false)))
+    return [pscustomobject]$metadata
+}
+
+function Stop-TceLocalService {
+    param(
+        [Parameter(Mandatory)][string]$PackageRoot,
+        [Parameter(Mandatory)][string]$Python,
+        [scriptblock]$ProcessResolver,
+        [scriptblock]$ProcessStopper
+    )
+    $metadataPath = Get-TceLocalServiceMetadataPath -PackageRoot $PackageRoot
+    if (-not (Test-Path -LiteralPath $metadataPath -PathType Leaf)) { return $false }
+    try {
+        $metadata = Get-Content -LiteralPath $metadataPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $expectedPython = [IO.Path]::GetFullPath($Python)
+        if (-not [StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetFullPath([string]$metadata.executable), $expectedPython)) { return $false }
+        $process = if ($null -ne $ProcessResolver) { & $ProcessResolver ([int]$metadata.pid) } else { Get-Process -Id ([int]$metadata.pid) -ErrorAction SilentlyContinue }
+        if ($null -eq $process) {
+            Remove-Item -LiteralPath $metadataPath -Force -ErrorAction SilentlyContinue
+            return $true
+        }
+        if ($process.PSObject.Properties.Name -contains 'HasExited' -and $process.HasExited) {
+            Remove-Item -LiteralPath $metadataPath -Force -ErrorAction SilentlyContinue
+            return $true
+        }
+        $actualPath = $null
+        try { $actualPath = [IO.Path]::GetFullPath([string]$process.Path) } catch { return $false }
+        if (-not [StringComparer]::OrdinalIgnoreCase.Equals($actualPath, $expectedPython)) { return $false }
+        if ($null -ne $ProcessStopper) { & $ProcessStopper $process } else { Stop-Process -Id ([int]$metadata.pid) -Force -ErrorAction Stop }
+        Remove-Item -LiteralPath $metadataPath -Force -ErrorAction SilentlyContinue
+        return $true
+    } catch {
+        return $false
+    }
+}
+
 function Invoke-TceMenuAction {
     param(
         [Parameter(Mandatory)][ValidateRange(1,8)][int]$Action,
@@ -205,9 +309,19 @@ function Invoke-TceMenuAction {
 }
 
 function Start-TcePortableMenu {
+    param([switch]$LaunchLocalService, [switch]$StopLocalService)
     $appRoot = $script:TceMenuAppRoot
     $packageRoot = Split-Path -Parent $appRoot
     $archiveRoot = Join-Path $packageRoot 'acervo-tce'
+    $pythonPath = Join-Path $packageRoot 'runtime\python\python.exe'
+    if ($StopLocalService) {
+        if (Stop-TceLocalService -PackageRoot $packageRoot -Python $pythonPath) {
+            Write-Host 'Serviço local parado.' -ForegroundColor Green
+        } else {
+            Write-Host 'Nenhum serviço local identificado foi parado; o modo manual permanece disponível.' -ForegroundColor Yellow
+        }
+        return 0
+    }
     $runtime = Resolve-TcePortableRuntime -PackageRoot $packageRoot
     $collectorPath = Join-Path $packageRoot 'Coletar-Processos-TCE.ps1'
     $pipelinePath = Join-Path $appRoot 'analysis_pipeline.py'
@@ -215,7 +329,7 @@ function Start-TcePortableMenu {
     $resetArchivePath = Join-Path $appRoot 'reset_archive.py'
     $htmlPath = Join-Path $archiveRoot 'complementar-ato.html'
 
-    $collector = { param($root) & $collectorPath -Destino $root -ManterNavegadorAberto; return $LASTEXITCODE }.GetNewClosure()
+    $preparationMode = 'progressivo'
     $analyzer = {
         param($root)
         & $runtime.Python $pipelinePath --archive-root $root --tesseract $runtime.Tesseract --tessdata $runtime.Tessdata
@@ -241,9 +355,35 @@ function Start-TcePortableMenu {
         return $LASTEXITCODE
     }.GetNewClosure()
 
+    if ($LaunchLocalService) {
+        try {
+            $service = Start-TceLocalService -PackageRoot $packageRoot -ArchiveRoot $archiveRoot -Python $runtime.Python
+            Write-Host "Serviço local disponível na porta $($service.port)." -ForegroundColor Green
+            if ($service.pairing_code) {
+                Write-Host "Código temporário para a extensão: $($service.pairing_code)" -ForegroundColor Yellow
+                Write-Host 'Informe-o no painel da extensão; ele expira e não entra no ZIP.' -ForegroundColor Yellow
+            }
+        } catch {
+            Write-Warning 'Serviço local indisponível; continue pelo HTML/JSON manual.'
+        }
+    }
+
     Write-Host 'TCE/RN - pacote portátil (somente leitura)' -ForegroundColor Cyan
     foreach ($option in Get-TceMenuOptions) { Write-Host "$($option.key). $($option.label)" }
     $choice = [int](Read-Host 'Escolha uma opção')
+    if ($choice -in @(1, 6, 8)) {
+        $preparationMode = (Read-Host 'Modo de preparação [progressivo/completo] (progressivo)').Trim().ToLowerInvariant()
+        if ([string]::IsNullOrWhiteSpace($preparationMode)) { $preparationMode = 'progressivo' }
+        if ($preparationMode -notin @('progressivo', 'completo')) {
+            Write-Warning 'Modo inválido; usando progressivo.'
+            $preparationMode = 'progressivo'
+        }
+    }
+    $collector = {
+        param($root)
+        & $collectorPath -Destino $root -ManterNavegadorAberto -ModoPreparacao $preparationMode -MaxDownloads 2 -Python $runtime.Python -Tesseract $runtime.Tesseract -Tessdata $runtime.Tessdata
+        return $LASTEXITCODE
+    }.GetNewClosure()
     return Invoke-TceMenuAction -Action $choice -ArchiveRoot $archiveRoot -PackageRoot $packageRoot -Collector $collector -Analyzer $analyzer -HtmlGenerator $html -Opener $open -ExtensionExporter $extension -Diagnostics $diagnose -Resetter $resetter
 }
 

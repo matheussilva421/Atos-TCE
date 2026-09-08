@@ -43,6 +43,7 @@ $extensionFiles = @(
     'background/service-worker.js',
     'lib/matcher.js',
     'lib/messages.js',
+    'lib/bridge-client.js',
     'lib/normalizer.js',
     'lib/schema.js',
     'sidepanel/panel.css',
@@ -236,6 +237,13 @@ try {
     foreach ($name in @(
         'archive_index.py',
         'analysis_pipeline.py',
+        'evidence_geometry.py',
+        'bridge_auth.py',
+        'local_service.py',
+        'workflow_state.py',
+        'filter_new_batch.py',
+        'incremental_pipeline.py',
+        'prepare_transfer.py',
         'runtime_paths.py',
         'menu.ps1',
         'reset_archive.py',
@@ -257,6 +265,10 @@ try {
 
     foreach ($name in @('batch_runner.py', 'html_generator.py', 'tce_extractor.py')) {
         Copy-PackageFile -SourcePath (Join-Path $projectRoot $name) -RelativeDestination ('app\' + $name)
+    }
+
+    foreach ($relative in @('web\review-app.js', 'web\pdf-viewer.js', 'web\review.css', 'web\package.json', 'web\vendor\pdfjs\README.md', 'web\vendor\pdfjs\manifest.json', 'web\vendor\pdfjs\pdf.mjs', 'web\vendor\pdfjs\pdf.worker.mjs', 'web\vendor\pdfjs\LICENSE')) {
+        Copy-PackageFile -SourcePath (Join-Path $portableRoot ('app\' + $relative)) -RelativeDestination ('app\' + $relative)
     }
 
     Copy-PackageDirectoryContents -SourcePath $verifiedRuntime -RelativeDestination 'runtime'

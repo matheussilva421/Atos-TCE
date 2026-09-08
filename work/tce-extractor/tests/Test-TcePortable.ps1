@@ -23,6 +23,15 @@ function Assert-True {
     Assert-Equal $Condition $true $Name
 }
 
+$collectorScriptPath = Join-Path $testDirectory '..\portable\Coletar-Processos-TCE.ps1'
+$collectorText = Get-Content -LiteralPath $collectorScriptPath -Raw -Encoding UTF8
+Assert-True ($collectorText -match "ValidateSet\('progressivo','completo'\).*ModoPreparacao") 'coletor oferece modo progressivo ou completo'
+Assert-True ($collectorText -match 'MaxDownloads') 'coletor expõe limite de downloads'
+Assert-True ($collectorText -match 'Sync-TceProcessManifest[\s\S]*MaxDownloads') 'coletor encaminha limite ao coordenador'
+Assert-True ($collectorText -match 'DownloaderContext') 'coletor separa contexto efêmero do worker de download'
+Assert-True ($collectorText -match 'incremental_pipeline\.py') 'coletor referencia preparação incremental por processo'
+Assert-True ($collectorText -match 'ModoPreparacao.*progressivo|progressivo.*ModoPreparacao') 'coletor usa o modo de preparação para decidir a publicação'
+
 function Assert-Throws {
     param(
         [Parameter(Mandatory)][scriptblock]$Action,
@@ -135,6 +144,56 @@ try {
     Assert-True ((Get-ChildItem (Join-Path $tempRoot 'processos\103439-2023\evento-0001-9001') -File | Where-Object Name -match 'versao').Count -eq 1) 'mudanca preserva a versao local anterior'
 } finally {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force
+}
+
+$parallelRoot = Join-Path ([IO.Path]::GetTempPath()) ("tce-portable-parallel-test-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $parallelRoot | Out-Null
+try {
+    $parallelManifest = [pscustomobject]@{
+        process = [pscustomobject]@{ key = '103450/2023'; id = 582650; number = '103450'; year = 2023 }
+        events = @(
+            [pscustomobject]@{
+                event = 2; event_id = 9010; date = '2023-05-01T10:00:00'; title = 'Documentos'; active = $true
+                documents = @(
+                    [pscustomobject]@{ id = 'parallel-1'; title = 'Um'; extension = '.pdf'; url = 'memory://parallel-1'; remote_signature = 'p1' },
+                    [pscustomobject]@{ id = 'parallel-2'; title = 'Dois'; extension = '.pdf'; url = 'memory://parallel-2'; remote_signature = 'p2' },
+                    [pscustomobject]@{ id = 'parallel-3'; title = 'Tres'; extension = '.pdf'; url = 'memory://parallel-3'; remote_signature = 'p3' },
+                    [pscustomobject]@{ id = 'parallel-4'; title = 'Quatro'; extension = '.pdf'; url = 'memory://parallel-4'; remote_signature = 'p4' }
+                )
+            }
+        )
+    }
+    $parallelMarkerRoot = Join-Path $parallelRoot 'markers'
+    New-Item -ItemType Directory -Path $parallelMarkerRoot | Out-Null
+    foreach ($document in $parallelManifest.events[0].documents) {
+        Add-Member -InputObject $document -NotePropertyName marker_root -NotePropertyValue $parallelMarkerRoot
+    }
+    $parallelDownloader = {
+        param($Document, $Destination)
+        $marker = [IO.Path]::Combine([string]$Document.marker_root, [IO.Path]::GetFileName($Destination))
+        [IO.File]::WriteAllText("$marker.start", [DateTime]::UtcNow.Ticks.ToString())
+        try {
+            [Threading.Thread]::Sleep(180)
+            [IO.File]::WriteAllText($Destination, "%PDF-$($Document.id)")
+        } finally {
+            [IO.File]::WriteAllText("$marker.end", [DateTime]::UtcNow.Ticks.ToString())
+        }
+    }
+    $parallelResult = Sync-TceProcessManifest -Manifest $parallelManifest -ArchiveRoot $parallelRoot -MaxDownloads 2 -Downloader $parallelDownloader -DownloaderContext @{}
+    Assert-Equal $parallelResult.downloaded 4 'limite de downloads processa todos os documentos'
+    $events = @()
+    foreach ($marker in Get-ChildItem -LiteralPath $parallelMarkerRoot -File) {
+        $events += [pscustomobject]@{ kind = if ($marker.Name -match '\.start$') { 'start' } else { 'end' }; ticks = [int64](Get-Content -LiteralPath $marker.FullName -Raw) }
+    }
+    $active = 0
+    $maximum = 0
+    foreach ($event in @($events | Sort-Object ticks)) {
+        if ($event.kind -eq 'start') { $active++; if ($active -gt $maximum) { $maximum = $active } } else { $active-- }
+    }
+    Assert-Equal $events.Count 8 'limite de downloads registra inicio e fim de cada documento'
+    Assert-True ($maximum -gt 1 -and $maximum -le 2) 'limite de downloads mantem concorrencia efetiva de no maximo dois'
+} finally {
+    Remove-Item -LiteralPath $parallelRoot -Recurse -Force
 }
 
 $legacyRoot = Join-Path ([IO.Path]::GetTempPath()) ("tce-portable-legacy-test-" + [guid]::NewGuid().ToString('N'))
@@ -375,7 +434,7 @@ if ($null -ne (Get-Command Get-TcePortableExtensionManifestStatus -ErrorAction S
     $extensionStatus = Get-TcePortableExtensionManifestStatus -PackageRoot (Split-Path -Parent $diagnosticPath)
     Assert-True $extensionStatus.IsValid 'manifest da extensão e arquivos declarados estão válidos'
     Assert-Equal $extensionStatus.Permissions @('storage', 'sidePanel') 'manifest usa somente permissões permitidas'
-    Assert-Equal $extensionStatus.HostPermissions @('https://novaarearestrita.tce.rn.gov.br/*') 'manifest usa somente o host permitido'
+    Assert-Equal $extensionStatus.HostPermissions @('https://novaarearestrita.tce.rn.gov.br/*', 'http://127.0.0.1/*') 'manifest usa somente portal e bridge loopback'
 }
 
 if ($null -ne (Get-Command Get-TcePortableNodeStatus -ErrorAction SilentlyContinue)) {

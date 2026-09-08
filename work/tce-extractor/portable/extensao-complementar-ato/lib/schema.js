@@ -18,6 +18,9 @@ export const STORAGE_KEYS = Object.freeze({
   DATASET: "dataset:v1",
   DATASET_INDEX: "datasetIndex:v1",
   REVIEWED: "reviewed:v1",
+  BRIDGE_BASE_URL: "bridge:base-url:v1",
+  BRIDGE_TOKEN: "bridge:token:v1",
+  BRIDGE_REVISION: "bridge:revision:v1",
 });
 
 const DATASET_KEYS = Object.freeze([

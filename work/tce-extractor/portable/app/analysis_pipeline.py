@@ -26,20 +26,22 @@ for candidate in (APP_ROOT, PROJECT_ROOT):
 
 from archive_index import write_index
 from batch_runner import run_manifest
+from evidence_geometry import build_visual_evidence
 from extension_exporter import export_extension_dataset
 from html_generator import write_html
-from tce_extractor import classify_document
+from tce_extractor import classify_document, extract_pdf_pages
 
 
 CACHE_VERSION = 2
 EXTRACTOR_VERSION = "analysis-pipeline-v2"
 OCR_VERSION = "tesseract-por+eng-psm6-v2"
+GEOMETRY_CACHE_VERSION = 1
 TARGET_CLASSIFICATIONS = frozenset(
     {"resolucao_administrativa", "guia_financeira_taxacao"}
 )
 
 TextReader = Callable[[Path], Sequence[str] | str]
-OcrReader = Callable[[Path], Sequence[str] | str]
+OcrReader = Callable[[Path], Sequence[str] | str | tuple[Sequence[str] | str, Sequence[Mapping[str, object]]]]
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,7 @@ class PipelineSummary:
     markdown_path: Path
     html_path: Path
     extension_data_path: Path
+    visual_evidence_path: Path | None = None
 
 
 def _write_json_atomic(path: Path, value: Mapping[str, object]) -> None:
@@ -80,6 +83,66 @@ def _write_json_atomic(path: Path, value: Mapping[str, object]) -> None:
     finally:
         if temporary_path is not None and temporary_path.exists():
             temporary_path.unlink()
+
+
+def _normalise_interested(value: object) -> str:
+    decomposed = unicodedata.normalize("NFKD", str(value or ""))
+    without_marks = "".join(char for char in decomposed if not unicodedata.combining(char))
+    return re.sub(r"\s+", " ", without_marks.casefold()).strip()
+
+
+def write_visual_evidence(manifest_path: Path, checkpoint_path: Path, output_path: Path) -> Path:
+    """Project checkpoint citations and manifest occurrences into a sidecar."""
+    manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8-sig"))
+    checkpoint = json.loads(Path(checkpoint_path).read_text(encoding="utf-8-sig"))
+    documents: list[dict[str, object]] = []
+    for process_entry in manifest.get("processes", []):
+        if not isinstance(process_entry, Mapping):
+            continue
+        process_key = str(process_entry.get("process", process_entry.get("key", "")))
+        for document in process_entry.get("documents", []):
+            if not isinstance(document, Mapping):
+                continue
+            relative_path = document.get("relative_path")
+            if not isinstance(relative_path, str) or not relative_path.strip():
+                relative_path = Path(str(document.get("pdf_path", ""))).name
+            documents.append(
+                {
+                    "process_key": process_key,
+                    "event_id": str(document.get("event_id", document.get("event", ""))),
+                    "document_id": str(document.get("id", document.get("document_id", document.get("title", "")))),
+                    "pdf_sha256": str(document.get("sha256", "")),
+                    "relative_path": relative_path,
+                    "title": str(document.get("title", "")),
+                    "page_count": int(document.get("page_count", 0) or 0),
+                }
+            )
+
+    records: list[dict[str, object]] = []
+    for process_key, state in checkpoint.get("processes", {}).items():
+        if not isinstance(state, Mapping) or not isinstance(state.get("result"), Mapping):
+            continue
+        result = state["result"]
+        for block in result.get("blocks", []):
+            if not isinstance(block, Mapping):
+                continue
+            interested = str(block.get("interested", "Não identificado"))
+            interested_normalized = _normalise_interested(interested)
+            record_id = hashlib.sha256(f"{process_key}|{interested_normalized}".encode()).hexdigest()
+            fields = block.get("fields", {})
+            if isinstance(fields, Mapping):
+                records.append(
+                    {
+                        "record_id": record_id,
+                        "process_key": str(process_key),
+                        "interested_normalized": interested_normalized,
+                        "fields": {str(key): value for key, value in fields.items() if isinstance(value, Mapping)},
+                    }
+                )
+
+    sidecar = build_visual_evidence(records, documents)
+    _write_json_atomic(Path(output_path), sidecar)
+    return Path(output_path)
 
 
 def _event_number(value: object) -> int | None:
@@ -233,10 +296,25 @@ def _ocr_cache_key(sha256: str, runtime_identity: str) -> str:
     return f"{sha256}:{runtime_identity}"
 
 
+def _geometry_cache_key(sha256: str, runtime_identity: str) -> str:
+    return f"{sha256}:geometry-{GEOMETRY_CACHE_VERSION}:{runtime_identity}"
+
+
 def _ocr_pdf_pages(
-    path: Path, tesseract: str | Path | None, tessdata: str | Path | None
-) -> list[str]:
+    path: Path,
+    tesseract: str | Path | None,
+    tessdata: str | Path | None,
+    *,
+    return_geometry: bool = False,
+) -> list[str] | tuple[list[str], list[dict]]:
     executable, tessdata_path = _validate_ocr_runtime(tesseract, tessdata)
+    if return_geometry:
+        return extract_pdf_pages(
+            path,
+            tesseract=str(executable),
+            tessdata_dir=tessdata_path,
+            return_geometry=True,
+        )
     try:
         import pymupdf as fitz
     except ImportError:  # pragma: no cover - compatibility with older installs
@@ -346,6 +424,82 @@ def _write_cache(path: Path, entries: Mapping[str, object], runtime_identity: st
             temporary_path.unlink()
 
 
+def _read_geometry_cache(path: Path, runtime_identity: str) -> dict[str, object]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    if not isinstance(payload, Mapping):
+        return {}
+    if (
+        payload.get("geometry_version") != GEOMETRY_CACHE_VERSION
+        or payload.get("extractor_version") != EXTRACTOR_VERSION
+        or payload.get("ocr_version") != OCR_VERSION
+        or payload.get("runtime_identity") != runtime_identity
+    ):
+        return {}
+    entries = payload.get("entries")
+    if not isinstance(entries, Mapping):
+        return {}
+    return {
+        str(key): value
+        for key, value in entries.items()
+        if isinstance(value, Mapping)
+    }
+
+
+def _write_geometry_cache(
+    path: Path, entries: Mapping[str, object], runtime_identity: str
+) -> None:
+    _write_json_atomic(
+        Path(path),
+        {
+            "geometry_version": GEOMETRY_CACHE_VERSION,
+            "extractor_version": EXTRACTOR_VERSION,
+            "ocr_version": OCR_VERSION,
+            "runtime_identity": runtime_identity,
+            "cache_key_format": "sha256:geometry_version:runtime_identity",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "entries": dict(entries),
+        },
+    )
+
+
+def _cache_geometry(
+    cache: Mapping[str, object], key: str, sha256: str
+) -> tuple[bool, list[str], list[dict]]:
+    if not key or not sha256:
+        return False, [], []
+    entry = cache.get(key)
+    if not isinstance(entry, Mapping) or str(entry.get("sha256", "")) != sha256:
+        return False, [], []
+    pages = entry.get("pages")
+    geometry = entry.get("geometry")
+    if not isinstance(pages, list) or not isinstance(geometry, list):
+        return False, [], []
+    if len(pages) != len(geometry) or not all(isinstance(item, Mapping) for item in geometry):
+        return False, [], []
+    return True, ["" if page is None else str(page) for page in pages], [dict(item) for item in geometry]
+
+
+def _store_geometry(
+    cache: MutableMapping[str, object],
+    key: str,
+    sha256: str,
+    pages: Sequence[str],
+    geometry: Sequence[Mapping[str, object]],
+) -> None:
+    if key and sha256 and len(pages) == len(geometry):
+        cache[key] = {
+            "geometry_version": GEOMETRY_CACHE_VERSION,
+            "sha256": sha256,
+            "pages": list(pages),
+            "geometry": [dict(item) for item in geometry],
+        }
+
+
 def classify_document_record(
     document: Mapping[str, object],
     *,
@@ -354,6 +508,8 @@ def classify_document_record(
     ocr_reader: OcrReader,
     cache: MutableMapping[str, object],
     runtime_identity: str = "",
+    geometry_cache: MutableMapping[str, object] | None = None,
+    geometry_capable: bool = False,
 ) -> dict[str, object]:
     """Classify one document, with Event 0/1 excluded before reading it."""
     result = dict(document)
@@ -412,22 +568,51 @@ def classify_document_record(
     if not _has_useful_text(pages):
         sha256 = str(document.get("sha256") or "")
         cache_key = _ocr_cache_key(sha256, runtime_identity) if runtime_identity else sha256
+        geometry_key = _geometry_cache_key(sha256, runtime_identity) if runtime_identity else ""
         found, cached_pages = _cache_pages(cache, cache_key)
-        if found:
+        geometry_found, geometry_pages, _ = _cache_geometry(
+            geometry_cache or {}, geometry_key, sha256
+        )
+        if geometry_found:
+            pages = geometry_pages
+            text_source = "ocr_geometry_cache"
+            result["geometry_cache_key"] = geometry_key
+        elif found and not geometry_capable:
             pages = cached_pages
             text_source = "ocr_cache"
         else:
             try:
-                pages = _pages(ocr_reader(path))
+                ocr_result = ocr_reader(path)
+                geometry: list[Mapping[str, object]] = []
+                if (
+                    isinstance(ocr_result, tuple)
+                    and len(ocr_result) == 2
+                    and isinstance(ocr_result[1], Sequence)
+                    and all(isinstance(item, Mapping) for item in ocr_result[1])
+                ):
+                    pages = _pages(ocr_result[0])
+                    geometry = [dict(item) for item in ocr_result[1]]
+                else:
+                    pages = _pages(ocr_result)  # type: ignore[arg-type]
             except Exception as error:
-                return {
-                    **result,
-                    "classification": "pendente_ocr",
-                    "automatic_source": False,
-                    "ocr_error": type(error).__name__,
-                }
-            _store_cache_pages(cache, cache_key, pages)
-            text_source = "ocr"
+                if found:
+                    pages = cached_pages
+                    text_source = "ocr_cache"
+                else:
+                    return {
+                        **result,
+                        "classification": "pendente_ocr",
+                        "automatic_source": False,
+                        "ocr_error": type(error).__name__,
+                    }
+            else:
+                _store_cache_pages(cache, cache_key, pages)
+                if geometry and geometry_cache is not None and geometry_key:
+                    _store_geometry(geometry_cache, geometry_key, sha256, pages, geometry)
+                    result["geometry_cache_key"] = geometry_key
+                    text_source = "ocr_geometry"
+                else:
+                    text_source = "ocr"
         result["page_count"] = len(pages)
         if not _has_useful_text(pages):
             return {
@@ -496,6 +681,8 @@ def _classify_flat_documents(
     ocr_reader: OcrReader,
     cache: MutableMapping[str, object],
     runtime_identity: str,
+    geometry_cache: MutableMapping[str, object],
+    geometry_capable: bool,
 ) -> dict[str, object]:
     result = dict(index)
     classified = []
@@ -511,6 +698,8 @@ def _classify_flat_documents(
                 ocr_reader=ocr_reader,
                 cache=cache,
                 runtime_identity=runtime_identity,
+                geometry_cache=geometry_cache,
+                geometry_capable=geometry_capable,
             )
         )
     result["documents"] = classified
@@ -524,6 +713,8 @@ def _classify_nested_documents(
     ocr_reader: OcrReader,
     cache: MutableMapping[str, object],
     runtime_identity: str,
+    geometry_cache: MutableMapping[str, object],
+    geometry_capable: bool,
 ) -> dict[str, object]:
     result = dict(index)
     processes = []
@@ -549,6 +740,8 @@ def _classify_nested_documents(
                         ocr_reader=ocr_reader,
                         cache=cache,
                         runtime_identity=runtime_identity,
+                        geometry_cache=geometry_cache,
+                        geometry_capable=geometry_capable,
                     )
                 )
             event_result["documents"] = documents
@@ -567,6 +760,7 @@ def classify_archive(
     *,
     text_reader: TextReader | None = None,
     ocr_reader: OcrReader | None = None,
+    geometry_cache_path: Path | None = None,
 ) -> dict[str, object]:
     """Classify every indexed document while retaining the complete archive."""
     cache_path = Path(cache_path)
@@ -578,12 +772,20 @@ def classify_archive(
     else:
         runtime_identity = "injected-ocr-reader-v1"
     cache = _read_cache(cache_path, runtime_identity)
+    geometry_path = geometry_cache_path or cache_path.with_name(
+        f"{cache_path.stem}-geometria{cache_path.suffix}"
+    )
+    geometry_cache = _read_geometry_cache(geometry_path, runtime_identity)
     native_reader = text_reader or _native_pdf_pages
     selected_ocr_reader = ocr_reader or (
         lambda path: _ocr_pdf_pages(
-            path, tesseract=resolved_tesseract, tessdata=resolved_tessdata
+            path,
+            tesseract=resolved_tesseract,
+            tessdata=resolved_tessdata,
+            return_geometry=True,
         )
     )
+    geometry_capable = ocr_reader is None
     if isinstance(index.get("documents"), list):
         result = _classify_flat_documents(
             index,
@@ -592,6 +794,8 @@ def classify_archive(
             selected_ocr_reader,
             cache,
             runtime_identity,
+            geometry_cache,
+            geometry_capable,
         )
     else:
         result = _classify_nested_documents(
@@ -601,8 +805,11 @@ def classify_archive(
             selected_ocr_reader,
             cache,
             runtime_identity,
+            geometry_cache,
+            geometry_capable,
         )
     _write_cache(cache_path, cache, runtime_identity)
+    _write_geometry_cache(geometry_path, geometry_cache, runtime_identity)
     result["classification_version"] = EXTRACTOR_VERSION
     result["ocr_version"] = OCR_VERSION
     result["ocr_runtime_identity"] = runtime_identity
@@ -635,7 +842,7 @@ def _target_document(document: Mapping[str, object], event: object) -> dict[str,
             or ""
         ),
     }
-    for key in ("card_id", "id", "extension", "metadata_title"):
+    for key in ("card_id", "id", "extension", "metadata_title", "geometry_cache_key"):
         if key in document:
             target[key] = document[key]
     return target
@@ -710,14 +917,22 @@ def run_local_pipeline(
     index_path = root / "indice-local.json"
     classified_index_path = root / "indice-classificado.json"
     cache_path = root / "cache-ocr.json"
+    geometry_cache_path = root / "cache-ocr-geometria.json"
     manifest_path = root / "pdfs-alvo-manifest.json"
     checkpoint_path = root / "checkpoint-extracao.json"
     markdown_path = root / "doc.md"
     html_path = root / "complementar-ato.html"
     extension_data_path = root / "dados-complementar-ato.json"
+    visual_evidence_path = root / "evidencias-visuais.json"
 
     index = write_index(root, index_path)
-    classified = classify_archive(index, cache_path, tesseract, tessdata)
+    classified = classify_archive(
+        index,
+        cache_path,
+        tesseract,
+        tessdata,
+        geometry_cache_path=geometry_cache_path,
+    )
     _write_json_atomic(classified_index_path, classified)
     manifest = build_target_manifest(classified)
     _write_json_atomic(manifest_path, manifest)
@@ -729,13 +944,16 @@ def run_local_pipeline(
         resume=resume,
         tesseract=str(tesseract),
         tessdata_dir=Path(tessdata),
+        geometry_cache_path=geometry_cache_path,
     )
+    write_visual_evidence(manifest_path, checkpoint_path, visual_evidence_path)
     write_html(
         manifest_path,
         checkpoint_path,
         html_path,
         pdf_link_root=None,
         archive_index_path=classified_index_path,
+        visual_evidence_path=visual_evidence_path,
     )
     export_extension_dataset(checkpoint_path, extension_data_path)
     priority_documents = sum(
@@ -754,6 +972,7 @@ def run_local_pipeline(
         markdown_path=markdown_path,
         html_path=html_path,
         extension_data_path=extension_data_path,
+        visual_evidence_path=visual_evidence_path,
     )
 
 

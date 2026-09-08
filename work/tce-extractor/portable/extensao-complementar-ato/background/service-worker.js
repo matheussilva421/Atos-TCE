@@ -265,7 +265,14 @@ export function createServiceWorker({
     const discovered = await discoverCurrentFrame(target.tabId, message.requestId);
     if (discovered.error) return discovered.error;
     if (message.type === MESSAGE_TYPES.GET_FORM_SNAPSHOT) {
-      return successResponse(message, discovered.response);
+      const forwarded = clone(discovered.response);
+      if (isRecord(forwarded?.payload)) {
+        forwarded.payload.bridgeContext = {
+          tab_id: target.tabId,
+          frame_id: discovered.registration.frameId,
+        };
+      }
+      return successResponse(message, forwarded);
     }
     try {
       const result = await chromeApi.tabs.sendMessage(
@@ -385,6 +392,7 @@ export function createServiceWorker({
         case MESSAGE_TYPES.GET_FORM_SNAPSHOT:
         case MESSAGE_TYPES.APPLY_FIELDS:
         case MESSAGE_TYPES.OVERRIDE_FIELD:
+        case MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO:
           if (!senderIsExtension(sender, chromeApi)) return errorResponse(validated.requestId, "UNAUTHORIZED", "only the extension may route form actions");
           return await forwardToFrame(validated, sender);
         default:

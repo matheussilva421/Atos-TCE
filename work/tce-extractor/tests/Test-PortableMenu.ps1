@@ -64,6 +64,40 @@ $distinctCodes = @(
 ) | Sort-Object -Unique
 Assert-Equal $distinctCodes.Count 7 'códigos de runtime, autenticação, coleta, análise, HTML, extensão e reset são distintos'
 
+$bridgePackageRoot = Join-Path ([IO.Path]::GetTempPath()) ('tce-menu-bridge-' + [guid]::NewGuid().ToString('N'))
+$bridgeArchiveRoot = Join-Path $bridgePackageRoot 'acervo-tce'
+$bridgePython = Join-Path $bridgePackageRoot 'runtime\python\python.exe'
+New-Item -ItemType Directory -Path $bridgeArchiveRoot, (Join-Path $bridgePackageRoot 'app') -Force | Out-Null
+[IO.File]::WriteAllText((Join-Path $bridgePackageRoot 'app\local_service.py'), 'fixture')
+try {
+    $startCalls = New-Object System.Collections.ArrayList
+    $fakeStarter = {
+        param([string]$FilePath, [object]$ArgumentList, [string]$WorkingDirectory)
+        [void]$startCalls.Add(@($FilePath, $ArgumentList, $WorkingDirectory))
+        return [pscustomobject]@{ Id = 4321 }
+    }
+    $started = Start-TceLocalService -PackageRoot $bridgePackageRoot -ArchiveRoot $bridgeArchiveRoot -Python $bridgePython -ProcessStarter $fakeStarter
+    $bridgePath = Get-TceLocalServiceMetadataPath -PackageRoot $bridgePackageRoot
+    Assert-True (Test-Path -LiteralPath $bridgePath -PathType Leaf) 'iniciar serviço registra estado somente na ponte local'
+    Assert-Equal $started.pid 4321 'iniciar serviço registra o PID retornado pelo processo'
+    Assert-True ((($startCalls | Select-Object -First 1)[1] -join ' ') -match '(?i)--bridge-root') 'iniciar serviço passa a ponte fora do acervo'
+    Assert-True ((($startCalls | Select-Object -First 1)[1] -join ' ') -match '(?i)--root') 'iniciar serviço passa a raiz do acervo ao helper'
+
+    $stopCalls = New-Object System.Collections.ArrayList
+    $fakeResolver = { param([int]$Id) return [pscustomobject]@{ Id = $Id; Path = $bridgePython; HasExited = $false } }
+    $fakeStopper = { param($Process) [void]$stopCalls.Add($Process.Id) }
+    Assert-True (Stop-TceLocalService -PackageRoot $bridgePackageRoot -Python $bridgePython -ProcessResolver $fakeResolver -ProcessStopper $fakeStopper) 'parar serviço encerra somente o helper identificado'
+    Assert-Equal ($stopCalls -join ',') '4321' 'parar serviço usa o PID registrado'
+    Assert-True (-not (Test-Path -LiteralPath $bridgePath)) 'parar serviço remove metadados da ponte'
+} finally {
+    if (Test-Path -LiteralPath $bridgePackageRoot) { Remove-Item -LiteralPath $bridgePackageRoot -Recurse -Force }
+}
+
+$launcherText = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\portable\INICIAR.cmd') -Raw
+Assert-True ($launcherText -match '(?i)parar') 'iniciador oferece comando explícito para parar o serviço'
+Assert-True ($launcherText -match '(?i)Hidden') 'iniciador solicita helper oculto'
+Assert-True ($launcherText -notmatch '(?i)netsh|firewall|RunOnce|Startup') 'iniciador não cria firewall nem inicialização automática'
+
 $safe = ConvertTo-TceSafeText 'warning token=secret Authorization: Bearer header-secret https://temporary.invalid/download?id=1'
 Assert-True ($safe -notmatch 'secret|temporary\.invalid|Authorization|token|Bearer') 'sanitiza mensagem antes de exibir ou persistir'
 

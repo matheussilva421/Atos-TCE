@@ -51,6 +51,41 @@ button:focus-visible,
 input:focus-visible { outline: 3px solid #f79009; outline-offset: 2px; }
 button:disabled { background: #9aa5b1; cursor: not-allowed; opacity: 0.75; }
 
+label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 650;
+  margin-block: 0.4rem 0.2rem;
+}
+
+input[type="search"] {
+  border: 1px solid #98a2b3;
+  border-radius: 0.35rem;
+  display: block;
+  font: inherit;
+  margin-block-end: 0.45rem;
+  min-height: 2.25rem;
+  padding: 0.4rem 0.55rem;
+  width: 100%;
+}
+
+#search-results {
+  border-block: 1px solid #d9e0e7;
+  margin-block: 0.5rem;
+  max-height: 10rem;
+  overflow-y: auto;
+  padding-block: 0.25rem;
+}
+
+#search-results:empty { display: none; }
+#search-results button {
+  display: block;
+  font-size: 0.84rem;
+  margin: 0.2rem 0;
+  text-align: start;
+  width: 100%;
+}
+
 .safety-warning {
   border-inline-start: 0.3rem solid #b42318;
   color: #8a1c13;

@@ -201,6 +201,19 @@ test("requires version, known type, requestId, and validated payload on every me
   );
 });
 
+test("validates an explicit Complementar Ato signal with current identity", () => {
+  const message = createMessage(
+    MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO,
+    { processKey: "103439/2023", interestedNormalized: "maria de souza" },
+    "signal-1",
+  );
+  assert.equal(message.type, MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO);
+  assert.throws(
+    () => createMessage(MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO, { processKey: "103439/2023" }, "signal-2"),
+    /unexpected keys|interestedNormalized/u,
+  );
+});
+
 test("validates optional APPLY_FIELDS matchKinds without accepting external fields or class names", () => {
   const message = createMessage(
     MESSAGE_TYPES.APPLY_FIELDS,

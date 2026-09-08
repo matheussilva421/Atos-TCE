@@ -11,8 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
-
 _URI_RE = re.compile(r"(?i)\b[a-z][a-z0-9+.-]{1,31}://[^\s\"']+")
+_PROCESS_KEY_PATTERN = re.compile(r"^\s*(\d+)\s*/\s*(\d{4})\s*$")
 _SENSITIVE_WORD_RE = re.compile(
     r"(?i)\b(?:url|authorization|cookie|token|credential|credencial|session|password|senha)\b"
 )
@@ -240,6 +240,52 @@ def _safe_process(process_dir: Path, process: dict[str, Any], root: Path) -> dic
     return safe_process
 
 
+def _canonical_process_key(record: Any, context: str) -> str:
+    if not isinstance(record, dict):
+        raise ValueError(f"{context}: registro de processo inválido")
+    raw_key = record.get("key")
+    if raw_key is None or not str(raw_key).strip():
+        number = record.get("number", record.get("numero"))
+        year = record.get("year", record.get("ano"))
+        if number is None or year is None:
+            raise ValueError(f"{context}: chave canônica numero/ano ausente")
+        raw_key = f"{number}/{year}"
+    match = _PROCESS_KEY_PATTERN.fullmatch(str(raw_key))
+    if match is None:
+        raise ValueError(f"{context}: chave canônica inválida: {raw_key}")
+    return f"{match.group(1)}/{match.group(2)}"
+
+
+def _portal_process_keys(root: Path) -> list[str] | None:
+    order_path = root / "ordem-portal.json"
+    if not order_path.is_file():
+        return None
+    order = _read_json(order_path)
+    if order.get("schema_version") != 1 or not isinstance(order.get("process_keys"), list):
+        raise ValueError(f"ordem do portal inválida: {order_path}")
+    process_keys: list[str] = []
+    seen: set[str] = set()
+    for index, raw_key in enumerate(order["process_keys"]):
+        try:
+            key = _canonical_process_key(
+                {"key": raw_key}, f"ordem do portal, item {index}"
+            )
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+        if key not in seen:
+            seen.add(key)
+            process_keys.append(key)
+    return process_keys
+
+
+def _process_index_key(process: dict[str, Any], context: str) -> str:
+    try:
+        return _canonical_process_key(process, context)
+    except ValueError:
+        raw_key = process.get("key")
+        return str(raw_key) if raw_key is not None else ""
+
+
 def scan_archive(root: Path) -> dict[str, Any]:
     """Read all process metadata without carrying URLs or credentials forward."""
     archive_root = Path(root)
@@ -251,15 +297,32 @@ def scan_archive(root: Path) -> dict[str, Any]:
         process_root = archive_root
 
     processes = []
+    process_keys: list[str] = []
+    keyed_processes: dict[str, dict[str, Any]] = {}
     for process_json in sorted(process_root.glob("*/processo.json")):
         resolved_process_json = process_json.resolve()
         if not _inside(archive_root, resolved_process_json):
             continue
         process = _read_json(resolved_process_json)
-        processes.append(_safe_process(resolved_process_json.parent, process, archive_root))
+        safe_process = _safe_process(resolved_process_json.parent, process, archive_root)
+        processes.append(safe_process)
+        key = _process_index_key(process, str(resolved_process_json))
+        if key and key not in keyed_processes:
+            process_keys.append(key)
+            keyed_processes[key] = safe_process
+
+    persisted_order = _portal_process_keys(archive_root)
+    if persisted_order is not None:
+        process_keys = persisted_order + [
+            key for key in process_keys if key not in persisted_order
+        ]
+        processes = [
+            keyed_processes[key] for key in process_keys if key in keyed_processes
+        ]
     return {
         "version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "process_keys": process_keys,
         "processes": processes,
     }
 
@@ -286,4 +349,3 @@ def write_index(root: Path, output: Path) -> dict[str, Any]:
         if os.path.exists(temporary_name):
             os.unlink(temporary_name)
     return index
-

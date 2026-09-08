@@ -141,7 +141,16 @@ function buildPanelDocument() {
   addElement(documentRef, "button", "import-button");
   addElement(documentRef, "input", "dataset-file", { type: "file" });
   addElement(documentRef, "button", "refresh-button");
+  addElement(documentRef, "input", "bridge-base-url", { type: "url" });
+  addElement(documentRef, "input", "bridge-pairing-code", { type: "text" });
+  addElement(documentRef, "button", "bridge-connect-button");
+  addElement(documentRef, "p", "bridge-status");
   addElement(documentRef, "button", "fill-button");
+  addElement(documentRef, "button", "complement-button");
+  addElement(documentRef, "input", "search-process", { type: "search" });
+  addElement(documentRef, "input", "search-interested", { type: "search" });
+  addElement(documentRef, "div", "search-results");
+  addElement(documentRef, "p", "search-selection");
   addElement(documentRef, "section", "review-section");
   const reviewed = addElement(documentRef, "input", "reviewed-checkbox", { type: "checkbox" });
   reviewed.checked = false;
@@ -201,7 +210,7 @@ async function makeDataset({ processKey = "103439/2023", interested = "Maria de 
   return dataset;
 }
 
-function snapshot({ processKey = "103439/2023", interested = { original: "Maria de Souza", normalized: "maria de souza" }, options = {}, fields = {} } = {}) {
+function snapshot({ processKey = "103439/2023", interested = { original: "Maria de Souza", normalized: "maria de souza" }, options = {}, fields = {}, bridgeContext = null } = {}) {
   const [number, year] = processKey.split("/");
   const allFields = Object.fromEntries(PANEL_FIELD_ORDER.map((field) => [field, {
     value: fields[field] ?? "",
@@ -213,6 +222,7 @@ function snapshot({ processKey = "103439/2023", interested = { original: "Maria 
     interested,
     options,
     fields: allFields,
+    ...(bridgeContext ? { bridgeContext } : {}),
   };
 }
 
@@ -300,6 +310,8 @@ function makeRuntime({
         }
         case MESSAGE_TYPES.SET_REVIEWED:
           return { ok: true, payload: { reviewed: message.payload.reviewed } };
+        case MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO:
+          return { ok: true, payload: { signaled: true } };
         default:
           throw new Error(`unexpected message ${message.type}`);
       }
@@ -394,6 +406,8 @@ async function startApp({
   overrideResponses = [],
   confirmFn = () => true,
   chromeApi = null,
+  bridgeClientFactory = undefined,
+  pairingFactory = undefined,
 } = {}) {
   const documentRef = buildPanelDocument();
   const resolvedChromeApi = chromeApi ?? makeRuntime({
@@ -405,16 +419,92 @@ async function startApp({
     applyResponses,
     overrideResponses,
   });
-  const app = createPanelApp({ documentRef, chromeApi: resolvedChromeApi, confirmFn });
+  const app = createPanelApp({ documentRef, chromeApi: resolvedChromeApi, confirmFn, bridgeClientFactory, pairingFactory });
   await app.init();
   return { app, documentRef, chromeApi: resolvedChromeApi };
 }
 
-test("renders no-dataset state and permanent warning with an inaccessible fill action", async () => {
+test("renders no-dataset state and permanent warning with inaccessible actions", async () => {
   const { documentRef } = await startApp({ snapshots: [null] });
   assert.equal(documentRef.getElementById("dataset-status").textContent, "Nenhum lote importado.");
   assert.equal(documentRef.getElementById("permanent-warning").textContent, "A extensão não conclui o ato");
   assert.equal(documentRef.getElementById("fill-button").disabled, true);
+  assert.equal(documentRef.getElementById("complement-button").disabled, true);
+});
+
+test("search filters imported records by process or interested name without changing portal identity", async () => {
+  const dataset = await makeDataset();
+  const { documentRef, app } = await startApp({ dataset, snapshots: [null] });
+  const processSearch = documentRef.getElementById("search-process");
+  const interestedSearch = documentRef.getElementById("search-interested");
+  processSearch.value = "103439";
+  processSearch.dispatchEvent(new FakeEvent("input"));
+  assert.equal(documentRef.getElementById("search-results").children.length, 1);
+  assert.match(documentRef.getElementById("search-results").textContent, /103439\/2023/u);
+
+  processSearch.value = "";
+  interestedSearch.value = "maria";
+  interestedSearch.dispatchEvent(new FakeEvent("input"));
+  assert.equal(documentRef.getElementById("search-results").children.length, 1);
+  assert.match(documentRef.getElementById("search-results").textContent, /Maria de Souza/u);
+
+  documentRef.getElementById("search-results").children[0].dispatchEvent(new FakeEvent("click"));
+  assert.match(documentRef.getElementById("search-selection").textContent, /103439\/2023 · Maria de Souza/u);
+  assert.equal(app.getState().previewIdentity, null);
+});
+
+test("explicit Complementar Ato button sends only a typed signal for the current identity", async () => {
+  const dataset = await makeDataset();
+  const { documentRef, chromeApi } = await startApp({
+    dataset,
+    snapshots: [snapshot()],
+    matches: [{ record: dataset.records[0], matches: fullMatches(), reviewed: false }],
+  });
+  const button = documentRef.getElementById("complement-button");
+  assert.equal(button.disabled, false);
+  button.dispatchEvent(new FakeEvent("click"));
+  await new Promise((resolve) => setImmediate(resolve));
+  const signal = chromeApi.calls.find((message) => message.type === MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO);
+  assert.deepEqual(signal?.payload, {
+    processKey: "103439/2023",
+    interestedNormalized: "maria de souza",
+  });
+  assert.equal(chromeApi.calls.some((message) => message.type === MESSAGE_TYPES.APPLY_FIELDS), false);
+});
+
+test("optionally pairs with the local mesa and publishes the current selection without filling", async () => {
+  const dataset = await makeDataset();
+  const bridgeCalls = [];
+  const { documentRef, app } = await startApp({
+    dataset,
+    snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12 } })],
+    matches: [{ record: dataset.records[0], matches: fullMatches(), reviewed: false }],
+    pairingFactory: async ({ baseUrl, code }) => {
+      assert.equal(baseUrl, "http://127.0.0.1:18743");
+      assert.equal(code, "12345678");
+      return "ephemeral-token";
+    },
+    bridgeClientFactory: () => ({
+      async publishSelection(selection) { bridgeCalls.push(selection); return { accepted: true, revision: 3 }; },
+      async getState() { return { revision: 3 }; },
+      async setCompleted() { return { revision: 4 }; },
+    }),
+  });
+  documentRef.getElementById("bridge-base-url").value = "http://127.0.0.1:18743";
+  documentRef.getElementById("bridge-pairing-code").value = "12345678";
+  documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
+  await new Promise((resolve) => setImmediate(resolve));
+  await app.refresh();
+  assert.equal(app.getState().bridgeClient !== null, true);
+  assert.equal(bridgeCalls.length, 1);
+  assert.deepEqual(bridgeCalls[0], {
+    process_key: "103439/2023",
+    interested_normalized: "maria de souza",
+    tab_id: 7,
+    frame_id: 12,
+    sequence: 1,
+  });
+  assert.equal(documentRef.getElementById("fill-button").disabled, false);
 });
 
 test("imports one file, reuses it after switching process, and restores it in a second panel instance", async () => {
@@ -928,10 +1018,10 @@ test("has structurally associated labels, keyboard focus styles, and disabled in
   const labelTargets = [...html.matchAll(/<label\b[^>]*\bfor="([^"]+)"[^>]*>/giu)].map((match) => match[1]);
   const buttonLabels = [...html.matchAll(/<button\b[^>]*>([^<]+)<\/button>/giu)].map((match) => match[1].trim());
 
-  assert.deepEqual(labelTargets, ["reviewed-checkbox"]);
+  assert.deepEqual(labelTargets, ["bridge-base-url", "bridge-pairing-code", "search-process", "search-interested", "reviewed-checkbox"]);
   assert.equal(labelTargets.every((target) => inputIds.has(target)), true);
   assert.match(inputTags.find((tag) => /\bid="dataset-file"/iu.test(tag)), /\baria-label="[^"]+"/iu);
-  assert.equal(buttonLabels.length, 3);
+  assert.equal(buttonLabels.length, 5);
   assert.equal(buttonLabels.every(Boolean), true);
   assert.match(inputTags.find((tag) => /\bid="reviewed-checkbox"/iu.test(tag)), /\bdisabled\b/iu);
   assert.match(html, /<button\b[^>]*\bid="fill-button"[^>]*\bdisabled\b/iu);

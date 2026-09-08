@@ -22,12 +22,17 @@ from tce_extractor import (
     merge_extractions,
     _fold,
 )
+from evidence_geometry import read_page_words
 
 
 def process_input_signature(entry: Mapping[str, object]) -> str:
     """Return an order-independent signature for one process's document inputs."""
     payload = sorted(
-        (str(document.get("event", "")), str(document.get("sha256", "")))
+        (
+            str(document.get("event", "")),
+            str(document.get("sha256", "")),
+            str(document.get("geometry_cache_key", "")),
+        )
         for document in entry.get("documents", [])
         if isinstance(document, Mapping)
     )
@@ -36,7 +41,7 @@ def process_input_signature(entry: Mapping[str, object]) -> str:
 
 
 def _evidence_to_dict(evidence: FieldEvidence) -> dict:
-    return {
+    payload = {
         "key": evidence.key,
         "value": evidence.value,
         "status": evidence.status,
@@ -48,9 +53,25 @@ def _evidence_to_dict(evidence: FieldEvidence) -> dict:
         "raw_value": evidence.raw_value,
         "candidates": [_evidence_to_dict(item) for item in evidence.candidates],
     }
+    if evidence.quote is not None:
+        payload["quote"] = evidence.quote
+    if evidence.rects:
+        payload["rects"] = [list(rect) for rect in evidence.rects]
+    if evidence.method is not None:
+        payload["method"] = evidence.method
+    return payload
 
 
 def _evidence_from_dict(payload: Mapping[str, object]) -> FieldEvidence:
+    raw_rects = payload.get("rects", [])
+    rects = []
+    if isinstance(raw_rects, list):
+        for raw_rect in raw_rects:
+            if isinstance(raw_rect, (list, tuple)) and len(raw_rect) == 4:
+                try:
+                    rects.append(tuple(float(value) for value in raw_rect))
+                except (TypeError, ValueError):
+                    continue
     return FieldEvidence(
         key=str(payload.get("key", "")),
         value=payload.get("value") if isinstance(payload.get("value"), str) else None,
@@ -63,6 +84,9 @@ def _evidence_from_dict(payload: Mapping[str, object]) -> FieldEvidence:
         raw_value=payload.get("raw_value")
         if isinstance(payload.get("raw_value"), str)
         else None,
+        quote=payload.get("quote") if isinstance(payload.get("quote"), str) else None,
+        rects=tuple(rects),
+        method=payload.get("method") if isinstance(payload.get("method"), str) else None,
         candidates=tuple(
             _evidence_from_dict(item)
             for item in payload.get("candidates", [])
@@ -313,6 +337,51 @@ def _build_process_record(
     return {"process": process, "status": status, "pending": list(pending), "blocks": blocks}
 
 
+def _read_native_page_words(pdf_path: Path, page_count: int) -> list[dict] | None:
+    """Read native geometry without triggering a second OCR pass."""
+    try:
+        return [
+            read_page_words(pdf_path, page_number, tesseract=None, tessdata=None)
+            for page_number in range(page_count)
+        ]
+    except (OSError, RuntimeError, ValueError, ImportError):
+        return None
+
+
+def _read_geometry_cache(path: Path | None) -> dict[str, Mapping[str, object]]:
+    if path is None or not Path(path).is_file():
+        return {}
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        return {}
+    if not isinstance(payload, Mapping) or payload.get("geometry_version") != 1:
+        return {}
+    entries = payload.get("entries")
+    if not isinstance(entries, Mapping):
+        return {}
+    return {
+        str(key): value
+        for key, value in entries.items()
+        if isinstance(value, Mapping)
+    }
+
+
+def _cached_geometry(
+    entry: Mapping[str, object] | None,
+    expected_sha256: str,
+) -> tuple[list[str], list[dict]] | None:
+    if entry is None or str(entry.get("sha256", "")) != expected_sha256:
+        return None
+    pages = entry.get("pages")
+    geometry = entry.get("geometry")
+    if not isinstance(pages, list) or not isinstance(geometry, list):
+        return None
+    if len(pages) != len(geometry) or not all(isinstance(item, Mapping) for item in geometry):
+        return None
+    return ["" if page is None else str(page) for page in pages], [dict(item) for item in geometry]
+
+
 def run_manifest(
     manifest_path: Path,
     output_path: Path,
@@ -322,11 +391,13 @@ def run_manifest(
     resume: bool = True,
     tesseract: str = "tesseract",
     tessdata_dir: Path | None = None,
+    geometry_cache_path: Path | None = None,
 ) -> dict[str, int]:
     manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
     identifier = run_id or str(manifest.get("run_id") or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
     process_entries = manifest.get("processes", [])
     process_ids = [str(entry["process"]) for entry in process_entries]
+    geometry_cache = _read_geometry_cache(geometry_cache_path)
     store = CheckpointStore(Path(checkpoint_path))
     existing = store._read()
     if not resume or existing.get("run_id") != identifier:
@@ -369,7 +440,31 @@ def run_manifest(
                 pending.append(f"PDF ausente para o Evento {document.get('event', '?')}")
                 analyzed.append(_safe_document_entry(document, None, 0))
                 continue
-            pages = extract_pdf_pages(pdf_path, tesseract=tesseract, tessdata_dir=tessdata_dir)
+            cached = _cached_geometry(
+                geometry_cache.get(str(document.get("geometry_cache_key", ""))),
+                str(document.get("sha256", "")),
+            )
+            if cached is not None:
+                pages, page_words = cached
+            else:
+                extracted_pages = extract_pdf_pages(
+                    pdf_path,
+                    tesseract=tesseract,
+                    tessdata_dir=tessdata_dir,
+                    return_geometry=True,
+                )
+                if (
+                    isinstance(extracted_pages, tuple)
+                    and len(extracted_pages) == 2
+                    and isinstance(extracted_pages[0], list)
+                    and isinstance(extracted_pages[1], list)
+                ):
+                    pages, page_words = extracted_pages
+                else:
+                    # Keep test doubles and older adapters source-compatible; this
+                    # fallback only reads native geometry and never launches OCR.
+                    pages = extracted_pages
+                    page_words = _read_native_page_words(pdf_path, len(pages))
             text = "\n".join(pages)
             kind = classify_document(str(document.get("title", "")), text)
             analyzed.append(_safe_document_entry(document, kind, len(pages)))
@@ -382,6 +477,7 @@ def run_manifest(
                 event=str(document.get("event", "")),
                 document=str(document.get("title", "")),
                 kind=kind,
+                page_words=page_words,
             )
             extractions.append(extraction)
 

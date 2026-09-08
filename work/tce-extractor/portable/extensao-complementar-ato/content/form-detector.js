@@ -406,6 +406,22 @@ function errorResponse(code, message) {
   return { ok: false, error: { code, message } };
 }
 
+function emitComplementarAtoSignal(documentRef, identity) {
+  if (typeof documentRef?.dispatchEvent !== "function") {
+    return errorResponse("COMPLEMENTAR_ATO_SIGNAL_UNAVAILABLE", "portal document cannot receive a signal");
+  }
+  const EventConstructor = documentRef?.defaultView?.CustomEvent ?? globalThis.CustomEvent;
+  let event;
+  if (typeof EventConstructor === "function") {
+    event = new EventConstructor("tce:complementar-ato", { bubbles: true, detail: identity });
+  } else {
+    event = { type: "tce:complementar-ato", bubbles: true, detail: identity };
+  }
+  if (!event.detail) event.detail = identity;
+  documentRef.dispatchEvent(event);
+  return { ok: true, payload: { signaled: true } };
+}
+
 function createMessageHandler(documentRef = globalThis.document) {
   let lastIdentity = null;
 
@@ -440,6 +456,17 @@ function createMessageHandler(documentRef = globalThis.document) {
         return result.errors.length > 0
           ? { ok: false, payload: result, error: { code: "OVERRIDE_BLOCKED", message: result.errors.join("; ") } }
           : { ok: true, payload: result };
+      }
+      if (message.type === "REQUEST_COMPLEMENTAR_ATO") {
+        const currentIdentity = readIdentity(documentRef);
+        const requestedIdentity = {
+          processKey: message.payload.processKey,
+          interestedNormalized: message.payload.interestedNormalized,
+        };
+        if (!currentIdentity || !identitiesEqual(currentIdentity, requestedIdentity)) {
+          return errorResponse("COMPLEMENTAR_ATO_BLOCKED", "processo/interessado mudou; atualize a prévia");
+        }
+        return emitComplementarAtoSignal(documentRef, requestedIdentity);
       }
       return errorResponse("UNSUPPORTED_MESSAGE", `unsupported message type ${message.type}`);
     } catch (error) {

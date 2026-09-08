@@ -313,6 +313,37 @@ test("registers only an allowed portal frame and routes only the requested curre
   assert.deepEqual(sent[1][1].payload.fields, { cargo: "PROFESSOR PN - IV" });
 });
 
+test("forwards an explicit Complementar Ato signal to the current portal frame", async () => {
+  const storage = storageMock();
+  const sent = [];
+  const chromeApi = chromeMock(storage, async (...args) => {
+    sent.push(args);
+    if (args[1].type === MESSAGE_TYPES.GET_FORM_SNAPSHOT) return { ok: true, payload: snapshot() };
+    return { ok: true, payload: { signaled: true } };
+  });
+  const worker = createServiceWorker({ chromeApi });
+  await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.FORM_READY, { url: PORTAL_URL }, "ready-signal"),
+    sender(),
+  );
+
+  const response = await worker.handleMessage(
+    createMessage(
+      MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO,
+      { processKey: PROCESS_KEY, interestedNormalized: "joao da silva" },
+      "signal-1",
+    ),
+    extensionSender(),
+  );
+  assert.equal(response.ok, true);
+  assert.equal(sent.at(-1)[1].type, MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO);
+  assert.deepEqual(sent.at(-1)[1].payload, {
+    processKey: PROCESS_KEY,
+    interestedNormalized: "joao da silva",
+  });
+  assert.deepEqual(sent.at(-1)[2], { frameId: 12 });
+});
+
 test("tracks multiple frames, skips a hidden last registration, and follows the visible frame after a switch", async () => {
   const storage = storageMock();
   const sent = [];

@@ -11,11 +11,181 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(APP_ROOT))
 
 from analysis_pipeline import PipelineSummary, _write_json_atomic, run_local_pipeline
-from batch_runner import _build_process_record, process_input_signature, run_manifest
+from batch_runner import (
+    _build_process_record,
+    _record_from_checkpoint,
+    _record_to_checkpoint,
+    process_input_signature,
+    run_manifest,
+)
 from tce_extractor import Extraction, FieldEvidence
 
 
 class BatchRunnerTests(unittest.TestCase):
+    def test_geometry_metadata_round_trips_without_breaking_old_checkpoint_shape(self):
+        evidence = FieldEvidence(
+            "cargo",
+            "PROFESSOR",
+            "found",
+            process="103439/2023",
+            event="6",
+            document="resolucao.pdf",
+            page=2,
+            quote="PROFESSOR",
+            rects=((0.1, 0.2, 0.4, 0.3),),
+            method="native",
+        )
+        record = {
+            "process": "103439/2023",
+            "status": "complete",
+            "pending": [],
+            "blocks": [{"interested": "JOANA DA SILVA", "pending": [], "fields": {"cargo": evidence}}],
+        }
+        checkpoint = _record_to_checkpoint(record)
+        restored = _record_from_checkpoint(checkpoint)
+        restored_evidence = restored["blocks"][0]["fields"]["cargo"]
+        self.assertEqual(restored_evidence.quote, "PROFESSOR")
+        self.assertEqual(restored_evidence.rects, ((0.1, 0.2, 0.4, 0.3),))
+        self.assertEqual(restored_evidence.method, "native")
+
+    def test_manifest_uses_geometry_returned_by_the_text_pass_without_second_reader(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pdf_path = root / "scan.pdf"
+            pdf_path.write_bytes(b"fixture")
+            manifest_path = root / "manifest.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "run_id": "geometry-run",
+                        "processes": [
+                            {
+                                "process": "103439/2023",
+                                "documents": [
+                                    {
+                                        "event": "9",
+                                        "title": "RESOLUÇÃO ADMINISTRATIVA",
+                                        "pdf_path": str(pdf_path),
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            page_text = "RESOLUÇÃO ADMINISTRATIVA Nº 156\nInteressada: JOANA DA SILVA\nCargo: PROFESSOR"
+            geometry = [
+                {
+                    "page": 0,
+                    "width": 1,
+                    "height": 1,
+                    "coordinates": "normalized",
+                    "method": "ocr",
+                    "words": [
+                        {"text": "Cargo:", "rect": [0.1, 0.2, 0.2, 0.25]},
+                        {"text": "PROFESSOR", "rect": [0.21, 0.2, 0.5, 0.25]},
+                    ],
+                }
+            ]
+            with (
+                patch("batch_runner.extract_pdf_pages", return_value=([page_text], geometry)),
+                patch("batch_runner._read_native_page_words", side_effect=AssertionError("segunda leitura inesperada")),
+            ):
+                run_manifest(
+                    manifest_path,
+                    root / "doc.md",
+                    root / "checkpoint.json",
+                    run_id="geometry-run",
+                    resume=False,
+                )
+
+            checkpoint = json.loads((root / "checkpoint.json").read_text(encoding="utf-8"))
+            cargo = checkpoint["processes"]["103439/2023"]["result"]["blocks"][0]["fields"]["cargo"]
+            self.assertEqual(cargo["method"], "ocr")
+            self.assertEqual(cargo["rects"], [[0.21, 0.2, 0.5, 0.25]])
+
+    def test_manifest_reuses_geometry_cache_without_running_ocr_again(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pdf_path = root / "scan.pdf"
+            pdf_path.write_bytes(b"fixture")
+            sha256 = "e" * 64
+            geometry_key = "e" * 64 + ":geometry-1:runtime"
+            manifest_path = root / "manifest.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "run_id": "geometry-cache-run",
+                        "processes": [
+                            {
+                                "process": "103439/2023",
+                                "documents": [
+                                    {
+                                        "event": "9",
+                                        "title": "RESOLUÇÃO ADMINISTRATIVA",
+                                        "pdf_path": str(pdf_path),
+                                        "sha256": sha256,
+                                        "geometry_cache_key": geometry_key,
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            geometry_cache = root / "cache-geometria.json"
+            geometry_cache.write_text(
+                json.dumps(
+                    {
+                        "geometry_version": 1,
+                        "entries": {
+                            geometry_key: {
+                                "sha256": sha256,
+                                "pages": [
+                                    "RESOLUÇÃO ADMINISTRATIVA Nº 156\nInteressada: JOANA DA SILVA\nCargo: PROFESSOR"
+                                ],
+                                "geometry": [
+                                    {
+                                        "page": 0,
+                                        "method": "ocr",
+                                        "coordinates": "normalized",
+                                        "words": [
+                                            {"text": "Cargo:", "rect": [0.1, 0.2, 0.2, 0.25]},
+                                            {"text": "PROFESSOR", "rect": [0.21, 0.2, 0.5, 0.25]},
+                                        ],
+                                    }
+                                ],
+                            }
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            with patch(
+                "batch_runner.extract_pdf_pages",
+                side_effect=AssertionError("OCR repetido apesar do cache geométrico"),
+            ):
+                run_manifest(
+                    manifest_path,
+                    root / "doc.md",
+                    root / "checkpoint.json",
+                    run_id="geometry-cache-run",
+                    resume=False,
+                    geometry_cache_path=geometry_cache,
+                )
+
+            checkpoint = json.loads((root / "checkpoint.json").read_text(encoding="utf-8"))
+            cargo = checkpoint["processes"]["103439/2023"]["result"]["blocks"][0]["fields"]["cargo"]
+            self.assertEqual(cargo["method"], "ocr")
+            self.assertEqual(cargo["rects"], [[0.21, 0.2, 0.5, 0.25]])
+
     @staticmethod
     def _write_hash_manifest(root: Path, hashes: tuple[str, str]) -> Path:
         processes = []
@@ -191,6 +361,7 @@ class BatchRunnerTests(unittest.TestCase):
                 root / "cache-ocr.json",
                 root / "runtime" / "tesseract.exe",
                 root / "runtime" / "tessdata",
+                geometry_cache_path=root / "cache-ocr-geometria.json",
             )
             build.assert_called_once_with(classified)
             extract.assert_called_once_with(
@@ -201,6 +372,7 @@ class BatchRunnerTests(unittest.TestCase):
                 resume=True,
                 tesseract=str(root / "runtime" / "tesseract.exe"),
                 tessdata_dir=root / "runtime" / "tessdata",
+                geometry_cache_path=root / "cache-ocr-geometria.json",
             )
             write_html.assert_called_once_with(
                 root / "pdfs-alvo-manifest.json",
@@ -208,6 +380,7 @@ class BatchRunnerTests(unittest.TestCase):
                 root / "complementar-ato.html",
                 pdf_link_root=None,
                 archive_index_path=root / "indice-classificado.json",
+                visual_evidence_path=root / "evidencias-visuais.json",
             )
             export.assert_called_once_with(
                 root / "checkpoint-extracao.json",

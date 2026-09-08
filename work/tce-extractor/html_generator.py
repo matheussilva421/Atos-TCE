@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from html import escape
+import hashlib
 import json
 from pathlib import Path, PureWindowsPath
 import re
@@ -56,14 +57,45 @@ def _citation(field: Mapping[str, object]) -> str | None:
     return None
 
 
-def _safe_field(field: Mapping[str, object] | None, key: str) -> dict:
+def _safe_evidence(evidence: Mapping[str, object] | None) -> dict | None:
+    if not isinstance(evidence, Mapping):
+        return None
+    document_id = evidence.get("document_id")
+    page = evidence.get("page")
+    if not isinstance(document_id, str) or not document_id or not isinstance(page, int) or page < 1:
+        return None
+    rects = []
+    for rect in evidence.get("rects", []):
+        if not isinstance(rect, (list, tuple)) or len(rect) != 4:
+            continue
+        try:
+            values = [float(value) for value in rect]
+        except (TypeError, ValueError):
+            continue
+        if all(0 <= value <= 1 for value in values) and values[0] <= values[2] and values[1] <= values[3]:
+            rects.append(values)
+    return {
+        "document_id": document_id,
+        "page": page,
+        "quote": evidence.get("quote") if isinstance(evidence.get("quote"), str) else None,
+        "rects": rects,
+        "method": str(evidence.get("method", "none")),
+        "status": str(evidence.get("status", "missing")),
+    }
+
+
+def _safe_field(
+    field: Mapping[str, object] | None,
+    key: str,
+    visual_evidence: Mapping[str, object] | None = None,
+) -> dict:
     source = dict(field or {})
     candidates = [
         _safe_field(candidate, key)
         for candidate in source.get("candidates", [])
         if isinstance(candidate, Mapping)
     ]
-    return {
+    result = {
         "key": key,
         "value": source.get("value") if isinstance(source.get("value"), str) else None,
         "status": str(source.get("status", "missing")),
@@ -78,12 +110,20 @@ def _safe_field(field: Mapping[str, object] | None, key: str) -> dict:
         "citation": _citation(source),
         "candidates": candidates,
     }
+    evidence = _safe_evidence(visual_evidence)
+    if evidence is not None:
+        result["evidence"] = evidence
+    return result
 
 
-def _safe_block(block: Mapping[str, object]) -> dict:
+def _safe_block(block: Mapping[str, object], visual_record: Mapping[str, object] | None = None) -> dict:
     raw_fields = block.get("fields", {})
     fields = {
-        key: _safe_field(raw_fields.get(key), key)
+        key: _safe_field(
+            raw_fields.get(key),
+            key,
+            visual_record.get(key) if isinstance(visual_record, Mapping) else None,
+        )
         for key in FIELD_ORDER
         if isinstance(raw_fields, Mapping)
     }
@@ -98,6 +138,7 @@ def _safe_document(
     document: Mapping[str, object],
     analyzed: Mapping[str, object] | None,
     *,
+    process_key: str = "",
     pdf_link_root: str | None = None,
     process_folder: str | None = None,
 ) -> dict:
@@ -110,7 +151,20 @@ def _safe_document(
         pdf_url = _relative_pdf_url(relative.as_posix())
     page_count = int((analyzed or {}).get("pages", 0) or 0)
     classification = (analyzed or {}).get("classification") or document.get("classification") or document.get("kind")
+    source_document_id = str(
+        document.get("id")
+        or document.get("document_id")
+        or document.get("card_id")
+        or document.get("title", "")
+    )
+    pdf_sha256 = str(document.get("sha256") or "")
+    visual_document_id = hashlib.sha256(
+        f"{process_key}|{document.get('event_id', document.get('event', ''))}|{source_document_id}|{pdf_sha256}".encode()
+    ).hexdigest()
     return {
+        "document_id": visual_document_id,
+        "source_document_id": source_document_id,
+        "sha256": pdf_sha256,
         "event": str(document.get("event", "")),
         "date": str(document.get("date", "")),
         "title": str(document.get("title", "")),
@@ -155,6 +209,8 @@ def _safe_archive_document(
     document: Mapping[str, object],
     target: Mapping[str, object] | None,
     analyzed: Mapping[str, object] | None,
+    *,
+    process_key: str = "",
 ) -> dict:
     source = target or {}
     classification = (
@@ -172,7 +228,24 @@ def _safe_archive_document(
         or 0
     )
     status = str(document.get("status", ""))
+    source_document_id = str(
+        document.get("id")
+        or document.get("document_id")
+        or document.get("card_id")
+        or source.get("id")
+        or source.get("document_id")
+        or source.get("card_id")
+        or document.get("title")
+        or source.get("title", "")
+    )
+    pdf_sha256 = str(document.get("sha256") or source.get("sha256") or "")
+    visual_document_id = hashlib.sha256(
+        f"{process_key}|{event.get('event_id', event.get('event', ''))}|{source_document_id}|{pdf_sha256}".encode()
+    ).hexdigest()
     return {
+        "document_id": visual_document_id,
+        "source_document_id": source_document_id,
+        "sha256": pdf_sha256,
         "event": str(event.get("event", source.get("event", ""))),
         "date": str(document.get("date") or event.get("date") or source.get("date", "")),
         "title": str(document.get("title") or source.get("title") or event.get("title", "")),
@@ -201,6 +274,7 @@ def build_interface_payload(
     *,
     pdf_link_root: str | None = None,
     archive_index_path: Path | None = None,
+    visual_evidence_path: Path | None = None,
 ) -> dict:
     manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
     checkpoint = json.loads(Path(checkpoint_path).read_text(encoding="utf-8"))
@@ -215,6 +289,12 @@ def build_interface_payload(
         for item in archive_index.get("processes", [])
         if isinstance(item, Mapping)
     }
+    visual_evidence = {}
+    if visual_evidence_path is not None and Path(visual_evidence_path).exists():
+        loaded_visual_evidence = json.loads(Path(visual_evidence_path).read_text(encoding="utf-8-sig"))
+        if isinstance(loaded_visual_evidence, Mapping) and loaded_visual_evidence.get("schema_version") == 1:
+            visual_evidence = dict(loaded_visual_evidence)
+    visual_records = visual_evidence.get("records", {}) if isinstance(visual_evidence, Mapping) else {}
 
     processes = []
     for entry in manifest.get("processes", []):
@@ -238,6 +318,7 @@ def build_interface_payload(
                 _safe_document(
                     document,
                     analyzed,
+                    process_key=process,
                     pdf_link_root=pdf_link_root,
                     process_folder=process.replace("/", "-"),
                 )
@@ -264,17 +345,20 @@ def build_interface_payload(
                         document,
                         target_by_event_file.get((event_id, file_name)),
                         analyzed_by_event_file.get((event_id, file_name)),
+                        process_key=process,
                     )
                 )
         if not all_documents:
             all_documents = [dict(document) for document in documents]
         all_documents.sort(key=_document_sort_key)
 
-        blocks = [
-            _safe_block(block)
-            for block in result.get("blocks", [])
-            if isinstance(block, Mapping)
-        ]
+        blocks = []
+        for block in result.get("blocks", []):
+            if not isinstance(block, Mapping):
+                continue
+            interested_normalized = re.sub(r"\s+", " ", str(block.get("interested", "")).casefold()).strip()
+            record_id = hashlib.sha256(f"{process}|{interested_normalized}".encode()).hexdigest()
+            blocks.append(_safe_block(block, visual_records.get(record_id)))
         processes.append(
             {
                 "process": process,
@@ -314,6 +398,24 @@ def build_interface_payload(
         "generated_at": str(checkpoint.get("created_at", "")),
         "run_id": str(checkpoint.get("run_id", "")),
         "processes": processes,
+        "review_assets": {
+            "mode": "offline-pdfjs-with-iframe-fallback",
+            "selection_module": "../app/web/review-app.js",
+            "style": "../app/web/review.css",
+            "pdfjs_manifest": "../app/web/vendor/pdfjs/manifest.json",
+            "viewer_candidates": [
+                {
+                    "viewer_module": "../app/web/pdf-viewer.js",
+                    "pdfjs_module": "../app/web/vendor/pdfjs/pdf.mjs",
+                    "pdfjs_worker": "../app/web/vendor/pdfjs/pdf.worker.mjs",
+                },
+                {
+                    "viewer_module": "web/pdf-viewer.js",
+                    "pdfjs_module": "web/vendor/pdfjs/pdf.mjs",
+                    "pdfjs_worker": "web/vendor/pdfjs/pdf.worker.mjs",
+                },
+            ],
+        },
         "stats": {
             "processes": len(processes),
             "documents": priority_document_count,
@@ -424,6 +526,10 @@ HTML_TEMPLATE = r'''<!doctype html>
     .badge-pending { color: var(--ink); background: #f3d9a6; border-color: var(--copper); }
     .pdf-wrap { position: relative; flex: 1; min-height: 320px; padding: 17px; background: #29313a; }
     #pdf-frame { width: 100%; height: 100%; min-height: 480px; display: block; background: #fff; border: 1px solid #526270; box-shadow: 0 15px 34px rgba(0,0,0,.2); }
+    #pdf-canvas-stage { position: relative; width: 100%; height: 100%; min-height: 480px; overflow: auto; display: none; padding: 10px; background: #66717a; border: 1px solid #526270; box-shadow: 0 15px 34px rgba(0,0,0,.2); }
+    #pdf-canvas { display: block; max-width: none; margin: 0 auto; background: #fff; }
+    #pdf-overlay { position: absolute; inset: 10px; pointer-events: none; }
+    .review-mode-note { color: #d6e0dd; font-size: 10px; }
     .pdf-empty { position: absolute; inset: 17px; display: grid; place-items: center; color: #d5dfdd; background: repeating-linear-gradient(135deg, #303d48 0, #303d48 9px, #2b3741 9px, #2b3741 18px); text-align: center; }
     .pdf-empty div { max-width: 320px; padding: 20px; border: 1px dashed #71828a; }
     .pdf-empty strong { display: block; margin-bottom: 6px; color: #fff; font: 700 20px Georgia, serif; }
@@ -502,7 +608,7 @@ HTML_TEMPLATE = r'''<!doctype html>
       .document-badges { gap: 3px; }
       .document-badge { min-height: 18px; padding: 2px 4px; font-size: 7px; }
       .pdf-wrap { min-height: 0; padding: 7px; }
-      #pdf-frame { min-height: 0; box-shadow: 0 8px 20px rgba(0,0,0,.2); }
+      #pdf-frame, #pdf-canvas-stage { min-height: 0; box-shadow: 0 8px 20px rgba(0,0,0,.2); }
       .pdf-empty { inset: 7px; }
       .pdf-empty div { max-width: 220px; padding: 12px; }
       .pdf-empty strong { font-size: 16px; }
@@ -557,7 +663,7 @@ HTML_TEMPLATE = r'''<!doctype html>
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
   </style>
 </head>
-<body>
+<body data-review-mode="offline-pdfjs-with-iframe-fallback">
 <div class="app-shell">
   <header class="topbar">
     <div class="brand">
@@ -602,9 +708,13 @@ HTML_TEMPLATE = r'''<!doctype html>
       </div>
       <div class="pdf-wrap">
         <iframe id="pdf-frame" title="PDF do documento selecionado"></iframe>
+        <div id="pdf-canvas-stage" aria-label="PDF renderizado pela mesa offline">
+          <canvas id="pdf-canvas"></canvas>
+          <div id="pdf-overlay" aria-hidden="true"></div>
+        </div>
         <div class="pdf-empty" id="pdf-empty"><div><strong>Selecione um documento</strong><span>O PDF aparecerá nesta área. Se o navegador bloquear a visualização local, use “Abrir PDF”.</span></div></div>
       </div>
-      <div class="viewer-foot"><span id="document-meta">Nenhum documento selecionado</span><span>Arquivo local · sem sessão</span></div>
+      <div class="viewer-foot"><span id="document-meta">Nenhum documento selecionado</span><span class="review-mode-note" id="review-mode-note">Modo integrado tentando carregar · fallback iframe disponível</span></div>
     </section>
     <div class="splitter" id="splitter" title="Arraste ou use as setas para ajustar a largura dos painéis">
       <input id="split-slider" type="range" min="30" max="68" value="42" step="1" aria-label="Ajustar largura dos painéis">
@@ -640,13 +750,18 @@ HTML_TEMPLATE = r'''<!doctype html>
 <script>
 (() => {
   const data = JSON.parse(document.getElementById('app-data').textContent);
+  const reviewAssets = data.review_assets || {};
   const labels = {
     modalidade: 'Modalidade', fundamento_legal: 'Fundamento legal',
     data_publicacao_doe: 'Data de publicação no DOE', cargo: 'Cargo',
     matricula: 'Matrícula', data_nascimento: 'Data de nascimento', genero: 'Gênero'
   };
   const order = Object.keys(labels);
-  const state = { processIndex: 0, blockIndex: 0, documentIndex: 0, query: '' };
+  const state = { processIndex: 0, blockIndex: 0, documentIndex: 0, query: '', evidence: null };
+  let integratedViewer = null;
+  let integratedPdfjs = null;
+  let integratedLoad = null;
+  let renderSequence = 0;
   const COMPLETED_STORAGE_KEY = data.archive_cycle_id
     ? `tce-completed-processes-v1:${data.archive_cycle_id}`
     : 'tce-completed-processes-v1';
@@ -769,7 +884,13 @@ HTML_TEMPLATE = r'''<!doctype html>
 
   function sourceButton(field) {
     if (!field || !field.citation) return null;
-    return makeButton(`Ver ${field.citation}`, 'source-button', () => selectDocument(field.event, field.page));
+    const evidence = field.evidence || {};
+    return makeButton(`Ver ${field.citation}`, 'source-button', () => selectDocument(
+      evidence.document_id || null,
+      field.event,
+      evidence.page || field.page,
+      evidence.rects || [],
+    ));
   }
 
   function candidateNode(candidate) {
@@ -805,6 +926,61 @@ HTML_TEMPLATE = r'''<!doctype html>
     unique.forEach((item) => { const li = document.createElement('li'); li.textContent = item; list.appendChild(li); });
   }
 
+  async function ensureIntegratedViewer() {
+    if (integratedViewer) return true;
+    if (integratedLoad) return integratedLoad;
+    integratedLoad = (async () => {
+      const candidates = Array.isArray(reviewAssets.viewer_candidates)
+        ? reviewAssets.viewer_candidates
+        : [{ viewer_module: reviewAssets.viewer_module, pdfjs_module: reviewAssets.pdfjs_module, pdfjs_worker: reviewAssets.pdfjs_worker }];
+      for (const candidate of candidates) {
+        if (!candidate?.viewer_module || !candidate?.pdfjs_module) continue;
+        try {
+          const [viewerModule, pdfjsModule] = await Promise.all([
+            import(`./${candidate.viewer_module}`),
+            import(`./${candidate.pdfjs_module}`),
+          ]);
+          if (typeof viewerModule.renderPdfPage !== 'function' || typeof pdfjsModule.getDocument !== 'function') continue;
+          integratedViewer = viewerModule;
+          integratedPdfjs = pdfjsModule;
+          reviewAssets.pdfjs_worker = candidate.pdfjs_worker;
+          $('review-mode-note').textContent = 'Modo PDF.js local · fallback iframe disponível';
+          return true;
+        } catch (_) {
+          // Try the next package-relative location before falling back to iframe.
+        }
+      }
+      $('review-mode-note').textContent = 'Modo iframe nativo · PDF.js local indisponível';
+      return false;
+    })();
+    return integratedLoad;
+  }
+
+  async function renderIntegrated(document, page, rects) {
+    const sequence = ++renderSequence;
+    if (!(await ensureIntegratedViewer()) || sequence !== renderSequence) return false;
+    try {
+      await integratedViewer.renderPdfPage({
+        pdfjs: integratedPdfjs,
+        pdfUrl: document.pdf_url,
+        pageNumber: page,
+        canvas: $('pdf-canvas'),
+        overlay: $('pdf-overlay'),
+        workerUrl: reviewAssets.pdfjs_worker,
+        evidence: { rects },
+      });
+      if (sequence !== renderSequence) return false;
+      $('pdf-frame').style.display = 'none';
+      $('pdf-canvas-stage').style.display = 'block';
+      return true;
+    } catch (_) {
+      $('pdf-frame').style.display = 'block';
+      $('pdf-canvas-stage').style.display = 'none';
+      $('review-mode-note').textContent = 'Modo iframe nativo · PDF.js local falhou';
+      return false;
+    }
+  }
+
   function renderDocuments() {
     const process = currentProcess(); const select = $('document-select');
     const documents = process.all_documents || process.documents;
@@ -812,7 +988,7 @@ HTML_TEMPLATE = r'''<!doctype html>
     select.innerHTML = documents.length ? documents.map((document, index) => `<option value="${index}">${esc(prefixes[document.classification] || 'OUTRO')} · Evento ${esc(document.event)} · ${esc(document.title || document.file)}</option>`).join('') : '<option value="-1">Nenhum arquivo disponível</option>';
     state.documentIndex = Math.min(state.documentIndex, Math.max(0, documents.length - 1)); select.value = String(documents.length ? state.documentIndex : -1);
     const document = documents[state.documentIndex]; const frame = $('pdf-frame'); const empty = $('pdf-empty'); const open = $('open-pdf'); const badges = $('document-badges');
-    if (!document) { frame.removeAttribute('src'); frame.style.visibility = 'hidden'; empty.style.display = 'grid'; open.classList.add('disabled'); open.removeAttribute('href'); badges.replaceChildren(); $('document-meta').textContent = 'Nenhum arquivo disponível'; return; }
+    if (!document) { frame.removeAttribute('src'); frame.style.visibility = 'hidden'; frame.style.display = 'block'; $('pdf-canvas-stage').style.display = 'none'; empty.style.display = 'grid'; open.classList.add('disabled'); open.removeAttribute('href'); badges.replaceChildren(); $('document-meta').textContent = 'Nenhum arquivo disponível'; return; }
     const kindBadges = {
       resolucao_administrativa: '<span class="document-badge badge-resolution" data-kind="resolucao_administrativa">RESOLUÇÃO</span>',
       guia_financeira_taxacao: '<span class="document-badge badge-guide" data-kind="guia_financeira_taxacao">GUIA</span>',
@@ -823,17 +999,20 @@ HTML_TEMPLATE = r'''<!doctype html>
     badges.innerHTML = kindBadges[document.classification] || kindBadges.outro_documento;
     if (document.classification_conflict) badges.insertAdjacentHTML('beforeend', '<span class="document-badge badge-conflict">CONFLITO</span>');
     if (document.pending && !['pendente_ocr', 'erro_leitura'].includes(document.classification)) badges.insertAdjacentHTML('beforeend', '<span class="document-badge badge-pending">PENDENTE</span>');
-    if (!document.pdf_url) { frame.removeAttribute('src'); frame.style.visibility = 'hidden'; empty.style.display = 'grid'; open.classList.add('disabled'); open.removeAttribute('href'); $('document-meta').textContent = `Evento ${document.event} · ${document.file || document.title} · arquivo indisponível`; return; }
-    frame.style.visibility = 'visible'; empty.style.display = 'none'; frame.src = `${document.pdf_url}#page=1&zoom=page-fit`; open.href = document.pdf_url; open.classList.remove('disabled'); $('document-meta').textContent = `Evento ${document.event} · ${document.file} · ${document.page_count || document.pages || '?'} página(s)`;
+    if (!document.pdf_url) { frame.removeAttribute('src'); frame.style.visibility = 'hidden'; frame.style.display = 'block'; $('pdf-canvas-stage').style.display = 'none'; empty.style.display = 'grid'; open.classList.add('disabled'); open.removeAttribute('href'); $('document-meta').textContent = `Evento ${document.event} · ${document.file || document.title} · arquivo indisponível`; return; }
+    const evidence = state.evidence && state.evidence.documentId === document.document_id ? state.evidence : null;
+    const page = evidence?.page || 1;
+    frame.style.visibility = 'visible'; frame.style.display = 'block'; $('pdf-canvas-stage').style.display = 'none'; empty.style.display = 'none'; frame.src = `${document.pdf_url}#page=${page}&zoom=page-fit`; open.href = document.pdf_url; open.classList.remove('disabled'); $('document-meta').textContent = `Evento ${document.event} · ${document.file} · ${document.page_count || document.pages || '?'} página(s)`;
+    void renderIntegrated(document, page, evidence?.rects || []);
   }
 
-  function selectDocument(eventId, page) { const process = currentProcess(); const documents = process.all_documents || process.documents; const index = documents.findIndex((document) => String(document.event) === String(eventId) && document.pdf_url); if (index < 0) { notify('PDF do evento não está disponível neste lote.'); return; } state.documentIndex = index; renderDocuments(); if (page) $('pdf-frame').src = `${documents[index].pdf_url}#page=${page}&zoom=page-fit`; notify(`PDF posicionado no Evento ${eventId}, página ${page || 1}.`); }
+  function selectDocument(documentId, eventId, page, rects = []) { const process = currentProcess(); const documents = process.all_documents || process.documents; const index = documents.findIndex((document) => document.pdf_url && ((documentId && document.document_id === documentId) || (!documentId && String(document.event) === String(eventId)))); if (index < 0) { notify('PDF da evidência não está disponível neste lote.'); return; } state.documentIndex = index; state.evidence = { documentId: documents[index].document_id, page: page || 1, rects }; renderDocuments(); notify(`PDF posicionado no Evento ${eventId || documents[index].event}, página ${page || 1}.`); }
 
   function render() { renderProcessOptions(); renderIdentity(); renderFields(); renderPending(); renderDocuments(); }
   $('search-process').addEventListener('input', (event) => { state.query = event.target.value; renderProcessOptions(); render(); });
   $('process-select').addEventListener('change', (event) => { state.processIndex = Number(event.target.value); state.blockIndex = 0; state.documentIndex = 0; render(); });
   $('block-select').addEventListener('change', (event) => { state.blockIndex = Number(event.target.value); renderFields(); renderPending(); });
-  $('document-select').addEventListener('change', (event) => { state.documentIndex = Number(event.target.value); renderDocuments(); });
+  $('document-select').addEventListener('change', (event) => { state.documentIndex = Number(event.target.value); state.evidence = null; renderDocuments(); });
   $('prev-process').addEventListener('click', () => { if (state.processIndex > 0) { state.processIndex--; state.blockIndex = 0; state.documentIndex = 0; render(); } });
   $('next-process').addEventListener('click', () => { if (state.processIndex < data.processes.length - 1) { state.processIndex++; state.blockIndex = 0; state.documentIndex = 0; render(); } });
   $('process-done').addEventListener('change', (event) => {
@@ -915,12 +1094,14 @@ def write_html(
     *,
     pdf_link_root: str | None = None,
     archive_index_path: Path | None = None,
+    visual_evidence_path: Path | None = None,
 ) -> None:
     payload = build_interface_payload(
             manifest_path,
             checkpoint_path,
             pdf_link_root=pdf_link_root,
             archive_index_path=archive_index_path,
+            visual_evidence_path=visual_evidence_path,
         )
     cycle_path = output_path.parent / "ciclo-acervo.json"
     if cycle_path.exists():
@@ -952,6 +1133,11 @@ def main() -> int:
         type=Path,
         help="Índice local do acervo para listar todos os arquivos do processo.",
     )
+    parser.add_argument(
+        "--visual-evidence",
+        type=Path,
+        help="Sidecar de evidências geométricas para a mesa offline.",
+    )
     args = parser.parse_args()
     write_html(
         args.manifest,
@@ -959,12 +1145,14 @@ def main() -> int:
         args.output,
         pdf_link_root=args.pdf_link_root,
         archive_index_path=args.archive_index,
+        visual_evidence_path=args.visual_evidence,
     )
     payload = build_interface_payload(
         args.manifest,
         args.checkpoint,
         pdf_link_root=args.pdf_link_root,
         archive_index_path=args.archive_index,
+        visual_evidence_path=args.visual_evidence,
     )
     print(json.dumps(payload["stats"], ensure_ascii=False))
     return 0

@@ -638,3 +638,35 @@ test("validated APPLY_FIELDS transports matchKinds through the handler to green 
   assert.equal(controls.txtModalidade.classList.contains("complementar-ato-match-green"), true);
   assert.equal(controls.txtFundamentoLegal.classList.contains("complementar-ato-match-yellow"), true);
 });
+
+test("emits a Complementar Ato signal only for the current verified identity", async () => {
+  const { documentRef } = buildForm();
+  const events = [];
+  documentRef.addEventListener("tce:complementar-ato", (event) => events.push(event));
+  const response = await createMessageHandler(documentRef)(
+    createMessage(
+      MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO,
+      { processKey: "103439/2023", interestedNormalized: "maria de souza" },
+      "signal-1",
+    ),
+  );
+  assert.equal(response.ok, true);
+  assert.equal(events.length, 1);
+  assert.deepEqual(events[0].detail, {
+    processKey: "103439/2023",
+    interestedNormalized: "maria de souza",
+  });
+});
+
+test("blocks a Complementar Ato signal when identity changed", async () => {
+  const { documentRef } = buildForm();
+  const response = await createMessageHandler(documentRef)(
+    createMessage(
+      MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO,
+      { processKey: "999999/2024", interestedNormalized: "outra pessoa" },
+      "signal-2",
+    ),
+  );
+  assert.equal(response.ok, false);
+  assert.equal(response.error.code, "COMPLEMENTAR_ATO_BLOCKED");
+});

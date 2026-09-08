@@ -118,7 +118,11 @@ try {
     Assert-NotEqual ([string]$cycle.id) $oldCycleId 'ciclo novo nunca reutiliza o ID anterior'
 
     $newFiles = @(Get-ChildItem -LiteralPath $archiveRoot -Recurse -Force -File)
-    Assert-Equal $newFiles.Count 1 'novo acervo contém somente o marcador do ciclo'
+    Assert-Equal $newFiles.Count 2 'novo acervo contém marcador e progresso portátil'
+    $progress = Get-Content -LiteralPath (Join-Path $archiveRoot 'progresso.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    Assert-Equal $progress.schema_version 1 'progresso novo usa schema v1'
+    Assert-Equal $progress.revision 0 'progresso novo começa na revisão zero'
+    Assert-Equal @($progress.processes.PSObject.Properties).Count 0 'progresso novo não promove marcas legadas'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $archiveRoot 'checkpoint-extracao.json'))) 'checkpoint anterior não reaparece no novo acervo'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $archiveRoot 'complementar-ato.html'))) 'HTML anterior não reaparece no novo acervo'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $archiveRoot 'dados-complementar-ato.json'))) 'JSON anterior não reaparece no novo acervo'

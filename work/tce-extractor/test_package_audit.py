@@ -70,6 +70,7 @@ class PackageAuditContractTests(unittest.TestCase):
             "background/service-worker.js",
             "lib/matcher.js",
             "lib/messages.js",
+            "lib/bridge-client.js",
             "lib/normalizer.js",
             "lib/schema.js",
             "sidepanel/panel.css",

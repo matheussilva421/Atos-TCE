@@ -14,6 +14,7 @@ export const MESSAGE_TYPES = Object.freeze({
   APPLY_FIELDS: "APPLY_FIELDS",
   OVERRIDE_FIELD: "OVERRIDE_FIELD",
   SET_REVIEWED: "SET_REVIEWED",
+  REQUEST_COMPLEMENTAR_ATO: "REQUEST_COMPLEMENTAR_ATO",
 });
 
 const MESSAGE_TYPE_SET = new Set(Object.values(MESSAGE_TYPES));
@@ -113,6 +114,11 @@ function validatePayload(type, payload) {
       nonEmptyString(payload.processKey, "SET_REVIEWED processKey");
       nonEmptyString(payload.interestedNormalized, "SET_REVIEWED interestedNormalized");
       if (typeof payload.reviewed !== "boolean") invalid("SET_REVIEWED reviewed must be boolean");
+      break;
+    case MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO:
+      exactKeys(payload, ["processKey", "interestedNormalized"], "REQUEST_COMPLEMENTAR_ATO payload");
+      nonEmptyString(payload.processKey, "REQUEST_COMPLEMENTAR_ATO processKey");
+      nonEmptyString(payload.interestedNormalized, "REQUEST_COMPLEMENTAR_ATO interestedNormalized");
       break;
     default:
       invalid(`type ${type} is unsupported`);

@@ -28,6 +28,13 @@ computador de destino. `TESTAR-PACOTE.ps1` faz a verificação offline sem login
 4. Execute `INICIAR.cmd` e escolha uma das opções 1–8. Para coletar, deixe
    **Meus Processos** visível na janela do Chrome/Edge e pressione `ENTER`.
 
+Em cada coleta, `-ModoPreparacao progressivo` (padrão) permite abrir os primeiros
+resultados enquanto a preparação continua; `-ModoPreparacao completo` aguarda o
+fim antes de abrir a mesa. `-MaxDownloads` aceita somente 1 ou 2 e limita os
+workers de download em runspaces; hash, deduplicação, versões e checkpoint
+continuam no coordenador único. O token de sessão é passado somente em memória
+ao worker e nunca entra no acervo, logs ou ZIP.
+
 Seleções aceitas:
 
 ```text
@@ -84,6 +91,25 @@ Aproximações e empates ficam amarelos. **Divergências** não são sobrescrita
 
 O HTML continua disponível. Seu check é independente da marcação **Revisado**
 da extensão; revisar um formato não marca o outro.
+
+Quando uma página escaneada exige OCR, a classificação grava `cache-ocr.json` e
+o cache separado `cache-ocr-geometria.json`. Texto e caixas daquele passe são
+reutilizados pelo batch quando o hash do PDF, a versão geométrica e o runtime
+OCR coincidem; cache antigo ou incompatível não é tratado como geometria válida.
+
+A mesa mostra a Resolução, a Guia e outros eventos em páginas completas. Quando
+os assets locais estão disponíveis, usa o viewer PDF.js fixado no manifesto de
+dependências e sobrepõe somente retângulos de evidência que tenham documento,
+hash e página resolvidos; em `file:` ou navegador restrito, retorna ao iframe
+nativo e ao botão **Abrir PDF**. Clicar numa fonte nunca altera o formulário.
+
+O serviço local opcional fica somente em `127.0.0.1`, usa código temporário de
+pareamento e mantém tokens em memória/sessão. Para usá-lo, inicie o helper pela
+opção própria do menu, informe o código em **Mesa local** na extensão e pare-o
+com `INICIAR.cmd parar`. Se a ponte estiver indisponível, importação manual do
+JSON e HTML estático continuam válidos. A pesquisa da extensão por número de
+processo ou interessado apenas localiza o registro; a seleção no portal e o
+clique **Preencher campos disponíveis** continuam deliberados.
 
 `TESTAR-PACOTE.ps1` verifica offline Python/Tesseract, idiomas `por`, `eng` e
 `osd`, manifest e todos os arquivos declarados, permissões exatas, ausência de
