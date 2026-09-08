@@ -80,6 +80,41 @@ Criados `qa_integrated_workflow.py` e `test_integrated_workflow.py`. O relatóri
 
 ## Verificação mais recente
 
+### Pacote portátil completo montado a partir do acervo fornecido
+
+Em 08/09/2026 foi usado, somente como fonte de leitura, o diretório fornecido pelo usuário:
+
+`C:\Users\slvma\Downloads\Github\Complementação de Atos\TCE-Acervo-Atualizado-227-2026-09-05 - v2`
+
+Esse snapshot não é o lote mais recente, mas contém os PDFs necessários. O staging foi montado com o código atual, a extensão atualizada, o runtime portátil dessa cópia e o `acervo-tce` fornecido. O diretório de origem não foi alterado.
+
+- fonte: 227 processos, 4.532 PDFs, aproximadamente 2,08 GB;
+- `dados-complementar-ato.json`: reprojetado pelo `portable/app/extension_exporter.py` atual e validado; 227 processos e 235 registros;
+- `ordem-portal.json`: derivado da ordem do `indice-local.json` fornecido;
+- `progresso.json`: criado com revisão 0 e todos os processos não concluídos, pois a fonte não trazia um progresso humano válido;
+- `indice-classificado.json`: removidos somente `absolute_path` herdados do computador de origem;
+- `pdfs-alvo-manifest.json`: `pdf_path` absolutos substituídos pelos `relative_path` locais; 460 referências reescritas, 0 ausentes;
+- pacote não contém `dados-locais`, bridge, credenciais, perfil de navegador, `downloads`, `.part` ou `.tmp`.
+
+Artefato:
+
+- ZIP: `C:\Users\slvma\Downloads\Github\Complementação de Atos\artifacts\pacote-portatil-completo-2026-09-08-acervo-2026-09-05-v2.zip`;
+- tamanho: 1.738.370.102 bytes;
+- 10.276 entradas, 227 `processo.json`, 5.236 `evento.json` e 4.532 PDFs;
+- SHA-256: `19B38B1E808B84860C425B94CB7A70DE79C8C21998BE0817DD6C911968CF4E92`;
+- CRC verificado e auditoria privada verde.
+
+QA do ZIP extraído em pasta nova com espaços/acentos, com Python e Node removidos do `PATH`:
+
+- runtime interno Python/Tesseract: passou;
+- Manifest V3 e arquivos declarados: passou;
+- dependência Node no destino: passou, Node não necessário;
+- dataset v1 e auditoria privada: passou;
+- comando: `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File TESTAR-PACOTE.ps1 -PackageRoot <extraído>`;
+- extração: `work/tce-extractor/qa-extracted-portable-acervo-v2-20260908`.
+
+Esse resultado comprova um pacote portátil completo baseado no snapshot fornecido, não a atualização do acervo perante o portal nem o QA funcional no portal real.
+
 | Gate | Resultado |
 |---|---:|
 | `node --test` em `portable/extensao-complementar-ato` | 124 pass, 0 falhas, 0 skips |
@@ -99,6 +134,8 @@ Criados `qa_integrated_workflow.py` e `test_integrated_workflow.py`. O relatóri
 | `empacotar-extensao-complementar-ato.ps1` | ZIP v4 reproduzível; 11 arquivos; SHA-256 `8B0BBBA8131EA1D9B8156AAC60D374A85ED1D16D2AF1B55C77D1809ADCF61E46` |
 | `empacotar-extensao-complementar-ato.ps1` após a auditoria final | ZIP v5 reproduzível; 11 arquivos; SHA-256 `4CA334FECA7483B44429C12C6A6DFAAB126202F03D64F3296B3463F33B019E98` |
 | `test_review_live_browser.py` | seleção publicada, pausa/retomada e entrega em menos de 2 s; 1 pass |
+| pacote portátil completo com acervo fornecido | 10.276 entradas, 4.532 PDFs, CRC/auditoria verdes; SHA-256 registrado acima |
+| `TESTAR-PACOTE.ps1` no ZIP extraído sem Python/Node no `PATH` | 7 gates passaram; runtime interno, dataset, manifest, Node e auditoria |
 
 O handoff de retry/autenticação registra também três repetições do teste PowerShell (114/114), sem acesso ao portal real. O contrato mantém tokens fora de erros, resultados e checkpoints; a parada é cooperativa e deixa requests já iniciados terminarem.
 
@@ -159,4 +196,4 @@ Pendências reais para chamar de release validada:
 
 O gate de segundo PC foi dispensado explicitamente pelo usuário e não será executado.
 
-Para continuar: concluir o login no Chrome separado já aberto pelo launcher e então executar os gates supervisionados acima. O pacote portátil completo ainda depende de `acervo-tce/dados-complementar-ato.json` real, ausente nesta árvore; não fabricar dado privado para preencher essa lacuna. Preparar commit/push somente quando o QA externo terminar e um remoto autorizado existir. Rechecar `git status` antes de retomar.
+Para continuar: concluir o login no Chrome separado já aberto pelo launcher e executar os gates supervisionados do portal real, sem envio/finalização. O pacote portátil completo agora existe a partir do snapshot fornecido, mas o snapshot é de 05/09/2026 e não deve ser tratado como acervo atualizado; uma nova coleta poderá substituir apenas os dados locais quando autorizada. Preparar commit/push somente quando o QA externo terminar e um remoto autorizado existir. Rechecar `git status` antes de retomar.
