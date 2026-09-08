@@ -1,6 +1,15 @@
 # Handoff — plano por fases de fundamentação e automação
 
-## Trabalho concluído
+## Estado da execução
+
+- Implementação iniciada em `codex/fundamentacao-automatico`, derivada de `main` em `dc84402`.
+- O ledger vivo está em `.superpowers/sdd/2026-09-08-fundamentacao-automatico-plano-fases/progress.md` (git-ignorado) e registra tasks, conflitos e decisões.
+- Task atual: Fase 1 — contexto documental completo e sidecar versionado.
+- Baseline desta execução: `npm test` 124/124 pass; Python focal 99/99 pass, 1 skip ambiental. Warnings de `fitz` depreciado e `ResourceWarning` já aparecem na baseline e não foram introduzidos nesta branch.
+- Fase 0 concluída e revisada: commits `b99fd80` e `54dcf9f`; fixtures/testes sanitizados aprovados em re-revisão Luna. A suíte JS pós-fase ficou 125/126 porque a regressão RED do matcher continua intencional para a Fase 2.
+- Envio real continua bloqueado; nenhum PDF, dado de processo ou sessão autenticada será publicado no Git.
+
+## Trabalho documental concluído
 
 - Entrevista de requisitos consolidada em plano detalhado de 11 fases (0 a 10), vinculado aos módulos reais da extensão e serviço Python.
 - Inspecionados contratos de dataset/mensagens, matcher, detector, worker, cliente HTTP, serviço, progresso, extração, pipeline e empacotador.
@@ -11,7 +20,7 @@
 
 - Criado `docs/notes/2026-09-08-fundamentacao-automatico-plano-fases.md`.
 - Criado este handoff.
-- Nenhum código funcional, dado de processo, pacote ou configuração alterado.
+- Nenhum código funcional foi alterado na entrega documental original; a implementação funcional desta execução ocorrerá somente na branch acima.
 
 ## Decisões principais
 
@@ -24,7 +33,7 @@
 - Ajuste posterior solicitado no wireframe: botão “Preencher campos disponíveis” e indicação do modo manual no topo de Ato atual, logo abaixo das abas e antes da fundamentação. Plano, wireframe e critério de aceite atualizados; ação não será duplicada no rodapé. Somente documentação alterada.
 - Histórico passa a exigir endpoints autenticados paginados de execuções/eventos; contratos adicionados na seção 13.4 e vinculados à fase 4.
 
-## Validação e testes
+## Validação e testes da entrega documental
 
 - Baseline JS executada na etapa anterior desta mesma sessão: `npm test`, 124 testes, 124 passaram, 0 falharam.
 - Nesta entrega documental não se implementaram os testes futuros descritos no plano.
@@ -35,9 +44,9 @@
 - Verificação da revisão de redesign: 8 verificações, 8 passaram, 0 falharam (11 fases preservadas, cinco subseções, fences balanceadas, wireframes, API de histórico, QA responsiva, empacotamento e escopo documental). `git diff --check` passou. Suíte funcional não reexecutada, pois somente Markdown mudou.
 - `git diff --cached --check` deve passar antes do commit. Nenhuma suíte funcional adicional necessária para estes dois arquivos Markdown.
 
-## GitHub
+## GitHub e branch atual
 
-- Estado inicial desta entrega: `main`, limpo, nenhum remoto configurado.
+- Estado inicial desta execução: `main`, limpo, nenhum remoto configurado; branch de implementação criada como `codex/fundamentacao-automatico`.
 - Os dois documentos integram o commit documental desta entrega; obter seu identificador com `git log -1 --oneline -- docs/notes/2026-09-08-fundamentacao-automatico-plano-fases.md`.
 - Push indisponível sem destino; não configurar remoto arbitrário. Nenhum envio ao GitHub realizado.
 
@@ -47,12 +56,24 @@
 - Com permissão ampliada, Git detectou proprietário diferente. Resolvido com `git -c safe.directory='C:/Users/slvma/Downloads/Github/Complementação de Atos'`, limitado ao comando; configuração global não alterada.
 - Staging limitado nominalmente aos dois Markdown; nenhum `git add .` utilizado.
 
-## Pendências e retomada
+## Tasks e retomada
 
-1. Ler o plano salvo, especialmente decisões da seção 1 e contratos da seção 4.
-2. Implementação não iniciada. Iniciar fase 0 com baseline atualizada e reprodução RED.
+1. [x] Ler o plano salvo, especialmente decisões da seção 1 e contratos da seção 4.
+2. [x] Criar branch de implementação e ledger vivo.
+3. [x] Executar fase 0 com baseline atualizada, reprodução RED e fixtures sanitizadas.
+4. [~] Implementar fases 1–10 em ordem de dependência, atualizando este handoff após cada bloco; Fase 1 em preparação.
 3. Não interpretar `completed` legado nem sinal DOM como envio confirmado.
 4. Confirmação real após envio ainda não foi observada. Fase 9 define como obter e transformar em fixture/teste.
 5. Não executar lote real apenas porque o plano foi salvo. Esta solicitação foi de documentação.
-6. Nenhuma reversão funcional necessária; só dois documentos novos nesta entrega.
-7. Para o redesign, ler toda a seção 13.1–13.5 antes de trocar a marcação: `ELEMENT_IDS`, `renderRows`, mensagem permanente, fixtures e allowlist precisam ser atualizados juntos na implementação. Nesta revisão apenas os dois documentos existentes foram alterados.
+6. Nenhuma reversão funcional necessária; alterações funcionais serão feitas apenas na branch de execução.
+7. Para o redesign, ler toda a seção 13.1–13.5 antes de trocar a marcação: `ELEMENT_IDS`, `renderRows`, mensagem permanente, fixtures e allowlist precisam ser atualizados juntos na implementação.
+
+## Registro por fase — Fase 0
+
+- Comandos: `node --test tests/matcher.test.mjs tests/normalizer.test.mjs`; `npm test`; `python -m unittest test_tce_extractor test_analysis_pipeline test_extension_exporter test_local_service -q`.
+- Resultado: focal 34 testes, 33 pass, 1 RED conhecido; full JS 126, 125 pass, 1 RED conhecido; Python focal 85 pass, 1 skip ambiental. A baseline anterior foi 124/124 JS e 99/99 Python focal ampliado.
+- RED: matcher legado escolhe `synthetic-ec41-without-p5` em texto sem referências, onde a Fase 2 deverá retornar pendência/null.
+- GREEN: catálogo, fixtures simuladas, IDs duplicados no frame e contratos de sanitização passaram após os fixes.
+- Validação: somente fixtures sintéticas; nenhum clique, preenchimento ou envio real.
+- Limitação: a Fase 0 não corrige produção; a falha RED é esperada até o resolvedor da Fase 2.
+- Próximo passo: implementar `legal_context.py`/testes da Fase 1, preservando o dataset v1 e publicando sidecar atômico.
