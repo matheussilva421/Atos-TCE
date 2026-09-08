@@ -12,7 +12,7 @@ from tempfile import NamedTemporaryFile
 
 
 SCHEMA_VERSION = 1
-EXTRACTION_VERSION = "legal-context-v1"
+EXTRACTION_VERSION = "legal-context-v2"
 _RESOLUTION_CLASSIFICATION = "resolucao_administrativa"
 _FAILED_PAGE_STATUSES = frozenset(
     {"failed", "error", "erro", "missing", "unavailable", "pendente_ocr"}
@@ -52,6 +52,16 @@ def _first_text(mapping: Mapping[str, object], keys: Sequence[str]) -> str:
         if value is not None and str(value).strip():
             return str(value).strip()
     return ""
+
+
+def _declared_page_count(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
 
 
 def _process_entries(value: object) -> list[tuple[str, Mapping[str, object]]]:
@@ -114,13 +124,15 @@ def _manifest_sources(manifest: Mapping[str, object]) -> list[dict[str, object]]
             if event_id:
                 aliases.add(event_id)
             source_hash = _first_text(document, ("pdf_sha256", "sha256"))
+            page_count = _declared_page_count(document.get("page_count"))
             sources.append(
                 {
                     "process_key": process_key,
                     "document_id": _document_id(document),
                     "event_id": event_id,
                     "pdf_sha256": source_hash,
-                    "page_count": document.get("page_count"),
+                    "page_count": page_count,
+                    "page_count_valid": page_count is not None,
                     "aliases": aliases,
                 }
             )
@@ -221,12 +233,14 @@ def _snapshot(page_texts: Mapping[str, object], source: Mapping[str, object]) ->
         not source_hash
         or not str(source["document_id"])
         or not str(source["event_id"])
+        or source.get("page_count_valid") is not True
         or (declared_hash and source_hash != declared_hash)
     ):
         return {"state": "incomplete", "pages": [], "operative_text": ""}
 
     expected_page_count = source.get("page_count")
-    if isinstance(expected_page_count, int) and not isinstance(expected_page_count, bool) and expected_page_count > len(raw_pages):
+    page_count_mismatch = expected_page_count != len(raw_pages)
+    if isinstance(expected_page_count, int) and expected_page_count > len(raw_pages):
         raw_pages.extend([None] * (expected_page_count - len(raw_pages)))
     pages: list[dict[str, object]] = []
     failed = failed_document
@@ -256,16 +270,39 @@ def _snapshot(page_texts: Mapping[str, object], source: Mapping[str, object]) ->
         )
     operative_text = _operative_text([str(page["text"]) for page in pages])
     return {
-        "state": "incomplete" if failed or not pages else "complete",
+        "state": "incomplete" if failed or page_count_mismatch or not pages else "complete",
         "pages": pages,
         "operative_text": operative_text,
     }
 
 
+_OPERATIVE_MARKER_RE = re.compile(
+    r"(?im)^\s*resolve\b\s*:?(?:[ \t]+.*)?$"
+)
+
+
 def _operative_text(pages: list[str]) -> str:
     full_text = "\n".join(pages)
-    marker = re.search(r"\bresolve(?:m|mos)?\s*:?", full_text, re.IGNORECASE)
+    markers = list(_OPERATIVE_MARKER_RE.finditer(full_text))
+    marker = markers[-1] if markers else None
     return full_text[marker.start() :].strip() if marker else ""
+
+
+def _interested_is_verified(
+    interested_normalized: str,
+    snapshots: Sequence[Mapping[str, object]],
+) -> bool:
+    if not interested_normalized or interested_normalized == _normalise_interested("Não identificado"):
+        return False
+    for snapshot in snapshots:
+        for page in snapshot.get("pages", []):
+            if not isinstance(page, Mapping):
+                continue
+            if interested_normalized in _normalise_interested(page.get("text", "")):
+                citation = page.get("citation")
+                if isinstance(citation, Mapping) and citation.get("page"):
+                    return True
+    return False
 
 
 def _select_sources(
@@ -328,7 +365,7 @@ def _record(
             not operative_text
             or any(snapshot["state"] != "complete" for snapshot in snapshots)
             or not all(str(page["text"]).strip() for page in pages)
-            or interested_normalized == _normalise_interested("Não identificado")
+            or not _interested_is_verified(interested_normalized, snapshots)
         ):
             status = "incomplete"
     return {
@@ -381,11 +418,11 @@ def write_legal_contexts(path: Path, contexts: dict) -> None:
             suffix=".tmp",
             delete=False,
         ) as temporary:
+            temporary_path = Path(temporary.name)
             json.dump(contexts, temporary, ensure_ascii=False, indent=2)
             temporary.write("\n")
             temporary.flush()
             os.fsync(temporary.fileno())
-            temporary_path = Path(temporary.name)
         os.replace(temporary_path, target)
         temporary_path = None
     finally:

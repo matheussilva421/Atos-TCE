@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 REPO_ROOT = Path(__file__).parent
@@ -83,7 +84,7 @@ class LegalContextTests(unittest.TestCase):
             "resolution-9": {
                 "pdf_sha256": PDF_SHA256,
                 "pages": [
-                    "RESOLUCAO ADMINISTRATIVA SINTETICA\nPreâmbulo.\nRESOLVE:",
+                    "RESOLUCAO ADMINISTRATIVA SINTETICA\nInteressada: MARIA DA SILVA\nPreâmbulo.\nRESOLVE:",
                     "Art. 1º A concessão é fundamentada no art. 6º, § 5º, e alcança ambos os requisitos."
                     + (" Texto operativo preservado." * 32),
                 ],
@@ -107,6 +108,71 @@ class LegalContextTests(unittest.TestCase):
         self.assertGreater(len(record["operative_text"]), 512)
         self.assertEqual(record["dataset_sha256"], DATASET_SHA256)
         self.assertTrue(record["extraction_version"])
+
+    def test_does_not_mark_context_complete_when_interested_is_absent_from_resolution_pages(self):
+        document = _resolution_document()
+        contexts = build_legal_contexts(
+            _manifest(document),
+            _checkpoint(fields={"fundamento_legal": _foundation_field()}),
+            {
+                "resolution-9": {
+                    "pdf_sha256": PDF_SHA256,
+                    "pages": [
+                        "RESOLUCAO ADMINISTRATIVA SINTETICA\nRESOLVE: Art. 6º.",
+                        "Ato operativo sem identificação nominal.",
+                    ],
+                }
+            },
+            DATASET_SHA256,
+        )
+
+        self.assertEqual(contexts["records"][0]["resolution_status"], "incomplete")
+
+    def test_extracts_operativo_block_after_historical_resolve_marker(self):
+        document = _resolution_document()
+        contexts = build_legal_contexts(
+            _manifest(document),
+            _checkpoint(fields={"fundamento_legal": _foundation_field()}),
+            {
+                "resolution-9": {
+                    "pdf_sha256": PDF_SHA256,
+                    "pages": [
+                        "No ato anterior, resolve: arquivar o pedido histórico.",
+                        "RESOLVE:\nArt. 1º Conceder o benefício vigente.",
+                    ],
+                }
+            },
+            DATASET_SHA256,
+        )
+
+        operative_text = contexts["records"][0]["operative_text"]
+        self.assertEqual(
+            operative_text,
+            "RESOLVE:\nArt. 1º Conceder o benefício vigente.",
+        )
+
+    def test_validates_manifest_page_count_when_page_text_list_is_truncated(self):
+        document = _resolution_document()
+        document["page_count"] = 3
+        contexts = build_legal_contexts(
+            _manifest(document),
+            _checkpoint(fields={"fundamento_legal": _foundation_field()}),
+            {
+                "resolution-9": {
+                    "pdf_sha256": PDF_SHA256,
+                    "pages": [
+                        "Interessada: MARIA DA SILVA\nRESOLVE:",
+                        "Art. 1º Página disponível.",
+                    ],
+                }
+            },
+            DATASET_SHA256,
+        )
+
+        record = contexts["records"][0]
+        self.assertEqual(len(record["pages"]), 3)
+        self.assertEqual(record["pages"][2]["text"], "")
+        self.assertEqual(record["resolution_status"], "incomplete")
 
     def test_does_not_use_a_financial_guide_as_resolution_source(self):
         guide = _guide_document()
@@ -211,6 +277,26 @@ class LegalContextTests(unittest.TestCase):
 
             self.assertIsNone(write_legal_contexts(path, contexts))
             self.assertEqual(json.loads(path.read_text(encoding="utf-8")), contexts)
+            self.assertEqual(list(Path(temporary).glob(".fundamentos-contexto.v1.json.*.tmp")), [])
+
+    def test_cleans_temporary_file_when_serialization_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "fundamentos-contexto.v1.json"
+            with patch("legal_context.json.dump", side_effect=TypeError("fixture serialization failure")):
+                with self.assertRaises(TypeError):
+                    write_legal_contexts(path, {"records": object()})
+
+            self.assertFalse(path.exists())
+            self.assertEqual(list(Path(temporary).glob(".fundamentos-contexto.v1.json.*.tmp")), [])
+
+    def test_cleans_temporary_file_when_fsync_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "fundamentos-contexto.v1.json"
+            with patch("legal_context.os.fsync", side_effect=OSError("fixture fsync failure")):
+                with self.assertRaises(OSError):
+                    write_legal_contexts(path, {"schema_version": 1, "records": []})
+
+            self.assertFalse(path.exists())
             self.assertEqual(list(Path(temporary).glob(".fundamentos-contexto.v1.json.*.tmp")), [])
 
     def test_citation_uses_safe_document_basename_without_exporting_absolute_path(self):

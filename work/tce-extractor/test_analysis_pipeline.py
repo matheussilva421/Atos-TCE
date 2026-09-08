@@ -278,6 +278,7 @@ class AnalysisPipelineTests(unittest.TestCase):
                 "classification": "resolucao_administrativa",
                 "automatic_source": True,
                 "sha256": "a" * 64,
+                "page_count": 2,
                 "geometry_cache_key": "cached-resolution-9",
                 "relative_path": "processos/103439-2023/resolution-9.pdf",
             }
@@ -321,7 +322,7 @@ class AnalysisPipelineTests(unittest.TestCase):
                     "cached-resolution-9": {
                         "sha256": document["sha256"],
                         "pages": [
-                            "RESOLUCAO ADMINISTRATIVA SINTETICA\nRESOLVE:",
+                            "RESOLUCAO ADMINISTRATIVA SINTETICA\nInteressada: MARIA DA SILVA\nRESOLVE:",
                             "Art. 1º A concessão observa o art. 6º, § 5º e ambos os requisitos.",
                         ],
                         "geometry": [{}, {}],
@@ -398,6 +399,105 @@ class AnalysisPipelineTests(unittest.TestCase):
         self.assertEqual(
             [item["page_count"] for item in classified["documents"]], [2, 3]
         )
+        self.assertEqual(
+            classified["documents"][0]["page_texts"],
+            ["RESOLUÇÃO ADMINISTRATIVA página 1", "continuação página 2"],
+        )
+
+    def test_target_manifest_preserves_classified_page_count_for_sidecar_validation(self):
+        classified = {
+            "version": 1,
+            "processes": [
+                {
+                    "key": "103439/2023",
+                    "events": [
+                        {
+                            "event": 9,
+                            "documents": [
+                                {
+                                    "id": "resolution-9",
+                                    "title": "RESOLUCAO ADMINISTRATIVA",
+                                    "classification": "resolucao_administrativa",
+                                    "automatic_source": True,
+                                    "sha256": "a" * 64,
+                                    "page_count": 3,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+
+        manifest = build_target_manifest(classified)
+
+        self.assertEqual(manifest["processes"][0]["documents"][0]["page_count"], 3)
+
+    def test_local_pipeline_publishes_native_classification_pages_without_ocr(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            document = {
+                "event": "9",
+                "id": "resolution-9",
+                "title": "RESOLUCAO ADMINISTRATIVA",
+                "classification": "resolucao_administrativa",
+                "automatic_source": True,
+                "sha256": "a" * 64,
+                "page_count": 2,
+                "relative_path": "resolution-9.pdf",
+                "page_texts": [
+                    "RESOLUCAO ADMINISTRATIVA\nInteressada: MARIA DA SILVA\nRESOLVE:",
+                    "Art. 1º Página nativa preservada.",
+                ],
+            }
+            classified = {
+                "version": 1,
+                "processes": [
+                    {
+                        "key": "103439/2023",
+                        "events": [{"event": 9, "documents": [document]}],
+                    }
+                ],
+            }
+            checkpoint = {
+                "batch_id": "pipeline-run",
+                "processes": {
+                    "103439/2023": {
+                        "result": {
+                            "process": "103439/2023",
+                            "blocks": [
+                                {
+                                    "interested": "MARIA DA SILVA",
+                                    "fields": {},
+                                }
+                            ],
+                        }
+                    }
+                },
+            }
+
+            def fake_run_manifest(manifest_path, markdown_path, checkpoint_path, **kwargs):
+                Path(checkpoint_path).write_text(json.dumps(checkpoint), encoding="utf-8")
+                return {"total": 1, "completed": 1, "partial": 0}
+
+            with (
+                patch("analysis_pipeline.write_index", return_value={"version": 1, "processes": []}),
+                patch("analysis_pipeline.classify_archive", return_value=classified),
+                patch("analysis_pipeline.run_manifest", side_effect=fake_run_manifest),
+                patch("analysis_pipeline.write_html"),
+                patch("analysis_pipeline.extract_pdf_pages", side_effect=AssertionError("OCR must not run")),
+            ):
+                summary = run_local_pipeline(
+                    root,
+                    tesseract=root / "runtime" / "tesseract.exe",
+                    tessdata=root / "runtime" / "tessdata",
+                    run_id="pipeline-run",
+                )
+
+            sidecar = json.loads(summary.legal_context_path.read_text(encoding="utf-8"))
+            record = sidecar["records"][0]
+            self.assertEqual(record["resolution_status"], "complete")
+            self.assertIn("Página nativa preservada", record["operative_text"])
 
     def test_real_scan_classify_and_html_preserve_document_review_metadata(self):
         with tempfile.TemporaryDirectory() as temporary:

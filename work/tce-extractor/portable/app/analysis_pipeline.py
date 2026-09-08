@@ -34,7 +34,7 @@ from tce_extractor import classify_document, extract_pdf_pages
 
 
 CACHE_VERSION = 2
-EXTRACTOR_VERSION = "analysis-pipeline-v2"
+EXTRACTOR_VERSION = "analysis-pipeline-v3"
 OCR_VERSION = "tesseract-por+eng-psm6-v2"
 GEOMETRY_CACHE_VERSION = 1
 TARGET_CLASSIFICATIONS = frozenset(
@@ -147,7 +147,10 @@ def write_visual_evidence(manifest_path: Path, checkpoint_path: Path, output_pat
     return Path(output_path)
 
 
-def _cached_page_texts(*paths: Path) -> dict[str, object]:
+def _cached_page_texts(
+    *paths: Path,
+    classified: Mapping[str, object] | None = None,
+) -> dict[str, object]:
     """Read already persisted page text without invoking an OCR reader."""
     page_texts: dict[str, object] = {}
     for path in paths:
@@ -173,6 +176,38 @@ def _cached_page_texts(*paths: Path) -> dict[str, object]:
                 key_text = str(key)
                 page_texts[key_text] = entry
                 page_texts[key_text.split(":", 1)[0]] = entry
+    if isinstance(classified, Mapping):
+        process_entries = classified.get("processes")
+        if isinstance(process_entries, list):
+            for process in process_entries:
+                if not isinstance(process, Mapping):
+                    continue
+                for event in process.get("events", []):
+                    if not isinstance(event, Mapping):
+                        continue
+                    for document in event.get("documents", []):
+                        if not isinstance(document, Mapping):
+                            continue
+                        pages = document.get("page_texts")
+                        if not isinstance(pages, list):
+                            continue
+                        entry = {
+                            "pages": list(pages),
+                            "pdf_sha256": str(document.get("sha256", "")),
+                        }
+                        for key in (
+                            "id",
+                            "document_id",
+                            "card_id",
+                            "title",
+                            "relative_path",
+                            "pdf_path",
+                            "geometry_cache_key",
+                            "sha256",
+                        ):
+                            value = document.get(key)
+                            if value is not None and str(value).strip():
+                                page_texts[str(value)] = entry
     return page_texts
 
 
@@ -586,6 +621,7 @@ def classify_document_record(
             "read_error": type(error).__name__,
         }
     result["page_count"] = len(pages)
+    result["page_texts"] = list(pages)
 
     label_priority = any(
         classify_document(str(document.get(key, "")), "") in TARGET_CLASSIFICATIONS
@@ -660,6 +696,7 @@ def classify_document_record(
                 else:
                     text_source = "ocr"
         result["page_count"] = len(pages)
+        result["page_texts"] = list(pages)
         if not _has_useful_text(pages):
             return {
                 **result,
@@ -870,6 +907,14 @@ def _process_name(process: Mapping[str, object]) -> str:
     return ""
 
 
+def _manifest_page_count(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    return None
+
+
 def _target_document(document: Mapping[str, object], event: object) -> dict[str, object]:
     classification = str(document.get("classification", ""))
     target = {
@@ -880,6 +925,7 @@ def _target_document(document: Mapping[str, object], event: object) -> dict[str,
         "classification": classification,
         "automatic_source": True,
         "sha256": document.get("sha256"),
+        "page_count": _manifest_page_count(document.get("page_count")),
         "relative_path": document.get("relative_path"),
         "pdf_path": str(
             document.get("absolute_path")
@@ -1008,7 +1054,11 @@ def run_local_pipeline(
         build_legal_contexts(
             manifest=json.loads(manifest_path.read_text(encoding="utf-8-sig")),
             checkpoint=json.loads(checkpoint_path.read_text(encoding="utf-8-sig")),
-            page_texts=_cached_page_texts(cache_path, geometry_cache_path),
+            page_texts=_cached_page_texts(
+                cache_path,
+                geometry_cache_path,
+                classified=classified,
+            ),
             dataset_sha256=_exported_dataset_sha256(dataset, extension_data_path),
         ),
     )
