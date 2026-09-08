@@ -93,8 +93,11 @@ Aproximações e empates ficam amarelos. **Divergências** não são sobrescrita
 
 ## HTML, revisão e diagnóstico
 
-O HTML continua disponível. Seu check é independente da marcação **Revisado**
-da extensão; revisar um formato não marca o outro.
+O HTML continua disponível. No modo servido pelo helper, **Processo feito** é
+gravado no progresso portátil e compartilhado com a extensão. No fallback
+`file:`, ele fica salvo somente no navegador. A marcação **Revisado** da
+extensão continua sendo um controle separado por interessado; uma marca não
+substitui a outra.
 
 Quando uma página escaneada exige OCR, a classificação grava `cache-ocr.json` e
 o cache separado `cache-ocr-geometria.json`. Texto e caixas daquele passe são

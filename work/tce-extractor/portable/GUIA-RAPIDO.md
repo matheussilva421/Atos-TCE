@@ -85,11 +85,14 @@ estático.
 - Troque entre Resolução Administrativa e Guia Financeira quando disponíveis.
 - Arraste o divisor central para aumentar o PDF ou os campos.
 - Use **Copiar valor** para levar um campo ao portal.
-- Use **Processo feito** como lembrete local.
+- Use **Processo feito** como conclusão manual do processo. Pela mesa aberta
+  pelo helper, a marca é gravada no progresso portátil e compartilhada com a
+  extensão; no fallback `file:`, fica somente no navegador.
 - Confira sempre a citação de processo, evento e página.
 
-O check do HTML fica salvo no navegador daquele computador. Ele é independente
-da marca **Revisado** da extensão e pode não acompanhar a pasta para outro PC.
+No fallback `file:`, o check do HTML fica salvo no navegador daquele
+computador. A marca **Revisado** da extensão continua sendo um controle
+separado por interessado; nenhuma das duas marcações envia ou conclui o ato.
 
 Se o PDF aparecer vazio, confirme que o ZIP foi totalmente extraído e use
 **Abrir PDF**. Não mova apenas o HTML sem a pasta `processos`. A mesa servida
