@@ -91,6 +91,7 @@ Criados `qa_integrated_workflow.py` e `test_integrated_workflow.py`. O relatóri
 | `qa_integrated_workflow.py --project-root . --fixture-only` | passed; login/submission not-run |
 | subconjunto browser/reset/runtime | 15 pass, 0 falhas |
 | sessão da mesa gravando progresso pelo cookie | 1 pass, 0 falhas |
+| smoke Chrome contra ZIP v3 extraído em pasta temporária | pass; Chrome 145; 7 linhas, persistência após restart, controles protegidos intactos |
 
 O Python exibiu apenas avisos ResourceWarning dos testes de erro HTTP e a mensagem de uso deliberada do caso `--timeout-seconds 0`; a suíte terminou verde. Os skips ambientais/fixture não validam OCR real, bridge em navegador ou portal.
 
