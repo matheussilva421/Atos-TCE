@@ -1,9 +1,67 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { rankPortalOptions } from "../lib/matcher.js";
 
 const options = (values) => values.map((value) => ({ value, label: value }));
+const fixtureRoot = join(dirname(fileURLToPath(import.meta.url)), "../../../tests/fixtures");
+const legalFoundationFixture = JSON.parse(
+  readFileSync(join(fixtureRoot, "legal-foundations.json"), "utf8"),
+);
+
+test("loads the sanitized v1 catalog with canonical and auxiliary foundation options", () => {
+  assert.equal(legalFoundationFixture.schema_version, 1);
+  assert.deepEqual(legalFoundationFixture.dataset_fields, [
+    "modalidade",
+    "fundamento_legal",
+    "data_publicacao_doe",
+    "cargo",
+    "matricula",
+    "data_nascimento",
+    "genero",
+  ]);
+  assert.deepEqual(
+    legalFoundationFixture.options.slice(0, 3).map((option) => option.rule_id),
+    ["EC41_SEM_P5", "EC41_COM_P5", "EC47_ART3"],
+  );
+  assert.deepEqual(
+    legalFoundationFixture.options.slice(3).map((option) => option.rule_id),
+    ["EC41_ART6A", "CF40_P1_II", "MILITAR", "PLACEHOLDER"],
+  );
+  assert.ok(legalFoundationFixture.options.every(({ value }) => (
+    value === "" || /^synthetic-[a-z0-9-]+$/u.test(value)
+  )));
+  assert.ok(legalFoundationFixture.options.some(({ selectable }) => selectable === false));
+});
+
+test("keeps each automatic portal surface in a distinct sanitized simulated fixture", () => {
+  const fixtures = [
+    ["process-list-page-1.html", "process-list"],
+    ["process-list-page-2.html", "process-list"],
+    ["people.html", "people"],
+    ["form.html", "form"],
+    ["buttons-frame.html", "buttons-frame"],
+  ];
+
+  for (const [filename, kind] of fixtures) {
+    const content = readFileSync(join(fixtureRoot, "automatic-portal", filename), "utf8");
+    assert.match(content, new RegExp(`data-fixture-kind="${kind}"`, "u"));
+    assert.match(content, /data-fixture-status="simulated"/u);
+    if (filename === "buttons-frame.html") {
+      assert.match(content, /data-submission-mode="manual-signal-only"/u);
+    }
+  }
+
+  const result = JSON.parse(
+    readFileSync(join(fixtureRoot, "automatic-portal", "simulator-result.json"), "utf8"),
+  );
+  assert.equal(result.simulation.is_simulated, true);
+  assert.equal(result.request.sent, false);
+  assert.equal(result.result.status, "simulated-success");
+});
 
 test("matches a short voluntary retirement source to the voluntary portal family, never compulsory", () => {
   const result = rankPortalOptions({
@@ -336,20 +394,13 @@ test("returns missing-source without selecting an option for an empty documentar
   );
 });
 
-test("chooses the first available option as probable when every score is zero", () => {
+test("does not select an option when the source has no positive legal signal", () => {
   const result = rankPortalOptions({
     field: "fundamento_legal",
-    documentaryValue: "sinal sem correspondência",
+    documentaryValue: "texto sem referências",
     hints: {},
-    options: options(["Catálogo A", "Catálogo B"]),
+    options: legalFoundationFixture.options,
   });
 
-  assert.deepEqual(result, {
-    kind: "probable",
-    optionIndex: 0,
-    optionValue: "Catálogo A",
-    optionLabel: "Catálogo A",
-    score: 0,
-    reasons: ["no-positive-signal"],
-  });
+  assert.equal(result.optionValue, null);
 });

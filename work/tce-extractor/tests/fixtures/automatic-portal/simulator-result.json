@@ -1,0 +1,18 @@
+{
+  "fixture_kind": "simulator-result",
+  "fixture_status": "simulated",
+  "simulation": {
+    "is_simulated": true,
+    "notice": "Resultado sintético; não comprova sucesso no portal real."
+  },
+  "request": {
+    "action": "Complementar Ato",
+    "sent": false,
+    "mode": "manual-signal-only"
+  },
+  "result": {
+    "status": "simulated-success",
+    "message": "Sinal local recebido pelo simulador.",
+    "persistent_portal_id": null
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "fixture_status": "synthetic-sanitized",
+  "schema_version": 1,
+  "dataset_fields": [
+    "modalidade",
+    "fundamento_legal",
+    "data_publicacao_doe",
+    "cargo",
+    "matricula",
+    "data_nascimento",
+    "genero"
+  ],
+  "options": [
+    {
+      "rule_id": "EC41_SEM_P5",
+      "value": "synthetic-ec41-without-p5",
+      "label": "Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 2º da Emenda Constitucional nº 47/2005",
+      "selectable": true
+    },
+    {
+      "rule_id": "EC41_COM_P5",
+      "value": "synthetic-ec41-with-p5",
+      "label": "Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 40, § 5º, Constituição Federal e artigo 2º da Emenda Constitucional nº 47/2005",
+      "selectable": true
+    },
+    {
+      "rule_id": "EC47_ART3",
+      "value": "synthetic-ec47-art3",
+      "label": "Civil - Artigo 3º, incisos I a III e parágrafo único, da Emenda Constitucional nº 47/2005",
+      "selectable": true
+    },
+    {
+      "rule_id": "EC41_ART6A",
+      "value": "synthetic-ec41-art6a",
+      "label": "Civil - Artigo 6º-A da Emenda Constitucional nº 41/2003",
+      "selectable": true
+    },
+    {
+      "rule_id": "CF40_P1_II",
+      "value": "synthetic-cf40-paragraph1-item2",
+      "label": "Constituição Federal - Artigo 40, § 1º, inciso II",
+      "selectable": true
+    },
+    {
+      "rule_id": "MILITAR",
+      "value": "synthetic-military-rule",
+      "label": "Regra militar de inatividade",
+      "selectable": true
+    },
+    {
+      "rule_id": "PLACEHOLDER",
+      "value": "",
+      "label": "Selecione uma fundamentação",
+      "selectable": false
+    }
+  ]
+}
