@@ -1,5 +1,33 @@
 # Handoff — Fases 9 e 10 locais
 
+## Atualização de execução real — 09/09/2026
+
+O pacote final8 foi extraído em perfil/pasta temporários e passou a auditoria
+`TESTAR-PACOTE.ps1`. O `INICIAR.cmd` real foi executado pelo teste opt-in
+`test_portable_launcher.py` e iniciou o serviço antes de exibir o menu. O
+smoke `test_portable_zip_browser_smoke.py` confirmou `pair`, capabilities e
+token de sessão da extensão no Chrome descartável. Artefato temporário:
+95.838.420 bytes, SHA-256
+`25223A75101031BBFD70CA2BD9750A507C4D630660406608927E7A60EAC44E17`.
+
+Com autorização explícita do usuário para o teste real, o runner
+`real_portal_session.py` abriu outro perfil descartável, pareou a extensão e
+acessou o portal oficial. O inventário sanitizado está em
+`work/tce-extractor/outputs/real-portal-dom-sanitized-2026-09-09.json` e
+contém apenas estrutura/contagens/origens. O portal respondeu em
+`https://processos.tce.rn.gov.br/` na tela de login: 1 formulário, 3
+controles e ação `ENTRAR`; nenhum ato foi aberto, nenhum campo foi preenchido
+e nenhum envio ocorreu. A extensão ficou conectada ao serviço local, mas não
+há injeção esperada na origem inicial `processos.tce.rn.gov.br`, que difere da
+allowlist atual `novaarearestrita.tce.rn.gov.br`.
+
+Checkpoint de retomada: fazer login manualmente na janela descartável, sem
+compartilhar credenciais, e responder `continue`. Depois disso, capturar a
+origem/DOM autenticados, localizar três atos representativos e executar apenas
+preflight supervisionado antes de qualquer primeiro envio. Se o login não
+redirecionar para a origem permitida ou não expuser a tela esperada, parar e
+registrar o bloqueio; não ampliar a allowlist por suposição.
+
 ## Estado atual
 
 Branch: `codex/fundamentacao-automatico`.
@@ -139,11 +167,12 @@ encerradas; não produziram alterações nem evidência adicional.
 
 ## Retomada imediata
 
-1. Repetir a suíte ampla somente se houver novas alterações; o gate atual passou
-   `385/385`, com 6 skips ambientais. O gate JavaScript atual passou
-   `256/256`; o focal pacote/end-to-end/serviço/auth passou `69` testes com
-   `3` skips, o smoke Chrome do ZIP passou `1/1`, e
-   `Test-TcePortable.ps1` passou `114/114`.
+1. Repetir a suíte ampla somente se houver novas alterações; o gate documentado
+   passou `385/385`, com 6 skips ambientais. O gate JavaScript passou `256/256`;
+   o focal pacote/end-to-end/serviço/auth passou `69` testes com `3` skips; o
+   smoke Chrome do ZIP passou `1/1`; o novo foco de pacote/launcher passou
+   `43` testes com `2` skips; e o `Test-TcePortable.ps1` passou `114/114` com
+   Windows PowerShell 5.1.
 2. Manter `42eeeac` como referência da correção do launcher; depois rodar
    `git diff --check` e `git status --short --branch`.
 3. Se houver nova alteração, revisar mudanças privadas/ignoradas e fazer stage
@@ -158,7 +187,9 @@ encerradas; não produziram alterações nem evidência adicional.
 
 ## Pendência bloqueante
 
-O gate real permanece por autorização e segurança: não abrir perfil autenticado,
-não clicar “Complementar Ato” no portal real e não habilitar lote. O próximo
-agente deve parar no checkpoint de preparação real e pedir autorização antes de
-qualquer side effect remoto.
+A autorização para teste real foi dada, e a sessão descartável já foi aberta,
+mas o portal parou na tela de login. O próximo agente deve aguardar o login
+manual do operador e a resposta `continue`; depois deve verificar a origem
+autenticada e o formulário antes de qualquer preflight. Não capturar
+credenciais, não ampliar a allowlist por suposição e não habilitar lote até a
+qualificação versionada.

@@ -108,6 +108,13 @@ class PackageAuditContractTests(unittest.TestCase):
                 self.assertFalse(report.ok)
                 self.assertTrue(report.findings)
 
+    def test_portable_cmd_launcher_uses_windows_line_endings(self):
+        launcher = ROOT / "portable" / "INICIAR.cmd"
+        raw = launcher.read_bytes()
+        self.assertTrue(raw)
+        self.assertNotIn(b"\n", raw.replace(b"\r\n", b""))
+        self.assertGreaterEqual(raw.count(b"\r\n"), 1)
+
     def test_rejects_auth_profile_bridge_backup_and_log_directories(self):
         forbidden = (
             "auth/session.json",

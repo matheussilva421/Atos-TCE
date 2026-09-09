@@ -1,4 +1,8 @@
-﻿param([string]$MenuRoot = '')
+﻿param(
+    [string]$MenuRoot = '',
+    [switch]$LaunchLocalService,
+    [switch]$StopLocalService
+)
 
 Set-StrictMode -Version 2.0
 
@@ -434,5 +438,5 @@ function Start-TcePortableMenu {
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
-    exit (Start-TcePortableMenu)
+    exit (Start-TcePortableMenu -LaunchLocalService:$LaunchLocalService -StopLocalService:$StopLocalService)
 }

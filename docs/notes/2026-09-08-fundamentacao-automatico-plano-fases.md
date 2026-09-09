@@ -10,11 +10,13 @@
 
 **Especificação:** seção 1 deste documento consolida as decisões da entrevista de 08/09/2026. O plano anterior na conversa é substituído por esta versão detalhada. Não depende de outro documento não salvo.
 
-**Estado:** EM EXECUÇÃO. Fases 0–8 e os gates locais da Fase 9 foram implementados nesta branch; o envio real e a qualificação do portal permanecem bloqueados por checkpoint explícito. A Fase 10 recebeu a atualização local de allowlists, auditoria, versão e fixture de pacote; a composição final local e o smoke Chrome descartável foram verificados, enquanto a publicação/qualificação real continuam pendentes.
+**Estado:** EM EXECUÇÃO. Fases 0–8 e os gates locais da Fase 9 foram implementados nesta branch. O ZIP final8, o launcher real, o pareamento em Chrome descartável e a abertura do portal real foram verificados. A qualificação autenticada permanece em checkpoint humano: a sessão descartável chegou à tela de login de `processos.tce.rn.gov.br`, sem ato acessado ou enviado.
 
 **Revisão de 09/09/2026:** a Fase 9 agora possui portal sintético servido em Chrome, navegação por páginas/seleção, frame de formulário e bloqueio de envio sem serviço; o journal cobre 25 atos, três pendências e timeout no ordinal exato. A infraestrutura local do piloto opt-in foi adicionada: flag `--automation-pilot`, modo de um ato, limite durável de um comando, delegação `AUTO_START` ao worker e ação explícita no painel, sem habilitar envio real. A Fase 10 passou a carregar os módulos de automação no pacote completo, reconhecer `alarms` e exigir a versão de extensão `1.1.0`. O painel também tem gate estático de contraste, idioma, IDs/labels e cópia de segurança. Nenhum teste local é evidência do portal real.
 
 **Revisão de 09/09/2026 — composição final:** o packager público passou a incluir todos os módulos declarados pela extensão e as dependências Python de `local_service.py` (`automation_store.py`, `automation_report.py` e `legal_context.py`). Após RED por oito assets da extensão e três módulos Python ausentes na allowlist, GREEN foi confirmado com `test_package_audit` e com um ZIP temporário final6 de 95.838.384 bytes (`SHA-256 4ecbbf150a13e1f45b454a5097f67329d7086994cef3cde24d67b9ad54f73770`). A extração limpa passou runtime Python/Tesseract, manifesto, auditoria pública, imports/hashes, `TESTAR-PACOTE.ps1`, a sequência local `service.json` → `pair` → `capabilities` e smoke Chrome com perfil descartável; a permissão `alarms` também foi alinhada no diagnóstico PowerShell. O cliente passou a declarar CORS; leituras autenticadas toleram `Origin` omitida pelo navegador, mas mutações continuam exigindo origem de extensão. Isso prova a composição e a integração local, não o portal real.
+
+**Revisão de 09/09/2026 — execução real inicial:** após a correção TDD de line endings e do encaminhamento de `-LaunchLocalService`/`-StopLocalService`, o ZIP final8 de 95.838.420 bytes (`SHA-256 25223A75101031BBFD70CA2BD9750A507C4D630660406608927E7A60EAC44E17`) passou `TESTAR-PACOTE.ps1`, o launcher extraído e o smoke Chrome de `pair`/capabilities. Em perfil descartável, a extensão exibiu conexão ativa e o portal real abriu em `https://processos.tce.rn.gov.br/`; o inventário DOM sanitizado registrou a tela de login (1 formulário, 3 controles, ação `ENTRAR`) e nenhuma submissão. A origem inicial do portal ainda não coincide com a allowlist `https://novaarearestrita.tce.rn.gov.br/*`; é necessário observar o redirecionamento pós-login antes de alterar o manifesto. A continuidade está parada para login manual do operador.
 
 **Revisão de 08/09/2026:** redesign solicitado após a primeira versão. A fase 8 foi ampliada em cinco entregas de design e implementação, com wireframes, tokens, acessibilidade, testes e impactos no empacotamento. O redesign foi implementado no side panel; o gate real do portal permanece separado e pendente.
 
@@ -394,7 +396,7 @@ Comandos: em P, `python -m unittest test_automation_api test_local_service test_
 
 ### 9.1 Incidente de conexão observado no pacote portátil
 
-- [ ] Reproduzir no pacote portátil real: `INICIAR.cmd` inicia o serviço e
+- [x] Reproduzir no pacote portátil real: `INICIAR.cmd` inicia o serviço e
   exibe um código de pareamento, mas a extensão permanece desconectada após o
   código ser inserido.
 - [x] Capturar, em fixture/teste local, a sequência completa
@@ -424,8 +426,8 @@ fabricam mais `service.json` quando o helper encerra ou não confirma a ponte;
 falha de prontidão do launcher, mas não substitui a reprodução no pacote real
 nem a reprodução exata via `INICIAR.cmd`; o primeiro gate acima permanece
 pendente. O terceiro e o quarto gates locais foram fechados pelo smoke Chrome
-do ZIP final e pelas regressões de autenticação; a qualificação do portal real
-continua separada.
+do ZIP final8, pelo teste opt-in do launcher e pelas regressões de autenticação;
+a qualificação do portal real continua separada.
 
 **Validação local adicional em 09/09/2026:** o ZIP público recomposto iniciou
 `app/local_service.py` com `runtime/python/python.exe`, publicou `service.json`,
@@ -435,11 +437,21 @@ está em `work/tce-extractor/test_local_service.py`; isso fecha somente o
 contrato local da sequência, não a conexão da extensão carregada no Chrome.
 
 **Smoke Chrome adicional em 09/09/2026:** `work/tce-extractor/test_portable_zip_browser_smoke.py`
-abriu a extensão extraída do ZIP final6 em perfil descartável, iniciou o
+abriu a extensão extraída do ZIP final8 em perfil descartável, iniciou o
 `runtime/python/python.exe` do próprio pacote, pareou pelo código publicado,
 sincronizou o dataset sintético e consultou `capabilities`. O teste confirmou o
 status de conexão e a persistência do token em `chrome.storage.session`, sem
 abrir o portal real, preencher campos ou enviar atos.
+
+**Launcher e portal real inicial em 09/09/2026:**
+`work/tce-extractor/test_portable_launcher.py` executou o `INICIAR.cmd` extraído
+e confirmou serviço antes do menu. O runner
+`work/tce-extractor/real_portal_session.py` abriu perfil descartável, pareou a
+extensão e salvou somente o inventário sanitizado em
+`work/tce-extractor/outputs/real-portal-dom-sanitized-2026-09-09.json`. O portal
+real respondeu com a tela de login em `processos.tce.rn.gov.br`; o runner não
+preenche credenciais, não clica envio e não captura texto bruto. A próxima ação
+exige login manual e nova leitura antes do preflight.
 
 ## 10. Fase 5 — navegação, frames e descoberta da fila
 
@@ -797,7 +809,7 @@ Comandos: em E, `node --test tests/panel-view.test.mjs tests/panel.test.mjs test
 
 ### 14.2 Gate real, sem presumir sucesso
 
-- [ ] Capturar em leitura DOM sanitizado das telas reais atuais e comparar com fixtures. Não versionar CPF, nomes reais ou parâmetros de sessão.
+- [x] Capturar em leitura DOM sanitizado da tela real inicial e comparar a estrutura observada com o contrato de fixture, sem versionar CPF, nomes reais ou parâmetros de sessão. A tela autenticada de formulário ainda depende do login manual.
 - [ ] Rodar descoberta e preflight reais sem clicar envio para três atos representativos disponíveis; comparar propostas à resolução manualmente.
 - [ ] Preparar um ato concreto e relatório prévio. Realizar o primeiro envio supervisionado no escopo autorizado; identificar mensagem real de aceitação/erro e reabrir o ato para ler os dados gravados.
 - [x] Infraestrutura local do piloto implementada e testada: `--automation-pilot` aceita somente `mode=pilot` com `pilot_identity`, permite no máximo um comando consumido por raiz mesmo após reinício, mantém lotes comuns em `REAL_SEND_DISABLED` e expõe no painel “Executar piloto de um ato”. A execução real/qualificação continua pendente e não foi iniciada.
