@@ -174,6 +174,7 @@ def _manifest_sources(manifest: Mapping[str, object]) -> list[dict[str, object]]
                     "pdf_sha256": source_hash,
                     "page_count": page_count,
                     "page_count_valid": page_count is not None,
+                    "geometry_status": _first_text(document, ("geometry_status",)),
                     "aliases": aliases,
                 }
             )
@@ -251,7 +252,44 @@ def _source_matches_reference(source: Mapping[str, object], reference: tuple[str
     return document_match and event_match
 
 
-def _lookup_page_payload(page_texts: Mapping[str, object], source: Mapping[str, object]) -> object:
+def _source_identity(source: Mapping[str, object]) -> tuple[str, str, str]:
+    return (
+        str(source["document_id"]),
+        str(source["event_id"]),
+        str(source["pdf_sha256"]),
+    )
+
+
+def _payload_identity(payload: object) -> tuple[str, str, str]:
+    if not isinstance(payload, Mapping):
+        return "", "", ""
+    return (
+        _first_text(payload, ("document_id", "document", "id", "card_id")),
+        _first_text(payload, ("event_id", "event")),
+        _first_text(payload, ("pdf_sha256", "sha256")),
+    )
+
+
+def _payload_identity_matches(
+    payload: object, source: Mapping[str, object]
+) -> bool:
+    document_id, event_id, pdf_sha256 = _payload_identity(payload)
+    if document_id:
+        aliases = source["aliases"]
+        if document_id not in aliases and _safe_document_id(document_id) not in aliases:
+            return False
+    if event_id and event_id != source["event_id"]:
+        return False
+    if pdf_sha256 and pdf_sha256 != source["pdf_sha256"]:
+        return False
+    return True
+
+
+def _lookup_page_payload(
+    page_texts: Mapping[str, object],
+    source: Mapping[str, object],
+    candidate_sources: Sequence[Mapping[str, object]] | None = None,
+) -> tuple[object | None, str]:
     containers: list[Mapping[str, object]] = [page_texts]
     for key in ("documents", "entries"):
         nested = page_texts.get(key)
@@ -260,11 +298,27 @@ def _lookup_page_payload(page_texts: Mapping[str, object], source: Mapping[str, 
     process_payload = page_texts.get(source["process_key"])
     if isinstance(process_payload, Mapping):
         containers.append(process_payload)
+    candidates = list(candidate_sources or [source])
+    ambiguous_alias = False
     for container in containers:
-        for alias in source["aliases"]:
-            if alias in container:
-                return container[alias]
-    return None
+        for key, payload in container.items():
+            key_text = str(key)
+            if key_text not in source["aliases"]:
+                continue
+            alias_matches = [
+                candidate for candidate in candidates if key_text in candidate["aliases"]
+            ]
+            payload_identity = _payload_identity(payload)
+            if not _payload_identity_matches(payload, source):
+                if len(alias_matches) > 1 and not all(payload_identity):
+                    ambiguous_alias = True
+                continue
+            if all(payload_identity):
+                return payload, "matched"
+            if len(alias_matches) == 1 and _source_identity(alias_matches[0]) == _source_identity(source):
+                return payload, "matched"
+            ambiguous_alias = True
+    return None, "ambiguous_alias" if ambiguous_alias else "missing"
 
 
 def _page_items(payload: object) -> tuple[list[object], str, bool]:
@@ -290,11 +344,22 @@ def _page_items(payload: object) -> tuple[list[object], str, bool]:
     return [], "", True
 
 
-def _snapshot(page_texts: Mapping[str, object], source: Mapping[str, object]) -> dict[str, object]:
-    payload = _lookup_page_payload(page_texts, source)
+def _snapshot(
+    page_texts: Mapping[str, object],
+    source: Mapping[str, object],
+    candidate_sources: Sequence[Mapping[str, object]] | None = None,
+) -> dict[str, object]:
+    payload, lookup_reason = _lookup_page_payload(
+        page_texts, source, candidate_sources=candidate_sources
+    )
     if payload is None:
         return {
-            "state": "missing",
+            "state": "incomplete" if lookup_reason == "ambiguous_alias" else "missing",
+            "reason": (
+                "source_alias_ambiguous"
+                if lookup_reason == "ambiguous_alias"
+                else "source_evidence_missing"
+            ),
             "pages": [],
             "page_count_observed": 0,
             "operative_text": "",
@@ -310,6 +375,7 @@ def _snapshot(page_texts: Mapping[str, object], source: Mapping[str, object]) ->
     ):
         return {
             "state": "incomplete",
+            "reason": "source_identity_incomplete",
             "pages": [],
             "page_count_observed": 0,
             "operative_text": "",
@@ -417,6 +483,8 @@ def _source_evidence(
         "page_count": source.get("page_count"),
         "page_count_observed": snapshot.get("page_count_observed", 0),
         "state": str(snapshot["state"]),
+        "reason": str(snapshot.get("reason", "")),
+        "geometry_status": str(source.get("geometry_status", "")),
     }
 
 
@@ -429,12 +497,18 @@ def _source_status_reasons(
         state = str(snapshot["state"])
         if state not in {"missing", "incomplete"}:
             continue
+        snapshot_reason = str(snapshot.get("reason", ""))
         reasons.append(
             {
                 "code": (
-                    "source_evidence_missing"
-                    if state == "missing"
-                    else "source_evidence_incomplete"
+                    snapshot_reason
+                    if snapshot_reason
+                    in {"source_alias_ambiguous", "source_identity_incomplete"}
+                    else (
+                        "source_evidence_missing"
+                        if state == "missing"
+                        else "source_evidence_incomplete"
+                    )
                 ),
                 "document_id": str(source["document_id"]),
                 "event_id": str(source["event_id"]),
@@ -469,7 +543,11 @@ def _select_sources(
             source
             for source in candidates
             if _snapshot_matches_identity(
-                _snapshot(page_texts, source),
+                _snapshot(
+                    page_texts,
+                    source,
+                    candidate_sources=process_sources,
+                ),
                 interested,
                 identifiers,
             )
@@ -491,16 +569,26 @@ def _record(
         block.get("interested", block.get("interested_normalized", "Não identificado"))
     ) or _normalise_interested("Não identificado")
     identifiers = _block_identifiers(block)
-    snapshots = [_snapshot(page_texts, source) for source in sources]
     evidence_sources = list(evidence_sources) if evidence_sources is not None else sources
+    candidate_sources = evidence_sources or sources
+    snapshots = [
+        _snapshot(page_texts, source, candidate_sources=candidate_sources)
+        for source in sources
+    ]
     evidence_snapshots = [
-        _snapshot(page_texts, source) for source in evidence_sources
+        _snapshot(page_texts, source, candidate_sources=candidate_sources)
+        for source in evidence_sources
     ]
     status_reasons = _source_status_reasons(evidence_sources, evidence_snapshots)
     source_evidence = [
         _source_evidence(source, snapshot)
         for source, snapshot in zip(evidence_sources, evidence_snapshots)
     ]
+    geometry_statuses = {
+        str(source.get("geometry_status", ""))
+        for source in evidence_sources
+        if str(source.get("geometry_status", ""))
+    }
     identity_match_count = _identity_match_count(
         interested_normalized,
         identifiers,
@@ -535,7 +623,7 @@ def _record(
             or identity_match_count != 1
         ):
             status = "incomplete"
-    return {
+    record = {
         "schema_version": SCHEMA_VERSION,
         "process_key": process_key,
         "interested_normalized": interested_normalized,
@@ -547,6 +635,11 @@ def _record(
         "source_evidence": source_evidence,
         "status_reasons": status_reasons,
     }
+    if "unavailable" in geometry_statuses:
+        record["geometry_status"] = "unavailable"
+    elif "available" in geometry_statuses:
+        record["geometry_status"] = "available"
+    return record
 
 
 def build_legal_contexts(

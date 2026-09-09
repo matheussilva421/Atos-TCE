@@ -530,6 +530,95 @@ class AnalysisPipelineTests(unittest.TestCase):
         self.assertEqual(result["text_source"], "ocr_cache")
         self.assertEqual(result["page_count"], 2)
 
+    def test_geometry_capable_reuses_v3_text_cache_without_ocr_for_legal_context(self):
+        documents = [
+            doc(
+                event=9,
+                title="Resolução",
+                text="",
+                sha256="c" * 64,
+            )
+        ]
+        documents[0]["id"] = "resolution-9"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runtime_identity = "cached-geometry-runtime"
+            cache_path = root / "cache.json"
+            geometry_path = root / "geometry.json"
+            tesseract = root / "tesseract.exe"
+            tessdata = root / "tessdata"
+            tesseract.write_bytes(b"tesseract")
+            tessdata.mkdir()
+            (tessdata / "por.traineddata").write_bytes(b"por")
+            (tessdata / "eng.traineddata").write_bytes(b"eng")
+            cached_pages = [
+                "RESOLUÇÃO ADMINISTRATIVA\nInteressada: MARIA DA SILVA\nRESOLVE:",
+                "Art. 1º Texto preservado do cache.",
+            ]
+            cache_path.write_text(
+                json.dumps(
+                    {
+                        "version": 2,
+                        "extractor_version": "analysis-pipeline-v3",
+                        "ocr_version": OCR_VERSION,
+                        "runtime_identity": runtime_identity,
+                        "entries": {
+                            f"{documents[0]['sha256']}:{runtime_identity}": cached_pages
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch(
+                "analysis_pipeline._component_identity",
+                return_value=runtime_identity,
+            ), patch(
+                "analysis_pipeline._ocr_pdf_pages",
+                side_effect=AssertionError("OCR não deve rodar para texto cacheado"),
+            ) as ocr_reader:
+                classified = classify_archive(
+                    make_index(documents),
+                    cache_path=cache_path,
+                    tesseract=tesseract,
+                    tessdata=tessdata,
+                    text_reader=lambda path: [""],
+                    geometry_cache_path=geometry_path,
+                )
+
+            ocr_reader.assert_not_called()
+            result = classified["documents"][0]
+            manifest = build_target_manifest(classified)
+            checkpoint = {
+                "processes": {
+                    "": {
+                        "result": {
+                            "blocks": [{"interested": "MARIA DA SILVA"}],
+                        }
+                    }
+                }
+            }
+            contexts = build_legal_contexts(
+                manifest,
+                checkpoint,
+                {
+                    "resolution-9": {
+                        "pdf_sha256": documents[0]["sha256"],
+                        "pages": result["page_texts"],
+                    }
+                },
+                "d" * 64,
+            )
+
+        self.assertEqual(result["text_source"], "ocr_cache")
+        self.assertEqual(result["classification"], "resolucao_administrativa")
+        self.assertEqual(result["geometry_status"], "unavailable")
+        self.assertNotIn("geometry_cache_key", result)
+        self.assertEqual(contexts["records"][0]["resolution_status"], "complete")
+        self.assertEqual(
+            contexts["records"][0]["geometry_status"], "unavailable"
+        )
+
     def test_target_manifest_preserves_classified_page_count_for_sidecar_validation(self):
         classified = {
             "version": 1,

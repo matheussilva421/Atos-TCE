@@ -233,6 +233,38 @@ class LegalContextTests(unittest.TestCase):
             )
         )
 
+    def test_does_not_reuse_page_through_ambiguous_event_alias(self):
+        first = _resolution_document(event="9", document_id="resolution-9-a")
+        second = _resolution_document(
+            event="9", document_id="resolution-9-b", sha256="b" * 64
+        )
+        first["page_count"] = second["page_count"] = 1
+        contexts = build_legal_contexts(
+            _manifest(first, second),
+            _checkpoint(interested="ANA"),
+            {
+                "9": {
+                    "pdf_sha256": first["sha256"],
+                    "pages": ["Interessada: ANA\nRESOLVE:\nArt. 1º Conceder."],
+                }
+            },
+            DATASET_SHA256,
+        )
+
+        record = contexts["records"][0]
+        self.assertIn(record["resolution_status"], {"incomplete", "conflict"})
+        self.assertEqual(record["pages"], [])
+        self.assertEqual(
+            {item["state"] for item in record["source_evidence"]},
+            {"incomplete"},
+        )
+        self.assertTrue(
+            any(
+                reason["code"] == "source_alias_ambiguous"
+                for reason in record["status_reasons"]
+            )
+        )
+
     def test_uses_identifier_to_disambiguate_homonymous_resolution_sources(self):
         first = _resolution_document(event="9", document_id="resolution-9")
         second = _resolution_document(

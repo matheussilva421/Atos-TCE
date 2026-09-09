@@ -660,9 +660,12 @@ def classify_document_record(
             pages = geometry_pages
             text_source = "ocr_geometry_cache"
             result["geometry_cache_key"] = geometry_key
-        elif found and not geometry_capable:
+            result["geometry_status"] = "available"
+        elif found:
             pages = cached_pages
             text_source = "ocr_cache"
+            if geometry_capable:
+                result["geometry_status"] = "unavailable"
         else:
             try:
                 ocr_result = ocr_reader(path)
@@ -693,9 +696,12 @@ def classify_document_record(
                 if geometry and geometry_cache is not None and geometry_key:
                     _store_geometry(geometry_cache, geometry_key, sha256, pages, geometry)
                     result["geometry_cache_key"] = geometry_key
+                    result["geometry_status"] = "available"
                     text_source = "ocr_geometry"
                 else:
                     text_source = "ocr"
+                    if geometry_capable:
+                        result["geometry_status"] = "unavailable"
         result["page_count"] = max(physical_page_count, len(pages))
         result["page_texts"] = list(pages)
         if not _has_useful_text(pages):
@@ -935,7 +941,14 @@ def _target_document(document: Mapping[str, object], event: object) -> dict[str,
             or ""
         ),
     }
-    for key in ("card_id", "id", "extension", "metadata_title", "geometry_cache_key"):
+    for key in (
+        "card_id",
+        "id",
+        "extension",
+        "metadata_title",
+        "geometry_cache_key",
+        "geometry_status",
+    ):
         if key in document:
             target[key] = document[key]
     return target
