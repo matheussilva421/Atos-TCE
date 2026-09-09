@@ -503,7 +503,8 @@ class LegalContextTests(unittest.TestCase):
 
     def test_citation_uses_safe_document_basename_without_exporting_absolute_path(self):
         document = _resolution_document()
-        document["id"] = r"C:\private\archive\resolution-9.pdf"
+        private_path = Path(tempfile.gettempdir()) / "fixture-private" / "resolution-9.pdf"
+        document["id"] = str(private_path)
         contexts = build_legal_contexts(
             _manifest(document),
             _checkpoint(fields={"fundamento_legal": _foundation_field(document="resolution-9.pdf")}),
@@ -517,7 +518,7 @@ class LegalContextTests(unittest.TestCase):
         )
 
         serialized = json.dumps(contexts, ensure_ascii=False)
-        self.assertNotIn(r"C:\private\archive", serialized)
+        self.assertNotIn(str(private_path.parent), serialized)
         self.assertEqual(
             contexts["records"][0]["pages"][0]["citation"]["document_id"],
             "resolution-9.pdf",
