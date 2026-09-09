@@ -397,3 +397,25 @@
   fase conforme o brief.
 - Próxima tarefa: executar a Fase 5 conforme `task-5-brief.md`, sem tocar
   preflight, preenchimento, envio, redesign ou pacote.
+
+## Registro por fase — Fase 5 — navegação, frames e fila
+
+- Estado: implementação local concluída na branch `codex/fundamentacao-automatico`;
+  commit `10604c9` (`feat: discover and navigate automatic act queue`) criado.
+- Ownership: content script de navegação, controller fora do painel, integração
+  mínima em worker/messages/manifest, testes do controller/navegação/worker e
+  fixture sintética da terceira página.
+- Contratos: quatro ações de navegação allowlisted; geração stale; releitura
+  única com MutationObserver/timeout de 30 s; papéis de frame em
+  `storage.session`; fila deduplicada congelada antes do ciclo; pending não
+  desaparece dos totais; navegação manual/setor/frame/aba vinculada pausam;
+  aba não vinculada é ignorada.
+- TDD: RED inicial dos módulos ausentes registrado em `task-5-report.md`;
+  GREEN focal 36/36 e `npm test` 185/185. `git diff --check` verde.
+- Validação manual: somente fixtures/Fake DOM/bridge locais; nenhum portal real,
+  clique real, preenchimento ou envio foi iniciado.
+- Limitações: qualificação de browser/portal real, preflight, preenchimento,
+  envio, redesign e empacotamento seguem fora desta fase; linha sem controles
+  suficientes pausa para intervenção manual.
+- Próxima tarefa: Fase 6, sem deslocar envio ou preflight para o controller da
+  Fase 5.

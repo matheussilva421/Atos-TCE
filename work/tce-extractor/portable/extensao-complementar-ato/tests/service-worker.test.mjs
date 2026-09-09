@@ -719,6 +719,65 @@ test("automation control messages are restricted to extension pages and use the 
   assert.deepEqual(calls.map((call) => call[0]), ["start", "control", "status"]);
 });
 
+test("portal content events are routed to the automation controller with tab and frame identity", async () => {
+  const events = [];
+  const controller = {
+    async handlePortalEvent(event) {
+      events.push(event);
+      return { status: "running", frame: { frameId: event.frameId } };
+    },
+  };
+  const worker = createServiceWorker({
+    chromeApi: chromeMock(storageMock()),
+    automationController: controller,
+  });
+  const portalSnapshot = {
+    role: "list",
+    generation: 4,
+    sector: "aposentadorias",
+    identities: [],
+    actions: [],
+  };
+
+  const response = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.PORTAL_EVENT, {
+      event: { type: "snapshot", snapshot: portalSnapshot },
+    }, "portal-event-1"),
+    sender(7, 12),
+  );
+
+  assert.equal(response.ok, true);
+  assert.deepEqual(events, [{
+    type: "snapshot",
+    snapshot: portalSnapshot,
+    tabId: 7,
+    frameId: 12,
+  }]);
+});
+
+test("portal content events reject extension pages and unrelated origins", async () => {
+  const controller = {
+    async handlePortalEvent() {
+      throw new Error("must not be called");
+    },
+  };
+  const worker = createServiceWorker({
+    chromeApi: chromeMock(storageMock()),
+    automationController: controller,
+  });
+  const message = createMessage(MESSAGE_TYPES.PORTAL_EVENT, {
+    event: { type: "manual_navigation" },
+  }, "portal-event-denied");
+
+  const extensionResponse = await worker.handleMessage(message, extensionSender(7));
+  assert.equal(extensionResponse.ok, false);
+  assert.equal(extensionResponse.error.code, "UNAUTHORIZED");
+
+  const unrelatedResponse = await worker.handleMessage(message, sender(7, 12, "https://example.test/other"));
+  assert.equal(unrelatedResponse.ok, false);
+  assert.equal(unrelatedResponse.error.code, "INVALID_ORIGIN");
+});
+
 test("automation control rejects a content script even when its sender id is the extension", async () => {
   const bridge = {
     async createAutomationRun() {

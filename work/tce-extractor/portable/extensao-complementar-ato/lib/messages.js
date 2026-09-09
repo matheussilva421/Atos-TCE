@@ -26,11 +26,17 @@ export const MESSAGE_TYPES = Object.freeze({
   AUTO_RESUME: "AUTO_RESUME",
   AUTO_STOP: "AUTO_STOP",
   AUTO_STATUS: "AUTO_STATUS",
+  PORTAL_GET_SNAPSHOT: "PORTAL_GET_SNAPSHOT",
+  PORTAL_NAVIGATE: "PORTAL_NAVIGATE",
+  PORTAL_EVENT: "PORTAL_EVENT",
 });
 
 const MESSAGE_TYPE_SET = new Set(Object.values(MESSAGE_TYPES));
 const MESSAGE_KEYS = ["schemaVersion", "type", "requestId", "payload"];
 const MATCH_KIND_SET = new Set(["exact", "probable", "tie"]);
+const PORTAL_ACTION_SET = new Set(["next_page", "open_act", "select_interested", "return_list"]);
+const PORTAL_ROLE_SET = new Set(["list", "interested", "form", "buttons", "unknown"]);
+const PORTAL_EVENT_SET = new Set(["snapshot", "navigation", "manual_navigation", "sector_changed", "frame_unavailable"]);
 
 function invalid(message) {
   throw new SchemaValidationError(`message ${message}`);
@@ -115,6 +121,35 @@ function validateOptions(options) {
       }
     });
   }
+}
+
+function validatePortalIdentity(value, label = "portal identity") {
+  if (!isRecord(value)) invalid(`${label} must be an object`);
+  if (typeof value.processKey !== "string" || value.processKey.length === 0 || value.processKey.length > 256) {
+    invalid(`${label}.processKey must be a non-empty string`);
+  }
+  if (typeof value.interestedNormalized !== "string" || value.interestedNormalized.length === 0 || value.interestedNormalized.length > 256) {
+    invalid(`${label}.interestedNormalized must be a non-empty string`);
+  }
+  if (Object.hasOwn(value, "portalActId") && value.portalActId !== null && typeof value.portalActId !== "string") {
+    invalid(`${label}.portalActId must be a string or null`);
+  }
+}
+
+function validatePortalSnapshot(value) {
+  if (!isRecord(value)) invalid("PORTAL snapshot must be an object");
+  exactKeys(value, ["role", "generation", "sector", "identities", "actions"], "PORTAL snapshot");
+  if (!PORTAL_ROLE_SET.has(value.role)) invalid("PORTAL snapshot role is invalid");
+  if (!Number.isSafeInteger(value.generation) || value.generation < 1) invalid("PORTAL snapshot generation is invalid");
+  if (value.sector !== null && typeof value.sector !== "string") invalid("PORTAL snapshot sector is invalid");
+  if (!Array.isArray(value.identities) || !Array.isArray(value.actions)) invalid("PORTAL snapshot collections are invalid");
+  value.identities.forEach((identity, index) => validatePortalIdentity(identity, `PORTAL snapshot identity ${index}`));
+  value.actions.forEach((action, index) => {
+    if (!isRecord(action)) invalid(`PORTAL snapshot action ${index} is invalid`);
+    if (typeof action.action !== "string" || !PORTAL_ACTION_SET.has(action.action)) invalid(`PORTAL snapshot action ${index} is unsupported`);
+    if (typeof action.enabled !== "boolean") invalid(`PORTAL snapshot action ${index}.enabled is invalid`);
+    if (Object.hasOwn(action, "identity")) validatePortalIdentity(action.identity, `PORTAL snapshot action ${index}.identity`);
+  });
 }
 
 function validatePayload(type, payload) {
@@ -220,6 +255,23 @@ function validatePayload(type, payload) {
     case MESSAGE_TYPES.AUTO_STATUS:
       exactKeys(payload, ["runId"], "AUTO_STATUS payload");
       nonEmptyString(payload.runId, "AUTO_STATUS runId", 128);
+      break;
+    case MESSAGE_TYPES.PORTAL_GET_SNAPSHOT:
+      exactKeys(payload, [], "PORTAL_GET_SNAPSHOT payload");
+      break;
+    case MESSAGE_TYPES.PORTAL_NAVIGATE:
+      exactKeysFrom(payload, ["action", "expected_generation"], ["identity", "timeoutMs"], "PORTAL_NAVIGATE payload");
+      if (typeof payload.action !== "string" || !PORTAL_ACTION_SET.has(payload.action)) invalid("PORTAL_NAVIGATE action is unsupported");
+      if (!Number.isSafeInteger(payload.expected_generation) || payload.expected_generation < 1) invalid("PORTAL_NAVIGATE expected_generation is invalid");
+      if (Object.hasOwn(payload, "identity") && payload.identity !== null) validatePortalIdentity(payload.identity, "PORTAL_NAVIGATE identity");
+      if (Object.hasOwn(payload, "timeoutMs") && (!Number.isSafeInteger(payload.timeoutMs) || payload.timeoutMs <= 0 || payload.timeoutMs > 30000)) invalid("PORTAL_NAVIGATE timeoutMs is invalid");
+      break;
+    case MESSAGE_TYPES.PORTAL_EVENT:
+      exactKeys(payload, ["event"], "PORTAL_EVENT payload");
+      if (!isRecord(payload.event)) invalid("PORTAL_EVENT event must be an object");
+      exactKeysFrom(payload.event, ["type"], ["snapshot"], "PORTAL_EVENT event");
+      if (typeof payload.event.type !== "string" || !PORTAL_EVENT_SET.has(payload.event.type)) invalid("PORTAL_EVENT type is unsupported");
+      if (Object.hasOwn(payload.event, "snapshot") && payload.event.snapshot !== null) validatePortalSnapshot(payload.event.snapshot);
       break;
     default:
       invalid(`type ${type} is unsupported`);

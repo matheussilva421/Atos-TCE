@@ -12,6 +12,7 @@ import {
   validateMessage,
 } from "../lib/messages.js";
 import { validateLegalContext } from "../lib/automation-schema.js";
+import { createAutomationController } from "./automation-controller.js";
 
 export const FRAME_REGISTRATIONS_STORAGE_KEY = "frame-registrations:v1";
 
@@ -86,6 +87,7 @@ export function createServiceWorker({
   now = () => new Date().toISOString(),
   storageArea = chromeApi?.storage?.local,
   bridge = null,
+  automationController = null,
 } = {}) {
   if (!chromeApi?.storage?.local) {
     throw new TypeError("createServiceWorker requires chromeApi.storage.local");
@@ -103,6 +105,19 @@ export function createServiceWorker({
   let framePersistencePromise = Promise.resolve();
   let listenerRegistered = false;
   const contextCache = new Map();
+  const controller = automationController ?? (
+    bridge
+      && typeof bridge.createAutomationRun === "function"
+      && typeof bridge.controlAutomationRun === "function"
+      && typeof chromeApi?.tabs?.sendMessage === "function"
+      ? createAutomationController({
+        chromeApi,
+        bridge,
+        ranker,
+        clock: () => now(),
+      })
+      : null
+  );
 
   function isStoredFrameRegistration(value) {
     return isRecord(value)
@@ -434,17 +449,19 @@ export function createServiceWorker({
     if (!senderIsExtensionPage(sender, chromeApi)) {
       return errorResponse(message.requestId, "UNAUTHORIZED", "somente páginas da extensão podem controlar a execução");
     }
-    if (bridge === null) return automationUnavailable(message);
+    if (bridge === null || controller === null) return automationUnavailable(message);
     try {
       if (message.type === MESSAGE_TYPES.AUTO_START) {
-        return successResponse(message, await bridge.createAutomationRun(message.payload.spec, message.payload.eventId));
+        return successResponse(message, await controller.start(message.payload.spec, message.payload.eventId));
       }
       if (message.type === MESSAGE_TYPES.AUTO_STATUS) {
-        return successResponse(message, await bridge.getAutomationRun(message.payload.runId));
+        return successResponse(message, await controller.status({ refresh: true, runId: message.payload.runId }));
       }
       const action = message.type.slice("AUTO_".length).toLowerCase();
-      return successResponse(message, await bridge.controlAutomationRun(message.payload.runId, {
-        action,
+      const control = controller[action];
+      if (typeof control !== "function") return automationUnavailable(message);
+      return successResponse(message, await control({
+        runId: message.payload.runId,
         eventId: message.payload.eventId,
         expectedRevision: message.payload.expectedRevision,
       }));
@@ -454,6 +471,26 @@ export function createServiceWorker({
       }
       return errorResponse(message.requestId, error?.code || "AUTOMATION_ERROR", error instanceof Error ? error.message : "automation bridge request failed");
     }
+  }
+
+  async function handlePortalEventMessage(message, sender) {
+    if (senderIsExtension(sender, chromeApi)) {
+      return errorResponse(message.requestId, "UNAUTHORIZED", "PORTAL_EVENT must come from a portal content frame");
+    }
+    const tabId = tabIdFromSender(sender);
+    const frameId = frameIdFromSender(sender);
+    if (tabId === null || frameId === null || !validatePortalUrl(sender?.url)) {
+      return errorResponse(message.requestId, "INVALID_ORIGIN", "PORTAL_EVENT must come from an allowed portal frame");
+    }
+    if (controller === null || typeof controller.handlePortalEvent !== "function") {
+      return automationUnavailable(message);
+    }
+    const event = {
+      ...clone(message.payload.event),
+      tabId,
+      frameId,
+    };
+    return successResponse(message, await controller.handlePortalEvent(event));
   }
 
   async function setReviewed(message) {
@@ -488,6 +525,8 @@ export function createServiceWorker({
         case MESSAGE_TYPES.AUTO_STOP:
         case MESSAGE_TYPES.AUTO_STATUS:
           return await handleAutomationMessage(validated, sender);
+        case MESSAGE_TYPES.PORTAL_EVENT:
+          return await handlePortalEventMessage(validated, sender);
         case MESSAGE_TYPES.FORM_READY: {
           const tabId = tabIdFromSender(sender);
           const frameId = frameIdFromSender(sender);

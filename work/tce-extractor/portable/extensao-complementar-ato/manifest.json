@@ -27,6 +27,7 @@
         "https://novaarearestrita.tce.rn.gov.br/*"
       ],
       "js": [
+        "content/portal-navigation.js",
         "content/form-detector.js"
       ],
       "all_frames": true,
