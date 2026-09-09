@@ -40,15 +40,23 @@ $extensionFiles = @(
     'package.json',
     'content/package.json',
     'content/form-detector.js',
+    'content/portal-navigation.js',
+    'content/portal-submit.js',
+    'background/automation-controller.js',
     'background/service-worker.js',
     'lib/matcher.js',
     'lib/messages.js',
     'lib/bridge-client.js',
     'lib/normalizer.js',
     'lib/schema.js',
+    'lib/automation-preflight.js',
+    'lib/automation-schema.js',
+    'lib/legal-foundation.js',
     'sidepanel/panel.css',
+    'sidepanel/panel-tokens.css',
     'sidepanel/panel.html',
-    'sidepanel/panel.js'
+    'sidepanel/panel.js',
+    'sidepanel/panel-view.js'
 )
 
 function Assert-NoReparseTree {

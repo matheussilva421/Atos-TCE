@@ -1015,6 +1015,18 @@ class PackagerContractTests(unittest.TestCase):
             packager,
             r"Copy-Item\s+.*extensao-complementar-ato.*-Recurse",
         )
+        for asset in (
+            "background/automation-controller.js",
+            "content/portal-navigation.js",
+            "content/portal-submit.js",
+            "lib/automation-preflight.js",
+            "lib/automation-schema.js",
+            "lib/legal-foundation.js",
+            "sidepanel/panel-tokens.css",
+            "sidepanel/panel-view.js",
+        ):
+            with self.subTest(asset=asset):
+                self.assertIn(f"'{asset}'", packager)
 
         private_packager = (ROOT / "portable" / "Empacotar-Acervo-Completo.ps1").read_text(
             encoding="utf-8-sig"
