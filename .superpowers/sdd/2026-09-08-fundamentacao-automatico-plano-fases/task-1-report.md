@@ -321,3 +321,32 @@ GREEN após cada slice e integração:
   foi atualizado com este round, ownership, gates, concerns e retomada.
 - BLOCKED: nenhum. O checkout não possui remoto configurado; nenhum push foi
   realizado.
+
+## Fix round 5 — fixture sanitizado
+
+Data: 2026-09-08
+Commit incremental: 0876f2d test: sanitize legal context fixture path
+
+Alteração mínima, sem lógica funcional: o teste de sanitização deixou de
+conter caminho absoluto literal e passou a gerar um caminho sintético sob o
+diretório temporário. A asserção continua verificando que o caminho privado
+não é exportado e que somente o basename documental seguro permanece.
+
+RED curto antes da edição:
+
+    rg -n -F '<caminho absoluto literal proibido>' -- work/tce-extractor/test_legal_context.py
+    1 ocorrência encontrada.
+
+GREEN após a edição:
+
+    python -m unittest test_legal_context -q
+    18 testes; 18 passaram; 0 falharam.
+
+    git diff --check
+    Passou.
+
+    Guard do literal no fixture
+    Nenhuma ocorrência encontrada.
+
+Empacotador, matcher e lógica funcional permaneceram intocados. BLOCKED:
+nenhum.

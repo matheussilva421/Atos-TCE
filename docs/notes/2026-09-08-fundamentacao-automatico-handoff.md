@@ -203,3 +203,18 @@
   legal_context.py. BLOCKED nenhum.
 - Retomada: não corrigir matcher nem incluir empacotamento; manter a separação
   entre consumo de texto cacheado e exigência de geometry nas próximas fases.
+
+## Registro por fase — Fase 1 fix round 5
+
+- Estado: fixture sanitizado no commit
+  0876f2d test: sanitize legal context fixture path; report atualizado neste
+  bloco.
+- Alteração: test_legal_context.py gera dinamicamente um caminho sintético
+  temporário para continuar cobrindo a sanitização de basename, sem caminho
+  absoluto literal versionado.
+- TDD/gates: RED curto detectou uma ocorrência do literal proibido; GREEN em
+  18/18 test_legal_context; git diff --check passou e o guard não encontrou
+  ocorrências após a edição.
+- Ownership: nenhum empacotamento, matcher ou lógica funcional foi alterado.
+- BLOCKED: nenhum. Retomada: manter fixtures versionados sem caminhos
+  absolutos reais ou literais de máquina.
