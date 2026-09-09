@@ -129,7 +129,7 @@ function extensionSender(tabId) {
 }
 
 function sender(tabId = 7, frameId = 12, url = PORTAL_URL) {
-  return { tab: { id: tabId }, frameId, url };
+  return { tab: { id: tabId, url }, frameId, url };
 }
 
 function snapshot(processKey = PROCESS_KEY, interested = "João da Silva") {
@@ -409,7 +409,7 @@ test("tracks multiple frames, skips a hidden last registration, and follows the 
 
   await worker.handleMessage(
     createMessage(MESSAGE_TYPES.FORM_READY, { url: PORTAL_URL }, "ready-102256"),
-    sender(7, 12),
+    { ...sender(7, 12), id: "test-extension" },
   );
   await worker.handleMessage(
     createMessage(MESSAGE_TYPES.FORM_READY, { url: PORTAL_URL }, "ready-103365"),
@@ -450,7 +450,7 @@ test("blocks a write when more than one registered frame reports a visible valid
 
   await worker.handleMessage(
     createMessage(MESSAGE_TYPES.FORM_READY, { url: PORTAL_URL }, "ready-visible-a"),
-    sender(7, 12),
+    { ...sender(7, 12), id: "test-extension" },
   );
   await worker.handleMessage(
     createMessage(MESSAGE_TYPES.FORM_READY, { url: PORTAL_URL }, "ready-visible-b"),
@@ -743,7 +743,7 @@ test("portal content events are routed to the automation controller with tab and
     createMessage(MESSAGE_TYPES.PORTAL_EVENT, {
       event: { type: "snapshot", snapshot: portalSnapshot },
     }, "portal-event-1"),
-    sender(7, 12),
+    { ...sender(7, 12), id: "test-extension" },
   );
 
   assert.equal(response.ok, true);
@@ -755,10 +755,12 @@ test("portal content events are routed to the automation controller with tab and
   }]);
 });
 
-test("portal content events reject extension pages and unrelated origins", async () => {
+test("portal content events accept the extension content script but reject extension pages, IDs, and origins", async () => {
+  const events = [];
   const controller = {
-    async handlePortalEvent() {
-      throw new Error("must not be called");
+    async handlePortalEvent(event) {
+      events.push(event);
+      return { status: "running" };
     },
   };
   const worker = createServiceWorker({
@@ -769,13 +771,42 @@ test("portal content events reject extension pages and unrelated origins", async
     event: { type: "manual_navigation" },
   }, "portal-event-denied");
 
+  const contentResponse = await worker.handleMessage(message, { ...sender(), id: "test-extension" });
+  assert.equal(contentResponse.ok, true);
+  assert.equal(events.length, 1);
+
   const extensionResponse = await worker.handleMessage(message, extensionSender(7));
   assert.equal(extensionResponse.ok, false);
   assert.equal(extensionResponse.error.code, "UNAUTHORIZED");
 
-  const unrelatedResponse = await worker.handleMessage(message, sender(7, 12, "https://example.test/other"));
+  const divergentIdResponse = await worker.handleMessage(message, { ...sender(), id: "other-extension" });
+  assert.equal(divergentIdResponse.ok, false);
+  assert.equal(divergentIdResponse.error.code, "INVALID_ORIGIN");
+
+  const unrelatedResponse = await worker.handleMessage(message, { ...sender(7, 12, "https://example.test/other"), id: "test-extension" });
   assert.equal(unrelatedResponse.ok, false);
   assert.equal(unrelatedResponse.error.code, "INVALID_ORIGIN");
+});
+
+test("portal events preserve unresolved row identities as pending without backend queue identity", () => {
+  const pendingSnapshot = {
+    role: "list",
+    generation: 1,
+    sector: "aposentadorias",
+    identities: [{
+      processKey: null,
+      interestedOriginal: "",
+      interestedNormalized: null,
+      portalActId: null,
+      pending: true,
+    }],
+    actions: [],
+  };
+  const message = createMessage(MESSAGE_TYPES.PORTAL_EVENT, {
+    event: { type: "snapshot", snapshot: pendingSnapshot },
+  }, "portal-pending");
+
+  assert.deepEqual(message.payload.event.snapshot.identities, pendingSnapshot.identities);
 });
 
 test("automation control rejects a content script even when its sender id is the extension", async () => {

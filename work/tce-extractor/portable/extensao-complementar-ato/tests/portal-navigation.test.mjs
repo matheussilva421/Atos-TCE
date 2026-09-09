@@ -269,6 +269,22 @@ test("snapshots identities and observed actions without retaining nodes or URLs"
   assert.ok(snapshot.actions.every((action) => !Object.hasOwn(action, "url") && !Object.hasOwn(action, "node")));
 });
 
+test("keeps a row without a canonical identity as pending without exposing it as an action", () => {
+  const documentRef = buildListDocument("1", [{ processKey: "", interested: "" }], { hasNext: false });
+  const snapshot = snapshotPortalScreen(documentRef);
+
+  assert.equal(snapshot.role, "list");
+  assert.equal(snapshot.identities.length, 1);
+  assert.deepEqual(snapshot.identities[0], {
+    processKey: null,
+    interestedOriginal: "",
+    interestedNormalized: null,
+    portalActId: null,
+    pending: true,
+  });
+  assert.equal(snapshot.actions.some((action) => action.action === "open_act"), false);
+});
+
 test("opens the action link belonging to the requested process row", async () => {
   const documentRef = buildListDocument("1", [
     { processKey: "103401/2023", interested: "Ana da Silva" },
@@ -344,6 +360,38 @@ test("advances through three synthetic pages, invalidates generation on rerender
   });
   assert.equal(noProgress.ok, false);
   assert.equal(noProgress.error.code, "NAVIGATION_TIMEOUT");
+  assert.equal(next.clickCount, 1);
+});
+
+test("waits for a later mutation before using its single navigation reread", async () => {
+  const documentRef = buildListDocument("1", [
+    { processKey: "103401/2023", interested: "Ana da Silva" },
+    { processKey: "103402/2023", interested: "Bruno de Souza" },
+  ]);
+  let notifyMutation = null;
+  documentRef.defaultView.MutationObserver = class {
+    constructor(callback) {
+      notifyMutation = callback;
+    }
+
+    observe() {}
+
+    disconnect() {}
+  };
+  const next = documentRef.querySelector('[data-action="next-page"]');
+  next.onClick = () => setTimeout(() => {
+    documentRef.setSurface(buildListSurface(documentRef, 2));
+    notifyMutation?.();
+  }, 0);
+
+  const result = await executeNavigation(documentRef, {
+    action: "next_page",
+    expected_generation: snapshotPortalScreen(documentRef).generation,
+    timeoutMs: 50,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.rereads, 1);
   assert.equal(next.clickCount, 1);
 });
 

@@ -401,7 +401,8 @@
 ## Registro por fase — Fase 5 — navegação, frames e fila
 
 - Estado: implementação local concluída na branch `codex/fundamentacao-automatico`;
-  commit `10604c9` (`feat: discover and navigate automatic act queue`) criado.
+  base documental corrigida para `fdd7ee0`; hardening registrado no commit
+  `fix: harden portal navigation and queue lifecycle`.
 - Ownership: content script de navegação, controller fora do painel, integração
   mínima em worker/messages/manifest, testes do controller/navegação/worker e
   fixture sintética da terceira página.
@@ -409,9 +410,13 @@
   única com MutationObserver/timeout de 30 s; papéis de frame em
   `storage.session`; fila deduplicada congelada antes do ciclo; pending não
   desaparece dos totais; navegação manual/setor/frame/aba vinculada pausam;
-  aba não vinculada é ignorada.
-- TDD: RED inicial dos módulos ausentes registrado em `task-5-report.md`;
-  GREEN focal 36/36 e `npm test` 185/185. `git diff --check` verde.
+  aba não vinculada é ignorada. `PORTAL_EVENT` exige content script da própria
+  extensão, origem portal e par `tabId`/`frameId`; loading automático usa
+  marcador/token one-shot e erro de frame pausa fail-closed. Descoberta na
+  página 3 volta pela ação `direction: "first"` antes do primeiro processo;
+  `queueFrozen` impede novas identidades.
+- TDD: RED inicial e correções estão registrados em `task-5-report.md`;
+  GREEN focal 44/44 e `npm test` 193/193. `git diff --check` verde.
 - Validação manual: somente fixtures/Fake DOM/bridge locais; nenhum portal real,
   clique real, preenchimento ou envio foi iniciado.
 - Limitações: qualificação de browser/portal real, preflight, preenchimento,

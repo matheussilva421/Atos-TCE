@@ -474,12 +474,21 @@ export function createServiceWorker({
   }
 
   async function handlePortalEventMessage(message, sender) {
-    if (senderIsExtension(sender, chromeApi)) {
+    if (senderIsExtensionPage(sender, chromeApi)) {
       return errorResponse(message.requestId, "UNAUTHORIZED", "PORTAL_EVENT must come from a portal content frame");
     }
     const tabId = tabIdFromSender(sender);
     const frameId = frameIdFromSender(sender);
-    if (tabId === null || frameId === null || !validatePortalUrl(sender?.url)) {
+    const senderUrl = typeof sender?.url === "string" ? sender.url : sender?.tab?.url;
+    const tabUrl = sender?.tab?.url;
+    if (
+      tabId === null
+      || frameId === null
+      || typeof chromeApi?.runtime?.id !== "string"
+      || sender?.id !== chromeApi.runtime.id
+      || !validatePortalUrl(senderUrl)
+      || (tabUrl !== undefined && !validatePortalUrl(tabUrl))
+    ) {
       return errorResponse(message.requestId, "INVALID_ORIGIN", "PORTAL_EVENT must come from an allowed portal frame");
     }
     if (controller === null || typeof controller.handlePortalEvent !== "function") {

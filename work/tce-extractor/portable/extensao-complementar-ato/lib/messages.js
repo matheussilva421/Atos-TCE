@@ -37,6 +37,7 @@ const MATCH_KIND_SET = new Set(["exact", "probable", "tie"]);
 const PORTAL_ACTION_SET = new Set(["next_page", "open_act", "select_interested", "return_list"]);
 const PORTAL_ROLE_SET = new Set(["list", "interested", "form", "buttons", "unknown"]);
 const PORTAL_EVENT_SET = new Set(["snapshot", "navigation", "manual_navigation", "sector_changed", "frame_unavailable"]);
+const PORTAL_IDENTITY_KEYS = ["processKey", "interestedOriginal", "interestedNormalized", "portalActId", "pending", "selected"];
 
 function invalid(message) {
   throw new SchemaValidationError(`message ${message}`);
@@ -125,15 +126,36 @@ function validateOptions(options) {
 
 function validatePortalIdentity(value, label = "portal identity") {
   if (!isRecord(value)) invalid(`${label} must be an object`);
-  if (typeof value.processKey !== "string" || value.processKey.length === 0 || value.processKey.length > 256) {
-    invalid(`${label}.processKey must be a non-empty string`);
+  exactKeysFrom(value, [], PORTAL_IDENTITY_KEYS, label);
+  if (Object.hasOwn(value, "processKey") && value.processKey !== null && (typeof value.processKey !== "string" || value.processKey.length === 0 || value.processKey.length > 256)) {
+    invalid(`${label}.processKey must be a non-empty string or null`);
   }
-  if (typeof value.interestedNormalized !== "string" || value.interestedNormalized.length === 0 || value.interestedNormalized.length > 256) {
-    invalid(`${label}.interestedNormalized must be a non-empty string`);
+  if (Object.hasOwn(value, "interestedOriginal") && (typeof value.interestedOriginal !== "string" || value.interestedOriginal.length > 256)) {
+    invalid(`${label}.interestedOriginal must be a string`);
   }
-  if (Object.hasOwn(value, "portalActId") && value.portalActId !== null && typeof value.portalActId !== "string") {
+  if (Object.hasOwn(value, "interestedNormalized") && value.interestedNormalized !== null && (typeof value.interestedNormalized !== "string" || value.interestedNormalized.length === 0 || value.interestedNormalized.length > 256)) {
+    invalid(`${label}.interestedNormalized must be a non-empty string or null`);
+  }
+  if (Object.hasOwn(value, "portalActId") && value.portalActId !== null && (typeof value.portalActId !== "string" || value.portalActId.length > 256)) {
     invalid(`${label}.portalActId must be a string or null`);
   }
+  if (Object.hasOwn(value, "pending") && typeof value.pending !== "boolean") invalid(`${label}.pending must be a boolean`);
+  if (Object.hasOwn(value, "selected") && typeof value.selected !== "boolean") invalid(`${label}.selected must be a boolean`);
+  const canonical = typeof value.processKey === "string"
+    && value.processKey.length > 0
+    && typeof value.interestedNormalized === "string"
+    && value.interestedNormalized.length > 0;
+  if (!canonical && value.pending !== true) invalid(`${label}.pending must be true when canonical identity is incomplete`);
+  if (canonical && value.pending === true) invalid(`${label}.pending cannot be true for a canonical identity`);
+}
+
+function isCanonicalPortalIdentity(value) {
+  return isRecord(value)
+    && typeof value.processKey === "string"
+    && value.processKey.length > 0
+    && typeof value.interestedNormalized === "string"
+    && value.interestedNormalized.length > 0
+    && value.pending !== true;
 }
 
 function validatePortalSnapshot(value) {
@@ -146,9 +168,16 @@ function validatePortalSnapshot(value) {
   value.identities.forEach((identity, index) => validatePortalIdentity(identity, `PORTAL snapshot identity ${index}`));
   value.actions.forEach((action, index) => {
     if (!isRecord(action)) invalid(`PORTAL snapshot action ${index} is invalid`);
+    exactKeysFrom(action, ["action", "enabled"], ["identity", "direction"], `PORTAL snapshot action ${index}`);
     if (typeof action.action !== "string" || !PORTAL_ACTION_SET.has(action.action)) invalid(`PORTAL snapshot action ${index} is unsupported`);
     if (typeof action.enabled !== "boolean") invalid(`PORTAL snapshot action ${index}.enabled is invalid`);
+    if (Object.hasOwn(action, "direction") && (action.action !== "next_page" || !["next", "first"].includes(action.direction))) {
+      invalid(`PORTAL snapshot action ${index}.direction is invalid`);
+    }
     if (Object.hasOwn(action, "identity")) validatePortalIdentity(action.identity, `PORTAL snapshot action ${index}.identity`);
+    if (["open_act", "select_interested"].includes(action.action) && !isCanonicalPortalIdentity(action.identity)) {
+      invalid(`PORTAL snapshot action ${index}.identity must be canonical`);
+    }
   });
 }
 
@@ -264,6 +293,9 @@ function validatePayload(type, payload) {
       if (typeof payload.action !== "string" || !PORTAL_ACTION_SET.has(payload.action)) invalid("PORTAL_NAVIGATE action is unsupported");
       if (!Number.isSafeInteger(payload.expected_generation) || payload.expected_generation < 1) invalid("PORTAL_NAVIGATE expected_generation is invalid");
       if (Object.hasOwn(payload, "identity") && payload.identity !== null) validatePortalIdentity(payload.identity, "PORTAL_NAVIGATE identity");
+      if (["open_act", "select_interested"].includes(payload.action) && !isCanonicalPortalIdentity(payload.identity)) {
+        invalid("PORTAL_NAVIGATE identity must be canonical");
+      }
       if (Object.hasOwn(payload, "timeoutMs") && (!Number.isSafeInteger(payload.timeoutMs) || payload.timeoutMs <= 0 || payload.timeoutMs > 30000)) invalid("PORTAL_NAVIGATE timeoutMs is invalid");
       break;
     case MESSAGE_TYPES.PORTAL_EVENT:

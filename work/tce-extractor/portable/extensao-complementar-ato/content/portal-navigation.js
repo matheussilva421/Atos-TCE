@@ -55,11 +55,15 @@ function byId(documentRef, id) {
 function uniqueByIdentity(identities) {
   const seen = new Set();
   return identities.filter((identity) => {
-    const key = `${identity.processKey}\u0000${identity.interestedNormalized}`;
-    if (!identity.processKey || !identity.interestedNormalized || seen.has(key)) return false;
+    const key = `${identity.processKey ?? ""}\u0000${identity.interestedNormalized ?? ""}\u0000${identity.portalActId ?? ""}`;
+    if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+}
+
+function hasCanonicalIdentity(identity) {
+  return Boolean(identity?.processKey && identity?.interestedNormalized);
 }
 
 function processKeyFromText(value) {
@@ -110,12 +114,12 @@ function identityFromRow(row, { radio = null, processKey = "" } = {}) {
     || processKeyFromText(textOf(row));
   const interestedOriginal = interestedTextFromRow(row, radio);
   const interestedNormalized = normalizeInterested(interestedOriginal);
-  if (!resolvedProcessKey || !interestedNormalized) return null;
   return {
-    processKey: resolvedProcessKey,
+    processKey: resolvedProcessKey || null,
     interestedOriginal,
-    interestedNormalized,
+    interestedNormalized: interestedNormalized || null,
     portalActId: portalActIdFromRow(row, radio),
+    pending: !resolvedProcessKey || !interestedNormalized,
     ...(radio ? { selected: radio.checked === true } : {}),
   };
 }
@@ -177,10 +181,12 @@ function listIdentityEntries(documentRef) {
       const action = getAttribute(link, "data-action");
       return action !== "signal-only" && action !== "submit";
     }) ?? null;
-    return identityFromRow(row, { processKey: processKeyFromText(textOf(row)) })
-      ? { identity: identityFromRow(row, { processKey: processKeyFromText(textOf(row)) }), row, control }
-      : null;
-  }).filter(Boolean);
+    return {
+      identity: identityFromRow(row, { processKey: processKeyFromText(textOf(row)) }),
+      row,
+      control,
+    };
+  });
 }
 
 function interestedIdentityEntries(documentRef) {
@@ -188,22 +194,32 @@ function interestedIdentityEntries(documentRef) {
   return interestedRows(documentRef).map((row) => {
     const radio = queryOne(row, 'input[type="radio"]');
     const identity = identityFromRow(row, { radio, processKey });
-    return identity ? { identity, row, radio } : null;
-  }).filter(Boolean);
+    return { identity, row, radio };
+  });
 }
 
-function findNextControl(documentRef) {
+function findNextNavigation(documentRef) {
   const explicit = queryAll(documentRef, '[data-action="next-page"], [data-action="next_page"], a[rel="next"], button[rel="next"]')[0];
-  if (explicit) return explicit;
+  if (explicit) return { control: explicit, direction: "next" };
   const current = queryOne(documentRef, '[aria-current="page"]');
   const currentNumber = Number.parseInt(textOf(current), 10);
-  return queryAll(documentRef, "nav a, nav button, a, button").find((control) => {
+  const next = queryAll(documentRef, "nav a, nav button, a, button").find((control) => {
     if (getAttribute(control, "aria-current") === "page") return false;
     const label = normalizeInterested(textOf(control));
     if (["próxima", "proxima", "next", "seguinte"].includes(label)) return true;
     const number = Number.parseInt(label, 10);
     return Number.isInteger(number) && Number.isInteger(currentNumber) && number > currentNumber;
   }) ?? null;
+  if (next) return { control: next, direction: "next" };
+  const first = queryAll(documentRef, "nav a, nav button").find((control) => {
+    if (getAttribute(control, "aria-current") === "page") return false;
+    return getAttribute(control, "data-action") === "first-page" || normalizeInterested(textOf(control)) === "1";
+  }) ?? null;
+  return first ? { control: first, direction: "first" } : null;
+}
+
+function findNextControl(documentRef) {
+  return findNextNavigation(documentRef)?.control ?? null;
 }
 
 function findReturnControl(documentRef) {
@@ -218,20 +234,21 @@ function actionSnapshot(documentRef, role) {
   const actions = [];
   if (role === "list") {
     for (const entry of listIdentityEntries(documentRef)) {
-      if (entry.control) actions.push({ action: "open_act", enabled: true, identity: entry.identity });
+      if (entry.control && hasCanonicalIdentity(entry.identity)) actions.push({ action: "open_act", enabled: true, identity: entry.identity });
     }
-    if (findNextControl(documentRef)) actions.push({ action: "next_page", enabled: true });
+    const next = findNextNavigation(documentRef);
+    if (next) actions.push({ action: "next_page", enabled: true, direction: next.direction });
   }
   if (role === "interested") {
     for (const entry of interestedIdentityEntries(documentRef)) {
-      actions.push({ action: "select_interested", enabled: true, identity: entry.identity });
+      if (hasCanonicalIdentity(entry.identity)) actions.push({ action: "select_interested", enabled: true, identity: entry.identity });
     }
     if (findReturnControl(documentRef)) actions.push({ action: "return_list", enabled: true });
   }
   if (role === "form" || role === "buttons") {
     const processKey = processKeyFromDocument(documentRef);
     if (processKey) {
-      const interested = interestedIdentityEntries(documentRef).find((entry) => entry.identity.selected)?.identity;
+      const interested = interestedIdentityEntries(documentRef).find((entry) => entry.identity.selected && hasCanonicalIdentity(entry.identity))?.identity;
       if (interested) actions.push({ action: "return_list", enabled: Boolean(findReturnControl(documentRef)), identity: interested });
     }
     if (findReturnControl(documentRef)) actions.push({ action: "return_list", enabled: true });
@@ -241,8 +258,8 @@ function actionSnapshot(documentRef, role) {
 
 function rawFingerprint(documentRef, role) {
   const marker = getDatasetValue(documentRef, "page") || getDatasetValue(documentRef, "screen");
-  const list = listIdentityEntries(documentRef).map(({ identity }) => `${identity.processKey}:${identity.interestedNormalized}`);
-  const interested = interestedIdentityEntries(documentRef).map(({ identity }) => `${identity.processKey}:${identity.interestedNormalized}:${identity.selected}`);
+  const list = listIdentityEntries(documentRef).map(({ identity }) => `${identity.processKey ?? ""}:${identity.interestedNormalized ?? ""}:${identity.portalActId ?? ""}`);
+  const interested = interestedIdentityEntries(documentRef).map(({ identity }) => `${identity.processKey ?? ""}:${identity.interestedNormalized ?? ""}:${identity.selected}`);
   return JSON.stringify([role, marker, processKeyFromDocument(documentRef), list, interested, textOf(documentRef?.body)]);
 }
 
@@ -277,13 +294,13 @@ function snapshotPortalScreen(documentRef = globalThis.document) {
 }
 
 function sameIdentity(left, right) {
-  return Boolean(left && right)
+  return hasCanonicalIdentity(left) && hasCanonicalIdentity(right)
     && left.processKey === right.processKey
     && left.interestedNormalized === right.interestedNormalized;
 }
 
 function selectedIdentity(documentRef) {
-  return interestedIdentityEntries(documentRef).find(({ identity }) => identity.selected)?.identity ?? null;
+  return interestedIdentityEntries(documentRef).find(({ identity }) => identity.selected && hasCanonicalIdentity(identity))?.identity ?? null;
 }
 
 function isProgress(documentRef, before, after, action, identity) {
@@ -316,7 +333,7 @@ function resolveControl(documentRef, action, identity) {
   return null;
 }
 
-async function waitForNavigation(documentRef, before, action, identity, timeoutMs) {
+async function waitForNavigation(documentRef, before, action, identity, timeoutMs, performClick) {
   const timerFactory = documentRef?.defaultView?.setTimeout ?? globalThis.setTimeout;
   const clearTimer = documentRef?.defaultView?.clearTimeout ?? globalThis.clearTimeout;
   let rereads = 0;
@@ -329,9 +346,6 @@ async function waitForNavigation(documentRef, before, action, identity, timeoutM
     const after = snapshotPortalScreen(documentRef);
     return isProgress(documentRef, before, after, action, identity) ? after : null;
   };
-
-  const immediate = readOnce();
-  if (immediate) return { ok: true, action, snapshot: immediate, rereads };
 
   return new Promise((resolve) => {
     let settled = false;
@@ -354,6 +368,15 @@ async function waitForNavigation(documentRef, before, action, identity, timeoutM
     if (typeof Observer === "function") {
       observer = new Observer(check);
       observer.observe(documentRef?.body ?? documentRef, { childList: true, subtree: true, attributes: true });
+      timer = timerFactory(check, timeoutMs);
+      performClick();
+      return;
+    }
+    performClick();
+    const immediate = readOnce();
+    if (immediate) {
+      finish({ ok: true, action, snapshot: immediate, rereads });
+      return;
     }
     timer = timerFactory(check, timeoutMs);
   });
@@ -374,13 +397,13 @@ async function executeNavigation(documentRef = globalThis.document, request = {}
   if (getAttribute(control, "data-action") === "signal-only" || getAttribute(control, "data-action") === "submit") {
     return navigationError("ACTION_NOT_ALLOWED", "signal and submit controls are outside the navigation allowlist");
   }
-  control.click?.();
   return waitForNavigation(
     documentRef,
     before,
     action,
     request.identity,
     Number.isInteger(request.timeoutMs) && request.timeoutMs > 0 ? Math.min(request.timeoutMs, NAVIGATION_TIMEOUT_MS) : NAVIGATION_TIMEOUT_MS,
+    () => control.click?.(),
   );
 }
 

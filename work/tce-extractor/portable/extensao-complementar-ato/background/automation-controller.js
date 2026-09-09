@@ -126,6 +126,8 @@ export function createAutomationController({
   let frameLoadPromise = null;
   let framePersistPromise = Promise.resolve();
   let inFlight = null;
+  let expectedNavigation = null;
+  let navigationToken = 0;
   let state = {
     runId: null,
     status: "stopped",
@@ -197,6 +199,7 @@ export function createAutomationController({
   }
 
   function collectSnapshot(snapshot) {
+    if (state.queueFrozen) return;
     for (const candidate of snapshot.identities ?? []) {
       state.totals.discovered += 1;
       const rawKey = identityKey(candidate);
@@ -224,8 +227,15 @@ export function createAutomationController({
   async function readPortalSnapshot(tabId, frameId = state.frame?.frameId ?? null) {
     try {
       const response = await sendPortalMessage(tabId, MESSAGE_TYPES.PORTAL_GET_SNAPSHOT, {}, frameId);
+      if (response?.ok !== true) {
+        setPaused(response?.error?.code === "TAB_CLOSED" ? "tab closed" : "portal frame unavailable");
+        return null;
+      }
       const snapshot = snapshotFromResponse(response);
-      if (!snapshot) return null;
+      if (!snapshot) {
+        setPaused("portal frame unavailable");
+        return null;
+      }
       registerFrame(tabId, Number.isSafeInteger(frameId) ? frameId : 0, snapshot);
       return { snapshot, frameId: Number.isSafeInteger(frameId) ? frameId : 0 };
     } catch (error) {
@@ -235,15 +245,34 @@ export function createAutomationController({
   }
 
   async function navigate(tabId, frameId, action, identity, generation) {
-    const response = await sendPortalMessage(tabId, MESSAGE_TYPES.PORTAL_NAVIGATE, {
+    const navigation = {
+      token: ++navigationToken,
+      tabId,
+      frameId,
       action,
-      identity: identity ?? null,
-      expected_generation: generation,
-    }, frameId);
-    if (response?.ok !== true) return { ok: false, response };
-    const snapshot = snapshotFromResponse(response);
-    if (snapshot) registerFrame(tabId, frameId, snapshot);
-    return { ok: true, snapshot };
+      generation,
+      loadingObserved: false,
+    };
+    expectedNavigation = navigation;
+    try {
+      const response = await sendPortalMessage(tabId, MESSAGE_TYPES.PORTAL_NAVIGATE, {
+        action,
+        identity: identity ?? null,
+        expected_generation: generation,
+      }, frameId);
+      if (response?.ok !== true) {
+        setPaused(response?.error?.code === "TAB_CLOSED" ? "tab closed" : "portal frame unavailable");
+        return { ok: false, response };
+      }
+      const snapshot = snapshotFromResponse(response);
+      if (snapshot) registerFrame(tabId, frameId, snapshot);
+      return { ok: true, snapshot };
+    } catch (error) {
+      setPaused(error?.code === "TAB_CLOSED" ? "tab closed" : "portal frame unavailable");
+      return { ok: false, error };
+    } finally {
+      if (expectedNavigation === navigation && !navigation.loadingObserved) expectedNavigation = null;
+    }
   }
 
   async function discoverList(tabId, initial) {
@@ -258,11 +287,11 @@ export function createAutomationController({
       pageSignatures.add(signature);
       collectSnapshot(current);
       const next = actionFor(current, "next_page");
-      if (!next) return current;
+      if (!next || next.direction === "first") return current;
       const frameId = state.frame?.frameId ?? 0;
       const moved = await navigate(tabId, frameId, "next_page", null, current.generation);
       if (!moved.ok) {
-        setPaused("navigation failed or requires manual intervention");
+        if (state.status !== "paused") setPaused("navigation failed or requires manual intervention");
         return current;
       }
       let nextSnapshot = moved.snapshot;
@@ -296,13 +325,17 @@ export function createAutomationController({
       setPaused("automation bridge cannot freeze the queue");
       return;
     }
-    const frozen = await bridge.freezeAutomationQueue(state.runId, {
-      identities: state.queue.map(clone),
-      eventId: `${startEventId}:queue`,
-      expectedRevision: state.revision,
-    });
-    snapshotStatus(state, frozen);
-    state.queueFrozen = true;
+    try {
+      const frozen = await bridge.freezeAutomationQueue(state.runId, {
+        identities: state.queue.map(clone),
+        eventId: `${startEventId}:queue`,
+        expectedRevision: state.revision,
+      });
+      snapshotStatus(state, frozen);
+      state.queueFrozen = true;
+    } catch {
+      setPaused("queue freeze failed");
+    }
   }
 
   async function start(input, suppliedEventId) {
@@ -331,6 +364,11 @@ export function createAutomationController({
       totals: { discovered: 0, unique: 0, pending: 0 },
       eventPrefix: String(startEventId),
     };
+    const storedFrames = [...frames.values()].filter((entry) => entry.tabId === spec.tabId);
+    if (storedFrames.length === 1) {
+      const stored = storedFrames[0];
+      state.frame = { frameId: stored.frameId, role: stored.role, generation: stored.generation, sector: stored.sector ?? null };
+    }
     const run = await bridge.createAutomationRun(spec, startEventId);
     snapshotStatus(state, run);
     state.status = "discovering";
@@ -344,9 +382,27 @@ export function createAutomationController({
       setPaused("manual navigation required: process list not visible");
       return statusToPublic(state);
     }
-    await discoverList(spec.tabId, first.snapshot);
+    const discovered = await discoverList(spec.tabId, first.snapshot);
     await freezeQueue(spec, startEventId);
     if (state.status === "discovering") state.status = "running";
+    if (state.status === "running") {
+      let ready = discovered;
+      const firstIdentity = nextQueuedIdentity();
+      if (firstIdentity && !actionFor(ready, "open_act", firstIdentity)) {
+        const reset = actionFor(ready, "next_page");
+        if (reset?.direction !== "first") {
+          setPaused("first queued process requires manual re-find");
+          return statusToPublic(state);
+        }
+        const moved = await navigate(spec.tabId, state.frame?.frameId ?? 0, "next_page", null, ready.generation);
+        if (!moved.ok || !moved.snapshot || moved.snapshot.role !== "list") {
+          setPaused("first queued process requires manual re-find");
+          return statusToPublic(state);
+        }
+        ready = moved.snapshot;
+      }
+      await driveSnapshot(spec.tabId, state.frame?.frameId ?? 0, ready);
+    }
     return statusToPublic(state);
   }
 
@@ -406,7 +462,11 @@ export function createAutomationController({
         }
         listSignatures.add(signature);
         const identity = state.currentIdentity ?? nextQueuedIdentity();
-        if (!identity) return;
+        if (!identity) {
+          state.status = "completed";
+          state.pausedReason = null;
+          return;
+        }
         const open = actionFor(snapshot, "open_act", identity);
         if (!open) {
           const next = actionFor(snapshot, "next_page");
@@ -424,7 +484,7 @@ export function createAutomationController({
         }
         const moved = await navigate(tabId, frameId, "open_act", identity, snapshot.generation);
         if (!moved.ok) {
-          setPaused("process link changed; manual intervention required");
+          if (state.status !== "paused") setPaused("process link changed; manual intervention required");
           return;
         }
         state.currentIdentity = identity;
@@ -442,12 +502,13 @@ export function createAutomationController({
           if (!back) return;
           const moved = await navigate(tabId, frameId, "return_list", identity, snapshot.generation);
           if (!moved.ok) {
-            setPaused("return to process list requires manual intervention");
+            if (state.status !== "paused") setPaused("return to process list requires manual intervention");
             return;
           }
           state.completedIdentities.add(identityKey(identity));
           state.currentIdentity = null;
           selectedConfirmed = false;
+          listSignatures.clear();
           if (!moved.snapshot) return;
           snapshot = moved.snapshot;
           continue;
@@ -459,7 +520,7 @@ export function createAutomationController({
         }
         const moved = await navigate(tabId, frameId, "select_interested", identity, snapshot.generation);
         if (!moved.ok) {
-          setPaused("interested selection changed; manual intervention required");
+          if (state.status !== "paused") setPaused("interested selection changed; manual intervention required");
           return;
         }
         selectedConfirmed = true;
@@ -473,11 +534,12 @@ export function createAutomationController({
         if (!back) return;
         const moved = await navigate(tabId, frameId, "return_list", identity, snapshot.generation);
         if (!moved.ok) {
-          setPaused("return to process list requires manual intervention");
+          if (state.status !== "paused") setPaused("return to process list requires manual intervention");
           return;
         }
         state.completedIdentities.add(identityKey(identity));
         state.currentIdentity = null;
+        listSignatures.clear();
         if (!moved.snapshot) return;
         snapshot = moved.snapshot;
         continue;
@@ -494,9 +556,15 @@ export function createAutomationController({
   }
 
   async function handlePortalEvent(event) {
-    if (!isRecord(event) || event.tabId !== state.tabId) return statusToPublic(state);
+    if (!isRecord(event) || !Number.isSafeInteger(event.tabId) || !Number.isSafeInteger(event.frameId)) return statusToPublic(state);
     const eventType = event.type ?? event.event?.type;
     const snapshot = event.snapshot ?? event.event?.snapshot ?? null;
+    if (state.tabId === null) {
+      if (isPortalSnapshot(snapshot)) registerFrame(event.tabId, event.frameId, snapshot);
+      return statusToPublic(state);
+    }
+    if (event.tabId !== state.tabId) return statusToPublic(state);
+    if (state.frame && event.frameId !== state.frame.frameId) return statusToPublic(state);
     if (eventType === "navigation") invalidateFrames(event.tabId);
     if (eventType === "frame_unavailable" || eventType === "tab_closed") {
       setPaused(eventType === "tab_closed" ? "tab closed" : "portal frame unavailable");
@@ -521,16 +589,26 @@ export function createAutomationController({
     chromeApi.tabs.onRemoved.addListener((tabId) => {
       if (tabId === state.tabId && ACTIVE_STATUSES.has(state.status)) {
         setPaused("tab closed");
+        expectedNavigation = null;
         invalidateFrames(tabId);
       }
     });
   }
   if (chromeApi.tabs.onUpdated?.addListener) {
     chromeApi.tabs.onUpdated.addListener((tabId, changeInfo) => {
-      if (tabId === state.tabId && changeInfo?.status === "loading" && ACTIVE_STATUSES.has(state.status)) {
-        invalidateFrames(tabId);
-        setPaused("manual navigation detected");
+      if (tabId !== state.tabId || !ACTIVE_STATUSES.has(state.status)) return;
+      if (changeInfo?.status === "complete" && expectedNavigation?.tabId === tabId) {
+        expectedNavigation = null;
+        return;
       }
+      if (changeInfo?.status !== "loading") return;
+      if (expectedNavigation?.tabId === tabId) {
+        expectedNavigation.loadingObserved = true;
+        expectedNavigation = null;
+        return;
+      }
+      invalidateFrames(tabId);
+      setPaused("manual navigation detected");
     });
   }
 

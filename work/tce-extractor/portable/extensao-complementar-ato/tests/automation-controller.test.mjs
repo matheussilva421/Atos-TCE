@@ -70,6 +70,8 @@ function bridgeMock() {
 function chromeMock(snapshots) {
   const calls = [];
   let current = 0;
+  const removedListeners = [];
+  const updatedListeners = [];
   return {
     calls,
     storage: {
@@ -95,9 +97,26 @@ function chromeMock(snapshots) {
         }
         return { ok: true, payload: {} };
       },
-      onRemoved: { addListener() {} },
+      onRemoved: { addListener(listener) { removedListeners.push(listener); } },
+      onUpdated: { addListener(listener) { updatedListeners.push(listener); } },
+    },
+    fireTabRemoved(tabId) {
+      for (const listener of removedListeners) listener(tabId);
+    },
+    fireTabUpdated(tabId, changeInfo) {
+      for (const listener of updatedListeners) listener(tabId, changeInfo);
     },
   };
+}
+
+function activeChromeMock(page) {
+  const chromeApi = chromeMock([page]);
+  const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    if (message.type === "PORTAL_NAVIGATE") return { ok: true, payload: {} };
+    return originalSendMessage(tabId, message, options);
+  };
+  return chromeApi;
 }
 
 const PAGE_1 = snapshot("list", 1, [
@@ -135,7 +154,7 @@ test("starts a run, discovers 2/2/1 pages, deduplicates rerenders, and freezes b
 
 test("keeps an unresolved identity in totals and pauses when pagination repeats", async () => {
   const unresolved = snapshot("list", 1, [
-    { processKey: "103406/2023", interestedOriginal: "", interestedNormalized: "", portalActId: null },
+    { processKey: null, interestedOriginal: "", interestedNormalized: null, portalActId: null, pending: true },
   ], []);
   const unresolvedBridge = bridgeMock();
   const unresolvedController = createAutomationController({
@@ -158,9 +177,106 @@ test("keeps an unresolved identity in totals and pauses when pagination repeats"
   assert.equal(repeatedController.status().queueFrozen, false);
 });
 
+test("does not add identities observed after the queue has been frozen", async () => {
+  const bridge = bridgeMock();
+  const controller = createAutomationController({ chromeApi: chromeMock([PAGE_1, PAGE_2, PAGE_3]), bridge });
+  await controller.start({ spec: runSpec(), eventId: "start-frozen" });
+
+  await controller.handlePortalEvent({
+    tabId: 7,
+    frameId: 0,
+    type: "snapshot",
+    snapshot: snapshot("list", 4, [identity("103406/2023", "nova pessoa", "act-6")], []),
+  });
+
+  assert.equal(controller.status().queueFrozen, true);
+  assert.deepEqual(controller.status().totals, { discovered: 5, unique: 5, pending: 0 });
+});
+
+function lifecycleList(page, identities, { next = false, first = false } = {}) {
+  return snapshot(
+    "list",
+    page,
+    identities,
+    [
+      ...identities.map((item) => ({ action: "open_act", enabled: true, identity: item })),
+      ...((next || first) ? [{ action: "next_page", enabled: true, direction: first ? "first" : "next" }] : []),
+    ],
+  );
+}
+
+function lifecycleChromeMock(pages) {
+  const calls = [];
+  let currentPage = 1;
+  let currentSurface = pages[1];
+  return {
+    calls,
+    storage: { session: { async get() { return {}; }, async set() {} } },
+    tabs: {
+      async sendMessage(tabId, message, options) {
+        calls.push([tabId, message, options]);
+        if (message.type === "PORTAL_GET_SNAPSHOT") return { ok: true, payload: structuredClone(currentSurface) };
+        if (message.type !== "PORTAL_NAVIGATE") return { ok: true, payload: {} };
+        const { action, identity: requested } = message.payload;
+        if (action === "next_page") {
+          currentPage = currentPage === 3 ? 1 : currentPage + 1;
+          currentSurface = pages[currentPage];
+        } else if (action === "open_act") {
+          currentSurface = snapshot("interested", 10 + currentPage, [
+            { ...requested, selected: false },
+          ], [
+            { action: "select_interested", enabled: true, identity: { ...requested, selected: false } },
+            { action: "return_list", enabled: true, identity: requested },
+          ]);
+        } else if (action === "select_interested") {
+          currentSurface = snapshot("interested", 20 + currentPage, [
+            { ...requested, selected: true },
+          ], [
+            { action: "return_list", enabled: true, identity: { ...requested, selected: true } },
+          ]);
+        } else if (action === "return_list") {
+          currentPage = 1;
+          currentSurface = pages[1];
+        }
+        return { ok: true, payload: { snapshot: structuredClone(currentSurface) } };
+      },
+      onRemoved: { addListener() {} },
+    },
+  };
+}
+
+test("freezes then resets from the final discovery page and completes the full five-item cycle", async () => {
+  const identities = [
+    identity("103401/2023", "ana da silva", "act-1"),
+    identity("103402/2023", "bruno de souza", "act-2"),
+    identity("103403/2023", "carla de lima", "act-3"),
+    identity("103404/2023", "diego alves", "act-4"),
+    identity("103405/2023", "erica santos", "act-5"),
+  ];
+  const pages = {
+    1: lifecycleList(1, identities.slice(0, 2), { next: true }),
+    2: lifecycleList(2, identities.slice(2, 4), { next: true }),
+    3: lifecycleList(3, identities.slice(4), { first: true }),
+  };
+  const bridge = bridgeMock();
+  const chromeApi = lifecycleChromeMock(pages);
+  const controller = createAutomationController({ chromeApi, bridge });
+
+  const result = await controller.start({ spec: runSpec(), eventId: "start-cycle" });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.queueFrozen, true);
+  assert.equal(result.currentIdentity, null);
+  assert.equal(result.totals.unique, 5);
+  assert.equal(chromeApi.calls.filter(([, message]) => message.type === "PORTAL_NAVIGATE" && message.payload.action === "open_act").length, 5);
+});
+
 test("keeps unresolved identities in totals, pauses on manual/sector changes, and ignores another tab", async () => {
   const bridge = bridgeMock();
-  const chromeApi = chromeMock([PAGE_1, PAGE_3]);
+  const activePage = snapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
+    { action: "open_act", enabled: true, identity: identity("103401/2023", "ana da silva", "act-1") },
+  ]);
+  const chromeApi = activeChromeMock(activePage);
   const controller = createAutomationController({ chromeApi, bridge, clock: { now: () => 1000 } });
   await controller.start({ spec: runSpec(), eventId: "start-2" });
   await controller.handlePortalEvent({
@@ -179,6 +295,71 @@ test("keeps unresolved identities in totals, pauses on manual/sector changes, an
   await controller.handlePortalEvent({ tabId: 7, frameId: 0, type: "sector_changed", snapshot: { ...PAGE_1, sector: "outra-secao" } });
   assert.equal(controller.status().status, "paused");
   assert.match(controller.status().pausedReason, /setor/iu);
+});
+
+test("does not pause for its own loading marker but pauses for an external loading", async () => {
+  const activePage = snapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
+    { action: "open_act", enabled: true, identity: identity("103401/2023", "ana da silva", "act-1") },
+  ]);
+  const chromeApi = activeChromeMock(activePage);
+  const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    if (message.type === "PORTAL_NAVIGATE") {
+      chromeApi.fireTabUpdated(7, { status: "loading" });
+      const response = { ok: true, payload: {} };
+      chromeApi.fireTabUpdated(7, { status: "complete" });
+      return response;
+    }
+    return originalSendMessage(tabId, message, options);
+  };
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  const started = await controller.start({ spec: runSpec(), eventId: "start-loading" });
+  assert.equal(started.status, "running");
+  assert.notEqual(started.pausedReason, "manual navigation detected");
+
+  chromeApi.fireTabUpdated(7, { status: "loading" });
+  assert.equal(controller.status().status, "paused");
+  assert.equal(controller.status().pausedReason, "manual navigation detected");
+});
+
+test("binds the discovered frame and pauses fail-closed on frame send errors", async () => {
+  const activePage = snapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
+    { action: "open_act", enabled: true, identity: identity("103401/2023", "ana da silva", "act-1") },
+  ]);
+  const chromeApi = activeChromeMock(activePage);
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+  await controller.handlePortalEvent({ tabId: 7, frameId: 3, type: "snapshot", snapshot: activePage });
+  const started = await controller.start({ spec: runSpec(), eventId: "start-frame" });
+  assert.equal(started.frame.frameId, 3);
+  assert.equal(chromeApi.calls.find(([, message]) => message.type === "PORTAL_GET_SNAPSHOT")[2].frameId, 3);
+
+  const errorChromeApi = activeChromeMock(activePage);
+  const originalErrorSendMessage = errorChromeApi.tabs.sendMessage.bind(errorChromeApi.tabs);
+  errorChromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    if (message.type === "PORTAL_NAVIGATE") {
+      const error = new Error("frame disappeared");
+      error.code = "NO_FRAME";
+      throw error;
+    }
+    return originalErrorSendMessage(tabId, message, options);
+  };
+  const errorController = createAutomationController({ chromeApi: errorChromeApi, bridge: bridgeMock() });
+  const failed = await errorController.start({ spec: runSpec(), eventId: "start-frame-error" });
+  assert.equal(failed.status, "paused");
+  assert.equal(failed.pausedReason, "portal frame unavailable");
+});
+
+test("does not replace a bound frame when another frame reports a snapshot", async () => {
+  const activePage = snapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
+    { action: "open_act", enabled: true, identity: identity("103401/2023", "ana da silva", "act-1") },
+  ]);
+  const chromeApi = activeChromeMock(activePage);
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+  await controller.start({ spec: runSpec(), eventId: "start-frame-bound" });
+  await controller.handlePortalEvent({ tabId: 7, frameId: 9, type: "snapshot", snapshot: { ...activePage, generation: 2 } });
+  assert.equal(controller.status().frame.frameId, 0);
+  assert.equal(controller.status().status, "running");
 });
 
 test("controller owns navigation loop and exposes pause/resume/stop/status without panel participation", async () => {
