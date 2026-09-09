@@ -101,8 +101,8 @@ Resultado: sem diagnóstico.
 2. O modelo de `commands` está criado para consumo futuro; `consume_command` não
    foi implementado nesta fase.
 3. Nenhum envio real, autenticação de portal ou navegação foi iniciado.
-4. O commit funcional será criado com a mensagem exigida:
-   `feat: persist automation events and incremental reports`.
+4. Commit funcional: `d3035da`
+   (`feat: persist automation events and incremental reports`).
 
 Próxima retomada: revisar este relatório e consumir `AutomationStore` somente
 na fase de API, preservando o gate de envio real e executando novamente os
