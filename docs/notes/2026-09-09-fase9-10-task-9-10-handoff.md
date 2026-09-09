@@ -10,12 +10,12 @@ As entregas locais das Fases 9 e 10 estão no checkout e foram commitadas em
 automation pilot guard`) e `c4246c6` (`fix: route automation controls through
 worker`), seguidos de `453a043` (`docs: record portable runtime probe`) e
 `0ec7109` (`docs: reconcile local phase tasks`), com documentação intermediária
-em `9ad2a50`, `76e37f5`, `5e1617c` e `407ca6c`. O repositório não possui
-remoto configurado, portanto não há push.
+em `9ad2a50`, `76e37f5`, `5e1617c` e `407ca6c`, além de `42eeeac`
+(`fix: require portable service readiness`). O repositório não possui remoto
+configurado, portanto não há push.
 
-Há uma alteração local ainda não commitada no launcher portátil: a prontidão
-do serviço agora exige `service.json` produzido pelo próprio helper; se o
-processo encerra ou não confirma a ponte, o menu não fabrica PID/porta e
+O launcher portátil agora exige `service.json` produzido pelo próprio helper;
+se o processo encerra ou não confirma a ponte, o menu não fabrica PID/porta e
 preserva o modo manual.
 
 ## Arquivos principais
@@ -66,8 +66,8 @@ repetir a auditoria contra uma composição release completa com app/extensão.
 
 O incidente do launcher foi coberto em TDD: o teste RED reproduziu a ausência
 de confirmação para um processo encerrado; a correção passou no teste completo
-do menu portátil, 75/75. A mudança é local e não converte o incidente de
-pareamento real da seção 14.2 em PASS.
+do menu portátil, 75/75, e foi commitada em `42eeeac`. A mudança é local e
+não converte o incidente de pareamento real da seção 14.2 em PASS.
 
 Foi adicionada uma regressão de segurança na API: execução comum não pode
 consumir comando quando `real_send_enabled=false`; o serviço devolve
@@ -87,8 +87,8 @@ encerradas; não produziram alterações nem evidência adicional.
    anterior foi `373/373`, com 5 skips ambientais. O gate JavaScript atual passou
    `253/253`; API/store passou `39/39`, recuperação `4/4` e a suíte Python
    ampla passou `380/380`, com 5 skips ambientais.
-2. Registrar e commitar explicitamente a correção do launcher após repetir o
-   teste PowerShell; depois rodar `git diff --check` e `git status --short --branch`.
+2. Manter `42eeeac` como referência da correção do launcher; depois rodar
+   `git diff --check` e `git status --short --branch`.
 3. Se houver nova alteração, revisar mudanças privadas/ignoradas e fazer stage
    explícito; não usar `git add .`.
 4. Os commits `61dce28`, `c4246c6`, `453a043` e `0ec7109` contêm
