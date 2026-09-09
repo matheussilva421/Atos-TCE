@@ -107,6 +107,26 @@ Também foi executado `git diff --check` sem diagnóstico.
   passou.
 - Escopo preservado: nenhum worker, painel, API, persistência ou envio real foi
   alterado ou executado.
+
+## Rodada de correção — associação explícita em três referências
+
+- Achado corrigido: `diplomaForArticle` ignorava diploma EC/ECE após um artigo
+  quando havia outro artigo seguinte, fazendo o artigo herdar o diploma
+  anterior e ocultando conflitos de família/ano.
+- TDD RED: o novo teste `binds every explicit diploma in a three-reference
+  conflict` falhou porque o art. 7º recebeu `EC 41/2003` em vez de `ECE
+  41/2020`.
+- Correção mínima: a associação agora usa o diploma pós-artigo quando a
+  referência explícita termina em `da`, `do` ou `de`; a lógica de CF/CE com
+  qualificadores foi preservada, assim como referências invertidas e `c/c`.
+- GREEN focal: 61 testes executados, 61 passaram, 0 falharam.
+- GREEN full (`npm test`): 153 testes executados, 153 passaram, 0 falharam.
+- `git diff --check`: sem diagnóstico.
+- Escopo: somente `lib/legal-foundation.js`,
+  `tests/legal-foundation.test.mjs` e esta documentação foram alterados;
+  nenhum worker, painel, API, persistência ou envio real foi alterado ou
+  executado.
+- Commit solicitado: `fix: bind each legal reference to its diploma`.
 - Commit: `fix: close phase 2 review findings`.
 
 ## Rodada final — revisão independente do contrato público

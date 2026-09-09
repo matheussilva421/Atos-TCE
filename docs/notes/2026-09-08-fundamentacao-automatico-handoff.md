@@ -282,3 +282,21 @@
 - GitHub: branch `codex/fundamentacao-automatico`, checkout sem remoto e sem
   push. Próximo passo: conferir diff/status, criar o commit solicitado
   `fix: restore phase 2 public contract` e validar o SHA.
+
+## Rodada de correção — associação explícita em três referências
+
+- Estado: correção implementada no checkout compartilhado, aguardando o commit
+  desta rodada.
+- RED reproduzido antes do código: em `RESOLVE: art. 6º da EC nº 41/2003;
+  art. 7º da ECE nº 41/2020; art. 2º da EC nº 47/2005`, o parser atribuía
+  `EC 41/2003` ao art. 7º e o resolvedor não detectava o conflito.
+- Correção: `legal-foundation.js` passa a associar o diploma pós-artigo quando
+  a ligação explícita termina em `da`, `do` ou `de`, sem alterar worker,
+  painel, API, persistência, navegação ou envio real.
+- Teste novo: `tests/legal-foundation.test.mjs` verifica os três diplomas
+  explícitos e `status: "pending"` com `family-conflict`.
+- Validação: focal 61/61; `npm test` 153/153; `git diff --check` verde.
+- Arquivos desta rodada: `lib/legal-foundation.js`,
+  `tests/legal-foundation.test.mjs`, `task-2-report.md` e este handoff.
+- Próximo passo: criar o commit
+  `fix: bind each legal reference to its diploma`, conferir SHA e status.

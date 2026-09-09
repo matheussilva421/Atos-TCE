@@ -233,6 +233,27 @@ test("leaves incompatible EC and ECE references pending", () => {
   assert.equal(result.option_value, null);
 });
 
+test("binds every explicit diploma in a three-reference conflict", () => {
+  const text = "RESOLVE: art. 6º da EC nº 41/2003; art. 7º da ECE nº 41/2020; art. 2º da EC nº 47/2005";
+  const references = parseLegalReferences(text);
+
+  assert.deepEqual(references.map((reference) => reference.article), ["6", "7", "2"]);
+  assert.deepEqual(references.map((reference) => reference.diploma), [
+    { type: "ec", number: "41", year: "2003" },
+    { type: "ece", number: "41", year: "2020" },
+    { type: "ec", number: "47", year: "2005" },
+  ]);
+
+  const result = resolveLegalFoundation({
+    context: contextFor(text),
+    options: [option("EC41_SEM_P5", "ec41", "Art. 6º e 7º da EC nº 41/2003")],
+  });
+
+  assert.equal(result.status, "pending");
+  assert.equal(result.option_value, null);
+  assert.ok(result.reasons.includes("family-conflict"));
+});
+
 test("does not select an unrecognized OTHER family by lexical similarity", () => {
   const result = resolveLegalFoundation({
     context: contextFor("RESOLVE: Art. 1º da EC nº 20/2020."),

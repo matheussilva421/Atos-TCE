@@ -84,9 +84,12 @@ function diplomaForArticle(diplomas, articles, index, normalized) {
   const after = diplomas.filter(
     (diploma) => diploma.start >= article.end && diploma.start < nextStart,
   );
-  if (after.length > 0 && ["cf", "ce"].includes(after[0].value.type)) {
+  if (after.length > 0) {
     const lead = normalized.slice(article.end, after[0].start);
-    if (/\b(?:paragrafo|inciso)\b/iu.test(lead)) return after[0].value;
+    const hasPostfixedDiploma = /\b(?:da|do|de)\s*$/iu.test(lead.trim());
+    const hasConstitutionQualifier = ["cf", "ce"].includes(after[0].value.type)
+      && /\b(?:paragrafo|inciso)\b/iu.test(lead);
+    if (hasPostfixedDiploma || hasConstitutionQualifier) return after[0].value;
   }
   if (!Number.isFinite(nextStart)) {
     if (after.length > 0) return after[0].value;
