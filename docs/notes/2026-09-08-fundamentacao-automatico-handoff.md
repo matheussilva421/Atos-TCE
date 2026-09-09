@@ -4,7 +4,7 @@
 
 - Implementação iniciada em `codex/fundamentacao-automatico`, derivada de `main` em `dc84402`.
 - O ledger vivo está em `.superpowers/sdd/2026-09-08-fundamentacao-automatico-plano-fases/progress.md` (git-ignorado) e registra tasks, conflitos e decisões.
-- Task atual: Fase 5 — navegação, frames e descoberta da fila; Fases 1–4 aprovadas e fechadas.
+- Task atual: revisão final da Fase 5 — navegação, frames e descoberta da fila; Fases 1–4 aprovadas e fechadas.
 - Baseline desta execução: `npm test` 124/124 pass; Python focal 99/99 pass, 1 skip ambiental. Warnings de `fitz` depreciado e `ResourceWarning` já aparecem na baseline e não foram introduzidos nesta branch.
 - Fase 0 concluída e revisada: commits `b99fd80` e `54dcf9f`; fixtures/testes sanitizados aprovados em re-revisão Luna. A suíte JS pós-fase ficou 125/126 porque a regressão RED do matcher continua intencional para a Fase 2.
 - Fase 1 aprovada em revisão final após cinco rounds de correção: commits de código `f0a72b5`, `e84ac95`, `8b3a411`, `e85aa35`, `d305ee6`, `0876f2d` e documentação `5b1a732`, `8a64d4d`, `86837a9`, `559b089`, `6a3b63c`, `45e225e`. Último foco: 18/18 testes de contexto, 7/7 pipeline dirigido, 89/89 focal Python, 19/19 batch runner; revisão final Approved. O pacote portátil continua pendente para a Fase 10.
@@ -400,9 +400,9 @@
 
 ## Registro por fase — Fase 5 — navegação, frames e fila
 
-- Estado: implementação local concluída na branch `codex/fundamentacao-automatico`;
-  base documental corrigida para `fdd7ee0`; hardening registrado no commit
-  `fix: harden portal navigation and queue lifecycle`.
+- Estado: implementação local endurecida na branch
+  `codex/fundamentacao-automatico`; base documental corrigida para `fdd7ee0`;
+  commits `5372067` e `12491d3`.
 - Ownership: content script de navegação, controller fora do painel, integração
   mínima em worker/messages/manifest, testes do controller/navegação/worker e
   fixture sintética da terceira página.
@@ -411,16 +411,20 @@
   `storage.session`; fila deduplicada congelada antes do ciclo; pending não
   desaparece dos totais; navegação manual/setor/frame/aba vinculada pausam;
   aba não vinculada é ignorada. `PORTAL_EVENT` exige content script da própria
-  extensão, origem portal e par `tabId`/`frameId`; loading automático usa
-  marcador/token one-shot e erro de frame pausa fail-closed. Descoberta na
+  extensão, origem portal e par `tabId`/`frameId`; loading automático exige
+  request ID e frame correspondentes e erro de frame pausa fail-closed. Frame
+  inicial sem identificação explícita falha fechado. Descoberta na
   página 3 volta pela ação `direction: "first"` antes do primeiro processo;
   `queueFrozen` impede novas identidades.
 - TDD: RED inicial e correções estão registrados em `task-5-report.md`;
-  GREEN focal 44/44 e `npm test` 193/193. `git diff --check` verde.
+  GREEN focal 49/49 e `npm test` 198/198. `node --check` e
+  `git diff --check` verdes.
 - Validação manual: somente fixtures/Fake DOM/bridge locais; nenhum portal real,
   clique real, preenchimento ou envio foi iniciado.
 - Limitações: qualificação de browser/portal real, preflight, preenchimento,
   envio, redesign e empacotamento seguem fora desta fase; linha sem controles
   suficientes pausa para intervenção manual.
-- Próxima tarefa: Fase 6, sem deslocar envio ou preflight para o controller da
-  Fase 5.
+- Status: revisão independente final da rodada `12491d3` ainda pendente; não
+  marcar a Fase 5 como aprovada nem iniciar a Fase 6 antes desse gate.
+- Próxima tarefa após aprovação: Fase 6, sem deslocar envio ou preflight para
+  o controller da Fase 5.
