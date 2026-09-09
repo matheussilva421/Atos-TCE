@@ -30,6 +30,25 @@ def _sanitize_page(page):
           };
           const body = safeText(document.body?.innerText || '');
           const controls = [...document.querySelectorAll('input, select, textarea, button')];
+          const visible = (element) => {
+            if (!element) return false;
+            const style = getComputedStyle(element);
+            const rect = element.getBoundingClientRect();
+            return style.display !== 'none'
+              && style.visibility !== 'hidden'
+              && rect.width > 0
+              && rect.height > 0;
+          };
+          const exactTextPresent = (pattern) => [...document.querySelectorAll(
+            'button, a, [role="button"], h1, h2, h3, label, span'
+          )].some((element) => visible(element) && pattern.test(safeText(element.textContent)));
+          let localStorageAuthSignal = false;
+          try {
+            const currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
+            localStorageAuthSignal = Boolean(currentUser && typeof currentUser.token === 'string' && currentUser.token);
+          } catch (_) {
+            localStorageAuthSignal = false;
+          }
           const names = controls.map((element) => ({
             tag: element.tagName.toLowerCase(),
             type: element.getAttribute('type') || '',
@@ -40,12 +59,46 @@ def _sanitize_page(page):
             .map((element) => safeText(element.textContent))
             .filter((text) => /^(entrar|login|sair|próximo|avançar|voltar|complementar ato|salvar|cancelar)$/iu.test(text))
             .slice(0, 30);
+          const knownIdAllowlist = [
+            'btnComplementar',
+            'formComplementar',
+            'iframeOBJ',
+            'txtModalidade',
+            'radioInteressado',
+          ];
+          const knownIds = knownIdAllowlist.filter((id) => Boolean(document.getElementById(id)));
+          const routeText = `${location.pathname} ${location.hash}`;
+          const routeSignals = {
+            dashboard: /dashboard/iu.test(routeText),
+            meus_processos: /meus[-_ ]processos/iu.test(routeText) || routeText.includes('meus/meus'),
+            complementar_ato: /complementar[-_/ ]ato|complementarato/iu.test(routeText),
+          };
+          const processKeys = body.match(new RegExp('[0-9]{5,8}[ ]*/[ ]*20[0-9]{2}', 'gu')) || [];
+          const processKeyCount = new Set(processKeys).size;
+          const authenticatedUiSignal = localStorageAuthSignal
+            || exactTextPresent(/^(sair|logout)$/iu)
+            || routeSignals.dashboard
+            || routeSignals.meus_processos;
+          const processListSignal = exactTextPresent(/^meus processos$/iu)
+            || routeSignals.meus_processos;
+          const complementActionSignal = exactTextPresent(/^complementar ato$/iu);
           return {
             url: location.href.split('#')[0],
             origin: location.origin,
+            html_lang: document.documentElement.getAttribute('lang') || '',
             title_present: Boolean(document.title),
             body_length: body.length,
             login_signal: /(login|senha|entrar|autentica|sessão expir)/iu.test(body),
+            authenticated_ui_signal: authenticatedUiSignal,
+            process_list_signal: processListSignal,
+            complement_action_signal: complementActionSignal,
+            local_storage_auth_signal: localStorageAuthSignal,
+            route_signals: routeSignals,
+            process_key_count: processKeyCount,
+            known_ids: knownIds,
+            link_count: document.querySelectorAll('a').length,
+            select_count: document.querySelectorAll('select').length,
+            visible_button_count: [...document.querySelectorAll('button, [role="button"]')].filter(visible).length,
             form_count: document.forms.length,
             control_count: controls.length,
             controls: names,

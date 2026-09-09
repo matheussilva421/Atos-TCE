@@ -1,5 +1,34 @@
 # Handoff — Fases 9 e 10 locais
 
+## Atualização de retomada autenticada — 09/09/2026
+
+O operador informou que a Área Restrita também está autenticada e pediu
+continuidade sem fechar o Chrome. O Chrome descartável atual foi mantido aberto;
+não reiniciar o runner nem o perfil sem um novo checkpoint humano, pois a sessão
+pode ser perdida.
+
+No perfil `C:\Users\slvma\AppData\Local\Temp\tce-real-chromium-profile-20260909-i`,
+o runner alcançou a rota autenticada de “Meus Processos” em
+`https://processos.tce.rn.gov.br/`. A captura sanitizada atual confirma
+`authenticated_ui_signal=true`, `local_storage_auth_signal=true`,
+`route_signals.dashboard=true` e `route_signals.meus_processos=true`, com 3
+formulários, 160 controles, 70 links e 88 botões visíveis. Nenhum ato foi
+aberto, nenhum campo foi preenchido e `submission_performed_by_runner=false`.
+Não há ação exata `Complementar Ato` na tela atual e o origin efetivo não é a
+allowlist da extensão (`novaarearestrita.tce.rn.gov.br`); não alterar o
+manifesto sem observar a tela real autorizada.
+
+O sanitizador recebeu um probe adicional, testado em fixture local, que retorna
+somente sinais booleanos/estruturais, IDs conhecidos e contagem de chaves de
+processo; nunca retorna token, nomes, texto bruto ou URL com hash. O RED foi
+observado por `KeyError: process_key_count` e o GREEN passou em 1/1 com
+`python -m unittest test_real_portal_session -v`.
+
+Próximo passo seguro: mantendo esta janela aberta, obter a tela de formulário
+real na Área Restrita e localizar três atos representativos por navegação
+supervisionada. Só depois fazer preflight sem envio. O primeiro clique real e o
+lote continuam bloqueados até a observação/reabertura e a qualificação.
+
 ## Atualização de execução real — 09/09/2026
 
 O pacote final8 foi extraído em perfil/pasta temporários e passou a auditoria
