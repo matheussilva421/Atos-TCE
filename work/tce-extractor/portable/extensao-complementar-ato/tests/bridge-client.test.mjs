@@ -46,6 +46,25 @@ test('selection update never applies fields', async () => {
   assert.doesNotMatch(calls[0].options.body, /fields/i);
 });
 
+test('authenticated loopback requests explicitly opt into CORS', async () => {
+  let requestOptions;
+  const bridge = createBridgeClient({
+    baseUrl: 'http://127.0.0.1:18743',
+    token: 'test',
+    fetchImpl: async (_url, options) => {
+      requestOptions = options;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ api_version: 1, revision: 0, dataset: {} }),
+      };
+    },
+  });
+
+  await bridge.getDataset();
+  assert.equal(requestOptions.mode, 'cors');
+});
+
 test('bridge rejects non-loopback and arbitrary base URLs', () => {
   assert.throws(() => createBridgeClient({ baseUrl: 'https://example.invalid', token: 'x' }), /loopback/i);
   assert.throws(() => createBridgeClient({ baseUrl: 'http://127.0.0.1:9000', token: 'x' }), /porta/i);

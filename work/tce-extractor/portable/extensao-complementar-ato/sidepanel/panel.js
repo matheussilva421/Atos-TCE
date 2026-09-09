@@ -1035,6 +1035,7 @@ export function createPanelApp({
       elements["search-process"].addEventListener("input", () => { render(); });
       elements["search-interested"].addEventListener("input", () => { render(); });
       elements["reviewed-checkbox"].addEventListener("change", () => { void setReviewed(elements["reviewed-checkbox"].checked); });
+      bridgeElements["bridge-pairing-code"]?.addEventListener("input", () => { render(); });
       bridgeElements["bridge-connect-button"]?.addEventListener("click", () => { void connectBridge(); });
       state.listenersInstalled = true;
     }

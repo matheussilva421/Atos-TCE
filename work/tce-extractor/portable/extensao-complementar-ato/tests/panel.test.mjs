@@ -498,7 +498,10 @@ test("optionally pairs with the local mesa and publishes the current selection w
     }),
   });
   documentRef.getElementById("bridge-base-url").value = "http://127.0.0.1:18743";
-  documentRef.getElementById("bridge-pairing-code").value = "12345678";
+  const pairingCode = documentRef.getElementById("bridge-pairing-code");
+  pairingCode.value = "12345678";
+  pairingCode.dispatchEvent(new FakeEvent("input"));
+  assert.equal(documentRef.getElementById("bridge-connect-button").disabled, false);
   documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
   await new Promise((resolve) => setImmediate(resolve));
   await app.refresh();

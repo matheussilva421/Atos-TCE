@@ -158,6 +158,41 @@ class LocalServiceTests(unittest.TestCase):
                 urlopen(f"{base}/api/v1/state", timeout=3)
             self.assertEqual(error.exception.code, 401)
 
+    def test_browser_omitted_origin_is_allowed_for_authenticated_reads_only(self):
+        with running_server() as (_root, server, base):
+            code = server.auth.issue_pairing_code()
+            _status, _headers, pair_body = json_request(
+                f"{base}/api/v1/pair",
+                method="POST",
+                payload={"code": code},
+                origin="chrome-extension://test-extension",
+            )
+            token = json.loads(pair_body)["token"]
+
+            status, _headers, capabilities_body = json_request(
+                f"{base}/api/v1/automation/capabilities",
+                token=token,
+                omit_origin=True,
+            )
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(capabilities_body)["api_version"], 1)
+
+            with self.assertRaises(HTTPError) as error:
+                json_request(
+                    f"{base}/api/v1/selection",
+                    method="POST",
+                    payload={
+                        "process_key": "103439/2023",
+                        "interested_normalized": "pessoa teste",
+                        "tab_id": 1,
+                        "frame_id": 0,
+                        "sequence": 1,
+                    },
+                    token=token,
+                    omit_origin=True,
+                )
+            self.assertEqual(error.exception.code, 401)
+
     def test_health_is_public_and_does_not_expose_private_state(self):
         with running_server() as (_root, _server, base):
             status, _headers, body = json_request(f"{base}/api/v1/health")

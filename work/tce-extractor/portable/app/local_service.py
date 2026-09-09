@@ -884,14 +884,23 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         return origin is None or self.server_state.auth.is_extension_origin(origin)
 
-    def _authorized(self) -> bool:
+    def _authorized(self, *, allow_missing_origin: bool = False) -> bool:
         origin = self.headers.get("Origin")
-        if not self._valid_host() or not self.server_state.auth.is_extension_origin(origin):
+        if not self._valid_host():
+            return False
+        if origin is None:
+            if not allow_missing_origin:
+                return False
+        elif not self.server_state.auth.is_extension_origin(origin):
             return False
         value = self.headers.get("Authorization", "")
         if not value.startswith("Bearer "):
             return False
-        return self.server_state.auth.validate(value[7:].strip(), origin)
+        return self.server_state.auth.validate(
+            value[7:].strip(),
+            origin,
+            allow_missing_origin=allow_missing_origin,
+        )
 
     def _valid_review_origin(self) -> bool:
         origin = self.headers.get("Origin")
@@ -918,8 +927,8 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             and self.server_state.validate_review_csrf(csrf)
         )
 
-    def _private_authorized(self) -> bool:
-        return self._authorized() or self._review_authorized()
+    def _private_authorized(self, *, allow_missing_origin: bool = False) -> bool:
+        return self._authorized(allow_missing_origin=allow_missing_origin) or self._review_authorized()
 
     def _private_mutation_authorized(self) -> bool:
         return self._authorized() or self._review_mutation_authorized()
@@ -938,14 +947,14 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             raise ValueError("objeto JSON esperado")
         return value
 
-    def _require_auth(self) -> bool:
-        if not self._authorized():
+    def _require_auth(self, *, allow_missing_origin: bool = False) -> bool:
+        if not self._authorized(allow_missing_origin=allow_missing_origin):
             self._error(403 if self.headers.get("Origin") and not self.server_state.auth.is_extension_origin(self.headers.get("Origin")) else 401, "UNAUTHORIZED", "autenticação local necessária")
             return False
         return True
 
-    def _require_private_auth(self) -> bool:
-        if self._private_authorized():
+    def _require_private_auth(self, *, allow_missing_origin: bool = False) -> bool:
+        if self._private_authorized(allow_missing_origin=allow_missing_origin):
             return True
         self._error(403 if self.headers.get("Origin") and not self.server_state.auth.is_extension_origin(self.headers.get("Origin")) and not self._valid_review_origin() else 401, "UNAUTHORIZED", "autenticação local necessária")
         return False
@@ -1215,12 +1224,12 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             )
             return
         if parsed.path == "/api/v1/automation/capabilities":
-            if not self._require_auth():
+            if not self._require_auth(allow_missing_origin=True):
                 return
             self._send_automation_capabilities()
             return
         if parsed.path == "/api/v1/legal-context":
-            if not self._require_auth():
+            if not self._require_auth(allow_missing_origin=True):
                 return
             self._send_legal_context(parse_qs(parsed.query, keep_blank_values=True))
             return
@@ -1243,17 +1252,17 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             self._send_review_asset(unquote(parsed.path.removeprefix("/app/web/")))
             return
         if parsed.path == "/api/v1/review-data":
-            if not self._require_private_auth():
+            if not self._require_private_auth(allow_missing_origin=True):
                 return
             self._send_review_data(parse_qs(parsed.query))
             return
         if parsed.path.startswith("/api/v1/evidence/"):
-            if not self._require_private_auth():
+            if not self._require_private_auth(allow_missing_origin=True):
                 return
             self._send_evidence(unquote(parsed.path.removeprefix("/api/v1/evidence/")))
             return
         if parsed.path.startswith("/api/v1/pdf/"):
-            if not self._require_private_auth():
+            if not self._require_private_auth(allow_missing_origin=True):
                 return
             self._send_pdf(unquote(parsed.path.removeprefix("/api/v1/pdf/")))
             return
@@ -1276,7 +1285,7 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
                 "unchanged": since == snapshot["revision"],
             })
             return
-        if not self._require_auth():
+        if not self._require_auth(allow_missing_origin=True):
             return
         automation_parts = [unquote(part) for part in parsed.path.split("/") if part]
         if automation_parts == ["api", "v1", "automation", "runs"]:

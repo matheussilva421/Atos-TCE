@@ -90,12 +90,14 @@ class BridgeAuth:
             self._pending = None
             return token
 
-    def validate(self, token: str, origin: str | None = None) -> bool:
+    def validate(self, token: str, origin: str | None = None, *, allow_missing_origin: bool = False) -> bool:
         with self._lock:
             expected_origin = self._tokens.get(token)
             if expected_origin is None:
                 return False
-            return origin is not None and origin == expected_origin
+            if origin is None:
+                return allow_missing_origin
+            return origin == expected_origin
 
     @staticmethod
     def is_extension_origin(origin: str | None) -> bool:

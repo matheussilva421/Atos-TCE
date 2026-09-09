@@ -309,6 +309,7 @@ export async function pairBridge({ fetchImpl = globalThis.fetch, baseUrl, code, 
   try {
     const response = await fetchWithTimeout(fetchImpl, `${normalizedBaseUrl}/api/v1/pair`, {
       method: 'POST',
+      mode: 'cors',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code }),
     }, timeoutMs, 'tempo limite do pareamento excedido');
@@ -328,8 +329,9 @@ export function createBridgeClient({ fetchImpl = globalThis.fetch, baseUrl, toke
 
   async function request(path, { method = 'GET', body, validate } = {}) {
     const response = await fetchWithTimeout(fetchImpl, `${normalizedBaseUrl}/api/v1${path}`, {
-        method,
-        headers: {
+      method,
+      mode: 'cors',
+      headers: {
           Authorization: `Bearer ${token}`,
           ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
         },
@@ -343,6 +345,7 @@ export function createBridgeClient({ fetchImpl = globalThis.fetch, baseUrl, toke
   async function requestBinary(path) {
     const response = await fetchWithTimeout(fetchImpl, `${normalizedBaseUrl}/api/v1${path}`, {
       method: 'GET',
+      mode: 'cors',
       headers: { Authorization: `Bearer ${token}` },
     }, timeoutMs, 'tempo limite do bridge excedido');
     if (response === null || typeof response !== 'object' || typeof response.ok !== 'boolean') {
