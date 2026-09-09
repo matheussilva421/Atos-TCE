@@ -5,10 +5,10 @@
 Branch: `codex/fundamentacao-automatico`.
 
 As entregas locais das Fases 9 e 10 estão no checkout e foram commitadas em
-`25ca99e` (`test: qualify local automation and package release`) e `692ed27`
-(`test: add formal panel accessibility gate`), seguidos de `9ad2a50`
-(`docs: record accessibility gate handoff`). O repositório não possui remoto
-configurado, portanto não há push.
+`25ca99e` (`test: qualify local automation and package release`), `692ed27`
+(`test: add formal panel accessibility gate`) e `61dce28` (`feat: add opt-in
+automation pilot guard`), com documentação intermediária em `9ad2a50` e
+`76e37f5`. O repositório não possui remoto configurado, portanto não há push.
 
 ## Arquivos principais
 
@@ -71,9 +71,9 @@ encerradas; não produziram alterações nem evidência adicional.
 2. Rodar `git diff --check` e `git status --short --branch`.
 3. Se houver nova alteração, revisar mudanças privadas/ignoradas e fazer stage
    explícito; não usar `git add .`.
-4. Criar commit específico para o guard/piloto e delegação ao worker; o gate formal de acessibilidade
-   está em `692ed27`; não executar push sem remoto.
-5. Atualizar este handoff somente se o estado mudar.
+4. O commit `61dce28` contém o guard/piloto, delegação ao worker, testes e
+   documentação; o gate formal de acessibilidade está em `692ed27`.
+5. Não executar push sem remoto; manter este handoff como ponto de retomada.
 
 ## Pendência bloqueante
 
