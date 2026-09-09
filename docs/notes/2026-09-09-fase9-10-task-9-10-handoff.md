@@ -53,6 +53,10 @@ test_automation_api test_package_audit -v` executou 67 testes, aprovou 65,
 falhou 0 e teve 2 skips ambientais; `npm test` executou 256/256; `git
 diff --check` passou.
 
+Este bloco foi commitado em `4dd10c0` (`feat: gate real send by
+qualification`). O repositório continua sem remoto configurado; nenhum push foi
+feito.
+
 Próximo passo seguro: mantendo esta janela aberta, obter a tela de formulário
 real na Área Restrita e localizar três atos representativos por navegação
 supervisionada. Só depois fazer preflight sem envio. O primeiro clique real e o
