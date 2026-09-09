@@ -260,3 +260,64 @@ GREEN após cada slice e integração:
   docs/notes/2026-09-08-fundamentacao-automatico-handoff.md foi atualizado
   com este round, ownership, gates, concerns e instruções de retomada.
 - O checkout não possui remoto configurado; nenhum push foi realizado.
+
+## Fix round 4 — revisão da Fase 1
+
+Data: 2026-09-08
+Commit incremental de código/testes: d305ee6 fix: require unambiguous evidence identity
+
+O round corrigiu os dois achados solicitados, sem alterar empacotamento ou
+matcher:
+
+1. A atribuição de página agora considera aliases somente quando a identidade
+   documental é inequívoca. Para fontes com o mesmo event_id, uma chave de
+   evento sem document_id e hash completos não é reutilizada; a página não é
+   atribuída a nenhuma fonte e o sidecar registra source_alias_ambiguous em
+   status_reasons. Payloads que carregam document_id, event_id e pdf_sha256
+   compatíveis continuam sendo aceitos. A fonte concorrente permanece em
+   source_evidence com seu estado e motivo.
+2. No caminho padrão geometry_capable=True, cache textual v3 válido é consumido
+   mesmo sem geometry cache e sem chamar OCR novamente. O resultado marca
+   geometry_status=unavailable, o target manifest e o sidecar carregam essa
+   indicação, e texto/citações são preservados. A evidência visual continua
+   exigindo geometry cache/resultado geométrico quando a operação realmente
+   depende de geometria.
+
+### TDD do fix
+
+RED antes da implementação:
+
+    python -m unittest test_legal_context.LegalContextTests.test_does_not_reuse_page_through_ambiguous_event_alias test_analysis_pipeline.AnalysisPipelineTests.test_geometry_capable_reuses_v3_text_cache_without_ocr_for_legal_context -q
+    2 testes; 0 passaram; 2 falharam nos contratos novos:
+    alias event_id reutilizou uma página e o caminho geometry_capable=True
+    chamou OCR apesar do cache textual v3.
+
+GREEN após cada slice e integração:
+
+    python -m unittest test_legal_context test_tce_extractor test_analysis_pipeline test_extension_exporter -q
+    91 testes; 91 passaram; 0 falharam.
+
+    python -m unittest test_batch_runner -q
+    19 testes; 19 passaram; 0 falharam.
+
+    git diff --check
+    Passou.
+
+    git diff --exit-code 08cf8b9 -- work/tce-extractor/empacotar-coletor-portatil.ps1 work/tce-extractor/test_portable_end_to_end.py
+    Passou; ambos os arquivos proibidos permanecem exatos.
+
+### Self-review, concerns e retomada
+
+- O comportamento ambíguo é fail-closed: alias ambíguo, fonte desconhecida ou
+  identidade incompleta mantém incomplete/conflict e deixa a razão observável.
+- O teste existente de geometry cache e a evidência visual permaneceram verdes;
+  não foi relaxado o gate que exige caixas/geometry para operações visuais.
+- Nenhum arquivo de empacotamento, matcher, portal, dataset v1 ou exportador foi
+  alterado. A RED conhecida do matcher continua 33/34 e não pertence a este
+  round.
+- O teste de pacote autocontido continua concern separado porque o empacotador
+  preservado no HEAD 08cf8b9 não inclui legal_context.py.
+- O handoff global docs/notes/2026-09-08-fundamentacao-automatico-handoff.md
+  foi atualizado com este round, ownership, gates, concerns e retomada.
+- BLOCKED: nenhum. O checkout não possui remoto configurado; nenhum push foi
+  realizado.

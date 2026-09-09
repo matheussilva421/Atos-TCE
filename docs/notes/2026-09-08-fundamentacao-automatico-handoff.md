@@ -177,3 +177,29 @@
 - Retomada: não corrigir matcher nem incluir empacotamento; qualquer mudança
   futura de cache deve preservar a compatibilidade v3 ou registrar migração
   explícita e autorizada.
+
+## Registro por fase — Fase 1 fix round 4
+
+- Estado: código e testes no commit
+  d305ee6 fix: require unambiguous evidence identity; report atualizado
+  neste bloco documental.
+- Ownership: somente portable/app/analysis_pipeline.py,
+  portable/app/legal_context.py, test_analysis_pipeline.py e
+  test_legal_context.py foram alterados no código. Empacotamento e matcher
+  continuam intocados.
+- Identidade documental: alias só é aceito quando document_id, event_id e
+  pdf_sha256 do payload/manifesto formam identidade inequívoca. event_id
+  sozinho não reutiliza página entre fontes; alias ambíguo fica
+  incomplete/conflict, com source_evidence e status_reasons observáveis.
+- Geometria: geometry_capable=True reutiliza cache textual v3 válido sem OCR
+  adicional quando não há geometry cache. Texto/citações do sidecar são
+  preservados, geometry_status=unavailable é explicitado, e operações visuais
+  continuam sob seu gate geométrico existente.
+- TDD/gates: RED de 2 testes com 2 falhas esperadas antes do código; GREEN em
+  91/91 testes Python focais e 19/19 batch runner; git diff --check e
+  comparação dos arquivos proibidos ao HEAD 08cf8b9 passaram.
+- Concerns: RED intencional do matcher continua 33/34; teste do pacote
+  continua fora do escopo porque o empacotador preservado não inclui
+  legal_context.py. BLOCKED nenhum.
+- Retomada: não corrigir matcher nem incluir empacotamento; manter a separação
+  entre consumo de texto cacheado e exigência de geometry nas próximas fases.
