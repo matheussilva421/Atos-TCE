@@ -52,6 +52,11 @@ de texto/status/ação/foco, `lang=pt-BR`, IDs únicos, targets de labels existe
 e cópia estática de segurança. O smoke combinado de painel e automação passou
 em 5/5.
 
+O runtime staging disponível foi executado diretamente com `-I -B -s`: Python
+3.14.4, SQLite 3.50.4 e imports de `automation_store`/`local_service` passaram.
+Como `staging-final` contém somente runtime, licenças e downloads, ainda falta
+repetir a auditoria contra uma composição release completa com app/extensão.
+
 Foi adicionada uma regressão de segurança na API: execução comum não pode
 consumir comando quando `real_send_enabled=false`; o serviço devolve
 `REAL_SEND_DISABLED` sem persistir `command_consumed`. O piloto opt-in ainda não

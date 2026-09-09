@@ -774,7 +774,7 @@ Comandos: em E, `node --test tests/panel-view.test.mjs tests/panel.test.mjs test
 
 - [x] Acrescentar à allowlist os módulos novos da extensão: `lib/legal-foundation.js`, `lib/automation-schema.js`, `lib/automation-preflight.js`, `content/portal-navigation.js`, `content/portal-submit.js`, `background/automation-controller.js`. O teste compara exatamente a lista final.
 - [x] Incluir também `sidepanel/panel-tokens.css` e `sidepanel/panel-view.js`; packager e auditoria validam o conjunto extraído. SVGs continuam inline estáticos.
-- [x] Incluir módulos Python novos no pacote completo; os testes de pacote carregam o `legal_context.py` e verificam a pipeline autocontida. A prova com `sqlite3` ainda deve ser repetida contra o runtime portátil distribuível.
+- [x] Incluir módulos Python novos no pacote completo; os testes de pacote carregam o `legal_context.py` e verificam a pipeline autocontida. O runtime portátil staging foi executado com `-I -B -s`, importou `automation_store`/`local_service` e expôs SQLite 3.50.4; a auditoria completa ainda depende de uma composição release que contenha app/extensão além do runtime.
 - [x] Publicar localmente a versão de extensão `1.1.0`, com capacidade automática schema 1 e regras `legal-foundation-v1`; o serviço informa capacidades e mantém `real_send_enabled=false`.
 - [x] Preservar o fluxo existente de quiesce/fechamento do banco antes da transferência; testes de `prepare_transfer` e pacote permanecem verdes.
 - [x] Auditar CRC, hashes, allowlist, imports e conteúdo do ZIP em fixtures novas; smoke Chrome do pacote final e validação do runtime portátil real permanecem pendentes de uma release autorizada.
