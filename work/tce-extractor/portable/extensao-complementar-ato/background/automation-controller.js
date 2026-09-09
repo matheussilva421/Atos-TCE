@@ -3,6 +3,7 @@ import {
   validateAutomationIdentity,
   validateAutomationRunSpec,
 } from "../lib/automation-schema.js";
+import { AUTOMATION_FIELDS, prepareAutomaticAct } from "../lib/automation-preflight.js";
 
 export const PORTAL_FRAME_REGISTRATIONS_STORAGE_KEY = "portal-frame-registrations:v1";
 const ACTIVE_STATUSES = new Set(["discovering", "running", "paused"]);
@@ -111,15 +112,66 @@ function actionFor(snapshot, action, identity = null) {
   )) ?? null;
 }
 
+function formSnapshotFromResponse(response) {
+  if (response?.ok !== true || !isRecord(response.payload)) return null;
+  const candidate = response.payload.snapshot ?? response.payload;
+  if (!isRecord(candidate)
+    || !isRecord(candidate.process)
+    || !isRecord(candidate.interested)
+    || !isRecord(candidate.options)
+    || !isRecord(candidate.fields)) return null;
+  return candidate;
+}
+
+function formIdentity(snapshot) {
+  const processKey = snapshot?.process?.key;
+  const interestedNormalized = snapshot?.interested?.normalized;
+  if (typeof processKey !== "string" || typeof interestedNormalized !== "string") return null;
+  return { processKey, interestedNormalized };
+}
+
+function sameCanonicalIdentity(left, right) {
+  return Boolean(left && right)
+    && left.processKey === right.processKey
+    && left.interestedNormalized === right.interestedNormalized;
+}
+
+function decorateFormSnapshot(snapshot, portalSnapshot, frameId) {
+  const identity = formIdentity(snapshot);
+  const generation = portalSnapshot?.generation;
+  return {
+    ...clone(snapshot),
+    role: "form",
+    identity,
+    generation,
+    frameId,
+    currentGeneration: generation,
+    currentFrameId: frameId,
+  };
+}
+
+function itemId(identity) {
+  return `${identity?.processKey ?? ""}:${identity?.interestedNormalized ?? ""}`;
+}
+
+function eventPrefix(value) {
+  const normalized = String(value ?? "run").replace(/[^A-Za-z0-9._:/-]/gu, "-");
+  return normalized || "run";
+}
+
 export function createAutomationController({
   chromeApi,
   bridge,
   ranker = null,
+  resolveAutomaticAct = null,
   clock = {},
 } = {}) {
   if (!chromeApi?.tabs?.sendMessage) throw new TypeError("createAutomationController requires chromeApi.tabs.sendMessage");
   if (!bridge?.createAutomationRun || !bridge?.controlAutomationRun) {
     throw new TypeError("createAutomationController requires an automation bridge");
+  }
+  if (resolveAutomaticAct !== null && typeof resolveAutomaticAct !== "function") {
+    throw new TypeError("resolveAutomaticAct must be a function when provided");
   }
 
   const now = typeof clock === "function" ? clock : clock.now ?? (() => Date.now());
@@ -131,6 +183,7 @@ export function createAutomationController({
   let expectedNavigation = null;
   let navigationToken = 0;
   let messageSequence = 0;
+  let eventSequence = 0;
   let state = {
     runId: null,
     status: "stopped",
@@ -226,6 +279,154 @@ export function createAutomationController({
       ? await chromeApi.tabs.sendMessage(tabId, message)
       : await chromeApi.tabs.sendMessage(tabId, message, options);
     return response;
+  }
+
+  async function appendAutomationEvent(identity, type, payload) {
+    if (typeof bridge.appendAutomationEvent !== "function") return true;
+    const event = {
+      eventId: `${eventPrefix(state.eventPrefix)}:${type}:${String(++eventSequence)}`,
+      expectedRevision: state.revision,
+      itemId: itemId(identity),
+      type,
+      payload: clone(payload),
+    };
+    try {
+      const result = await bridge.appendAutomationEvent(state.runId, event);
+      snapshotStatus(state, result);
+      return true;
+    } catch {
+      setPaused("automation event persistence failed");
+      return false;
+    }
+  }
+
+  async function readFormSnapshot(tabId, frameId) {
+    const response = await sendPortalMessage(tabId, MESSAGE_TYPES.GET_FORM_SNAPSHOT, {}, frameId);
+    const requestedFrameId = Number.isSafeInteger(frameId) && frameId >= 0 ? frameId : null;
+    const responseFrameId = Number.isSafeInteger(response?.frameId) && response.frameId >= 0 ? response.frameId : null;
+    if (requestedFrameId !== null && responseFrameId !== null && requestedFrameId !== responseFrameId) {
+      throw new Error("form snapshot frame mismatch");
+    }
+    const snapshot = formSnapshotFromResponse(response);
+    if (!snapshot) throw new Error("form snapshot unavailable");
+    return snapshot;
+  }
+
+  function expectedFieldValues(before, preparation) {
+    return Object.fromEntries(AUTOMATION_FIELDS.map((field) => [
+      field,
+      Object.hasOwn(preparation.fields, field)
+        ? preparation.fields[field]
+        : preparation.preserved[field] ?? before.fields[field]?.value ?? "",
+    ]));
+  }
+
+  function verifyPreparedSnapshot(before, after, preparation, portalBefore, portalAfter, frameId) {
+    const afterIdentity = formIdentity(after);
+    if (!sameCanonicalIdentity(afterIdentity, formIdentity(before))) return "reread identity mismatch";
+    if (!sameCanonicalIdentity(afterIdentity, state.currentIdentity)) return "reread queue identity mismatch";
+    if (after.frameId !== frameId || after.currentFrameId !== frameId) return "reread frame mismatch";
+    if (after.generation !== portalAfter?.generation || after.currentGeneration !== portalAfter?.generation) {
+      return "reread generation mismatch";
+    }
+    if (portalBefore?.generation !== portalAfter?.generation) return "portal generation changed during preparation";
+    const expected = expectedFieldValues(before, preparation);
+    for (const field of AUTOMATION_FIELDS) {
+      if (after.fields[field]?.value !== expected[field]) return `reread field mismatch: ${field}`;
+    }
+    for (const [field, proposed] of Object.entries(preparation.fields)) {
+      const options = after.options?.[field];
+      if (Array.isArray(options) && !options.some((option) => (isRecord(option) ? option.value : option) === proposed)) {
+        return `reread option mismatch: ${field}`;
+      }
+    }
+    return null;
+  }
+
+  async function recordItemFailure(identity, error, details = {}) {
+    const payload = {
+      error: typeof error === "string" && error ? error : "automatic preparation failed",
+      ...details,
+    };
+    return appendAutomationEvent(identity, "item_failed", payload);
+  }
+
+  async function prepareAndVerifyForm(tabId, frameId, portalSnapshot, identity) {
+    let before;
+    let resolved;
+    try {
+      before = decorateFormSnapshot(await readFormSnapshot(tabId, frameId), portalSnapshot, frameId);
+      resolved = await resolveAutomaticAct(identity, clone(before), clone(portalSnapshot));
+    } catch (error) {
+      const persisted = await recordItemFailure(identity, error instanceof Error ? error.message : "automatic resolver failed");
+      return { stop: !persisted };
+    }
+
+    const preparation = prepareAutomaticAct({
+      record: resolved?.record,
+      context: resolved?.context,
+      snapshot: before,
+      legalDecision: resolved?.legalDecision,
+    });
+    if (!preparation.eligible) {
+      const persisted = await appendAutomationEvent(identity, "item_pending", {
+        reason: preparation.reasons.join(", ") || "automatic preparation is not eligible",
+        ...(resolved?.legalDecision ? { legalDecision: clone(resolved.legalDecision) } : {}),
+      });
+      return { stop: !persisted };
+    }
+
+    const prepared = await appendAutomationEvent(identity, "item_prepared", {
+      reason: "automatic preparation is eligible",
+      before: Object.fromEntries(AUTOMATION_FIELDS.map((field) => [field, before.fields[field]?.value ?? ""])),
+      after: expectedFieldValues(before, preparation),
+    });
+    if (!prepared) return { stop: true };
+
+    let applyResponse;
+    try {
+      applyResponse = await sendPortalMessage(tabId, MESSAGE_TYPES.APPLY_FIELDS, {
+        fields: clone(preparation.fields),
+        matchKinds: clone(resolved?.matchKinds ?? {}),
+      }, frameId);
+    } catch (error) {
+      const persisted = await recordItemFailure(identity, error instanceof Error ? error.message : "APPLY_FIELDS failed");
+      return { stop: !persisted };
+    }
+    if (applyResponse?.ok !== true || applyResponse?.payload?.errors?.length > 0) {
+      const persisted = await recordItemFailure(identity, "APPLY_FIELDS blocked", {
+        errors: Array.isArray(applyResponse?.payload?.errors) && applyResponse.payload.errors.length > 0
+          ? applyResponse.payload.errors
+          : [applyResponse?.error?.message ?? "APPLY_FIELDS returned an error"],
+      });
+      return { stop: !persisted };
+    }
+
+    let after;
+    let portalAfter;
+    try {
+      after = decorateFormSnapshot(await readFormSnapshot(tabId, frameId), portalSnapshot, frameId);
+      const rereadPortal = await readPortalSnapshot(tabId, frameId);
+      if (!rereadPortal) throw new Error("portal snapshot unavailable after APPLY_FIELDS");
+      portalAfter = rereadPortal.snapshot;
+      after = decorateFormSnapshot(after, portalAfter, frameId);
+    } catch (error) {
+      const persisted = await recordItemFailure(identity, error instanceof Error ? error.message : "form reread failed");
+      return { stop: !persisted };
+    }
+    const mismatch = verifyPreparedSnapshot(before, after, preparation, portalSnapshot, portalAfter, frameId);
+    if (mismatch) {
+      const persisted = await recordItemFailure(identity, mismatch, { reason: "fields verification failed" });
+      return { stop: !persisted };
+    }
+    const verified = await appendAutomationEvent(identity, "fields_verified", {
+      fieldResults: Object.fromEntries(AUTOMATION_FIELDS.map((field) => [field, {
+        expected: expectedFieldValues(before, preparation)[field],
+        actual: after.fields[field].value,
+      }])),
+      rereads: [{ identity: after.identity, frame: frameId, generation: after.generation }],
+    });
+    return { stop: !verified };
   }
 
   async function readPortalSnapshot(tabId, frameId = state.frame?.frameId ?? null) {
@@ -386,8 +587,9 @@ export function createAutomationController({
       seenIdentities: new Set(),
       completedIdentities: new Set(),
       totals: { discovered: 0, unique: 0, pending: 0 },
-      eventPrefix: String(startEventId),
+      eventPrefix: eventPrefix(startEventId),
     };
+    eventSequence = 0;
     const storedFrames = [...frames.values()].filter((entry) => entry.tabId === spec.tabId);
     if (storedFrames.length === 1) {
       const stored = storedFrames[0];
@@ -554,6 +756,10 @@ export function createAutomationController({
       }
 
       if (snapshot.role === "form" || snapshot.role === "buttons") {
+        if (resolveAutomaticAct) {
+          const preparation = await prepareAndVerifyForm(tabId, frameId, snapshot, identity);
+          if (preparation.stop) return;
+        }
         const back = actionFor(snapshot, "return_list", identity);
         if (!back) return;
         const moved = await navigate(tabId, frameId, "return_list", identity, snapshot.generation);

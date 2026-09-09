@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createAutomationController } from "../background/automation-controller.js";
+import { MESSAGE_TYPES } from "../lib/messages.js";
 
 const HASH = "a".repeat(64);
 
@@ -503,4 +504,251 @@ test("controller owns navigation loop and exposes pause/resume/stop/status witho
   const stopped = await controller.stop({ eventId: "stop-3" });
   assert.equal(stopped.status, "stopped");
   assert.deepEqual(bridge.calls.map(([name]) => name).filter((name) => ["pause", "resume", "stop"].includes(name)), ["pause", "resume", "stop"]);
+});
+
+const PREP_IDENTITY = identity("103439/2023", "ana da silva", "act-prep");
+const PREP_VALUES = {
+  modalidade: "m-special",
+  fundamento_legal: "f-professor",
+  data_publicacao_doe: "07/02/2020",
+  cargo: "Professor",
+  matricula: "103.870-2/1",
+  data_nascimento: "30/04/1967",
+  genero: "Feminino",
+};
+const PREP_FIELDS = Object.keys(PREP_VALUES);
+
+function preparationRecord() {
+  return {
+    dataset_sha256: HASH,
+    process: { key: PREP_IDENTITY.processKey, number: "103439", year: "2023" },
+    interested: { original: "Ana da Silva", normalized: PREP_IDENTITY.interestedNormalized },
+    status: "ready",
+    fields: Object.fromEntries(PREP_FIELDS.map((field) => [field, {
+      status: "found",
+      confidence: "high",
+      source_value: PREP_VALUES[field],
+      form_value: PREP_VALUES[field],
+      citation: null,
+    }])),
+  };
+}
+
+function preparationContext() {
+  return {
+    schema_version: 1,
+    dataset_sha256: HASH,
+    process_key: PREP_IDENTITY.processKey,
+    interested_normalized: PREP_IDENTITY.interestedNormalized,
+    resolution_status: "complete",
+    operative_text: "RESOLVE: Art. 40, § 5º.",
+    pages: [],
+    context_revision: 12,
+    rules_version: "legal-foundation-v1",
+  };
+}
+
+function preparationLegalDecision() {
+  return {
+    status: "selected",
+    method: "rule",
+    rule_id: "EC41_COM_P5",
+    option_value: PREP_VALUES.fundamento_legal,
+    option_label: "Regra do professor",
+    rules_version: "legal-foundation-v1",
+  };
+}
+
+function preparationFormSnapshot(fields = {}) {
+  return {
+    process: { number: "103439", year: "2023", key: PREP_IDENTITY.processKey },
+    interested: { original: "Ana da Silva", normalized: PREP_IDENTITY.interestedNormalized },
+    options: {
+      modalidade: [{ value: PREP_VALUES.modalidade, label: "Especial" }],
+      fundamento_legal: [{ value: PREP_VALUES.fundamento_legal, label: "Regra do professor" }],
+      genero: [{ value: PREP_VALUES.genero, label: "Feminino" }],
+    },
+    fields: Object.fromEntries(PREP_FIELDS.map((field) => [field, {
+      value: fields[field] ?? "",
+      disabled: false,
+      readOnly: false,
+    }])),
+  };
+}
+
+function preparationPortalSnapshots() {
+  return {
+    list: snapshot("list", 1, [PREP_IDENTITY], [{ action: "open_act", enabled: true, identity: PREP_IDENTITY }]),
+    interested: snapshot("interested", 2, [{ ...PREP_IDENTITY, selected: false }], [{ action: "select_interested", enabled: true, identity: PREP_IDENTITY }]),
+    form: snapshot("form", 3, [], [{ action: "return_list", enabled: true, identity: PREP_IDENTITY }]),
+    returned: snapshot("list", 4, [PREP_IDENTITY], []),
+  };
+}
+
+function preparationChromeMock({ initialFields = {}, afterApplyFields = null } = {}) {
+  const calls = [];
+  const removedListeners = [];
+  const updatedListeners = [];
+  const pages = preparationPortalSnapshots();
+  let current = pages.list;
+  let formFields = { ...initialFields };
+  return {
+    calls,
+    storage: { session: { async get() { return {}; }, async set() {} } },
+    tabs: {
+      async sendMessage(tabId, message, options) {
+        calls.push([tabId, message, options]);
+        const frameId = Number.isSafeInteger(options?.frameId) ? options.frameId : 0;
+        if (message.type === MESSAGE_TYPES.PORTAL_GET_SNAPSHOT) {
+          return { ok: true, frameId, payload: structuredClone(current) };
+        }
+        if (message.type === MESSAGE_TYPES.PORTAL_NAVIGATE) {
+          if (message.payload.action === "open_act") current = pages.interested;
+          if (message.payload.action === "select_interested") current = pages.form;
+          if (message.payload.action === "return_list") current = pages.returned;
+          return {
+            ok: true,
+            frameId,
+            navigationToken: message.requestId,
+            payload: { snapshot: structuredClone(current) },
+          };
+        }
+        if (message.type === MESSAGE_TYPES.GET_FORM_SNAPSHOT) {
+          return { ok: true, frameId, payload: preparationFormSnapshot(formFields) };
+        }
+        if (message.type === MESSAGE_TYPES.APPLY_FIELDS) {
+          formFields = afterApplyFields ? { ...afterApplyFields } : { ...formFields, ...message.payload.fields };
+          return {
+            ok: true,
+            frameId,
+            payload: {
+              changed: Object.keys(message.payload.fields),
+              preserved: [],
+              missing: [],
+              disabled: [],
+              errors: [],
+            },
+          };
+        }
+        return { ok: true, frameId, payload: {} };
+      },
+      onRemoved: { addListener(listener) { removedListeners.push(listener); } },
+      onUpdated: { addListener(listener) { updatedListeners.push(listener); } },
+    },
+    fireTabRemoved(tabId) { removedListeners.forEach((listener) => listener(tabId)); },
+    fireTabUpdated(tabId, changeInfo) { updatedListeners.forEach((listener) => listener(tabId, changeInfo)); },
+  };
+}
+
+function preparationBridge({ failEventType = null } = {}) {
+  const bridge = bridgeMock();
+  let revision = 1;
+  bridge.appendAutomationEvent = async (runId, event) => {
+    bridge.calls.push(["event", runId, structuredClone(event)]);
+    if (event.type === failEventType) throw new Error("event persistence unavailable");
+    revision += 1;
+    return {
+      api_version: 1,
+      run_id: runId,
+      revision,
+      status: "running",
+      items: [],
+      last_confirmed_item_id: null,
+    };
+  };
+  return bridge;
+}
+
+function preparationResolverCalls(calls) {
+  return async (resolvedIdentity, formSnapshot, portalSnapshot) => {
+    calls.push({ resolvedIdentity, formSnapshot, portalSnapshot });
+    return {
+      record: preparationRecord(),
+      context: preparationContext(),
+      legalDecision: preparationLegalDecision(),
+      matchKinds: Object.fromEntries(PREP_FIELDS.map((field) => [field, "exact"])),
+    };
+  };
+}
+
+test("prepares and verifies the discovered form through typed APPLY_FIELDS without sending", async () => {
+  const resolverCalls = [];
+  const bridge = preparationBridge();
+  const chromeApi = preparationChromeMock();
+  const controller = createAutomationController({
+    chromeApi,
+    bridge,
+    resolveAutomaticAct: preparationResolverCalls(resolverCalls),
+  });
+
+  const result = await controller.start({ spec: runSpec(), eventId: "start-preparation" });
+
+  const applyCalls = chromeApi.calls.filter(([, message]) => message.type === MESSAGE_TYPES.APPLY_FIELDS);
+  assert.equal(result.status, "completed");
+  assert.equal(resolverCalls.length, 1);
+  assert.deepEqual(resolverCalls[0].resolvedIdentity, PREP_IDENTITY);
+  assert.equal(resolverCalls[0].formSnapshot.identity.processKey, PREP_IDENTITY.processKey);
+  assert.equal(resolverCalls[0].formSnapshot.frameId, 0);
+  assert.equal(resolverCalls[0].formSnapshot.generation, 3);
+  assert.equal(applyCalls.length, 1);
+  assert.deepEqual(Object.keys(applyCalls[0][1].payload.fields), PREP_FIELDS);
+  assert.deepEqual(applyCalls[0][1].payload.matchKinds, Object.fromEntries(PREP_FIELDS.map((field) => [field, "exact"])));
+  assert.deepEqual(bridge.calls.filter(([name]) => name === "event").map(([, , event]) => event.type), [
+    "item_prepared",
+    "fields_verified",
+  ]);
+  assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO), false);
+  assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.OVERRIDE_FIELD), false);
+});
+
+test("does not partially write when the preflight snapshot contains a divergent field", async () => {
+  const bridge = preparationBridge();
+  const chromeApi = preparationChromeMock({ initialFields: { cargo: "Analista" } });
+  const controller = createAutomationController({
+    chromeApi,
+    bridge,
+    resolveAutomaticAct: preparationResolverCalls([]),
+  });
+
+  await controller.start({ spec: runSpec(), eventId: "start-divergence" });
+
+  assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.APPLY_FIELDS), false);
+  assert.deepEqual(bridge.calls.filter(([name]) => name === "event").map(([, , event]) => event.type), ["item_pending"]);
+  assert.match(bridge.calls.find(([name]) => name === "event")[2].payload.reason, /EXISTING_VALUE_CONFLICT/u);
+});
+
+test("fails the item when the post-apply reread does not match every proposed value", async () => {
+  const bridge = preparationBridge();
+  const chromeApi = preparationChromeMock({ afterApplyFields: { ...PREP_VALUES, cargo: "Unexpected" } });
+  const controller = createAutomationController({
+    chromeApi,
+    bridge,
+    resolveAutomaticAct: preparationResolverCalls([]),
+  });
+
+  await controller.start({ spec: runSpec(), eventId: "start-reread-mismatch" });
+
+  assert.equal(chromeApi.calls.filter(([, message]) => message.type === MESSAGE_TYPES.APPLY_FIELDS).length, 1);
+  assert.deepEqual(bridge.calls.filter(([name]) => name === "event").map(([, , event]) => event.type), [
+    "item_prepared",
+    "item_failed",
+  ]);
+  assert.match(bridge.calls.at(-1)[2].payload.error, /reread|mismatch/u);
+  assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO), false);
+});
+
+test("fails closed before any field write when item_prepared persistence fails", async () => {
+  const bridge = preparationBridge({ failEventType: "item_prepared" });
+  const chromeApi = preparationChromeMock();
+  const controller = createAutomationController({
+    chromeApi,
+    bridge,
+    resolveAutomaticAct: preparationResolverCalls([]),
+  });
+
+  const result = await controller.start({ spec: runSpec(), eventId: "start-event-failure" });
+
+  assert.equal(result.status, "paused");
+  assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.APPLY_FIELDS), false);
+  assert.equal(bridge.calls.filter(([name]) => name === "event").length, 1);
 });

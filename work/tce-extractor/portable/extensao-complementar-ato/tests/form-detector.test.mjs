@@ -659,6 +659,39 @@ test("validated APPLY_FIELDS transports matchKinds through the handler to green 
   assert.equal(controls.txtFundamentoLegal.classList.contains("complementar-ato-match-yellow"), true);
 });
 
+test("blocks the whole typed APPLY_FIELDS plan when any field changed after its snapshot", async () => {
+  const { documentRef, controls } = buildForm();
+  const handler = createMessageHandler(documentRef);
+  const snapshot = await handler(createMessage(
+    MESSAGE_TYPES.GET_FORM_SNAPSHOT,
+    {},
+    "snapshot-before-automatic-apply",
+  ));
+  assert.equal(snapshot.ok, true);
+
+  controls.txtCargo.value = "Alterado externamente";
+  const applied = await handler(createMessage(
+    MESSAGE_TYPES.APPLY_FIELDS,
+    {
+      fields: {
+        modalidade: "m-special",
+        cargo: "Professor",
+      },
+      matchKinds: {
+        modalidade: "exact",
+        cargo: "exact",
+      },
+    },
+    "apply-after-divergence",
+  ));
+
+  assert.equal(applied.ok, false);
+  assert.equal(applied.error.code, "APPLY_BLOCKED");
+  assert.deepEqual(applied.payload.changed, []);
+  assert.equal(controls.txtModalidade.value, "");
+  assert.equal(controls.txtCargo.value, "Alterado externamente");
+});
+
 test("emits a Complementar Ato signal only for the current verified identity", async () => {
   const { documentRef } = buildForm();
   const events = [];

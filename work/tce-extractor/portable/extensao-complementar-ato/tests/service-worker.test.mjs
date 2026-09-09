@@ -1015,3 +1015,179 @@ test("contextual getMatch rejects backend context hash or revision mismatches", 
   assert.equal(revisionMismatch.ok, false);
   assert.equal(revisionMismatch.error.code, "CONTEXT_REVISION_MISMATCH");
 });
+
+test("wires the authenticated automatic resolver to the loaded dataset and contextual ranker without sending", async () => {
+  const dataset = await makeDataset();
+  const legalContext = {
+    schema_version: 1,
+    dataset_sha256: dataset.batch.logical_sha256,
+    process_key: PROCESS_KEY,
+    interested_normalized: "joao da silva",
+    resolution_status: "complete",
+    operative_text: "RESOLVE: Art. 40, § 5º.",
+    pages: [],
+    context_revision: 12,
+    rules_version: "legal-foundation-v1",
+  };
+  const surfaces = {
+    list: {
+      role: "list",
+      generation: 1,
+      sector: "aposentadorias",
+      identities: [{ processKey: PROCESS_KEY, interestedNormalized: "joao da silva", portalActId: "act-1" }],
+      actions: [{ action: "open_act", enabled: true, identity: { processKey: PROCESS_KEY, interestedNormalized: "joao da silva", portalActId: "act-1" } }],
+    },
+    interested: {
+      role: "interested",
+      generation: 2,
+      sector: "aposentadorias",
+      identities: [{ processKey: PROCESS_KEY, interestedNormalized: "joao da silva", portalActId: "act-1", selected: false }],
+      actions: [{ action: "select_interested", enabled: true, identity: { processKey: PROCESS_KEY, interestedNormalized: "joao da silva", portalActId: "act-1" } }],
+    },
+    form: {
+      role: "form",
+      generation: 3,
+      sector: "aposentadorias",
+      identities: [],
+      actions: [{ action: "return_list", enabled: true, identity: { processKey: PROCESS_KEY, interestedNormalized: "joao da silva", portalActId: "act-1" } }],
+    },
+    returned: {
+      role: "list",
+      generation: 4,
+      sector: "aposentadorias",
+      identities: [{ processKey: PROCESS_KEY, interestedNormalized: "joao da silva", portalActId: "act-1" }],
+      actions: [],
+    },
+  };
+  const values = {
+    modalidade: "Aposentadoria voluntária",
+    fundamento_legal: "Art. 40",
+    data_publicacao_doe: "07/02/2020",
+    cargo: "PROFESSOR PN - IV",
+    matricula: "103.870-2/1",
+    data_nascimento: "30/04/1967",
+    genero: "Feminino",
+  };
+  const formValues = Object.fromEntries(Object.keys(values).map((field) => [field, ""]));
+  let currentSurface = surfaces.list;
+  const bridgeCalls = [];
+  const rankCalls = [];
+  const storage = storageMock();
+  const ranker = (input) => {
+    rankCalls.push(input);
+    if (input.field === "fundamento_legal") {
+      return {
+        kind: "exact",
+        optionIndex: 0,
+        optionValue: input.options[0]?.value ?? values.fundamento_legal,
+        optionLabel: input.options[0]?.label ?? "Art. 40",
+        score: 100,
+        reasons: ["contextual-rule"],
+        legalDecision: {
+          status: "selected",
+          method: "rule",
+          rule_id: "EC41_COM_P5",
+          option_value: input.options[0]?.value ?? values.fundamento_legal,
+          option_label: input.options[0]?.label ?? "Art. 40",
+          rules_version: "legal-foundation-v1",
+        },
+      };
+    }
+    return {
+      kind: "exact",
+      optionIndex: 0,
+      optionValue: values[input.field],
+      optionLabel: values[input.field],
+      score: 100,
+      reasons: ["fixture"],
+    };
+  };
+  const bridge = {
+    async createAutomationRun(spec, eventId) {
+      bridgeCalls.push(["start", spec, eventId]);
+      return { api_version: 1, run_id: "run-fase6", revision: 0, status: "discovering", items: [], last_confirmed_item_id: null };
+    },
+    async getDataset() {
+      bridgeCalls.push(["dataset"]);
+      return { api_version: 1, revision: 1, dataset };
+    },
+    async getLegalContext(identity) {
+      bridgeCalls.push(["context", identity]);
+      return { api_version: 1, context: legalContext };
+    },
+    async freezeAutomationQueue(runId, body) {
+      bridgeCalls.push(["freeze", runId, body]);
+      return { api_version: 1, run_id: runId, revision: 1, status: "running", items: [], last_confirmed_item_id: null };
+    },
+    async appendAutomationEvent(runId, event) {
+      bridgeCalls.push(["event", runId, event]);
+      return { api_version: 1, run_id: runId, revision: 2, status: "running", items: [], last_confirmed_item_id: null };
+    },
+    async getAutomationRun(runId) {
+      return { api_version: 1, run_id: runId, revision: 2, status: "running", items: [], last_confirmed_item_id: null };
+    },
+    async controlAutomationRun() {
+      return { api_version: 1, run_id: "run-fase6", revision: 3, status: "stopped", items: [], last_confirmed_item_id: null };
+    },
+  };
+  const chromeApi = chromeMock(storage, async (tabId, message, options) => {
+    const frameId = options?.frameId ?? 12;
+    if (message.type === MESSAGE_TYPES.PORTAL_GET_SNAPSHOT) {
+      return { ok: true, frameId, payload: structuredClone(currentSurface) };
+    }
+    if (message.type === MESSAGE_TYPES.PORTAL_NAVIGATE) {
+      if (message.payload.action === "open_act") currentSurface = surfaces.interested;
+      if (message.payload.action === "select_interested") currentSurface = surfaces.form;
+      if (message.payload.action === "return_list") currentSurface = surfaces.returned;
+      return { ok: true, frameId, navigationToken: message.requestId, payload: { snapshot: structuredClone(currentSurface) } };
+    }
+    if (message.type === MESSAGE_TYPES.GET_FORM_SNAPSHOT) {
+      return {
+        ok: true,
+        frameId,
+        payload: {
+          process: { number: "103439", year: "2023", key: PROCESS_KEY },
+          interested: { original: "João da Silva", normalized: "joao da silva" },
+          options: {
+            modalidade: [{ value: values.modalidade, label: values.modalidade }],
+            fundamento_legal: [{ value: values.fundamento_legal, label: values.fundamento_legal }],
+            genero: [{ value: values.genero, label: values.genero }],
+          },
+          fields: Object.fromEntries(Object.keys(values).map((field) => [field, {
+            value: formValues[field], disabled: false, readOnly: false,
+          }])),
+        },
+      };
+    }
+    if (message.type === MESSAGE_TYPES.APPLY_FIELDS) {
+      Object.assign(formValues, message.payload.fields);
+      return { ok: true, frameId, payload: { changed: Object.keys(message.payload.fields), preserved: [], missing: [], disabled: [], errors: [] } };
+    }
+    return { ok: true, frameId, payload: {} };
+  });
+  const worker = createServiceWorker({ chromeApi, bridge, ranker });
+  await worker.handleMessage(createMessage(MESSAGE_TYPES.IMPORT_DATASET, { dataset }, "import-fase6"), extensionSender());
+  const spec = {
+    tabId: 7,
+    sector: "aposentadorias",
+    datasetSha256: dataset.batch.logical_sha256,
+    rulesVersion: "legal-foundation-v1",
+  };
+
+  const denied = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_START, { spec, eventId: "fase6-denied" }, "fase6-denied"),
+    sender(),
+  );
+  assert.equal(denied.ok, false);
+  assert.equal(denied.error.code, "UNAUTHORIZED");
+
+  const started = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_START, { spec, eventId: "fase6-start" }, "fase6-start"),
+    extensionSender(),
+  );
+  assert.equal(started.ok, true);
+  assert.equal(bridgeCalls.some(([name]) => name === "context"), true);
+  assert.equal(rankCalls.some((input) => input.field === "fundamento_legal" && input.context === legalContext), true);
+  assert.equal(formValues.fundamento_legal, values.fundamento_legal);
+  assert.equal(bridgeCalls.some(([name, , event]) => name === "event" && event.type === "fields_verified"), true);
+});

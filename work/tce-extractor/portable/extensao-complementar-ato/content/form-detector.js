@@ -256,6 +256,24 @@ function getFormSnapshot(documentRef = globalThis.document) {
   };
 }
 
+function sameFormSnapshot(left, right) {
+  if (!left || !right
+    || left.process?.key !== right.process?.key
+    || left.interested?.normalized !== right.interested?.normalized) return false;
+  for (const field of FIELD_NAMES) {
+    const before = left.fields?.[field];
+    const after = right.fields?.[field];
+    if (!before || !after
+      || before.value !== after.value
+      || before.disabled !== after.disabled
+      || before.readOnly !== after.readOnly) return false;
+    const beforeOptions = left.options?.[field] ?? [];
+    const afterOptions = right.options?.[field] ?? [];
+    if (JSON.stringify(beforeOptions) !== JSON.stringify(afterOptions)) return false;
+  }
+  return true;
+}
+
 function emptyResult() {
   return {
     changed: [],
@@ -424,6 +442,7 @@ function emitComplementarAtoSignal(documentRef, identity) {
 
 function createMessageHandler(documentRef = globalThis.document) {
   let lastIdentity = null;
+  let lastSnapshot = null;
 
   return async function handleMessage(message) {
     if (!isRecord(message) || typeof message.type !== "string" || !isRecord(message.payload)) {
@@ -435,9 +454,15 @@ function createMessageHandler(documentRef = globalThis.document) {
         if (!isVisibleForm(documentRef)) return errorResponse("FORM_NOT_VISIBLE", "Complementar Ato form is not visible");
         if (!snapshot) return errorResponse("FORM_NOT_FOUND", "Complementar Ato form sentinels are incomplete");
         lastIdentity = readIdentity(documentRef);
+        lastSnapshot = snapshot;
         return { ok: true, payload: snapshot };
       }
       if (message.type === "APPLY_FIELDS") {
+        if (lastSnapshot && !sameFormSnapshot(lastSnapshot, getFormSnapshot(documentRef))) {
+          const result = emptyResult();
+          result.errors.push("form snapshot changed since GET_FORM_SNAPSHOT");
+          return { ok: false, payload: result, error: { code: "APPLY_BLOCKED", message: result.errors[0] } };
+        }
         const result = applyFields(documentRef, message.payload.fields, {
           expectedIdentity: lastIdentity,
           matchKinds: message.payload.matchKinds,

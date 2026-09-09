@@ -12,6 +12,7 @@ import {
   validateMessage,
 } from "../lib/messages.js";
 import { validateLegalContext } from "../lib/automation-schema.js";
+import { AUTOMATION_FIELDS } from "../lib/automation-preflight.js";
 import { createAutomationController } from "./automation-controller.js";
 
 export const FRAME_REGISTRATIONS_STORAGE_KEY = "frame-registrations:v1";
@@ -114,6 +115,7 @@ export function createServiceWorker({
         chromeApi,
         bridge,
         ranker,
+        resolveAutomaticAct,
         clock: () => now(),
       })
       : null
@@ -439,6 +441,60 @@ export function createServiceWorker({
       matches,
       reviewed: reviewedValue(processKey, record.interested.normalized),
     });
+  }
+
+  async function resolveAutomaticAct(identity, formSnapshot, portalSnapshot) {
+    await loadState();
+    const record = datasetIndex
+      ? resolveIndexedRecord(datasetIndex, identity.processKey, identity.interestedNormalized)
+      : null;
+    if (!record) {
+      return {
+        record: null,
+        context: null,
+        legalDecision: null,
+        matchKinds: {},
+      };
+    }
+
+    let context = null;
+    if (typeof bridge?.getLegalContext === "function") {
+      const contextEnvelope = await bridge.getLegalContext({
+        processKey: identity.processKey,
+        interestedNormalized: identity.interestedNormalized,
+      });
+      context = contextEnvelope?.context ?? null;
+    }
+
+    const matches = {};
+    let legalDecision = null;
+    for (const field of AUTOMATION_FIELDS) {
+      const options = Array.isArray(formSnapshot?.options?.[field]) ? formSnapshot.options[field] : [];
+      const documentaryValue = record.fields?.[field]?.source_value
+        ?? record.fields?.[field]?.form_value
+        ?? "";
+      const result = ranker({
+        field,
+        documentaryValue,
+        hints: {},
+        options,
+        context: field === "fundamento_legal" ? context : null,
+      });
+      if (field === "fundamento_legal") legalDecision = result?.legalDecision ?? null;
+      const kind = result?.kind;
+      matches[field] = kind === "exact" || kind === "probable" || kind === "tie"
+        ? kind
+        : result?.legalDecision?.status === "pending" ? "tie" : "probable";
+    }
+    return {
+      record: {
+        ...clone(record),
+        dataset_sha256: dataset.batch.logical_sha256,
+      },
+      context: clone(context),
+      legalDecision: clone(legalDecision),
+      matchKinds: matches,
+    };
   }
 
   function automationUnavailable(message) {
