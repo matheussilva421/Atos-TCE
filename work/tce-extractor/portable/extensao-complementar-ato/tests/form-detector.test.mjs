@@ -12,6 +12,7 @@ import {
   installContentScript,
   overrideField,
 } from "../content/form-detector.js";
+import { installPortalNavigation } from "../content/portal-navigation.js";
 import { MESSAGE_TYPES, createMessage } from "../lib/messages.js";
 import { normalizeInterestedName } from "../lib/schema.js";
 
@@ -586,6 +587,25 @@ test("does not answer snapshot discovery from a hidden form frame", async () => 
   assert.equal(listenerResult, false);
   await Promise.resolve();
   assert.deepEqual(responses, []);
+});
+
+test("content scripts ignore messages owned by the other installed listener", () => {
+  const { documentRef } = buildForm();
+  const listeners = [];
+  const chromeApi = {
+    runtime: {
+      onMessage: { addListener(next) { listeners.push(next); } },
+      async sendMessage() {},
+    },
+  };
+  installPortalNavigation({ documentRef, chromeApi });
+  installContentScript({ documentRef, chromeApi, locationRef: { href: "https://example.test" } });
+  assert.equal(listeners.length, 2);
+
+  const portalListener = listeners[0];
+  const formListener = listeners[1];
+  assert.equal(portalListener(createMessage(MESSAGE_TYPES.GET_FORM_SNAPSHOT, {}, "collision-form"), {}, () => {}), false);
+  assert.equal(formListener(createMessage(MESSAGE_TYPES.PORTAL_GET_SNAPSHOT, {}, "collision-portal"), {}, () => {}), false);
 });
 
 test("message handler exposes snapshots and field results without allowing unsupported operations", async () => {

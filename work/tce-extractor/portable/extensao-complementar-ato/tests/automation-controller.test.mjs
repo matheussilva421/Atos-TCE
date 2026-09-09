@@ -398,6 +398,26 @@ test("pauses when a same-tab loading event has the wrong navigation token or fra
   assert.equal(started.pausedReason, "navigation token/frame mismatch");
 });
 
+test("pauses when a same-tab loading event omits its navigation marker", async () => {
+  const activePage = snapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
+    { action: "open_act", enabled: true, identity: identity("103401/2023", "ana da silva", "act-1") },
+  ]);
+  const chromeApi = activeChromeMock(activePage);
+  const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    if (message.type === "PORTAL_NAVIGATE") {
+      chromeApi.fireTabUpdated(7, { status: "loading", frameId: options?.frameId ?? 0 });
+      return { ok: true, frameId: options?.frameId ?? 0, navigationToken: message.requestId, payload: {} };
+    }
+    return originalSendMessage(tabId, message, options);
+  };
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  const started = await controller.start({ spec: runSpec(), eventId: "start-missing-loading-marker" });
+  assert.equal(started.status, "paused");
+  assert.equal(started.pausedReason, "navigation token/frame mismatch");
+});
+
 test("binds an explicitly identified non-zero frame from the initial snapshot response", async () => {
   const activePage = snapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
     { action: "open_act", enabled: true, identity: identity("103401/2023", "ana da silva", "act-1") },

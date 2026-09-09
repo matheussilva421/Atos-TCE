@@ -450,6 +450,7 @@ function installPortalNavigation({ documentRef = globalThis.document, chromeApi 
   const handleMessage = createMessageHandler(documentRef);
   if (!chromeApi?.runtime?.onMessage?.addListener) return { handleMessage, registered: false };
   chromeApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (!["PORTAL_GET_SNAPSHOT", "PORTAL_NAVIGATE"].includes(message?.type)) return false;
     Promise.resolve(handleMessage(message)).then(sendResponse);
     return true;
   });

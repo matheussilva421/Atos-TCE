@@ -489,6 +489,7 @@ function installContentScript({
   if (!chromeApi?.runtime?.onMessage?.addListener) return { handleMessage, registered: false };
 
   chromeApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (!["GET_FORM_SNAPSHOT", "APPLY_FIELDS", "OVERRIDE_FIELD", "REQUEST_COMPLEMENTAR_ATO"].includes(message?.type)) return false;
     if (message?.type === "GET_FORM_SNAPSHOT" && !isVisibleForm(documentRef)) return false;
     Promise.resolve(handleMessage(message)).then(sendResponse);
     return true;

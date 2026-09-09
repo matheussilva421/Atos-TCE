@@ -621,9 +621,13 @@ export function createAutomationController({
   if (chromeApi.tabs.onUpdated?.addListener) {
     chromeApi.tabs.onUpdated.addListener((tabId, changeInfo) => {
       if (tabId !== state.tabId || !ACTIVE_STATUSES.has(state.status)) return;
-      const matchesExpectedNavigation = expectedNavigation?.tabId === tabId
-        && (changeInfo?.frameId === undefined || changeInfo.frameId === expectedNavigation.frameId)
-        && (changeInfo?.navigationToken === undefined || changeInfo.navigationToken === expectedNavigation.token);
+      const hasNavigationMarker = Number.isSafeInteger(changeInfo?.frameId)
+        && typeof changeInfo?.navigationToken === "string"
+        && changeInfo.navigationToken.length > 0;
+      const matchesExpectedNavigation = hasNavigationMarker
+        && expectedNavigation?.tabId === tabId
+        && changeInfo.frameId === expectedNavigation.frameId
+        && changeInfo.navigationToken === expectedNavigation.token;
       if (changeInfo?.status === "complete" && matchesExpectedNavigation) {
         expectedNavigation = null;
         return;
