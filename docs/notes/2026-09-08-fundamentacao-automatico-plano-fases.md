@@ -10,9 +10,11 @@
 
 **Especificação:** seção 1 deste documento consolida as decisões da entrevista de 08/09/2026. O plano anterior na conversa é substituído por esta versão detalhada. Não depende de outro documento não salvo.
 
-**Estado:** EM EXECUÇÃO. Fases 0–8 e os gates locais da Fase 9 foram implementados nesta branch; o envio real e a qualificação do portal permanecem bloqueados por checkpoint explícito. A Fase 10 recebeu a atualização local de allowlists, auditoria, versão e fixture de pacote; a publicação real continua pendente.
+**Estado:** EM EXECUÇÃO. Fases 0–8 e os gates locais da Fase 9 foram implementados nesta branch; o envio real e a qualificação do portal permanecem bloqueados por checkpoint explícito. A Fase 10 recebeu a atualização local de allowlists, auditoria, versão e fixture de pacote; a composição final local foi verificada offline e a publicação/qualificação real continuam pendentes.
 
 **Revisão de 09/09/2026:** a Fase 9 agora possui portal sintético servido em Chrome, navegação por páginas/seleção, frame de formulário e bloqueio de envio sem serviço; o journal cobre 25 atos, três pendências e timeout no ordinal exato. A infraestrutura local do piloto opt-in foi adicionada: flag `--automation-pilot`, modo de um ato, limite durável de um comando, delegação `AUTO_START` ao worker e ação explícita no painel, sem habilitar envio real. A Fase 10 passou a carregar os módulos de automação no pacote completo, reconhecer `alarms` e exigir a versão de extensão `1.1.0`. O painel também tem gate estático de contraste, idioma, IDs/labels e cópia de segurança. Nenhum teste local é evidência do portal real.
+
+**Revisão de 09/09/2026 — composição final:** o packager público passou a incluir todos os módulos declarados pela extensão. Após RED por oito arquivos ausentes na allowlist, GREEN foi confirmado com `test_package_audit` e com um ZIP temporário de 95.815.350 bytes (`SHA-256 1d8204b92911c790771e78cd0d3b192e3e123868de72d49cae097c800e8e756d`). A extração limpa passou runtime Python/Tesseract, manifesto, auditoria pública, imports/hashes e `TESTAR-PACOTE.ps1`; a permissão `alarms` também foi alinhada no diagnóstico PowerShell. Isso prova a composição offline local, não o smoke Chrome nem o portal real.
 
 **Revisão de 08/09/2026:** redesign solicitado após a primeira versão. A fase 8 foi ampliada em cinco entregas de design e implementação, com wireframes, tokens, acessibilidade, testes e impactos no empacotamento. O redesign foi implementado no side panel; o gate real do portal permanece separado e pendente.
 
@@ -794,10 +796,10 @@ Comandos: em E, `node --test tests/panel-view.test.mjs tests/panel.test.mjs test
 
 - [x] Acrescentar à allowlist os módulos novos da extensão: `lib/legal-foundation.js`, `lib/automation-schema.js`, `lib/automation-preflight.js`, `content/portal-navigation.js`, `content/portal-submit.js`, `background/automation-controller.js`. O teste compara exatamente a lista final.
 - [x] Incluir também `sidepanel/panel-tokens.css` e `sidepanel/panel-view.js`; packager e auditoria validam o conjunto extraído. SVGs continuam inline estáticos.
-- [x] Incluir módulos Python novos no pacote completo; os testes de pacote carregam o `legal_context.py` e verificam a pipeline autocontida. O runtime portátil staging foi executado com `-I -B -s`, importou `automation_store`/`local_service` e expôs SQLite 3.50.4; a auditoria completa ainda depende de uma composição release que contenha app/extensão além do runtime.
+- [x] Incluir módulos Python novos no pacote completo; os testes de pacote carregam o `legal_context.py` e verificam a pipeline autocontida. O runtime portátil staging foi executado com `-I -B -s`, importou `automation_store`/`local_service` e expôs SQLite 3.50.4; a composição final local com app/extensão/runtime foi extraída e aprovada pela auditoria pública.
 - [x] Publicar localmente a versão de extensão `1.1.0`, com capacidade automática schema 1 e regras `legal-foundation-v1`; o serviço informa capacidades e mantém `real_send_enabled=false`.
 - [x] Preservar o fluxo existente de quiesce/fechamento do banco antes da transferência; testes de `prepare_transfer` e pacote permanecem verdes.
-- [x] Auditar CRC, hashes, allowlist, imports e conteúdo do ZIP em fixtures novas; smoke Chrome do pacote final e validação do runtime portátil real permanecem pendentes de uma release autorizada.
+- [x] Auditar CRC, hashes, allowlist, imports e conteúdo do ZIP em fixtures novas; a composição final local e o runtime portátil extraído passaram os checks offline. O smoke Chrome do pacote final e a validação no portal real permanecem pendentes de uma release autorizada.
 - [x] Entregar a composição compatível de extensão + serviço no pacote completo local; a documentação não trata o ZIP isolado como persistência completa.
 - [x] Atualizar guia com iniciar/pausar/retomar, interpretação de incerto, relatórios e serviço ausente.
 - [x] Manter handoffs por fase; o handoff da Fase 9/10 registra contagens, limites, commit e retomada.

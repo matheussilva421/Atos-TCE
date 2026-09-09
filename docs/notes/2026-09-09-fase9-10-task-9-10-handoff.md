@@ -62,8 +62,16 @@ em 5/5.
 
 O runtime staging disponível foi executado diretamente com `-I -B -s`: Python
 3.14.4, SQLite 3.50.4 e imports de `automation_store`/`local_service` passaram.
-Como `staging-final` contém somente runtime, licenças e downloads, ainda falta
-repetir a auditoria contra uma composição release completa com app/extensão.
+Depois, o packager público foi corrigido para copiar oito assets de automação
+que estavam ausentes da allowlist. A composição final extraída em pasta limpa
+passou runtime Python/Tesseract, manifesto, auditoria pública e diagnóstico
+PowerShell: ZIP temporário de 95.815.350 bytes, SHA-256
+`1d8204b92911c790771e78cd0d3b192e3e123868de72d49cae097c800e8e756d`.
+
+O diagnóstico PowerShell também foi alinhado à permissão `alarms` do manifesto.
+O RED foi observado primeiro no contrato da allowlist (8 assets) e depois no
+teste PowerShell do manifesto; ambos ficaram verdes após as correções. Isso é
+evidência offline da composição local, não smoke Chrome nem qualificação real.
 
 O incidente do launcher foi coberto em TDD: o teste RED reproduziu a ausência
 de confirmação para um processo encerrado; a correção passou no teste completo
@@ -92,13 +100,15 @@ encerradas; não produziram alterações nem evidência adicional.
 ## Retomada imediata
 
 1. Repetir a suíte ampla somente se houver novas alterações; o último gate amplo
-   anterior foi `373/373`, com 5 skips ambientais. O gate JavaScript atual passou
-   `255/255`; API/store/report passou `56/56`, recuperação `5/5` e a suíte
-   Python ampla passou `382/382`, com 5 skips ambientais.
+   anterior foi `382/382`, com 5 skips ambientais. O gate JavaScript atual passou
+   `255/255`; API/store/report passou `56/56`, recuperação `5/5`, o focal de
+   pacote/end-to-end passou `44` testes com `2` skips, e
+   `Test-TcePortable.ps1` passou `114/114`.
 2. Manter `42eeeac` como referência da correção do launcher; depois rodar
    `git diff --check` e `git status --short --branch`.
 3. Se houver nova alteração, revisar mudanças privadas/ignoradas e fazer stage
-   explícito; não usar `git add .`.
+   explícito; não usar `git add .`. O bloco atual ainda precisa de commit dos
+   quatro arquivos de packager/teste/diagnóstico.
 4. Os commits `61dce28`, `c4246c6`, `453a043` e `0ec7109` contêm
    guard/piloto, delegação ao worker, controles, probe e reconciliação das
    tasks locais; o gate formal de acessibilidade está em `692ed27`.
