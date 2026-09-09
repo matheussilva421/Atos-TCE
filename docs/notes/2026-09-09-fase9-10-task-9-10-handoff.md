@@ -21,6 +21,13 @@ e nenhum envio ocorreu. A extensão ficou conectada ao serviço local, mas não
 há injeção esperada na origem inicial `processos.tce.rn.gov.br`, que difere da
 allowlist atual `novaarearestrita.tce.rn.gov.br`.
 
+O runner foi endurecido após uma corrida de inicialização: aguarda o `init` do
+painel e a habilitação do botão antes do `pair`, registra apenas o status
+sanitizado em caso de falha e recarrega uma vez a SPA se o corpo vier vazio.
+Um teste isolado confirmou `pair=200` e `/api/v1/dataset=200` fora do painel;
+os serviços concorrentes/locks obsoletos foram removidos somente nas pastas
+temporárias do teste.
+
 Checkpoint de retomada: fazer login manualmente na janela descartável, sem
 compartilhar credenciais, e responder `continue`. Depois disso, capturar a
 origem/DOM autenticados, localizar três atos representativos e executar apenas

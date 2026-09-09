@@ -94,6 +94,7 @@ def main() -> int:
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--profile', type=Path)
     parser.add_argument('--executable', type=Path)
+    parser.add_argument('--poll-seconds', type=float, default=5.0)
     parser.add_argument('--stay-open', action='store_true')
     args = parser.parse_args()
 
@@ -127,13 +128,26 @@ def main() -> int:
             f'chrome-extension://{extension_id}/sidepanel/panel.html',
             wait_until='domcontentloaded',
         )
+        panel.locator('#bridge-status').wait_for(state='visible', timeout=10_000)
         panel.locator('#bridge-base-url').fill(f'http://127.0.0.1:{port}')
         panel.locator('#bridge-pairing-code').fill(code)
-        panel.locator('#bridge-connect-button').click()
         panel.wait_for_function(
-            "() => document.querySelector('#bridge-status')?.textContent.includes('Mesa local conectada.')",
+            "() => document.querySelector('#bridge-connect-button')?.disabled === false",
             timeout=10_000,
         )
+        panel.locator('#bridge-connect-button').click()
+        try:
+            panel.wait_for_function(
+                "() => document.querySelector('#bridge-status')?.textContent.includes('Mesa local conectada.')",
+                timeout=10_000,
+            )
+        except Exception:
+            print(json.dumps({
+                'pair_wait_failed': True,
+                'bridge_status': panel.locator('#bridge-status').inner_text(),
+                'panel_message_present': bool(panel.locator('#panel-message').inner_text()),
+            }, ensure_ascii=False))
+            raise
 
         portal = context.new_page()
         navigation_error = ''
@@ -142,39 +156,52 @@ def main() -> int:
         except Exception as error:  # navigation can remain usable after a timeout
             navigation_error = type(error).__name__
         portal.wait_for_timeout(5_000)
-        panel_snapshot = _sanitize_page(panel)
-        portal_snapshot = _sanitize_page(portal)
-        evidence = {
-            'schema_version': 1,
-            'captured_at': datetime.now(timezone.utc).isoformat(),
-            'browser': executable.name,
-            'profile_disposable': True,
-            'extension_id_present': bool(extension_id),
-            'pair_status': panel.locator('#bridge-status').inner_text(),
-            'portal_navigation_error_type': navigation_error,
-            'panel': panel_snapshot,
-            'portal': portal_snapshot,
-            'portal_extension_origin_match': portal_snapshot['origin'] == 'https://novaarearestrita.tce.rn.gov.br',
-            'submission_performed_by_runner': False,
-        }
+        def capture() -> dict:
+            panel_snapshot = _sanitize_page(panel)
+            portal_snapshot = _sanitize_page(portal)
+            return {
+                'schema_version': 1,
+                'captured_at': datetime.now(timezone.utc).isoformat(),
+                'browser': executable.name,
+                'profile_disposable': True,
+                'extension_id_present': bool(extension_id),
+                'pair_status': panel.locator('#bridge-status').inner_text(),
+                'portal_navigation_error_type': navigation_error,
+                'panel': panel_snapshot,
+                'portal': portal_snapshot,
+                'portal_extension_origin_match': portal_snapshot['origin'] == 'https://novaarearestrita.tce.rn.gov.br',
+                'submission_performed_by_runner': False,
+            }
+
+        evidence = capture()
         output.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
         print(json.dumps({
             'output': str(output),
             'browser': executable.name,
             'profile': str(profile),
             'pair_status': evidence['pair_status'],
-            'portal_origin': portal_snapshot['origin'],
+            'portal_origin': evidence['portal']['origin'],
             'portal_extension_origin_match': evidence['portal_extension_origin_match'],
-            'login_signal': portal_snapshot['login_signal'],
+            'login_signal': evidence['portal']['login_signal'],
             'submission_performed_by_runner': False,
         }, ensure_ascii=False))
         if args.stay_open:
             print('REAL_PORTAL_SESSION_READY')
             sys.stdout.flush()
-            try:
-                input()
-            except EOFError:
-                pass
+            reloaded_empty_portal = False
+            while True:
+                time.sleep(max(1.0, args.poll_seconds))
+                if not reloaded_empty_portal:
+                    current = _sanitize_page(portal)
+                    if current['body_length'] < 20:
+                        try:
+                            portal.reload(wait_until='domcontentloaded', timeout=30_000)
+                            portal.wait_for_timeout(5_000)
+                        except Exception:
+                            pass
+                        reloaded_empty_portal = True
+                evidence = capture()
+                output.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
         context.close()
     return 0
 
