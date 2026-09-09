@@ -8,8 +8,10 @@ As entregas locais das Fases 9 e 10 estão no checkout e foram commitadas em
 `25ca99e` (`test: qualify local automation and package release`), `692ed27`
 (`test: add formal panel accessibility gate`), `61dce28` (`feat: add opt-in
 automation pilot guard`) e `c4246c6` (`fix: route automation controls through
-worker`), com documentação intermediária em `9ad2a50` e `76e37f5`. O
-repositório não possui remoto configurado, portanto não há push.
+worker`), seguidos de `453a043` (`docs: record portable runtime probe`) e
+`0ec7109` (`docs: reconcile local phase tasks`), com documentação intermediária
+em `9ad2a50`, `76e37f5`, `5e1617c` e `407ca6c`. O repositório não possui
+remoto configurado, portanto não há push.
 
 ## Arquivos principais
 
@@ -78,9 +80,9 @@ encerradas; não produziram alterações nem evidência adicional.
 2. Rodar `git diff --check` e `git status --short --branch`.
 3. Se houver nova alteração, revisar mudanças privadas/ignoradas e fazer stage
    explícito; não usar `git add .`.
-4. Os commits `61dce28` e `c4246c6` contêm guard/piloto, delegação ao worker,
-   controles, testes e documentação; o gate formal de acessibilidade está em
-   `692ed27`.
+4. Os commits `61dce28`, `c4246c6`, `453a043` e `0ec7109` contêm
+   guard/piloto, delegação ao worker, controles, probe e reconciliação das
+   tasks locais; o gate formal de acessibilidade está em `692ed27`.
 5. Não executar push sem remoto; manter este handoff como ponto de retomada.
 
 ## Pendência bloqueante
