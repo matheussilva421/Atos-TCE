@@ -159,6 +159,31 @@ function Get-TceLocalServiceMetadataPath {
     return Join-Path $canonicalPackage 'dados-locais\bridge\service.json'
 }
 
+function Wait-TceLocalServiceReady {
+    param(
+        [Parameter(Mandatory)][string]$MetadataPath,
+        [Parameter(Mandatory)][object]$Process,
+        [int]$TimeoutSeconds = 3
+    )
+    $readyUntil = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    while ([DateTime]::UtcNow -lt $readyUntil) {
+        if ($Process.PSObject.Properties.Name -contains 'HasExited' -and $Process.HasExited) {
+            throw 'O serviço local encerrou antes de confirmar a ponte.'
+        }
+        if (Test-Path -LiteralPath $MetadataPath -PathType Leaf) {
+            try {
+                $ready = Get-Content -LiteralPath $MetadataPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ([int]$ready.pid -eq [int]$Process.Id -and [int]$ready.port -gt 0) { return $ready }
+            } catch { }
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    if ($Process.PSObject.Properties.Name -contains 'HasExited' -and $Process.HasExited) {
+        throw 'O serviço local encerrou sem confirmar a ponte.'
+    }
+    throw 'O serviço local não confirmou a ponte dentro do prazo.'
+}
+
 function Start-TceLocalService {
     param(
         [Parameter(Mandatory)][string]$PackageRoot,
@@ -205,15 +230,13 @@ function Start-TceLocalService {
     }
 
     if ($null -eq $ProcessStarter) {
-        $readyUntil = [DateTime]::UtcNow.AddSeconds(3)
-        while ([DateTime]::UtcNow -lt $readyUntil) {
-            if (Test-Path -LiteralPath $metadataPath -PathType Leaf) {
-                try {
-                    $ready = Get-Content -LiteralPath $metadataPath -Raw -Encoding UTF8 | ConvertFrom-Json
-                    if ([int]$ready.pid -eq [int]$process.Id -and $ready.port) { return $ready }
-                } catch { }
-            }
-            Start-Sleep -Milliseconds 100
+        try {
+            return Wait-TceLocalServiceReady -MetadataPath $metadataPath -Process $process
+        } catch {
+            try {
+                if (-not $process.HasExited) { $process.Kill() }
+            } catch { }
+            throw
         }
     }
 

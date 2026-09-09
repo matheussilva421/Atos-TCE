@@ -91,6 +91,14 @@ try {
     Assert-True (Stop-TceLocalService -PackageRoot $bridgePackageRoot -Python $bridgePython -ProcessResolver $fakeResolver -ProcessStopper $fakeStopper) 'parar serviço encerra somente o helper identificado'
     Assert-Equal ($stopCalls -join ',') '4321' 'parar serviço usa o PID registrado'
     Assert-True (-not (Test-Path -LiteralPath $bridgePath)) 'parar serviço remove metadados da ponte'
+
+    $readinessError = $null
+    try {
+        Wait-TceLocalServiceReady -MetadataPath $bridgePath -Process ([pscustomobject]@{ Id = 9876; HasExited = $true })
+    } catch {
+        $readinessError = $_.Exception.Message
+    }
+    Assert-True ($readinessError -match '(?i)encerrou|confirmou') 'falha de prontidão não é convertida em metadata falso'
 } finally {
     if (Test-Path -LiteralPath $bridgePackageRoot) { Remove-Item -LiteralPath $bridgePackageRoot -Recurse -Force }
 }
