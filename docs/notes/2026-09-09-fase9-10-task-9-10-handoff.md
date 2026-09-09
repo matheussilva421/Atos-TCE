@@ -149,7 +149,8 @@ encerradas; não produziram alterações nem evidência adicional.
 3. Se houver nova alteração, revisar mudanças privadas/ignoradas e fazer stage
    explícito; não usar `git add .`. O bloco de packager/teste/diagnóstico foi
    commitado em `a8ae6e2`, a sequência bridge em `e1d9618`, e o smoke/browser
-   bridge em `03b5b8e`; esta documentação deve receber um commit final separado.
+   bridge em `03b5b8e`; o plano, relatório e handoff foram atualizados em
+   `cbf30ca` (`docs: record Chrome bridge qualification`).
 4. Os commits `61dce28`, `c4246c6`, `453a043` e `0ec7109` contêm
    guard/piloto, delegação ao worker, controles, probe e reconciliação das
    tasks locais; o gate formal de acessibilidade está em `692ed27`.
