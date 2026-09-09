@@ -4,9 +4,10 @@
 
 - Implementação iniciada em `codex/fundamentacao-automatico`, derivada de `main` em `dc84402`.
 - O ledger vivo está em `.superpowers/sdd/2026-09-08-fundamentacao-automatico-plano-fases/progress.md` (git-ignorado) e registra tasks, conflitos e decisões.
-- Task atual: Fase 1 — contexto documental completo e sidecar versionado.
+- Task atual: Fase 2 — resolvedor específico de fundamento; Fase 1 aprovada e fechada.
 - Baseline desta execução: `npm test` 124/124 pass; Python focal 99/99 pass, 1 skip ambiental. Warnings de `fitz` depreciado e `ResourceWarning` já aparecem na baseline e não foram introduzidos nesta branch.
 - Fase 0 concluída e revisada: commits `b99fd80` e `54dcf9f`; fixtures/testes sanitizados aprovados em re-revisão Luna. A suíte JS pós-fase ficou 125/126 porque a regressão RED do matcher continua intencional para a Fase 2.
+- Fase 1 aprovada em revisão final após cinco rounds de correção: commits de código `f0a72b5`, `e84ac95`, `8b3a411`, `e85aa35`, `d305ee6`, `0876f2d` e documentação `5b1a732`, `8a64d4d`, `86837a9`, `559b089`, `6a3b63c`, `45e225e`. Último foco: 18/18 testes de contexto, 7/7 pipeline dirigido, 89/89 focal Python, 19/19 batch runner; revisão final Approved. O pacote portátil continua pendente para a Fase 10.
 - Envio real continua bloqueado; nenhum PDF, dado de processo ou sessão autenticada será publicado no Git.
 
 ## Trabalho documental concluído
@@ -61,7 +62,7 @@
 1. [x] Ler o plano salvo, especialmente decisões da seção 1 e contratos da seção 4.
 2. [x] Criar branch de implementação e ledger vivo.
 3. [x] Executar fase 0 com baseline atualizada, reprodução RED e fixtures sanitizadas.
-4. [~] Implementar fases 1–10 em ordem de dependência, atualizando este handoff após cada bloco; Fase 1 em preparação.
+4. [~] Implementar fases 1–10 em ordem de dependência, atualizando este handoff após cada bloco; Fases 0–1 concluídas, Fase 2 em preparação.
 3. Não interpretar `completed` legado nem sinal DOM como envio confirmado.
 4. Confirmação real após envio ainda não foi observada. Fase 9 define como obter e transformar em fixture/teste.
 5. Não executar lote real apenas porque o plano foi salvo. Esta solicitação foi de documentação.
@@ -76,7 +77,15 @@
 - GREEN: catálogo, fixtures simuladas, IDs duplicados no frame e contratos de sanitização passaram após os fixes.
 - Validação: somente fixtures sintéticas; nenhum clique, preenchimento ou envio real.
 - Limitação: a Fase 0 não corrige produção; a falha RED é esperada até o resolvedor da Fase 2.
-- Próximo passo: implementar `legal_context.py`/testes da Fase 1, preservando o dataset v1 e publicando sidecar atômico.
+- Próximo passo: implementar `legal-foundation.js`/testes da Fase 2, preservando o dataset v1 e consumindo somente contexto completo.
+
+## Registro por fase — Fase 1 — encerramento
+
+- Código: `legal_context.py` e integração do pipeline preservam texto nativo/OCR cacheado, identidade documental completa, páginas físicas, interessado inequívoco, `operative_text`, concorrência fail-closed e publicação atômica.
+- Testes finais: `python -m unittest test_legal_context -q` 18/18; pipeline dirigido 7/7; focal Python 89/89; batch runner 19/19; matcher 33/34 com RED intencional da Fase 0.
+- Validação: nenhum portal, clique, preenchimento, envio ou dado real; fixture absoluto removido e re-revisado Approved.
+- Limitação: allowlist/ZIP portátil ainda não inclui `legal_context.py`; tratar na Fase 10 sem afirmar pacote release-ready agora.
+- Próximo passo: implementar `parseLegalReferences`/`resolveLegalFoundation` e fechar a RED do matcher, sem integrar worker/painel até a Fase 4.
 
 ## Registro por fase — Fase 1
 
