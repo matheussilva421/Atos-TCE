@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import html
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 from io import StringIO
 import tempfile
 from typing import Any, TYPE_CHECKING
@@ -16,47 +18,202 @@ if TYPE_CHECKING:
     from automation_store import AutomationStore
 
 
-_SENSITIVE_KEY_RE = re.compile(
-    r"(?:token|cookie|password|passwd|secret|credential|authorization|csrf|cpf|"
-    r"session|url|path|filename|file_path)",
+_SENSITIVE_KEY_PARTS = frozenset(
+    {
+        "token",
+        "cookie",
+        "password",
+        "passwd",
+        "secret",
+        "credential",
+        "authorization",
+        "csrf",
+        "cpf",
+        "session",
+        "sessionid",
+        "url",
+        "path",
+        "filename",
+        "file",
+    }
+)
+_EVENT_PAYLOAD_ALLOWLIST = frozenset(
+    {
+        "item_id",
+        "item_key",
+        "process_key",
+        "act_id",
+        "identity",
+        "identities",
+        "fields",
+        "field_results",
+        "before",
+        "after",
+        "method",
+        "source",
+        "origin",
+        "rereads",
+        "re_read",
+        "legal_decision",
+        "decision",
+        "citations",
+        "timestamp",
+        "error",
+        "errors",
+        "reason",
+    }
+)
+_IDENTITY_KEYS = frozenset({"item_id", "process_key", "id", "key", "act_id"})
+_CITATION_KEYS = frozenset({"document_id", "page_id", "page", "label"})
+_SAFE_ID_RE = re.compile(r"[A-Za-z0-9._:/-]{1,256}")
+_URL_RE = re.compile(
+    r"(?:\b(?:https?|wss?|ftp|file|mailto|javascript|data):[^\s<>'\"]+"
+    r"|(?<!\w)//[^\s<>'\"]+|\bwww\.[^\s<>'\"]+)",
     re.IGNORECASE,
 )
-_URL_RE = re.compile(r"https?://[^\s<>'\"]+", re.IGNORECASE)
 _CPF_RE = re.compile(r"(?<!\d)\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2}(?!\d)")
 _TOKEN_RE = re.compile(
-    r"(?:\b(?:access[_-]?token|auth[_-]?token|session[_-]?token|token)\s*[:=]\s*"
-    r"[^\s,;]+|\bBearer\s+[A-Za-z0-9._~+/=-]+)",
+    r"(?:\bBearer\s+[A-Za-z0-9._~+/=-]+"
+    r"|\b(?:access|auth|refresh|session|id|csrf)?[_-]?token\s*[:=]\s*[^\s,;]+"
+    r"|\b(?:api|x[-_]?api|client)[-_]?(?:key|secret)\s*[:=]\s*[^\s,;]+"
+    r"|\bauthorization\s*[:=]\s*(?:Bearer\s+)?[^\s,;]+)",
     re.IGNORECASE,
 )
-_COOKIE_RE = re.compile(
-    r"\b(?:cookie|set-cookie)\s*[:=]\s*[^\s;]+", re.IGNORECASE
+_COOKIE_HEADER_RE = re.compile(
+    r"\b(?:cookie|set-cookie)\s*[:=\s]*[^\r\n]+", re.IGNORECASE
+)
+_COOKIE_PAIR_RE = re.compile(
+    r"\b(?:sessionid|session_id|csrftoken|csrf_token|connect\.sid|"
+    r"auth(?:entication)?[_-]?cookie)\s*[:=]\s*[^\s,;]+",
+    re.IGNORECASE, )
+_JWT_RE = re.compile(
+    r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b"
 )
 _ABSOLUTE_PATH_RE = re.compile(
     r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\|/)[^<>\"'\s;,]+"
 )
+_RELATIVE_PATH_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?:\.\.?[\\/]|(?:[A-Za-z0-9_. -]+[\\/])+)[^<>\"'\s;,]+"
+)
 _FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r", "\n")
 
 
-def _redact(value: Any, key: str = "") -> Any:
-    if key and _SENSITIVE_KEY_RE.search(key):
+def _normalized_key(key: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", key.casefold()).strip("_")
+
+
+def _is_sensitive_key(key: str) -> bool:
+    normalized = _normalized_key(key)
+    if not normalized:
+        return False
+    return bool(_SENSITIVE_KEY_PARTS.intersection(normalized.split("_")))
+
+
+def _redact_text(value: str) -> str:
+    value = _COOKIE_HEADER_RE.sub("[redacted-cookie]", value)
+    value = _COOKIE_PAIR_RE.sub("[redacted-cookie]", value)
+    value = _URL_RE.sub("[redacted-url]", value)
+    value = _TOKEN_RE.sub("[redacted-token]", value)
+    value = _JWT_RE.sub("[redacted-token]", value)
+    value = _CPF_RE.sub("[redacted-cpf]", value)
+    value = _ABSOLUTE_PATH_RE.sub("[redacted-path]", value)
+    return _RELATIVE_PATH_RE.sub("[redacted-path]", value)
+
+
+def _safe_identifier(value: Any) -> str:
+    if isinstance(value, bool):
+        return "[redacted-id]"
+    if isinstance(value, int):
+        if 10**10 <= abs(value) <= 10**11 - 1:
+            return "[redacted-id]"
+        text = str(value)
+    elif isinstance(value, str):
+        text = _redact_text(value)
+    else:
+        return "[redacted-id]"
+    if _SAFE_ID_RE.fullmatch(text):
+        return text
+    return "[redacted-id]"
+
+
+def _safe_citation_object(value: Any) -> dict[str, str | int]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, str | int] = {}
+    for key in _CITATION_KEYS:
+        if key not in value:
+            continue
+        candidate = value[key]
+        if key in {"document_id", "page_id"}:
+            safe = _safe_identifier(candidate)
+            if safe != "[redacted-id]":
+                result[key] = safe
+        elif key == "page":
+            if (
+                isinstance(candidate, int)
+                and not isinstance(candidate, bool)
+                and 0 <= candidate <= 999999
+            ) or (isinstance(candidate, str) and re.fullmatch(r"\d{1,6}", candidate)):
+                result[key] = candidate
+        elif key == "label" and isinstance(candidate, str):
+            label = _redact_text(candidate).strip()
+            if label and all(character.isprintable() for character in label):
+                result[key] = label[:256]
+    return result
+
+
+def _safe_identity(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _safe_identifier(value[key])
+            for key in _IDENTITY_KEYS
+            if key in value and _safe_identifier(value[key]) != "[redacted-id]"
+        }
+    if isinstance(value, list):
+        return [_safe_identity(item) for item in value]
+    return _safe_identifier(value)
+
+
+def _safe_value(value: Any, key: str = "", depth: int = 0) -> Any:
+    if depth > 12:
+        return "[redacted-depth]"
+    if key and _is_sensitive_key(key):
         return "[redacted]"
     if isinstance(value, dict):
-        return {str(child_key): _redact(child, str(child_key)) for child_key, child in value.items()}
+        return {
+            str(child_key): _safe_value(child, str(child_key), depth + 1)
+            for child_key, child in value.items()
+        }
     if isinstance(value, list):
-        return [_redact(child, key) for child in value]
+        return [_safe_value(child, key, depth + 1) for child in value]
     if isinstance(value, tuple):
-        return [_redact(child, key) for child in value]
+        return [_safe_value(child, key, depth + 1) for child in value]
     if isinstance(value, str):
-        value = _URL_RE.sub("[redacted-url]", value)
-        value = _CPF_RE.sub("[redacted-cpf]", value)
-        value = _TOKEN_RE.sub("[redacted-token]", value)
-        value = _COOKIE_RE.sub("[redacted-cookie]", value)
-        return _ABSOLUTE_PATH_RE.sub("[redacted-path]", value)
+        return _redact_text(value)
+    if isinstance(value, int) and not isinstance(value, bool) and 10**10 <= abs(value) <= 10**11 - 1:
+        return "[redacted-cpf]"
+    if isinstance(value, float) and value.is_integer() and 10**10 <= abs(value) <= 10**11 - 1:
+        return "[redacted-cpf]"
     return value
 
 
-def _display(value: Any) -> str:
-    safe = _redact(value)
+def _safe_event_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    safe: dict[str, Any] = {}
+    for key in _EVENT_PAYLOAD_ALLOWLIST:
+        if key not in payload:
+            continue
+        value = payload[key]
+        if key in {"identity", "identities"}:
+            safe[key] = _safe_identity(value)
+        elif key == "citations" and isinstance(value, list):
+            safe[key] = [_safe_citation_object(item) for item in value]
+        else:
+            safe[key] = _safe_value(value, key)
+    return safe
+
+
+def _display(value: Any, key: str = "") -> str:
+    safe = _safe_value(value, key)
     if safe is None:
         return ""
     if isinstance(safe, (dict, list)):
@@ -65,20 +222,19 @@ def _display(value: Any) -> str:
 
 
 def _citation(value: Any) -> str:
-    if not isinstance(value, dict):
+    safe = _safe_citation_object(value)
+    if not safe:
         return "[redacted-citation]"
-    document = value.get("document_id", value.get("document"))
-    page = value.get("page", value.get("page_number"))
-    if not isinstance(document, str) or not document.strip():
-        return "[redacted-citation]"
-    if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", document):
-        return "[redacted-citation]"
-    if isinstance(page, bool) or not isinstance(page, (int, str)):
-        return document
-    page_text = str(page)
-    if not re.fullmatch(r"\d{1,6}", page_text):
-        return document
-    return f"{document}:p.{page_text}"
+    parts = [
+        str(safe[key])
+        for key in ("document_id", "page_id")
+        if key in safe
+    ]
+    if "page" in safe:
+        parts.append(f"p.{safe['page']}")
+    if "label" in safe:
+        parts.append(str(safe["label"]))
+    return " ".join(parts) or "[redacted-citation]"
 
 
 def _citations(value: Any) -> str:
@@ -179,6 +335,7 @@ def _report_rows(run_id: str, events: list[dict[str, Any]]) -> list[dict[str, st
         payload = event.get("payload")
         if not isinstance(payload, dict):
             payload = {}
+        payload = _safe_event_payload(payload)
         item_id = _item_label(payload)
         rereads = _display(payload.get("rereads", payload.get("re_read", [])))
         legal_decision = _display(payload.get("legal_decision", payload.get("decision", {})))
@@ -241,6 +398,9 @@ def _render_html(
         parts.append("<p>nenhum evento</p>")
     for event in events:
         payload = event.get("payload", {})
+        if not isinstance(payload, dict):
+            payload = {}
+        payload = _safe_event_payload(payload)
         parts.extend(
             [
                 "<article>",
@@ -328,31 +488,129 @@ def _stage(path: Path, content: str) -> Path:
     return Path(temporary_name)
 
 
-def _replace_pair(paths_and_temps: list[tuple[Path, Path]]) -> None:
+def _stage_bytes(path: Path, content: bytes) -> Path:
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except Exception:
+        try:
+            os.unlink(temporary_name)
+        except OSError:
+            pass
+        raise
+    return Path(temporary_name)
+
+
+def _fsync_directory(path: Path) -> None:
+    try:
+        descriptor = os.open(str(path), os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        os.close(descriptor)
+
+
+def _restore_replaced(
+    backups: dict[Path, Path],
+    replaced: list[Path],
+) -> OSError | None:
+    restore_error: OSError | None = None
+    for path in reversed(replaced):
+        try:
+            backup = backups.get(path)
+            if backup is None:
+                path.unlink(missing_ok=True)
+            else:
+                os.replace(backup, path)
+        except OSError as exc:
+            restore_error = restore_error or exc
+    return restore_error
+
+
+def _publish_pair_with_manifest(
+    paths_and_temps: list[tuple[Path, Path]],
+    manifest_path: Path,
+    manifest_content: str,
+) -> None:
     previous = {
         path: path.read_bytes() if path.exists() else None
         for path, _temporary in paths_and_temps
     }
+    backups: dict[Path, Path] = {}
     replaced: list[Path] = []
+    manifest_temp: Path | None = None
+    restore_error: OSError | None = None
     try:
         for path, temporary in paths_and_temps:
+            old = previous[path]
+            if old is not None:
+                backups[path] = _stage_bytes(path, old)
             os.replace(temporary, path)
             replaced.append(path)
-    except Exception:
-        for path in replaced:
-            old = previous[path]
-            try:
-                if old is None:
-                    path.unlink(missing_ok=True)
-                else:
-                    path.write_bytes(old)
-            except OSError:
-                pass
-        raise
+        manifest_temp = _stage(manifest_path, manifest_content)
+        os.replace(manifest_temp, manifest_path)
+        _fsync_directory(manifest_path.parent)
+    except Exception as exc:
+        restore_error = _restore_replaced(backups, replaced)
+        if restore_error is not None:
+            raise OSError("falha ao restaurar publicação anterior") from restore_error
+        raise exc
     finally:
         for _path, temporary in paths_and_temps:
             try:
                 temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+        if manifest_temp is not None:
+            try:
+                manifest_temp.unlink(missing_ok=True)
+            except OSError:
+                pass
+        if restore_error is None:
+            for backup in backups.values():
+                try:
+                    backup.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+
+def _stage_generation(
+    generations_directory: Path,
+    generation_id: str,
+    html_content: str,
+    csv_content: str,
+) -> tuple[Path, bool]:
+    generations_directory.mkdir(parents=True, exist_ok=True)
+    generation_directory = generations_directory / generation_id
+    if generation_directory.is_dir():
+        return generation_directory, False
+
+    temporary_directory = Path(
+        tempfile.mkdtemp(prefix=f".{generation_id}.", dir=generations_directory)
+    )
+    try:
+        html_temp = _stage(temporary_directory / "relatorio.html", html_content)
+        csv_temp = _stage(temporary_directory / "relatorio.csv", csv_content)
+        os.replace(html_temp, temporary_directory / "relatorio.html")
+        os.replace(csv_temp, temporary_directory / "relatorio.csv")
+        _fsync_directory(temporary_directory)
+        os.replace(temporary_directory, generation_directory)
+        temporary_directory = Path()
+        _fsync_directory(generations_directory)
+        return generation_directory, True
+    finally:
+        if str(temporary_directory) not in {"", "."}:
+            try:
+                shutil.rmtree(temporary_directory)
             except OSError:
                 pass
 
@@ -363,25 +621,71 @@ def render_run_reports(
     """Render deterministic reports without changing the store."""
 
     snapshot = store.snapshot(run_id)
-    events = store.get_events(run_id)
+    events = store.get_events(run_id, through=snapshot["revision"])
     report_directory = Path(output_root) / "relatorios" / "complementacao" / snapshot["run_id"]
     report_directory.mkdir(parents=True, exist_ok=True)
     html_path = report_directory / "relatorio.html"
     csv_path = report_directory / "relatorio.csv"
+    manifest_path = report_directory / "relatorio.manifest.json"
+    generations_directory = report_directory / ".generations"
     rows = _report_rows(snapshot["run_id"], events)
     html_content = _render_html(snapshot, events, rows)
     csv_content = _render_csv(rows)
+    html_digest = hashlib.sha256(html_content.encode("utf-8")).hexdigest()
+    csv_digest = hashlib.sha256(csv_content.encode("utf-8")).hexdigest()
+    generation_id = hashlib.sha256(
+        f"{html_digest}:{csv_digest}".encode("ascii")
+    ).hexdigest()
+    manifest_content = (
+        json.dumps(
+            {
+                "schema_version": 1,
+                "run_id": snapshot["run_id"],
+                "revision": snapshot["revision"],
+                "event_count": len(events),
+                "generation": generation_id,
+                "html_path": f".generations/{generation_id}/relatorio.html",
+                "csv_path": f".generations/{generation_id}/relatorio.csv",
+                "html_sha256": html_digest,
+                "csv_sha256": csv_digest,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        )
+        + "\n"
+    )
     html_temp: Path | None = None
     csv_temp: Path | None = None
+    generation_directory: Path | None = None
+    generation_created = False
+    published = False
     try:
+        generation_directory, generation_created = _stage_generation(
+            generations_directory,
+            generation_id,
+            html_content,
+            csv_content,
+        )
         html_temp = _stage(html_path, html_content)
         csv_temp = _stage(csv_path, csv_content)
-        _replace_pair([(html_path, html_temp), (csv_path, csv_temp)])
+        _publish_pair_with_manifest(
+            [(html_path, html_temp), (csv_path, csv_temp)],
+            manifest_path,
+            manifest_content,
+        )
+        published = True
     finally:
         for temporary in (html_temp, csv_temp):
             if temporary is not None:
                 try:
                     temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        if generation_created and generation_directory is not None:
+            if not published:
+                try:
+                    shutil.rmtree(generation_directory)
                 except OSError:
                     pass
     return {
@@ -390,4 +694,6 @@ def render_run_reports(
         "event_count": len(events),
         "html_path": str(html_path),
         "csv_path": str(csv_path),
+        "manifest_path": str(manifest_path),
+        "generation": generation_id,
     }

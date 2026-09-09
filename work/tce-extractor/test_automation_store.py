@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import sqlite3
 import sys
 from tempfile import TemporaryDirectory
 import threading
@@ -28,6 +29,7 @@ class AutomationStoreTests(unittest.TestCase):
             ActiveRunError,
             EventConflict,
             EventValidationError,
+            LegacyEventReplayError,
             InvalidTransition,
             RevisionConflict,
         )
@@ -35,6 +37,7 @@ class AutomationStoreTests(unittest.TestCase):
         self.ActiveRunError = ActiveRunError
         self.EventConflict = EventConflict
         self.EventValidationError = EventValidationError
+        self.LegacyEventReplayError = LegacyEventReplayError
         self.InvalidTransition = InvalidTransition
         self.RevisionConflict = RevisionConflict
 
@@ -152,6 +155,40 @@ class AutomationStoreTests(unittest.TestCase):
             "run-1", {**event, "expected_revision": 0}
         )
         self.assertEqual(replay, first)
+
+    def test_legacy_event_without_result_json_fails_closed_on_replay(self) -> None:
+        store = self._store()
+        self.addCleanup(store.close)
+        self._create_running_run(store)
+        event = {
+            "event_id": "event-legacy-result",
+            "type": "item_prepared",
+            "expected_revision": 1,
+            "item_id": "103439/2023",
+        }
+        original = store.append_event("run-1", event)
+
+        connection = sqlite3.connect(store.database_path)
+        connection.execute(
+            "UPDATE events SET result_json = NULL WHERE event_id = ?",
+            ("event-legacy-result",),
+        )
+        connection.commit()
+        connection.close()
+
+        store.append_event(
+            "run-1",
+            {
+                "event_id": "event-after-legacy",
+                "type": "fields_verified",
+                "expected_revision": 2,
+                "item_id": "103439/2023",
+            },
+        )
+
+        with self.assertRaises(self.LegacyEventReplayError):
+            store.append_event("run-1", {**event, "expected_revision": 0})
+        self.assertEqual(original["revision"], 2)
 
     def test_semantically_different_json_payload_conflicts_without_python_coercion(self) -> None:
         store = self._store()
@@ -433,6 +470,36 @@ class AutomationStoreTests(unittest.TestCase):
 
         self.assertEqual(len(successes), 1)
         self.assertEqual(len(failures), 1)
+
+    def test_get_events_can_be_fenced_at_a_snapshot_revision(self) -> None:
+        store = self._store()
+        self.addCleanup(store.close)
+        self._create_running_run(store)
+        store.append_event(
+            "run-1",
+            {
+                "event_id": "fenced-event",
+                "type": "item_prepared",
+                "expected_revision": 1,
+                "item_id": "103439/2023",
+            },
+        )
+        store.append_event(
+            "run-1",
+            {
+                "event_id": "unfenced-event",
+                "type": "fields_verified",
+                "expected_revision": 2,
+                "item_id": "103439/2023",
+            },
+        )
+
+        events = store.get_events("run-1", through=2)
+
+        self.assertEqual([event["event_id"] for event in events], [
+            "event-queue",
+            "fenced-event",
+        ])
 
 
 if __name__ == "__main__":

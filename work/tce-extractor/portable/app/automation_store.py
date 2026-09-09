@@ -71,6 +71,10 @@ class EventConflict(AutomationStoreError):
     """An event ID was reused with a different payload or run."""
 
 
+class LegacyEventReplayError(AutomationStoreError):
+    """A legacy event has no durable result snapshot for safe replay."""
+
+
 class InvalidTransition(AutomationStoreError):
     """An event cannot be applied to the current projection."""
 
@@ -499,7 +503,9 @@ class AutomationStore:
         result_json = row["result_json"]
         if result_json is not None:
             return _decode_json(str(result_json))
-        return self._snapshot_transaction(connection, run_id)
+        raise LegacyEventReplayError(
+            f"evento legado sem resultado persistido: {event_id}"
+        )
 
     def _append_event_transaction(
         self,
@@ -739,16 +745,27 @@ class AutomationStore:
             lambda connection: self._snapshot_transaction(connection, run_id)
         )
 
-    def get_events(self, run_id: str, after: int = 0) -> list[dict]:
+    def get_events(
+        self, run_id: str, after: int = 0, through: int | None = None
+    ) -> list[dict]:
         run_id = _validate_run_id(run_id)
         after = _validate_revision(after, "after")
+        if through is not None:
+            through = _validate_revision(through, "through")
 
         def read(connection: sqlite3.Connection) -> list[dict]:
             self._get_run(connection, run_id)
-            rows = connection.execute(
-                "SELECT * FROM events WHERE run_id = ? AND seq > ? ORDER BY seq",
-                (run_id, after),
-            ).fetchall()
+            if through is None:
+                rows = connection.execute(
+                    "SELECT * FROM events WHERE run_id = ? AND seq > ? ORDER BY seq",
+                    (run_id, after),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    "SELECT * FROM events WHERE run_id = ? AND seq > ? "
+                    "AND seq <= ? ORDER BY seq",
+                    (run_id, after, through),
+                ).fetchall()
             return [self._event_from_row(row) for row in rows]
 
         return self._run_transaction(read)

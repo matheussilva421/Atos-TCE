@@ -160,6 +160,81 @@ class AutomationReportTests(unittest.TestCase):
             ):
                 self.assertNotIn(secret, content)
 
+    def test_reports_allowlist_nested_payload_and_safe_citations(self) -> None:
+        from automation_report import render_run_reports
+
+        store = self._store_with_report_data()
+        self.addCleanup(store.close)
+        store.append_event(
+            "run-report",
+            {
+                "event_id": "nested-sensitive-report",
+                "type": "item_failed",
+                "expected_revision": 3,
+                "item_id": "103439/2023",
+                "error": (
+                    "refresh_token=REFRESH-SECRET; "
+                    "Cookie: a=ONE; sessionid=SESSION-SECRET; "
+                    "csrftoken=CSRF-SECRET; cpf=12345678900; "
+                    "www.session.example.invalid/private"
+                ),
+                "source": (
+                    r"relative\private\source.pdf and C:\absolute\source.pdf"
+                ),
+                "fields": {
+                    "observacao": {
+                        "before": {
+                            "nested": (
+                                "refresh_token=NESTED-SECRET "
+                                "https://session.example.invalid/?sid=URL-SECRET"
+                            ),
+                            "numeric_cpf": 98765432100,
+                            "relative_path": "./nested/private.pdf",
+                        },
+                        "after": "visible legal text",
+                    }
+                },
+                "citations": [
+                    {
+                        "document_id": "document-7",
+                        "page_id": "page-4",
+                        "page": 4,
+                        "label": "Acórdão <seguro>",
+                        "url": "https://session.example.invalid/citation",
+                        "path": r"C:\private\citation.pdf",
+                        "document": "LEGACY-DOCUMENT-SECRET",
+                    }
+                ],
+                "unknown_field": "MUST-NOT-BE-EMITTED",
+            },
+        )
+
+        result = render_run_reports(store, "run-report", self.root)
+        contents = [
+            Path(result["html_path"]).read_text(encoding="utf-8"),
+            Path(result["csv_path"]).read_text(encoding="utf-8"),
+        ]
+
+        for content in contents:
+            for secret in (
+                "REFRESH-SECRET",
+                "SESSION-SECRET",
+                "CSRF-SECRET",
+                "12345678900",
+                "98765432100",
+                "www.session.example.invalid",
+                "URL-SECRET",
+                r"relative\private\source.pdf",
+                r"C:\absolute\source.pdf",
+                "MUST-NOT-BE-EMITTED",
+                "LEGACY-DOCUMENT-SECRET",
+                "citation.pdf",
+            ):
+                self.assertNotIn(secret, content)
+            self.assertIn("document-7", content)
+            self.assertIn("page-4", content)
+            self.assertIn("Acórdão", content)
+
     def test_csv_has_field_rows_and_neutralizes_formula_prefixes(self) -> None:
         from automation_report import render_run_reports
 
@@ -194,6 +269,71 @@ class AutomationReportTests(unittest.TestCase):
         self.assertEqual((directory / "relatorio.html").read_bytes(), old_html)
         self.assertEqual((directory / "relatorio.csv").read_bytes(), old_csv)
         self.assertEqual(list(directory.glob(".relatorio.*.tmp")), [])
+
+    def test_failure_after_first_replace_preserves_published_generation(self) -> None:
+        import automation_report
+        from automation_report import render_run_reports
+
+        store = self._store_with_report_data()
+        self.addCleanup(store.close)
+        first = render_run_reports(store, "run-report", self.root)
+        directory = self.root / "relatorios" / "complementacao" / "run-report"
+        old_html = Path(first["html_path"]).read_bytes()
+        old_csv = Path(first["csv_path"]).read_bytes()
+        manifest_path = Path(first["manifest_path"])
+        old_manifest = manifest_path.read_bytes()
+
+        real_replace = automation_report.os.replace
+
+        def fail_after_html(source, destination):
+            if (
+                Path(destination).parent == directory
+                and Path(destination).name == "relatorio.csv"
+            ):
+                raise OSError("csv replace failed")
+            return real_replace(source, destination)
+
+        with patch.object(automation_report.os, "replace", side_effect=fail_after_html):
+            with self.assertRaises(OSError):
+                render_run_reports(store, "run-report", self.root)
+
+        self.assertEqual(Path(first["html_path"]).read_bytes(), old_html)
+        self.assertEqual(Path(first["csv_path"]).read_bytes(), old_csv)
+        self.assertEqual(manifest_path.read_bytes(), old_manifest)
+        self.assertEqual(list(directory.glob(".relatorio.*.tmp")), [])
+
+    def test_report_uses_snapshot_revision_as_event_upper_bound(self) -> None:
+        from automation_report import render_run_reports
+
+        store = self._store_with_report_data()
+        self.addCleanup(store.close)
+
+        class SnapshotAdvancingStore:
+            def __init__(self, wrapped):
+                self.wrapped = wrapped
+
+            def snapshot(self, run_id):
+                snapshot = self.wrapped.snapshot(run_id)
+                self.wrapped.append_event(
+                    run_id,
+                    {
+                        "event_id": "late-report-event",
+                        "type": "item_failed",
+                        "expected_revision": snapshot["revision"],
+                        "item_id": "103439/2023",
+                    },
+                )
+                return snapshot
+
+            def get_events(self, run_id, after=0, through=None):
+                return self.wrapped.get_events(run_id, after=after, through=through)
+
+        result = render_run_reports(SnapshotAdvancingStore(store), "run-report", self.root)
+
+        self.assertEqual(result["revision"], 3)
+        self.assertEqual(result["event_count"], 3)
+        html = Path(result["html_path"]).read_text(encoding="utf-8")
+        self.assertNotIn("late-report-event", html)
 
 
 if __name__ == "__main__":

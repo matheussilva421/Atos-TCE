@@ -18,7 +18,7 @@ configurado; nenhum push foi realizado.
     `synchronous=FULL`, `foreign_keys=ON` e `busy_timeout=5000`.
   - Abre conexão nova e `BEGIN IMMEDIATE` por operação; falhas fazem rollback.
   - Implementa `create_run`, `freeze_queue`, `append_event`, `snapshot`,
-    `get_events` e `close`.
+    `get_events` (com fence opcional `through`) e `close`.
   - Mantém runs, especificações, revisões, timestamps, itens ordenados,
     eventos globais com sequência por run, comandos extensíveis e atos
     confirmados.
@@ -35,11 +35,15 @@ configurado; nenhum push foi realizado.
   - Registra antes/depois, campos, método/origem, releituras, decisão jurídica,
     citações documentais, timestamps, erros, último confirmado e item
     interrompido.
-  - Escapa HTML, restringe citações a ID de documento/página, redige tokens,
-    cookies, CPF, URLs de sessão e caminhos, e neutraliza células CSV que
-    começam com `=`, `+`, `-`, `@`, tab ou quebra de linha.
-  - Usa temporários com `flush`/`fsync` e `os.replace`, limpando temporários e
-    restaurando o relatório anterior em falha de substituição. Renderizar não
+  - Usa allowlist estrutural de payloads e citações (`document_id`, `page_id`,
+    `page` e `label`), redaction recursiva de tokens, cookies, CPF textual ou
+    numérico, URLs com/sem esquema e caminhos relativos/absolutos, em HTML e
+    CSV; neutraliza células CSV que começam com `=`, `+`, `-`, `@`, tab ou
+    quebra de linha.
+  - Publica uma geração versionada em `.generations/` e troca um manifesto
+    atômico junto com os arquivos de compatibilidade `relatorio.html` e
+    `relatorio.csv`. Falha em qualquer replace restaura o par anterior; os
+    hashes no manifesto impedem aceitar gerações divergentes. Renderizar não
     altera o banco e chamadas repetidas são idempotentes.
 
 - Criados `work/tce-extractor/test_automation_store.py` e
@@ -49,19 +53,19 @@ configurado; nenhum push foi realizado.
 
 ## TDD — RED/GREEN
 
-RED observado antes dos módulos de produção:
+RED observado antes das correções desta rodada:
 
 ```text
 python -m unittest test_automation_store test_automation_report -q
-Resultado: 11 falhas, 0 aprovados; falha esperada por ausência dos módulos
-automation_store.py e automation_report.py.
+Resultado: 22 casos; 1 falha e 16 erros nos contratos novos de redaction,
+fence de revisão, manifesto/publicação e replay legado.
 ```
 
 Após a implementação mínima e a correção do import necessário do renderer:
 
 ```text
 python -m unittest test_automation_store test_automation_report -q
-Resultado: 11 testes executados, 11 passaram, 0 falharam.
+Resultado: 22 testes executados, 22 passaram, 0 falharam.
 ```
 
 ## Testes e validações
@@ -88,22 +92,25 @@ Resultado: sem diagnóstico.
 
 Data: 2026-09-09
 
-Foram corrigidos os seis achados da revisão do commit `d3035da`:
+Foram corrigidos os quatro achados da revisão independente, preservando os
+seis fixes anteriores do commit `f0e1dc8`:
 
-- redaction de tokens, cookies, CPF, URLs de sessão e caminhos absolutos em
-  texto livre de `error`/`source`, tanto no HTML quanto no CSV;
-- recovery de `send_intent` também para runs já `paused`;
-- rejeição de eventos de item após `stopped` ou `completed`;
-- persistência do snapshot resultante por evento para replay exato;
-- comparação de payload por JSON canônico, sem coerção Python (`1` versus
-  `true`); e
-- `expected_revision` obrigatório em `append_event`, antes de abrir transação.
+- allowlist estrutural e redaction recursiva de payload/citações, cobrindo
+  tokens, cookies múltiplos, CPF numérico, URLs `www` e caminhos relativos;
+- leitura de eventos limitada à revisão do snapshot;
+- geração versionada, manifesto/ponteiro atômico e rollback do par HTML/CSV;
+- erro explícito `LegacyEventReplayError` para replay sem `result_json`.
+
+Os fixes anteriores preservados incluem recovery de `send_intent` em runs
+`paused`, terminalidade após `stopped`/`completed`, resultado original em
+replay atual, conflito JSON `1` versus `true`, `expected_revision` obrigatório,
+pragmas/transações SQLite, concorrência e redaction inicial.
 
 TDD da rodada:
 
 ```text
-RED: 17 testes executados, 6 falharam nos seis comportamentos novos.
-GREEN: 17 testes executados, 17 passaram, 0 falharam.
+RED: 22 testes executados; 1 falha e 16 erros nos comportamentos novos.
+GREEN: 22 testes executados, 22 passaram, 0 falharam.
 Focais Python: 69 testes executados, 69 passaram, 0 falharam, 3 skips ambientais.
 py_compile: OK.
 git diff --check: sem diagnóstico.
@@ -114,7 +121,8 @@ O escopo permaneceu restrito a `automation_store.py`,
 worker, painel, empacotamento, autenticação ou envio real foi alterado ou
 executado. A nova coluna `events.result_json` é adicionada de forma compatível
 ao abrir bancos existentes; eventos legados sem esse resultado armazenado
-continuam usando o snapshot atual em replay.
+falham fechadamente com `LegacyEventReplayError`, sem devolver snapshot
+posterior como resultado original.
 
 ## Arquivos sob alteração
 
@@ -135,7 +143,7 @@ continuam usando o snapshot atual em replay.
 3. Nenhum envio real, autenticação de portal ou navegação foi iniciado.
 4. Commit funcional anterior: `d3035da`
    (`feat: persist automation events and incremental reports`).
-5. Esta rodada será consolidada em `fix: harden automation journal invariants`.
+5. Esta rodada será consolidada em `fix: make automation reports transactional and redacted`.
 
 Próxima retomada: revisar este relatório e consumir `AutomationStore` somente
 na fase de API, preservando o gate de envio real e executando novamente os
