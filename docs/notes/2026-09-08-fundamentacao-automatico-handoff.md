@@ -260,3 +260,25 @@
 - GitHub: branch `codex/fundamentacao-automatico`; checkout sem remoto, sem
   push. Retomada: verificar o commit e só depois permitir integração
   sequencial nas fases futuras.
+
+## Atualização final — contrato público da Fase 2
+
+- Estado: correção local pronta para commit; os dois achados da revisão
+  independente foram corrigidos sem tocar worker, painel, API, persistência,
+  navegação ou envio real.
+- Arquivos alterados nesta rodada: `lib/legal-foundation.js`,
+  `lib/matcher.js`, `tests/legal-foundation.test.mjs`,
+  `tests/matcher.test.mjs` e o relatório da Fase 2.
+- Contrato: `LegalDecision.status` público é `selected|pending`; `method` é
+  `exact|rule|similarity|none`. Equivalência estrutural de família conhecida
+  usa `rule`, preservando `kind: "probable"` no matcher legado; sem família
+  usa `exact`.
+- Correção funcional: `hasIncisos` foi restaurada para resolver CF art. 40
+  § 1º, inciso II sem alterar as regras fail-closed anteriores.
+- TDD: RED inicial 58/59; RED após asserts de contrato 49/60; GREEN focal
+  60/60; full 152/152; `git diff --check` sem diagnóstico.
+- Validação manual: somente cenários e testes sintéticos; nenhuma sessão,
+  clique, preenchimento ou envio real foi iniciado.
+- GitHub: branch `codex/fundamentacao-automatico`, checkout sem remoto e sem
+  push. Próximo passo: conferir diff/status, criar o commit solicitado
+  `fix: restore phase 2 public contract` e validar o SHA.

@@ -217,6 +217,10 @@ function hasParagraph(reference, paragraph) {
   return reference.paragraph === paragraph;
 }
 
+function hasIncisos(reference, incisos) {
+  return incisos.every((inciso) => reference.incisos.includes(inciso));
+}
+
 function sourceFamilies(references) {
   const families = [];
   const hasEc41Base = hasArticle(references, "ec", "41", "2003", "6")
@@ -378,7 +382,7 @@ function scoreCandidate(sourceReferences, option, operativeText, sourceFamily) {
     method: exactText
       ? "exact"
       : structurallyEquivalent
-        ? "equivalence"
+        ? (sourceFamily === candidateFamily && sourceFamily !== "OTHER" ? "rule" : "exact")
         : sourceFamily === candidateFamily && sourceFamily !== "OTHER"
           ? "rule"
           : score > 0
@@ -521,7 +525,7 @@ export function resolveLegalFoundation({ context, options = [] } = {}) {
   if (tied.length > 1) return baseDecision(context, ["equivalent-candidates", `tie:${tied.length}`], candidates, best.score);
   return {
     ...best,
-    status: "resolved",
+    status: "selected",
     method: best.method,
     rule_id: best.rule_id,
     option_value: best.option_value,

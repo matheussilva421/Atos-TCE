@@ -103,8 +103,8 @@ test("resolves EC47 article 3 structurally and preserves ranking and citations",
     ],
   });
 
-  assert.equal(result.status, "resolved");
-  assert.equal(result.method, "equivalence");
+  assert.equal(result.status, "selected");
+  assert.equal(result.method, "rule");
   assert.equal(result.rule_id, "EC47_ART3");
   assert.equal(result.option_value, "ec47");
   assert.equal(result.option_label.startsWith("Civil - Artigo 3"), true);
@@ -125,7 +125,7 @@ test("selects EC41 without paragraph 5 and ignores cargo as a paragraph-5 signal
     ],
   });
 
-  assert.equal(result.status, "resolved");
+  assert.equal(result.status, "selected");
   assert.equal(result.rule_id, "EC41_SEM_P5");
   assert.equal(result.option_value, "without-p5");
 });
@@ -141,7 +141,7 @@ test("selects EC41 with paragraph 5 only when CF art. 40 § 5 is operative", () 
     ],
   });
 
-  assert.equal(result.status, "resolved");
+  assert.equal(result.status, "selected");
   assert.equal(result.rule_id, "EC41_COM_P5");
   assert.equal(result.option_value, "with-p5");
 });
@@ -157,7 +157,7 @@ test("ignores a historical CF paragraph 5 before the operative RESOLVE marker", 
     ],
   });
 
-  assert.equal(result.status, "resolved");
+  assert.equal(result.status, "selected");
   assert.equal(result.rule_id, "EC41_SEM_P5");
   assert.equal(result.option_value, "without-p5");
 });
@@ -168,7 +168,7 @@ test("accepts an isolated EC41 article 7 when it is linked to EC41/2003", () => 
     options: [option("EC41_SEM_P5", "without-p5", "EC41 sem art. 40, § 5º")],
   });
 
-  assert.equal(result.status, "resolved");
+  assert.equal(result.status, "selected");
   assert.equal(result.option_value, "without-p5");
   assert.equal(result.rule_id, "EC41_SEM_P5");
 });
@@ -182,7 +182,7 @@ test("does not let article 6-A participate in the EC41 article 6 rule", () => {
     ],
   });
 
-  assert.equal(result.status, "resolved");
+  assert.equal(result.status, "selected");
   assert.equal(result.option_value, "article-6a");
   assert.equal(result.rule_id, null);
 });
@@ -196,7 +196,7 @@ test("resolves CF article 40 paragraph 1 item II without an EC rule id", () => {
     ],
   });
 
-  assert.equal(result.status, "resolved");
+  assert.equal(result.status, "selected");
   assert.equal(result.option_value, "cf40");
   assert.equal(result.rule_id, null);
 });
@@ -266,10 +266,58 @@ test("resolves bare EC47 article 3 and keeps extra qualifiers optional", () => {
     )],
   });
 
-  assert.equal(result.status, "resolved");
+  assert.equal(result.status, "selected");
   assert.equal(result.method, "rule");
   assert.equal(result.rule_id, "EC47_ART3");
   assert.equal(result.option_value, "ec47");
+});
+
+test("exposes only the public LegalDecision statuses and methods", () => {
+  const cases = [
+    {
+      name: "text exact",
+      context: contextFor("Artigo 1º da EC nº 20/2020."),
+      options: [option(null, "exact", "Artigo 1º da EC nº 20/2020.")],
+      status: "selected",
+      method: "exact",
+    },
+    {
+      name: "structural family rule",
+      context: contextFor("RESOLVE: Art. 7º da EC nº 41/2003."),
+      options: [option("EC41_SEM_P5", "structural", "Artigo 7º da EC nº 41/2003")],
+      status: "selected",
+      method: "rule",
+    },
+    {
+      name: "operational rule",
+      context: contextFor("RESOLVE: Art. 3º da EC nº 47/2005."),
+      options: [option("EC47_ART3", "rule", "Artigo 3º, parágrafo único, da EC nº 47/2005")],
+      status: "selected",
+      method: "rule",
+    },
+    {
+      name: "similarity",
+      context: contextFor("RESOLVE: Art. 1º da EC nº 20/2020."),
+      options: [option(null, "similar", "Artigo 2º da EC nº 20/2020")],
+      status: "selected",
+      method: "similarity",
+    },
+    {
+      name: "pending",
+      context: contextFor("", { resolution_status: "incomplete" }),
+      options: [option(null, "pending", "Artigo 1º da EC nº 20/2020")],
+      status: "pending",
+      method: "none",
+    },
+  ];
+
+  for (const entry of cases) {
+    const result = resolveLegalFoundation({ context: entry.context, options: entry.options });
+    assert.ok(["selected", "pending"].includes(result.status), entry.name);
+    assert.ok(["exact", "rule", "similarity", "none"].includes(result.method), entry.name);
+    assert.equal(result.status, entry.status, entry.name);
+    assert.equal(result.method, entry.method, entry.name);
+  }
 });
 
 test("uses structural equivalence before rule or similarity", () => {
@@ -282,8 +330,8 @@ test("uses structural equivalence before rule or similarity", () => {
     )],
   });
 
-  assert.equal(result.status, "resolved");
-  assert.equal(result.method, "equivalence");
+  assert.equal(result.status, "selected");
+  assert.equal(result.method, "rule");
   assert.equal(result.option_value, "equivalent");
 });
 

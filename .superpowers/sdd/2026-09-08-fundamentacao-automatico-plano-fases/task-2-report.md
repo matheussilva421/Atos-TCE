@@ -98,9 +98,9 @@ Também foi executado `git diff --check` sem diagnóstico.
   `pending` mesmo quando aparecem em artigos diferentes.
 - EC47: `EC47_ART3` exige apenas art. 3º da EC47/2005; parágrafo único e
   incisos permanecem qualificadores opcionais.
-- Precedência: referências estruturalmente equivalentes recebem
-  `method: "equivalence"`, antes de `rule`/`similarity`; a compatibilidade
-  legada do matcher permanece inalterada.
+- Precedência: referências estruturalmente equivalentes são avaliadas antes de
+  `rule`/`similarity`; a interface pública não expõe `equivalence`: famílias
+  conhecidas usam `method: "rule"` e equivalência sem família usa `exact`.
 - TDD: RED confirmado em 7 testes novos (52 anteriores verdes); GREEN final
   em 59/59 testes focais.
 - Validação completa: `npm test` passou em 151/151 testes; `git diff --check`
@@ -108,3 +108,23 @@ Também foi executado `git diff --check` sem diagnóstico.
 - Escopo preservado: nenhum worker, painel, API, persistência ou envio real foi
   alterado ou executado.
 - Commit: `fix: close phase 2 review findings`.
+
+## Rodada final — revisão independente do contrato público
+
+- RED inicial confirmado no checkout: o focal executou 59 testes, com 58
+  passando e 1 falhando por `ReferenceError: hasIncisos is not defined` no
+  caminho CF art. 40 § 1º II (`lib/legal-foundation.js`).
+- RED de contrato confirmado após os testes adicionais: 60 testes, 49
+  passando e 11 falhando, cobrindo `resolved`/`equivalence` fora do contrato
+  público.
+- Correções mínimas: adicionada a verificação de incisos para `CF40_P1_II`;
+  decisões selecionadas agora retornam `status: "selected"`; equivalência
+  estrutural retorna `rule` para família conhecida ou `exact` sem família;
+  `matcher.js` reconhece `selected` e preserva `kind: "probable"`.
+- Testes de contrato cobrem exclusivamente status `selected|pending` e
+  métodos `exact|rule|similarity|none`, além do caminho pending.
+- Focal final: 60 testes executados, 60 passaram, 0 falharam.
+- Full final (`npm test`): 152 testes executados, 152 passaram, 0 falharam.
+- `git diff --check`: sem diagnóstico.
+- Escopo preservado: nenhum worker, painel, API, persistência ou envio real foi
+  alterado ou executado.

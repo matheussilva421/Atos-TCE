@@ -466,7 +466,7 @@ test("returns pending with a null option when foundation scoring has no positive
   assert.equal(result.optionLabel, null);
 });
 
-test("carries a resolved legal decision without changing the legacy matcher fields", () => {
+test("carries a selected legal decision without changing the legacy matcher fields", () => {
   const result = rankPortalOptions({
     field: "fundamento_legal",
     documentaryValue: "texto legado",
@@ -483,6 +483,6 @@ test("carries a resolved legal decision without changing the legacy matcher fiel
 
   assert.equal(result.kind, "probable");
   assert.equal(result.optionValue, "synthetic-ec47-art3");
-  assert.equal(result.legalDecision.status, "resolved");
+  assert.equal(result.legalDecision.status, "selected");
   assert.equal(result.legalDecision.rule_id, "EC47_ART3");
 });

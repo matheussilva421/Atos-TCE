@@ -241,7 +241,7 @@ export function rankPortalOptions({ field, documentaryValue, hints = {}, options
       ? null
       : options.findIndex((option) => optionParts(option).value === legalDecision.option_value);
     return {
-      kind: legalDecision.status === "resolved"
+      kind: legalDecision.status === "selected"
         ? (legalDecision.method === "exact" ? "exact" : "probable")
         : "pending",
       optionIndex: optionIndex >= 0 ? optionIndex : null,
