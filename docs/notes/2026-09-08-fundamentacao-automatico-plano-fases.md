@@ -14,7 +14,7 @@
 
 **Revisão de 09/09/2026:** a Fase 9 agora possui portal sintético servido em Chrome, navegação por páginas/seleção, frame de formulário e bloqueio de envio sem serviço; o journal cobre 25 atos, três pendências e timeout no ordinal exato. A infraestrutura local do piloto opt-in foi adicionada: flag `--automation-pilot`, modo de um ato, limite durável de um comando, delegação `AUTO_START` ao worker e ação explícita no painel, sem habilitar envio real. A Fase 10 passou a carregar os módulos de automação no pacote completo, reconhecer `alarms` e exigir a versão de extensão `1.1.0`. O painel também tem gate estático de contraste, idioma, IDs/labels e cópia de segurança. Nenhum teste local é evidência do portal real.
 
-**Revisão de 09/09/2026 — composição final:** o packager público passou a incluir todos os módulos declarados pela extensão. Após RED por oito arquivos ausentes na allowlist, GREEN foi confirmado com `test_package_audit` e com um ZIP temporário de 95.815.350 bytes (`SHA-256 1d8204b92911c790771e78cd0d3b192e3e123868de72d49cae097c800e8e756d`). A extração limpa passou runtime Python/Tesseract, manifesto, auditoria pública, imports/hashes e `TESTAR-PACOTE.ps1`; a permissão `alarms` também foi alinhada no diagnóstico PowerShell. Isso prova a composição offline local, não o smoke Chrome nem o portal real.
+**Revisão de 09/09/2026 — composição final:** o packager público passou a incluir todos os módulos declarados pela extensão e as dependências Python de `local_service.py` (`automation_store.py`, `automation_report.py` e `legal_context.py`). Após RED por oito assets da extensão e três módulos Python ausentes na allowlist, GREEN foi confirmado com `test_package_audit` e com um ZIP temporário de 95.838.277 bytes (`SHA-256 5d8496be04bccfd461b9476531ce95ad0c5fbd5cc3202b7f9b09a2a5fa497900`). A extração limpa passou runtime Python/Tesseract, manifesto, auditoria pública, imports/hashes, `TESTAR-PACOTE.ps1` e a sequência local `service.json` → `pair` → `capabilities`; a permissão `alarms` também foi alinhada no diagnóstico PowerShell. Isso prova a composição offline local, não o smoke Chrome nem o portal real.
 
 **Revisão de 08/09/2026:** redesign solicitado após a primeira versão. A fase 8 foi ampliada em cinco entregas de design e implementação, com wireframes, tokens, acessibilidade, testes e impactos no empacotamento. O redesign foi implementado no side panel; o gate real do portal permanece separado e pendente.
 
@@ -397,10 +397,11 @@ Comandos: em P, `python -m unittest test_automation_api test_local_service test_
 - [ ] Reproduzir no pacote portátil real: `INICIAR.cmd` inicia o serviço e
   exibe um código de pareamento, mas a extensão permanece desconectada após o
   código ser inserido.
-- [ ] Capturar, em fixture/teste local, a sequência completa
+- [x] Capturar, em fixture/teste local, a sequência completa
   `INICIAR.cmd` → `service.json`/código → `POST /api/v1/pair` → primeira
   chamada autenticada (`capabilities`), registrando status HTTP e erro tipado
-  sem expor o código.
+  sem expor o código. O teste de subprocesso também confirma PID/porta do
+  serviço e consumo único do código.
 - [ ] Verificar a corrida entre o launcher oculto e a criação de
   `dados-locais/bridge/service.json`, a reutilização de um processo existente,
   expiração/consumo único do código, `Origin` da extensão e o token emitido.
@@ -419,8 +420,16 @@ fabricam mais `service.json` quando o helper encerra ou não confirma a ponte;
 `Wait-TceLocalServiceReady` valida PID/porta e preserva o modo manual. O teste
 `work/tce-extractor/tests/Test-PortableMenu.ps1` passou 75/75. Isso corrige a
 falha de prontidão do launcher, mas não substitui a reprodução no pacote real
-nem a sequência autenticada `pair` → `capabilities`; os quatro gates acima
-permanecem pendentes.
+nem a confirmação de conexão da extensão carregada no Chrome; o primeiro, o
+terceiro e o quarto gates acima permanecem pendentes. A sequência local
+autenticada está coberta pelo teste e pela validação offline descritos abaixo.
+
+**Validação local adicional em 09/09/2026:** o ZIP público recomposto iniciou
+`app/local_service.py` com `runtime/python/python.exe`, publicou `service.json`,
+respondeu `pair=200` e `capabilities=200` com `real_send_enabled=false`, e foi
+encerrado pelo helper sem deixar a ponte ativa. O teste automatizado equivalente
+está em `work/tce-extractor/test_local_service.py`; isso fecha somente o
+contrato local da sequência, não a conexão da extensão carregada no Chrome.
 
 ## 10. Fase 5 — navegação, frames e descoberta da fila
 

@@ -13,9 +13,10 @@ worker`), seguidos de `453a043` (`docs: record portable runtime probe`) e
 em `9ad2a50`, `76e37f5`, `5e1617c` e `407ca6c`, além de `42eeeac`
 (`fix: require portable service readiness`) e `21e9a63` (`docs: record launcher
 gate boundary`), `9d21441` (`feat: harden automation confirmation recovery`),
-`a8ae6e2` (`fix: complete portable package inventory`) e `1fcfad8` (`docs:
-record verified portable composition`). O repositório não possui remoto
-configurado, portanto não há push.
+`a8ae6e2` (`fix: complete portable package inventory`), `1fcfad8` (`docs:
+record verified portable composition`) e `e1d9618` (`test: verify portable
+bridge startup sequence`). O repositório não possui remoto configurado,
+portanto não há push.
 
 O launcher portátil agora exige `service.json` produzido pelo próprio helper;
 se o processo encerra ou não confirma a ponte, o menu não fabrica PID/porta e
@@ -65,10 +66,17 @@ em 5/5.
 O runtime staging disponível foi executado diretamente com `-I -B -s`: Python
 3.14.4, SQLite 3.50.4 e imports de `automation_store`/`local_service` passaram.
 Depois, o packager público foi corrigido para copiar oito assets de automação
-que estavam ausentes da allowlist. A composição final extraída em pasta limpa
-passou runtime Python/Tesseract, manifesto, auditoria pública e diagnóstico
-PowerShell: ZIP temporário de 95.815.350 bytes, SHA-256
-`1d8204b92911c790771e78cd0d3b192e3e123868de72d49cae097c800e8e756d`.
+que estavam ausentes da allowlist. A validação de startup revelou também que
+`local_service.py` precisava de `automation_report.py`, `automation_store.py` e
+`legal_context.py`; os três módulos agora são copiados explicitamente. A
+composição final extraída em pasta limpa passou runtime Python/Tesseract,
+manifesto, auditoria pública e diagnóstico PowerShell: ZIP temporário de
+95.838.277 bytes, SHA-256
+`5d8496be04bccfd461b9476531ce95ad0c5fbd5cc3202b7f9b09a2a5fa497900`.
+
+No mesmo ZIP, o serviço portátil publicou `service.json`, aceitou `pair=200`,
+respondeu `capabilities=200` autenticado com `real_send_enabled=false`,
+rejeitou o reuso do código com 401 e foi encerrado pelo helper.
 
 O diagnóstico PowerShell também foi alinhado à permissão `alarms` do manifesto.
 O RED foi observado primeiro no contrato da allowlist (8 assets) e depois no
@@ -103,14 +111,15 @@ encerradas; não produziram alterações nem evidência adicional.
 
 1. Repetir a suíte ampla somente se houver novas alterações; o último gate amplo
    anterior foi `382/382`, com 5 skips ambientais. O gate JavaScript atual passou
-   `255/255`; API/store/report passou `56/56`, recuperação `5/5`, o focal de
-   pacote/end-to-end passou `44` testes com `2` skips, e
+   `255/255`; API/store/report passou `56/56`, recuperação `5/5`, o focal
+   pacote/end-to-end/serviço passou `68` testes com `3` skips, e
    `Test-TcePortable.ps1` passou `114/114`.
 2. Manter `42eeeac` como referência da correção do launcher; depois rodar
    `git diff --check` e `git status --short --branch`.
 3. Se houver nova alteração, revisar mudanças privadas/ignoradas e fazer stage
    explícito; não usar `git add .`. O bloco de packager/teste/diagnóstico foi
-   commitado em `a8ae6e2`; esta documentação foi atualizada em `1fcfad8`.
+   commitado em `a8ae6e2`, a sequência bridge em `e1d9618`; esta documentação
+   foi atualizada em `1fcfad8` e deve receber o fechamento deste bloco.
 4. Os commits `61dce28`, `c4246c6`, `453a043` e `0ec7109` contêm
    guard/piloto, delegação ao worker, controles, probe e reconciliação das
    tasks locais; o gate formal de acessibilidade está em `692ed27`.
