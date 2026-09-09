@@ -611,14 +611,19 @@ test("content scripts ignore messages owned by the other installed listener", ()
 test("message handler exposes snapshots and field results without allowing unsupported operations", async () => {
   const { documentRef, controls } = buildForm();
   const handler = createMessageHandler(documentRef);
-  const snapshot = await handler({ type: "GET_FORM_SNAPSHOT", payload: {} });
+  const snapshot = await handler(createMessage(
+    MESSAGE_TYPES.GET_FORM_SNAPSHOT,
+    {},
+    "handler-plan",
+  ));
   assert.equal(snapshot.ok, true);
   assert.equal(snapshot.payload.process.key, "103439/2023");
 
-  const applied = await handler({
-    type: "APPLY_FIELDS",
-    payload: { fields: { data_publicacao_doe: "07/02/2020" } },
-  });
+  const applied = await handler(createMessage(
+    MESSAGE_TYPES.APPLY_FIELDS,
+    { fields: { data_publicacao_doe: "07/02/2020" } },
+    "handler-plan",
+  ));
   assert.equal(applied.ok, true);
   assert.deepEqual(applied.payload.changed, ["data_publicacao_doe"]);
   assert.equal(controls.txtDataDOE.value, "07/02/2020");
@@ -626,6 +631,51 @@ test("message handler exposes snapshots and field results without allowing unsup
   const unsupported = await handler({ type: "UNKNOWN", payload: {} });
   assert.equal(unsupported.ok, false);
   assert.match(unsupported.error.code, /UNSUPPORTED_MESSAGE/u);
+});
+
+test("blocks APPLY_FIELDS without a valid snapshot plan", async () => {
+  const { documentRef, controls } = buildForm();
+  const handler = createMessageHandler(documentRef);
+
+  const applied = await handler(createMessage(
+    MESSAGE_TYPES.APPLY_FIELDS,
+    { fields: { data_publicacao_doe: "07/02/2020" } },
+    "apply-without-snapshot",
+  ));
+
+  assert.equal(applied.ok, false);
+  assert.equal(applied.error.code, "APPLY_BLOCKED");
+  assert.match(applied.error.message, /snapshot|plan/u);
+  assert.deepEqual(applied.payload.changed, []);
+  assert.equal(controls.txtDataDOE.value, "");
+});
+
+test("invalidates the previous plan when a new snapshot replaces its base", async () => {
+  const { documentRef, controls } = buildForm();
+  const handler = createMessageHandler(documentRef);
+
+  assert.equal((await handler(createMessage(
+    MESSAGE_TYPES.GET_FORM_SNAPSHOT,
+    {},
+    "snapshot-plan-old",
+  ))).ok, true);
+  controls.txtCargo.value = "Cargo atualizado";
+  assert.equal((await handler(createMessage(
+    MESSAGE_TYPES.GET_FORM_SNAPSHOT,
+    {},
+    "snapshot-plan-new",
+  ))).ok, true);
+
+  const staleApply = await handler(createMessage(
+    MESSAGE_TYPES.APPLY_FIELDS,
+    { fields: { data_publicacao_doe: "07/02/2020" } },
+    "snapshot-plan-old",
+  ));
+
+  assert.equal(staleApply.ok, false);
+  assert.equal(staleApply.error.code, "APPLY_BLOCKED");
+  assert.match(staleApply.error.message, /snapshot|plan/u);
+  assert.equal(controls.txtDataDOE.value, "");
 });
 
 test("validated APPLY_FIELDS transports matchKinds through the handler to green and yellow classes", async () => {
@@ -650,7 +700,7 @@ test("validated APPLY_FIELDS transports matchKinds through the handler to green 
         fundamento_legal: "probable",
       },
     },
-    "apply-with-colors",
+    "snapshot-for-colors",
   ));
 
   assert.equal(applied.ok, true);
@@ -682,7 +732,7 @@ test("blocks the whole typed APPLY_FIELDS plan when any field changed after its 
         cargo: "exact",
       },
     },
-    "apply-after-divergence",
+    "snapshot-before-automatic-apply",
   ));
 
   assert.equal(applied.ok, false);

@@ -908,6 +908,81 @@ test("automation messages preserve manual fallback when the old service has no b
   assert.equal(response.error.code, "AUTOMATION_UNAVAILABLE");
 });
 
+test("AUTO_START resolves the authenticated worker bridge without exposing its token", async () => {
+  const storage = storageMock();
+  const token = "opaque-worker-token";
+  const session = storageMock({
+    [STORAGE_KEYS.BRIDGE_BASE_URL]: "http://127.0.0.1:18743",
+    [STORAGE_KEYS.BRIDGE_TOKEN]: token,
+  });
+  const bridgeCalls = [];
+  let factoryOptions = null;
+  const bridge = {
+    async createAutomationRun(spec, eventId) {
+      bridgeCalls.push(["start", spec, eventId]);
+      return { api_version: 1, run_id: "run-authenticated", revision: 0, status: "discovering", items: [], last_confirmed_item_id: null };
+    },
+    async getDataset() {
+      bridgeCalls.push(["dataset"]);
+      return { api_version: 1, revision: 1, dataset: { batch: { logical_sha256: "a".repeat(64) } } };
+    },
+    async freezeAutomationQueue(runId, queue) {
+      bridgeCalls.push(["freeze", runId, queue]);
+      return { api_version: 1, run_id: runId, revision: 1, status: "running", items: [], last_confirmed_item_id: null };
+    },
+    async controlAutomationRun(runId, body) {
+      bridgeCalls.push(["control", runId, body]);
+      return { api_version: 1, run_id: runId, revision: 1, status: "paused", items: [], last_confirmed_item_id: null };
+    },
+  };
+  const sent = [];
+  const chromeApi = chromeMock(
+    storage,
+    async (_tabId, message, options) => {
+      sent.push({ message, options });
+      return {
+        ok: true,
+        frameId: options?.frameId ?? 12,
+        payload: {
+          role: "list",
+          generation: 1,
+          sector: "aposentadorias",
+          identities: [],
+          actions: [],
+        },
+      };
+    },
+    session,
+  );
+  const worker = createServiceWorker({
+    chromeApi,
+    bridgeClientFactory(options) {
+      factoryOptions = options;
+      return bridge;
+    },
+  });
+
+  const response = await worker.handleMessage(createMessage(MESSAGE_TYPES.AUTO_START, {
+    spec: {
+      tabId: 7,
+      sector: "aposentadorias",
+      datasetSha256: "a".repeat(64),
+      rulesVersion: "legal-foundation-v1",
+    },
+    eventId: "auto-authenticated",
+  }, "auto-authenticated"), extensionSender());
+
+  assert.equal(response.ok, true);
+  assert.equal(response.payload.runId, "run-authenticated");
+  assert.deepEqual(factoryOptions, {
+    baseUrl: "http://127.0.0.1:18743",
+    token,
+  });
+  assert.equal(JSON.stringify(response).includes(token), false);
+  assert.equal(JSON.stringify(sent).includes(token), false);
+  assert.deepEqual(bridgeCalls.map(([name]) => name), ["start", "dataset", "freeze"]);
+});
+
 test("contextual getMatch caches by identity, dataset, rules and revision", async () => {
   const dataset = await makeDataset();
   const calls = [];

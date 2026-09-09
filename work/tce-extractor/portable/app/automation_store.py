@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 import re
 import sqlite3
+import time
 import uuid
 from typing import Any, Callable
 
@@ -45,6 +46,7 @@ EVENT_TYPES = frozenset(
         "item_pending",
         "item_failed",
         "send_unconfirmed",
+        "command_consumed",
         "run_paused",
         "run_resumed",
         "run_stopped",
@@ -143,7 +145,7 @@ def _identity_key(identity: dict[str, Any]) -> str:
 
 def _identity_reference(identity: dict[str, Any]) -> set[str]:
     values = {_identity_key(identity)}
-    for key in ("item_id", "process_key", "id", "key", "act_id"):
+    for key in ("item_id", "process_key", "portal_act_id", "id", "key", "act_id"):
         value = identity.get(key)
         if isinstance(value, (str, int)) and not isinstance(value, bool):
             values.add(str(value))
@@ -606,6 +608,8 @@ class AutomationStore:
                 ).fetchone()[0]
                 if active_items:
                     raise InvalidTransition("não é possível concluir itens não terminais")
+        elif event_type == "command_consumed":
+            raise InvalidTransition("command_consumed só pode ser criado por consume_command")
         else:
             if current_state != "running" and not (
                 recovery
@@ -638,6 +642,21 @@ class AutomationStore:
             "VALUES (?, ?, ?, ?, ?, ?)",
             (event_id, run_id, seq, event_type, _canonical_json(payload), timestamp),
         )
+        if event_type == "send_intent" and payload.get("command_id") is not None:
+            command_id = _validate_event_id(payload["command_id"])
+            expires_at = payload.get("expires_at")
+            if isinstance(expires_at, bool) or not isinstance(expires_at, int) or expires_at <= 0:
+                raise EventValidationError("expires_at do comando deve ser inteiro positivo")
+            existing_command = connection.execute(
+                "SELECT run_id FROM commands WHERE command_id = ?", (command_id,)
+            ).fetchone()
+            if existing_command is not None:
+                raise EventConflict(f"command_id já usado: {command_id}")
+            connection.execute(
+                "INSERT INTO commands(command_id, run_id, command_type, payload_json, status, created_at) "
+                "VALUES (?, ?, 'portal_submit', ?, 'issued', ?)",
+                (command_id, run_id, _canonical_json(payload), timestamp),
+            )
 
         if event_type == "queue_frozen":
             for ordinal, identity in enumerate(identities, start=1):
@@ -846,6 +865,74 @@ class AutomationStore:
                 expected_revision,
             )
         )
+
+    def consume_command(
+        self,
+        run_id: str,
+        command_id: str,
+        expected_revision: int,
+        *,
+        now_ms: int | None = None,
+    ) -> dict[str, Any]:
+        """Consume one issued portal command using a durable compare-and-set."""
+        run_id = _validate_run_id(run_id)
+        command_id = _validate_event_id(command_id)
+        expected_revision = _validate_revision(expected_revision)
+        current_time_ms = int(time.time() * 1000) if now_ms is None else now_ms
+        if isinstance(current_time_ms, bool) or not isinstance(current_time_ms, int):
+            raise EventValidationError("now_ms deve ser inteiro")
+
+        def consume(connection: sqlite3.Connection) -> dict[str, Any]:
+            run = self._get_run(connection, run_id)
+            actual_revision = int(run["revision"])
+            command = connection.execute(
+                "SELECT * FROM commands WHERE command_id = ? AND run_id = ?",
+                (command_id, run_id),
+            ).fetchone()
+            if command is None:
+                raise InvalidTransition("COMMAND_NOT_FOUND")
+            if str(command["status"]) != "issued":
+                raise InvalidTransition("COMMAND_ALREADY_CONSUMED")
+            if str(run["state"]) != "running":
+                raise InvalidTransition("COMMAND_NOT_READY")
+            if expected_revision != actual_revision:
+                raise RevisionConflict(expected_revision, actual_revision)
+            payload = _decode_json(str(command["payload_json"]))
+            expires_at = payload.get("expires_at") if isinstance(payload, dict) else None
+            if isinstance(expires_at, bool) or not isinstance(expires_at, int) or expires_at <= current_time_ms:
+                raise InvalidTransition("COMMAND_EXPIRED")
+            item = self._find_item(connection, run_id, payload)
+            if str(item["state"]) != "send_intent":
+                raise InvalidTransition("COMMAND_NOT_READY")
+
+            seq = actual_revision + 1
+            timestamp = _now()
+            event_id = f"command-consumed:{command_id}:{seq}"
+            self._reserve_event_id(connection, event_id)
+            event_payload = {"command_id": command_id}
+            connection.execute(
+                "INSERT INTO events(event_id, run_id, seq, event_type, payload_json, created_at) "
+                "VALUES (?, ?, ?, 'command_consumed', ?, ?)",
+                (event_id, run_id, seq, _canonical_json(event_payload), timestamp),
+            )
+            connection.execute(
+                "UPDATE commands SET status = 'consumed', consumed_at = ? WHERE command_id = ? AND run_id = ?",
+                (timestamp, command_id, run_id),
+            )
+            connection.execute(
+                "UPDATE runs SET revision = ?, updated_at = ? WHERE run_id = ? AND root_key = ?",
+                (seq, timestamp, run_id, str(self.root)),
+            )
+            result = self._snapshot_transaction(connection, run_id)
+            connection.execute(
+                "UPDATE events SET result_json = ? WHERE event_id = ?",
+                (_canonical_json(result), event_id),
+            )
+            result["dispatch_allowed"] = True
+            result["command_id"] = command_id
+            return result
+
+        return self._run_transaction(consume)
 
     def replay_queue(
         self,

@@ -45,7 +45,7 @@ function statusToPublic(state) {
     totals: state.totals,
     frame: state.frame,
     items: state.queue.map((identity, index) => ({
-      item_id: identityKey(identity),
+      item_id: itemId(identity),
       ordinal: index + 1,
       identity: clone(identity),
       state: index === 0 && state.currentIdentity ? "active" : "queued",
@@ -151,7 +151,90 @@ function decorateFormSnapshot(snapshot, portalSnapshot, frameId) {
 }
 
 function itemId(identity) {
-  return `${identity?.processKey ?? ""}:${identity?.interestedNormalized ?? ""}`;
+  return identity?.portalActId || identity?.processKey || "";
+}
+
+function sortKeys(value) {
+  if (Array.isArray(value)) return value.map(sortKeys);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortKeys(value[key])]));
+}
+
+async function sha256Hex(value) {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) throw new Error("SHA-256 indisponível para evidência de automação");
+  const bytes = new TextEncoder().encode(JSON.stringify(sortKeys(value)));
+  const digest = await subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function safeLegalDecision(value) {
+  if (!isRecord(value)) return null;
+  return Object.fromEntries(["status", "method", "rule_id", "option_value", "rules_version"]
+    .filter((key) => typeof value[key] === "string")
+    .map((key) => [key, value[key]]));
+}
+
+function safeMatchKinds(value) {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(AUTOMATION_FIELDS.map((field) => [field, value[field]]));
+}
+
+function fieldStatus(field) {
+  if (!isRecord(field)) return "missing";
+  if (field.disabled === true) return "disabled";
+  if (field.readOnly === true) return "readOnly";
+  return field.value ? "present" : "empty";
+}
+
+async function fieldEvidence(snapshot, values, statuses = {}) {
+  const evidence = {};
+  for (const field of AUTOMATION_FIELDS) {
+    const fieldState = snapshot?.fields?.[field];
+    const value = values?.[field] ?? fieldState?.value ?? "";
+    evidence[field] = {
+      status: statuses[field] ?? fieldStatus(fieldState),
+      valueHash: await sha256Hex(String(value)),
+      optionsHash: await sha256Hex(snapshot?.options?.[field] ?? []),
+      disabled: fieldState?.disabled === true,
+      readOnly: fieldState?.readOnly === true,
+      redacted: true,
+    };
+  }
+  return evidence;
+}
+
+async function fieldResults(before, after, preparation) {
+  const expected = expectedFieldValuesForEvidence(before, preparation);
+  return Object.fromEntries(await Promise.all(AUTOMATION_FIELDS.map(async (field) => {
+    const actual = after?.fields?.[field]?.value ?? "";
+    return [field, {
+      status: String(actual) === String(expected[field]) ? "verified" : "mismatch",
+      expectedHash: await sha256Hex(String(expected[field] ?? "")),
+      actualHash: await sha256Hex(String(actual)),
+      redacted: true,
+    }];
+  })));
+}
+
+function expectedFieldValuesForEvidence(before, preparation) {
+  return Object.fromEntries(AUTOMATION_FIELDS.map((field) => [
+    field,
+    Object.hasOwn(preparation.fields, field)
+      ? preparation.fields[field]
+      : preparation.preserved[field] ?? before.fields[field]?.value ?? "",
+  ]));
+}
+
+function contextEvidence(context) {
+  if (!isRecord(context)) return null;
+  const result = Object.fromEntries(["schema_version", "dataset_sha256", "process_key", "interested_normalized", "resolution_status"]
+    .filter((key) => context[key] !== undefined)
+    .map((key) => [key, context[key]]));
+  for (const key of ["context_revision", "rules_version"]) {
+    if (context[key] !== undefined) result[key] = context[key];
+  }
+  return result;
 }
 
 function eventPrefix(value) {
@@ -282,6 +365,10 @@ export function createAutomationController({
   }
 
   async function appendAutomationEvent(identity, type, payload) {
+    if (resolveAutomaticAct && typeof bridge.appendAutomationEvent !== "function") {
+      setPaused("automation event persistence unavailable");
+      return false;
+    }
     if (typeof bridge.appendAutomationEvent !== "function") return true;
     const event = {
       eventId: `${eventPrefix(state.eventPrefix)}:${type}:${String(++eventSequence)}`,
@@ -301,7 +388,8 @@ export function createAutomationController({
   }
 
   async function readFormSnapshot(tabId, frameId) {
-    const response = await sendPortalMessage(tabId, MESSAGE_TYPES.GET_FORM_SNAPSHOT, {}, frameId);
+    const snapshotRequestId = `${state.eventPrefix}-form-snapshot-${String(now())}-${String(++messageSequence)}`;
+    const response = await sendPortalMessage(tabId, MESSAGE_TYPES.GET_FORM_SNAPSHOT, {}, frameId, snapshotRequestId);
     const requestedFrameId = Number.isSafeInteger(frameId) && frameId >= 0 ? frameId : null;
     const responseFrameId = Number.isSafeInteger(response?.frameId) && response.frameId >= 0 ? response.frameId : null;
     if (requestedFrameId !== null && responseFrameId !== null && requestedFrameId !== responseFrameId) {
@@ -309,7 +397,7 @@ export function createAutomationController({
     }
     const snapshot = formSnapshotFromResponse(response);
     if (!snapshot) throw new Error("form snapshot unavailable");
-    return snapshot;
+    return { snapshot, requestId: snapshotRequestId };
   }
 
   function expectedFieldValues(before, preparation) {
@@ -333,6 +421,17 @@ export function createAutomationController({
     const expected = expectedFieldValues(before, preparation);
     for (const field of AUTOMATION_FIELDS) {
       if (after.fields[field]?.value !== expected[field]) return `reread field mismatch: ${field}`;
+      if (!before.fields?.[field]
+        || !after.fields?.[field]
+        || before.fields[field].disabled !== after.fields[field].disabled
+        || before.fields[field].readOnly !== after.fields[field].readOnly) {
+        return `reread field state mismatch: ${field}`;
+      }
+      const beforeOptions = before.options?.[field] ?? [];
+      const afterOptions = after.options?.[field] ?? [];
+      if (JSON.stringify(beforeOptions) !== JSON.stringify(afterOptions)) {
+        return `reread option catalog mismatch: ${field}`;
+      }
     }
     for (const [field, proposed] of Object.entries(preparation.fields)) {
       const options = after.options?.[field];
@@ -353,9 +452,12 @@ export function createAutomationController({
 
   async function prepareAndVerifyForm(tabId, frameId, portalSnapshot, identity) {
     let before;
+    let snapshotRequestId;
     let resolved;
     try {
-      before = decorateFormSnapshot(await readFormSnapshot(tabId, frameId), portalSnapshot, frameId);
+      const beforeResponse = await readFormSnapshot(tabId, frameId);
+      before = decorateFormSnapshot(beforeResponse.snapshot, portalSnapshot, frameId);
+      snapshotRequestId = beforeResponse.requestId;
       resolved = await resolveAutomaticAct(identity, clone(before), clone(portalSnapshot));
     } catch (error) {
       const persisted = await recordItemFailure(identity, error instanceof Error ? error.message : "automatic resolver failed");
@@ -376,11 +478,25 @@ export function createAutomationController({
       return { stop: !persisted };
     }
 
-    const prepared = await appendAutomationEvent(identity, "item_prepared", {
-      reason: "automatic preparation is eligible",
-      before: Object.fromEntries(AUTOMATION_FIELDS.map((field) => [field, before.fields[field]?.value ?? ""])),
-      after: expectedFieldValues(before, preparation),
-    });
+    let preparedPayload;
+    try {
+      const expected = expectedFieldValues(before, preparation);
+      preparedPayload = {
+        reason: "automatic preparation is eligible",
+        identity: clone(identity),
+        frame: { generation: before.generation, frameId },
+        dataset_sha256: resolved?.context?.dataset_sha256 ?? resolved?.record?.dataset_sha256,
+        context_hash: await sha256Hex(contextEvidence(resolved?.context)),
+        legalDecision: safeLegalDecision(resolved?.legalDecision),
+        matchKinds: safeMatchKinds(resolved?.matchKinds),
+        before: await fieldEvidence(before, Object.fromEntries(AUTOMATION_FIELDS.map((field) => [field, before.fields[field]?.value ?? ""]))),
+        after: await fieldEvidence(before, expected, Object.fromEntries(AUTOMATION_FIELDS.map((field) => [field, Object.hasOwn(preparation.fields, field) ? "planned" : "preserved"]))),
+      };
+    } catch (error) {
+      const persisted = await recordItemFailure(identity, error instanceof Error ? error.message : "automatic evidence unavailable");
+      return { stop: !persisted };
+    }
+    const prepared = await appendAutomationEvent(identity, "item_prepared", preparedPayload);
     if (!prepared) return { stop: true };
 
     let applyResponse;
@@ -388,7 +504,7 @@ export function createAutomationController({
       applyResponse = await sendPortalMessage(tabId, MESSAGE_TYPES.APPLY_FIELDS, {
         fields: clone(preparation.fields),
         matchKinds: clone(resolved?.matchKinds ?? {}),
-      }, frameId);
+      }, frameId, snapshotRequestId);
     } catch (error) {
       const persisted = await recordItemFailure(identity, error instanceof Error ? error.message : "APPLY_FIELDS failed");
       return { stop: !persisted };
@@ -405,7 +521,7 @@ export function createAutomationController({
     let after;
     let portalAfter;
     try {
-      after = decorateFormSnapshot(await readFormSnapshot(tabId, frameId), portalSnapshot, frameId);
+      after = decorateFormSnapshot((await readFormSnapshot(tabId, frameId)).snapshot, portalSnapshot, frameId);
       const rereadPortal = await readPortalSnapshot(tabId, frameId);
       if (!rereadPortal) throw new Error("portal snapshot unavailable after APPLY_FIELDS");
       portalAfter = rereadPortal.snapshot;
@@ -420,10 +536,7 @@ export function createAutomationController({
       return { stop: !persisted };
     }
     const verified = await appendAutomationEvent(identity, "fields_verified", {
-      fieldResults: Object.fromEntries(AUTOMATION_FIELDS.map((field) => [field, {
-        expected: expectedFieldValues(before, preparation)[field],
-        actual: after.fields[field].value,
-      }])),
+      fieldResults: await fieldResults(before, after, preparation),
       rereads: [{ identity: after.identity, frame: frameId, generation: after.generation }],
     });
     return { stop: !verified };
@@ -815,6 +928,29 @@ export function createAutomationController({
     return statusToPublic(state);
   }
 
+  async function consumeCommand(input = {}) {
+    if (typeof bridge.consumeAutomationCommand !== "function") {
+      throw Object.assign(new Error("automation bridge cannot consume commands"), { code: "AUTOMATION_UNAVAILABLE" });
+    }
+    if (state.status !== "running" || input.runId !== state.runId) {
+      throw Object.assign(new Error("automation command is not active"), { code: "COMMAND_NOT_READY" });
+    }
+    if (input.tabId !== state.tabId || input.frameId !== state.frame?.frameId
+      || state.frame?.role !== "buttons" || input.generation !== state.frame?.generation) {
+      throw Object.assign(new Error("automation command frame is not authorized"), { code: "COMMAND_FRAME_MISMATCH" });
+    }
+    if (!sameCanonicalIdentity(input.identity, state.currentIdentity)) {
+      throw Object.assign(new Error("automation command identity changed"), { code: "COMMAND_IDENTITY_MISMATCH" });
+    }
+    const result = await bridge.consumeAutomationCommand(
+      state.runId,
+      input.commandId,
+      input.expectedRevision,
+    );
+    snapshotStatus(state, result);
+    return result;
+  }
+
   if (chromeApi.tabs.onRemoved?.addListener) {
     chromeApi.tabs.onRemoved.addListener((tabId) => {
       if (tabId === state.tabId && ACTIVE_STATUSES.has(state.status)) {
@@ -858,6 +994,7 @@ export function createAutomationController({
     pause: (input) => control("pause", input),
     resume: (input) => control("resume", input),
     stop: (input) => control("stop", input),
+    consumeCommand,
     status,
     handlePortalEvent,
     ranker,

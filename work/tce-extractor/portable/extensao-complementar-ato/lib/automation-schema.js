@@ -29,6 +29,10 @@ const EVENT_PAYLOAD_KEYS = new Set([
   "fieldResults",
   "before",
   "after",
+  "frame",
+  "dataset_sha256",
+  "context_hash",
+  "matchKinds",
   "method",
   "origin",
   "rereads",
@@ -44,14 +48,37 @@ const EVENT_PAYLOAD_KEYS = new Set([
 ]);
 
 const EVENT_PAYLOAD_CONTRACTS = new Map([
-  ["item_prepared", { required: [["reason"]], allowed: new Set(["reason", "before", "after"]) }],
+  ["item_prepared", {
+    required: [
+      ["reason"],
+      ["identity"],
+      ["frame"],
+      ["dataset_sha256"],
+      ["context_hash"],
+      ["legalDecision"],
+      ["matchKinds"],
+      ["before"],
+      ["after"],
+    ],
+    allowed: new Set([
+      "reason",
+      "identity",
+      "frame",
+      "dataset_sha256",
+      "context_hash",
+      "legalDecision",
+      "matchKinds",
+      "before",
+      "after",
+    ]),
+  }],
   ["fields_verified", {
     required: [["fieldResults"], ["rereads", "reRead"]],
     allowed: new Set(["fieldResults", "rereads", "reRead"]),
   }],
   ["send_intent", {
-    required: [["expectedFieldsHash"]],
-    allowed: new Set(["expectedFieldsHash", "identity", "fields", "method", "origin", "timestamp"]),
+    required: [["expectedFieldsHash"], ["commandId", "command_id"], ["expiresAt", "expires_at"]],
+    allowed: new Set(["expectedFieldsHash", "identity", "fields", "method", "origin", "timestamp", "commandId", "command_id", "expiresAt", "expires_at"]),
   }],
   ["send_confirmed", {
     required: [["identity"], ["origin"], ["timestamp"], ["fields"], ["citations"]],
@@ -176,6 +203,91 @@ export function validateAutomationQueue(value) {
   return value;
 }
 
+const AUTOMATION_FIELDS = Object.freeze([
+  "modalidade",
+  "fundamento_legal",
+  "data_publicacao_doe",
+  "cargo",
+  "matricula",
+  "data_nascimento",
+  "genero",
+]);
+const MATCH_KINDS = new Set(["exact", "probable", "tie"]);
+const EVIDENCE_STATUSES = new Set(["empty", "present", "disabled", "readOnly", "missing", "planned", "preserved"]);
+
+function validateFieldEvidenceMap(value, label) {
+  if (!isRecord(value)) invalid(`${label} must be an object`, "INVALID_VALUE");
+  for (const [key, rawValue] of Object.entries(value)) {
+    if (AUTOMATION_FIELDS.includes(key)
+      && (!isRecord(rawValue) || !Object.hasOwn(rawValue, "valueHash") || !Object.hasOwn(rawValue, "optionsHash"))) {
+      invalid(`${label}.${key} must be redacted evidence`, "INVALID_VALUE");
+    }
+  }
+  exactKeys(value, AUTOMATION_FIELDS);
+  for (const field of AUTOMATION_FIELDS) {
+    const evidence = value[field];
+    if (!isRecord(evidence)) invalid(`${label}.${field} must be an object`, "INVALID_VALUE");
+    exactKeys(evidence, ["status", "valueHash", "optionsHash", "disabled", "readOnly", "redacted"]);
+    if (!EVIDENCE_STATUSES.has(evidence.status)) invalid(`${label}.${field}.status is invalid`, "INVALID_VALUE");
+    if (typeof evidence.valueHash !== "string" || !SHA256_RE.test(evidence.valueHash)) {
+      invalid(`${label}.${field}.valueHash is invalid`, "INVALID_VALUE");
+    }
+    if (typeof evidence.optionsHash !== "string" || !SHA256_RE.test(evidence.optionsHash)) {
+      invalid(`${label}.${field}.optionsHash is invalid`, "INVALID_VALUE");
+    }
+    if (typeof evidence.disabled !== "boolean" || typeof evidence.readOnly !== "boolean" || typeof evidence.redacted !== "boolean") {
+      invalid(`${label}.${field} flags are invalid`, "INVALID_VALUE");
+    }
+  }
+}
+
+function validateFieldResults(value) {
+  if (!isRecord(value)) invalid("fieldResults must be an object", "INVALID_VALUE");
+  for (const [key, rawValue] of Object.entries(value)) {
+    if (AUTOMATION_FIELDS.includes(key)
+      && (!isRecord(rawValue) || !Object.hasOwn(rawValue, "expectedHash") || !Object.hasOwn(rawValue, "actualHash"))) {
+      invalid(`fieldResults.${key} must be hashed evidence`, "INVALID_VALUE");
+    }
+  }
+  exactKeys(value, AUTOMATION_FIELDS);
+  for (const field of AUTOMATION_FIELDS) {
+    const result = value[field];
+    if (!isRecord(result)) invalid(`fieldResults.${field} must be an object`, "INVALID_VALUE");
+    exactKeys(result, ["status", "expectedHash", "actualHash", "redacted"]);
+    if (!new Set(["verified", "mismatch"]).has(result.status)) invalid(`fieldResults.${field}.status is invalid`, "INVALID_VALUE");
+    if (typeof result.expectedHash !== "string" || !SHA256_RE.test(result.expectedHash)) invalid(`fieldResults.${field}.expectedHash is invalid`, "INVALID_VALUE");
+    if (typeof result.actualHash !== "string" || !SHA256_RE.test(result.actualHash)) invalid(`fieldResults.${field}.actualHash is invalid`, "INVALID_VALUE");
+    if (typeof result.redacted !== "boolean") invalid(`fieldResults.${field}.redacted is invalid`, "INVALID_VALUE");
+  }
+}
+
+function validatePreparedEvidence(payload) {
+  validateAutomationIdentity(payload.identity);
+  if (!isRecord(payload.frame)) invalid("item_prepared frame must be an object", "INVALID_VALUE");
+  exactKeys(payload.frame, ["generation", "frameId"]);
+  if (!Number.isSafeInteger(payload.frame.generation) || payload.frame.generation < 1) invalid("item_prepared generation is invalid", "INVALID_VALUE");
+  if (!Number.isSafeInteger(payload.frame.frameId) || payload.frame.frameId < 0) invalid("item_prepared frameId is invalid", "INVALID_VALUE");
+  for (const key of ["dataset_sha256", "context_hash"]) {
+    if (typeof payload[key] !== "string" || !SHA256_RE.test(payload[key])) invalid(`item_prepared ${key} is invalid`, "INVALID_VALUE");
+  }
+  if (!isRecord(payload.legalDecision)) invalid("item_prepared legalDecision must be an object", "INVALID_VALUE");
+  const legalKeys = new Set(["status", "method", "rule_id", "option_value", "rules_version"]);
+  if (Object.keys(payload.legalDecision).some((key) => !legalKeys.has(key))) invalid("item_prepared legalDecision contains an unexpected key", "UNEXPECTED_KEY");
+  if (payload.legalDecision.status !== "selected" || typeof payload.legalDecision.method !== "string" || payload.legalDecision.method === "none") {
+    invalid("item_prepared legalDecision is not selected", "INVALID_VALUE");
+  }
+  for (const key of ["method", "rule_id", "option_value", "rules_version"]) {
+    nonEmptyString(payload.legalDecision[key], `item_prepared legalDecision.${key}`);
+  }
+  if (!isRecord(payload.matchKinds)) invalid("item_prepared matchKinds must be an object", "INVALID_VALUE");
+  exactKeys(payload.matchKinds, AUTOMATION_FIELDS);
+  for (const [field, kind] of Object.entries(payload.matchKinds)) {
+    if (!MATCH_KINDS.has(kind)) invalid(`item_prepared matchKinds.${field} is invalid`, "INVALID_VALUE");
+  }
+  validateFieldEvidenceMap(payload.before, "item_prepared before");
+  validateFieldEvidenceMap(payload.after, "item_prepared after");
+}
+
 function validateEventPayload(payload, type) {
   if (!isRecord(payload)) invalid("event payload must be an object", "INVALID_EVENT_PAYLOAD");
   const contract = EVENT_PAYLOAD_CONTRACTS.get(type);
@@ -184,7 +296,7 @@ function validateEventPayload(payload, type) {
     if (!aliases.some((key) => Object.hasOwn(payload, key))) invalid("missing event payload key", "MISSING_KEY");
   }
   const stringKeys = new Set(["reason", "error", "origin", "timestamp", "expectedFieldsHash", "method"]);
-  const recordKeys = new Set(["identity", "fields", "before", "after", "fieldResults", "legalDecision", "decision"]);
+  const recordKeys = new Set(["identity", "fields", "before", "after", "fieldResults", "legalDecision", "decision", "frame", "matchKinds"]);
   const listKeys = new Set(["rereads", "reRead", "citations", "errors"]);
   for (const [key, value] of Object.entries(payload)) {
     if (stringKeys.has(key)) nonEmptyString(value, key);
@@ -196,6 +308,14 @@ function validateEventPayload(payload, type) {
     if (Object.keys(payload.identity).length === 0) invalid("identity must not be empty", "INVALID_VALUE");
     if (Object.keys(payload.fields).length === 0) invalid("fields must not be empty", "INVALID_VALUE");
     if (payload.citations.length === 0) invalid("citations must not be empty", "INVALID_VALUE");
+  }
+  if (type === "item_prepared") validatePreparedEvidence(payload);
+  if (type === "fields_verified") validateFieldResults(payload.fieldResults);
+  if (type === "send_intent") {
+    const command = payload.commandId ?? payload.command_id;
+    const expiresAt = payload.expiresAt ?? payload.expires_at;
+    nonEmptyString(command, "send_intent commandId");
+    if (!Number.isSafeInteger(expiresAt) || expiresAt <= 0) invalid("send_intent expiresAt is invalid", "INVALID_VALUE");
   }
   rejectPrivateKeys(payload);
 }

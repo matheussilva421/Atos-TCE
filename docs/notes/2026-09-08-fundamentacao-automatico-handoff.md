@@ -4,7 +4,7 @@
 
 - Implementação iniciada em `codex/fundamentacao-automatico`, derivada de `main` em `dc84402`.
 - O ledger vivo está em `.superpowers/sdd/2026-09-08-fundamentacao-automatico-plano-fases/progress.md` (git-ignorado) e registra tasks, conflitos e decisões.
-- Task atual: Fase 6 — preparação e preenchimento verificável; Fases 1–5 aprovadas e fechadas.
+- Task atual: Fase 7 — envio único, confirmação e recuperação no simulador; Fases 1–6 implementadas e fechadas localmente.
 - Baseline desta execução: `npm test` 124/124 pass; Python focal 99/99 pass, 1 skip ambiental. Warnings de `fitz` depreciado e `ResourceWarning` já aparecem na baseline e não foram introduzidos nesta branch.
 - Fase 0 concluída e revisada: commits `b99fd80` e `54dcf9f`; fixtures/testes sanitizados aprovados em re-revisão Luna. A suíte JS pós-fase ficou 125/126 porque a regressão RED do matcher continua intencional para a Fase 2.
 - Fase 1 aprovada em revisão final após cinco rounds de correção: commits de código `f0a72b5`, `e84ac95`, `8b3a411`, `e85aa35`, `d305ee6`, `0876f2d` e documentação `5b1a732`, `8a64d4d`, `86837a9`, `559b089`, `6a3b63c`, `45e225e`. Último foco: 18/18 testes de contexto, 7/7 pipeline dirigido, 89/89 focal Python, 19/19 batch runner; revisão final Approved. O pacote portátil continua pendente para a Fase 10.
@@ -90,6 +90,32 @@
 5. Não executar lote real apenas porque o plano foi salvo. Esta solicitação foi de documentação.
 6. Nenhuma reversão funcional necessária; alterações funcionais serão feitas apenas na branch de execução.
 7. Para o redesign, ler toda a seção 13.1–13.5 antes de trocar a marcação: `ELEMENT_IDS`, `renderRows`, mensagem permanente, fixtures e allowlist precisam ser atualizados juntos na implementação.
+
+## Registro por fase — Fase 7 — envio único e recuperação
+
+- Implementado localmente o submitter tipado de `content/portal-submit.js`.
+  O frame de botões exige comando emitido, prazo de 15 s, frame/geração,
+  identidade e hash de campos; localiza somente um botão habilitado com texto
+  exato `Complementar Ato`, consome antes do clique e não repete após consumo
+  ou incerteza.
+- `classifyPortalOutcome` só confirma com sinal de aceitação e releitura
+  posterior da identidade esperada; timeout, falha, queda, diálogo
+  desconhecido ou estado divergente permanecem `unconfirmed`.
+- Worker/controller/bridge/mensagens validam a origem e o frame e expõem
+  consumo autenticado de comando. O store SQLite registra `send_intent`, o
+  comando `issued`, `command_consumed` por CAS e a conversão de intenção aberta
+  para `unconfirmed` ao reabrir. A API local expõe o endpoint de consumo com
+  códigos tipados para repetição, expiração e estado inválido.
+- TDD/gates: `node --test tests/portal-submit.test.mjs` 6/6; `npm test`
+  238/238; `python -m unittest test_automation_recovery -q` 3/3;
+  `node --check`, `compile()` e `git diff --check` verdes.
+- Limites: apenas simulador/harness local; nenhum clique ou envio real, nenhum
+  dado de processo/token publicado, `real_send_enabled=false`. Subagents de
+  revisão foram encerrados por timeout sem aprovação independente adicional.
+- Arquivos de continuidade: `docs/notes/2026-09-09-fase7-task-7-report.md` e
+  `docs/notes/2026-09-09-fase7-task-7-handoff.md`. Próximo passo: Fase 8,
+  lendo as seções 13.1–13.5 e testando o painel sem fazê-lo retomar lote por
+  conta própria.
 
 ## Registro por fase — Fase 0
 
@@ -428,3 +454,26 @@
 - Status: revisão independente final da Fase 5 **APROVADA**, sem achados.
 - Próxima tarefa: Fase 6, com preflight separado, escrita allowlisted e
   verificação pós-eventos; sem deslocar envio para o controller da Fase 5.
+
+## Registro por fase — Fase 6 — preparação e preenchimento verificável
+
+- Estado: integração implementada no commit `850421c`; remediações de revisão
+  estão no checkout atual e aguardam commit.
+- Correções incluídas: snapshot `requestId` obrigatório e invalidável; bridge
+  autenticado lazy no worker a partir de storage local/sessão; contexto
+  validado por dataset/identidade/regras; `item_id` canônico compatível com o
+  store; auditoria integrada fail-closed; evidência por hashes sem valores dos
+  sete campos; reread completo de catálogos e estados.
+- Arquivos: controller, service worker, detector, schema de automação e testes
+  de controller/detector/worker/schema/bridge/painel.
+- Validação: focal 146/146 e `npm test` 231/231; `node --check` e
+  `git diff --check` verdes; probe Python temporário confirmou a transição do
+  store `queue_frozen → prepared` usando `process_key`.
+- Revisões: duas revisões independentes iniciais encontraram achados, todos
+  corrigidos e cobertos; duas tentativas de re-revisão foram encerradas por
+  timeout sem novos achados reportados. O estado é sustentado pelos gates
+  locais acima, sem declarar validação de portal real.
+- Limite: `unittest discover` encontrou 0 testes Python neste checkout. Nenhum
+  clique, preenchimento ou envio real foi executado.
+- Próxima tarefa: Fase 7, criando comando de envio de uso único, confirmação e
+  recuperação apenas em harness/simulador local.

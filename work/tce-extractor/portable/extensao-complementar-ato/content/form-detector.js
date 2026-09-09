@@ -25,6 +25,10 @@ function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function clone(value) {
+  return value === undefined ? undefined : structuredClone(value);
+}
+
 function normalizeInterestedName(value) {
   if (typeof value !== "string") return "";
   return value
@@ -442,7 +446,8 @@ function emitComplementarAtoSignal(documentRef, identity) {
 
 function createMessageHandler(documentRef = globalThis.document) {
   let lastIdentity = null;
-  let lastSnapshot = null;
+  let activeSnapshotPlan = null;
+  const usedSnapshotRequestIds = new Set();
 
   return async function handleMessage(message) {
     if (!isRecord(message) || typeof message.type !== "string" || !isRecord(message.payload)) {
@@ -450,23 +455,42 @@ function createMessageHandler(documentRef = globalThis.document) {
     }
     try {
       if (message.type === "GET_FORM_SNAPSHOT") {
+        activeSnapshotPlan = null;
+        lastIdentity = null;
+        if (typeof message.requestId === "string" && usedSnapshotRequestIds.has(message.requestId)) {
+          return errorResponse("SNAPSHOT_PLAN_INVALID", "snapshot request id was already used");
+        }
         const snapshot = getFormSnapshot(documentRef);
         if (!isVisibleForm(documentRef)) return errorResponse("FORM_NOT_VISIBLE", "Complementar Ato form is not visible");
         if (!snapshot) return errorResponse("FORM_NOT_FOUND", "Complementar Ato form sentinels are incomplete");
         lastIdentity = readIdentity(documentRef);
-        lastSnapshot = snapshot;
+        if (typeof message.requestId === "string" && message.requestId) {
+          usedSnapshotRequestIds.add(message.requestId);
+          activeSnapshotPlan = {
+            requestId: message.requestId,
+            identity: clone(lastIdentity),
+            snapshot: clone(snapshot),
+          };
+        }
         return { ok: true, payload: snapshot };
       }
       if (message.type === "APPLY_FIELDS") {
-        if (lastSnapshot && !sameFormSnapshot(lastSnapshot, getFormSnapshot(documentRef))) {
+        if (!activeSnapshotPlan || activeSnapshotPlan.requestId !== message.requestId) {
+          const result = emptyResult();
+          result.errors.push("a valid form snapshot plan is required before APPLY_FIELDS");
+          return { ok: false, payload: result, error: { code: "APPLY_BLOCKED", message: result.errors[0] } };
+        }
+        if (!sameFormSnapshot(activeSnapshotPlan.snapshot, getFormSnapshot(documentRef))) {
+          activeSnapshotPlan = null;
           const result = emptyResult();
           result.errors.push("form snapshot changed since GET_FORM_SNAPSHOT");
           return { ok: false, payload: result, error: { code: "APPLY_BLOCKED", message: result.errors[0] } };
         }
         const result = applyFields(documentRef, message.payload.fields, {
-          expectedIdentity: lastIdentity,
+          expectedIdentity: activeSnapshotPlan.identity,
           matchKinds: message.payload.matchKinds,
         });
+        activeSnapshotPlan = null;
         return result.errors.length > 0
           ? { ok: false, payload: result, error: { code: "APPLY_BLOCKED", message: result.errors.join("; ") } }
           : { ok: true, payload: result };
@@ -544,6 +568,11 @@ if (typeof module === "object" && module !== null && module.exports) {
   module.exports.createMessageHandler = createMessageHandler;
   module.exports.installContentScript = installContentScript;
 } else {
+  globalThis.TCEFormDetector = Object.freeze({
+    getFormSnapshot,
+    applyFields,
+    overrideField,
+  });
   const runtimeDocument = typeof globalThis !== "undefined" ? globalThis.document : undefined;
   const runtimeChrome = typeof globalThis !== "undefined" ? globalThis.chrome : undefined;
   if (runtimeDocument && runtimeChrome?.runtime?.onMessage) {

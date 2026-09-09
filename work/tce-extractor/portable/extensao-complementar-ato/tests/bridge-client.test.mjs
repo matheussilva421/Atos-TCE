@@ -2,6 +2,27 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createBridgeClient, pairBridge } from '../lib/bridge-client.js';
 
+const AUTOMATION_FIELDS = [
+  'modalidade',
+  'fundamento_legal',
+  'data_publicacao_doe',
+  'cargo',
+  'matricula',
+  'data_nascimento',
+  'genero',
+];
+
+function redactedFieldEvidence() {
+  return Object.fromEntries(AUTOMATION_FIELDS.map((field) => [field, {
+    status: 'present',
+    valueHash: 'a'.repeat(64),
+    optionsHash: 'a'.repeat(64),
+    disabled: false,
+    readOnly: false,
+    redacted: true,
+  }]));
+}
+
 test('selection update never applies fields', async () => {
   const calls = [];
   const bridge = createBridgeClient({
@@ -225,7 +246,23 @@ test('bridge exposes authenticated automation methods with closed wire payloads'
     expectedRevision: 1,
     itemId: '103439/2023',
     type: 'item_prepared',
-    payload: { reason: 'prepared' },
+    payload: {
+      reason: 'prepared',
+      identity: { processKey: '103439/2023', interestedNormalized: 'ana', portalActId: null },
+      frame: { generation: 1, frameId: 0 },
+      dataset_sha256: 'a'.repeat(64),
+      context_hash: 'a'.repeat(64),
+      legalDecision: {
+        status: 'selected',
+        method: 'rule',
+        rule_id: 'rule-1',
+        option_value: 'option-1',
+        rules_version: 'legal-foundation-v1',
+      },
+      matchKinds: Object.fromEntries(AUTOMATION_FIELDS.map((field) => [field, 'exact'])),
+      before: redactedFieldEvidence(),
+      after: redactedFieldEvidence(),
+    },
   });
   await bridge.controlAutomationRun('run-1', { action: 'pause', eventId: 'pause-1', expectedRevision: 2 });
 
@@ -256,4 +293,35 @@ test('new automation client falls back to manual mode when an old service lacks 
     }),
   });
   assert.equal(await bridge.getAutomationCapabilities(), null);
+});
+
+test('bridge consumes a command once and returns dispatch authorization separately from the snapshot', async () => {
+  const calls = [];
+  const bridge = createBridgeClient({
+    baseUrl: 'http://127.0.0.1:18743',
+    token: 'test',
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          api_version: 1,
+          dispatch_allowed: true,
+          command_id: 'command-1',
+          run_id: 'run-1',
+          revision: 5,
+          status: 'running',
+          items: [],
+          last_confirmed_item_id: null,
+        }),
+      };
+    },
+  });
+
+  const result = await bridge.consumeAutomationCommand('run-1', 'command-1', 4);
+  assert.equal(result.dispatch_allowed, true);
+  assert.equal(result.command_id, 'command-1');
+  assert.match(calls[0].url, /\/automation\/runs\/run-1\/commands\/command-1\/consume$/u);
+  assert.deepEqual(JSON.parse(calls[0].options.body), { expected_revision: 4 });
 });

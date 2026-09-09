@@ -7,6 +7,7 @@ import {
 } from "./schema.js";
 import {
   validateAutomationEvent,
+  validateAutomationIdentity,
   validateAutomationRunSpec,
   validateControlRequest,
   validateLegalContext,
@@ -26,6 +27,7 @@ export const MESSAGE_TYPES = Object.freeze({
   AUTO_RESUME: "AUTO_RESUME",
   AUTO_STOP: "AUTO_STOP",
   AUTO_STATUS: "AUTO_STATUS",
+  AUTO_CONSUME_COMMAND: "AUTO_CONSUME_COMMAND",
   PORTAL_GET_SNAPSHOT: "PORTAL_GET_SNAPSHOT",
   PORTAL_NAVIGATE: "PORTAL_NAVIGATE",
   PORTAL_EVENT: "PORTAL_EVENT",
@@ -284,6 +286,18 @@ function validatePayload(type, payload) {
     case MESSAGE_TYPES.AUTO_STATUS:
       exactKeys(payload, ["runId"], "AUTO_STATUS payload");
       nonEmptyString(payload.runId, "AUTO_STATUS runId", 128);
+      break;
+    case MESSAGE_TYPES.AUTO_CONSUME_COMMAND:
+      exactKeys(payload, ["runId", "commandId", "expectedRevision", "generation", "identity"], "AUTO_CONSUME_COMMAND payload");
+      nonEmptyString(payload.runId, "AUTO_CONSUME_COMMAND runId", 128);
+      nonEmptyString(payload.commandId, "AUTO_CONSUME_COMMAND commandId", 256);
+      if (!Number.isSafeInteger(payload.expectedRevision) || payload.expectedRevision < 0) invalid("AUTO_CONSUME_COMMAND expectedRevision is invalid");
+      if (!Number.isSafeInteger(payload.generation) || payload.generation < 1) invalid("AUTO_CONSUME_COMMAND generation is invalid");
+      try {
+        validateAutomationIdentity(payload.identity);
+      } catch (error) {
+        invalid(error instanceof Error ? error.message : "AUTO_CONSUME_COMMAND identity is invalid");
+      }
       break;
     case MESSAGE_TYPES.PORTAL_GET_SNAPSHOT:
       exactKeys(payload, [], "PORTAL_GET_SNAPSHOT payload");

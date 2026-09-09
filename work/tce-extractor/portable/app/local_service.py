@@ -96,11 +96,15 @@ _EVENT_PAYLOAD_CONTRACTS = {
         "allowed": frozenset({"field_results", "fieldResults", "rereads", "re_read", "reRead"}),
     },
     "send_intent": {
-        "required": (("expected_fields_hash", "expectedFieldsHash"),),
+        "required": (("expected_fields_hash", "expectedFieldsHash"), ("command_id", "commandId"), ("expires_at", "expiresAt")),
         "allowed": frozenset(
             {
                 "expected_fields_hash",
                 "expectedFieldsHash",
+                "command_id",
+                "commandId",
+                "expires_at",
+                "expiresAt",
                 "identity",
                 "fields",
                 "method",
@@ -554,6 +558,13 @@ def _validate_event_payload(payload: dict, event_type: str) -> None:
             raise _ApiProblem(400, "INVALID_EVENT", "fields de confirmação não pode ser vazio")
         if not payload["citations"]:
             raise _ApiProblem(400, "INVALID_EVENT", "citations de confirmação não pode ser vazio")
+    if event_type == "send_intent":
+        command_id = payload.get("command_id", payload.get("commandId"))
+        expires_at = payload.get("expires_at", payload.get("expiresAt"))
+        if not isinstance(command_id, str) or not AUTOMATION_ID_RE.fullmatch(command_id):
+            raise _ApiProblem(400, "INVALID_EVENT", "command_id inválido")
+        if isinstance(expires_at, bool) or not isinstance(expires_at, int) or expires_at <= 0:
+            raise _ApiProblem(400, "INVALID_EVENT", "expires_at inválido")
     _canonical_json(payload)
     _reject_private_payload(payload)
 
@@ -602,6 +613,11 @@ def _validate_control_payload(payload: dict) -> tuple[str, dict]:
         "event_id": event_id,
         "expected_revision": expected_revision,
     }
+
+
+def _validate_command_consume_payload(payload: dict) -> int:
+    _require_exact_keys(payload, {"expected_revision"})
+    return _require_revision(payload.get("expected_revision"))
 
 
 def _automation_item_id(identity: dict) -> str:
@@ -660,6 +676,10 @@ def _automation_store_error(error: Exception) -> _ApiProblem:
     if isinstance(error, EventConflict):
         return _ApiProblem(409, "EVENT_CONFLICT", str(error))
     if isinstance(error, InvalidTransition):
+        message = str(error)
+        for code in ("COMMAND_ALREADY_CONSUMED", "COMMAND_EXPIRED", "COMMAND_NOT_READY", "COMMAND_NOT_FOUND"):
+            if code in message:
+                return _ApiProblem(409, code, message)
         return _ApiProblem(409, "INVALID_TRANSITION", str(error))
     if isinstance(error, LegacyEventReplayError):
         return _ApiProblem(409, "LEGACY_EVENT_REPLAY", str(error))
@@ -1332,6 +1352,48 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
                 self._error(problem.status, problem.code, str(problem))
                 return
             except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                self._error(400, "INVALID_JSON", "JSON inválido")
+                return
+            except Exception as error:
+                problem = _automation_store_error(error)
+                self._error(problem.status, problem.code, str(problem))
+                return
+            self._send(200, result)
+            return
+
+        command_parts = [unquote(part) for part in parsed.path.split("/") if part]
+        if (
+            len(command_parts) == 8
+            and command_parts[:3] == ["api", "v1", "automation"]
+            and command_parts[3] == "runs"
+            and command_parts[5] == "commands"
+            and command_parts[7] == "consume"
+        ):
+            run_id = command_parts[4]
+            command_id = command_parts[6]
+            if not AUTOMATION_RUN_ID_RE.fullmatch(run_id) or not AUTOMATION_ID_RE.fullmatch(command_id):
+                self._error(404, "NOT_FOUND", "comando não encontrado")
+                return
+            try:
+                payload = self._read_json()
+                expected_revision = _validate_command_consume_payload(payload)
+                consumed = self.server_state.automation_store.consume_command(
+                    run_id, command_id, expected_revision
+                )
+                snapshot = _project_automation_snapshot(consumed, run_id)
+                result = {
+                    "api_version": API_VERSION,
+                    "dispatch_allowed": consumed["dispatch_allowed"],
+                    "command_id": consumed["command_id"],
+                    **snapshot,
+                }
+            except _ApiProblem as problem:
+                self._error(problem.status, problem.code, str(problem))
+                return
+            except _BodyTooLarge as problem:
+                self._error(problem.status, problem.code, str(problem))
+                return
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
                 self._error(400, "INVALID_JSON", "JSON inválido")
                 return
             except Exception as error:

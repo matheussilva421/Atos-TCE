@@ -1,13 +1,13 @@
 # Task 6 — handoff
 
 Data: 09/09/2026
-Base de retomada: `74d0e0a`
+Base de retomada: `850421c`, com remediação pós-revisão não commitada
 Branch: `codex/fundamentacao-automatico`
 
 ## Estado
 
-A integração Fase 6 está implementada, validada localmente e registrada no
-commit solicitado. Alterações de código/teste estão restritas a:
+A integração Fase 6 está implementada e a rodada de remediação está validada
+localmente. Alterações de código/teste/documentação nesta retomada incluem:
 
 - `work/tce-extractor/portable/extensao-complementar-ato/background/automation-controller.js`
 - `work/tce-extractor/portable/extensao-complementar-ato/background/service-worker.js`
@@ -15,6 +15,10 @@ commit solicitado. Alterações de código/teste estão restritas a:
 - `work/tce-extractor/portable/extensao-complementar-ato/tests/automation-controller.test.mjs`
 - `work/tce-extractor/portable/extensao-complementar-ato/tests/form-detector.test.mjs`
 - `work/tce-extractor/portable/extensao-complementar-ato/tests/service-worker.test.mjs`
+- `work/tce-extractor/portable/extensao-complementar-ato/lib/automation-schema.js`
+- `work/tce-extractor/portable/extensao-complementar-ato/tests/automation-schema.test.mjs`
+- `work/tce-extractor/portable/extensao-complementar-ato/tests/bridge-client.test.mjs`
+- `work/tce-extractor/portable/extensao-complementar-ato/tests/panel.test.mjs`
 
 Este handoff e o relatório são os únicos documentos adicionados.
 
@@ -28,20 +32,26 @@ Este handoff e o relatório são os únicos documentos adicionados.
 4. A releitura exige todos os valores propostos/preservados, identidade da
    fila, frame vinculado e geração estável.
 5. O controller não chama `REQUEST_COMPLEMENTAR_ATO` nem executa envio.
-6. Se `appendAutomationEvent` existir, eventos são persistidos; falha em
-   `item_prepared` é fail-closed. Bridge antigo sem o método mantém Fase 5.
-7. O worker adiciona `dataset_sha256` ao registro resolvido para amarrar o
-   hash ao preflight, sem alterar o dataset persistido.
+6. O caminho integrado exige `appendAutomationEvent`; ausência ou falha em
+   `item_prepared` é fail-closed. O caminho sem resolver preserva Fase 5.
+7. O worker reconstrói o bridge a partir de credenciais persistidas somente ao
+   iniciar/controlar automação e não expõe o token.
+8. Eventos usam `item_id` canônico e evidência redigida por hashes; não
+   persistem os valores pessoais dos sete campos.
+9. A guarda do detector vincula `APPLY_FIELDS` ao `requestId` do snapshot e a
+   releitura compara todos os catálogos/estados dos sete campos.
 
 ## Evidência
 
-- Fase 6 + Fase 5: 98 testes, 98 aprovados, 0 falhas.
-- `npm test`: 224 testes, 224 aprovados, 0 falhas.
-- Sintaxe dos seis arquivos alterados: verde.
+- Gate focado: 146 testes, 146 aprovados, 0 falhas.
+- `npm test`: 231 testes, 231 aprovados, 0 falhas.
+- Sintaxe dos módulos alterados e `git diff --check`: verdes.
+- Probe Python/store: `process_key` foi aceito como `item_id` após a fila
+  wire em snake_case e a transição terminou em `prepared`.
 - `git diff --check`: verde.
 
 ## Fechamento
 
-O commit local tem exatamente a mensagem `feat: integrate verifiable automatic
-preparation`. Conferir o SHA atual com `git rev-parse HEAD`. Nenhum portal real
-foi usado e nenhum push foi realizado.
+O commit-base tem a mensagem `feat: integrate verifiable automatic preparation`;
+a remediação pós-revisão ainda não foi commitada. Nenhum portal real foi usado
+e nenhum push foi realizado.

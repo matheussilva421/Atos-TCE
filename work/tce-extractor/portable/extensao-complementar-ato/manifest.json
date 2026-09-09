@@ -28,6 +28,7 @@
       ],
       "js": [
         "content/portal-navigation.js",
+        "content/portal-submit.js",
         "content/form-detector.js"
       ],
       "all_frames": true,

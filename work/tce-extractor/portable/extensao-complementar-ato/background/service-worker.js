@@ -13,6 +13,7 @@ import {
 } from "../lib/messages.js";
 import { validateLegalContext } from "../lib/automation-schema.js";
 import { AUTOMATION_FIELDS } from "../lib/automation-preflight.js";
+import { createBridgeClient } from "../lib/bridge-client.js";
 import { createAutomationController } from "./automation-controller.js";
 
 export const FRAME_REGISTRATIONS_STORAGE_KEY = "frame-registrations:v1";
@@ -88,6 +89,7 @@ export function createServiceWorker({
   now = () => new Date().toISOString(),
   storageArea = chromeApi?.storage?.local,
   bridge = null,
+  bridgeClientFactory = createBridgeClient,
   automationController = null,
 } = {}) {
   if (!chromeApi?.storage?.local) {
@@ -105,21 +107,60 @@ export function createServiceWorker({
   let frameRegistrationsLoadPromise = null;
   let framePersistencePromise = Promise.resolve();
   let listenerRegistered = false;
+  let bridgeLoadPromise = null;
+  let activeBridge = bridge;
+  let activeController = automationController;
+  let activeAutomationSpec = null;
   const contextCache = new Map();
-  const controller = automationController ?? (
-    bridge
-      && typeof bridge.createAutomationRun === "function"
-      && typeof bridge.controlAutomationRun === "function"
-      && typeof chromeApi?.tabs?.sendMessage === "function"
-      ? createAutomationController({
-        chromeApi,
-        bridge,
-        ranker,
-        resolveAutomaticAct,
-        clock: () => now(),
-      })
-      : null
-  );
+
+  function bridgeCredentials(value) {
+    if (!isRecord(value)) return null;
+    const baseUrl = value[STORAGE_KEYS.BRIDGE_BASE_URL];
+    const token = value[STORAGE_KEYS.BRIDGE_TOKEN];
+    if (typeof baseUrl !== "string" || !baseUrl || typeof token !== "string" || !token) return null;
+    return { baseUrl, token };
+  }
+
+  async function loadBridge() {
+    if (activeBridge !== null) return activeBridge;
+    if (!bridgeLoadPromise) {
+      bridgeLoadPromise = (async () => {
+        const [localState, sessionState] = await Promise.all([
+          typeof storage?.get === "function"
+            ? storage.get([STORAGE_KEYS.BRIDGE_BASE_URL, STORAGE_KEYS.BRIDGE_TOKEN])
+            : {},
+          typeof frameStorage?.get === "function"
+            ? frameStorage.get([STORAGE_KEYS.BRIDGE_BASE_URL, STORAGE_KEYS.BRIDGE_TOKEN])
+            : {},
+        ]);
+        const credentials = bridgeCredentials(localState) ?? bridgeCredentials(sessionState);
+        if (!credentials || typeof bridgeClientFactory !== "function") return null;
+        try {
+          activeBridge = bridgeClientFactory(credentials);
+        } catch {
+          activeBridge = null;
+        }
+        return activeBridge;
+      })().catch(() => null);
+    }
+    return bridgeLoadPromise;
+  }
+
+  function controllerFor(currentBridge) {
+    if (activeController !== null) return activeController;
+    if (!currentBridge
+      || typeof currentBridge.createAutomationRun !== "function"
+      || typeof currentBridge.controlAutomationRun !== "function"
+      || typeof chromeApi?.tabs?.sendMessage !== "function") return null;
+    activeController = createAutomationController({
+      chromeApi,
+      bridge: currentBridge,
+      ranker,
+      resolveAutomaticAct,
+      clock: () => now(),
+    });
+    return activeController;
+  }
 
   function isStoredFrameRegistration(value) {
     return isRecord(value)
@@ -458,12 +499,23 @@ export function createServiceWorker({
     }
 
     let context = null;
-    if (typeof bridge?.getLegalContext === "function") {
-      const contextEnvelope = await bridge.getLegalContext({
+    if (typeof activeBridge?.getLegalContext === "function") {
+      const contextEnvelope = await activeBridge.getLegalContext({
         processKey: identity.processKey,
         interestedNormalized: identity.interestedNormalized,
       });
       context = contextEnvelope?.context ?? null;
+      if (context !== null) {
+        context = validateLegalContext(context, {
+          processKey: identity.processKey,
+          interestedNormalized: identity.interestedNormalized,
+          datasetSha256: dataset.batch.logical_sha256,
+        });
+        if (activeAutomationSpec?.rulesVersion
+          && context.rules_version !== activeAutomationSpec.rulesVersion) {
+          throw contextError("RULES_VERSION_MISMATCH", "context rules version differs from the active automation run");
+        }
+      }
     }
 
     const matches = {};
@@ -501,26 +553,63 @@ export function createServiceWorker({
     return errorResponse(message.requestId, "AUTOMATION_UNAVAILABLE", "o serviço local não expõe a API de automação; o modo manual permanece disponível");
   }
 
+  async function handleConsumeCommandMessage(message, sender) {
+    if (senderIsExtensionPage(sender, chromeApi)) {
+      return errorResponse(message.requestId, "UNAUTHORIZED", "consumo deve vir do frame de botões do portal");
+    }
+    const tabId = tabIdFromSender(sender);
+    const frameId = frameIdFromSender(sender);
+    const senderUrl = typeof sender?.url === "string" ? sender.url : sender?.tab?.url;
+    if (
+      tabId === null
+      || frameId === null
+      || sender?.id !== chromeApi.runtime?.id
+      || !validatePortalUrl(senderUrl)
+    ) {
+      return errorResponse(message.requestId, "UNAUTHORIZED", "consumo deve vir do frame de botões autorizado");
+    }
+    const currentBridge = await loadBridge();
+    const currentController = controllerFor(currentBridge);
+    if (currentController === null || typeof currentController.consumeCommand !== "function") {
+      return automationUnavailable(message);
+    }
+    try {
+      const result = await currentController.consumeCommand({
+        ...message.payload,
+        tabId,
+        frameId,
+      });
+      return successResponse(message, result);
+    } catch (error) {
+      return errorResponse(message.requestId, error?.code || "COMMAND_ERROR", error instanceof Error ? error.message : "command consumption failed");
+    }
+  }
+
   async function handleAutomationMessage(message, sender) {
     if (!senderIsExtensionPage(sender, chromeApi)) {
       return errorResponse(message.requestId, "UNAUTHORIZED", "somente páginas da extensão podem controlar a execução");
     }
-    if (bridge === null || controller === null) return automationUnavailable(message);
+    const currentBridge = await loadBridge();
+    const currentController = controllerFor(currentBridge);
+    if (currentBridge === null || currentController === null) return automationUnavailable(message);
     try {
       if (message.type === MESSAGE_TYPES.AUTO_START) {
-        return successResponse(message, await controller.start(message.payload.spec, message.payload.eventId));
+        activeAutomationSpec = clone(message.payload.spec);
+        return successResponse(message, await currentController.start(message.payload.spec, message.payload.eventId));
       }
       if (message.type === MESSAGE_TYPES.AUTO_STATUS) {
-        return successResponse(message, await controller.status({ refresh: true, runId: message.payload.runId }));
+        return successResponse(message, await currentController.status({ refresh: true, runId: message.payload.runId }));
       }
       const action = message.type.slice("AUTO_".length).toLowerCase();
-      const control = controller[action];
+      const control = currentController[action];
       if (typeof control !== "function") return automationUnavailable(message);
-      return successResponse(message, await control({
+      const result = await control({
         runId: message.payload.runId,
         eventId: message.payload.eventId,
         expectedRevision: message.payload.expectedRevision,
-      }));
+      });
+      if (action === "stop") activeAutomationSpec = null;
+      return successResponse(message, result);
     } catch (error) {
       if (error?.code === "NOT_FOUND" || error?.code === "AUTOMATION_UNAVAILABLE") {
         return automationUnavailable(message);
@@ -547,7 +636,9 @@ export function createServiceWorker({
     ) {
       return errorResponse(message.requestId, "INVALID_ORIGIN", "PORTAL_EVENT must come from an allowed portal frame");
     }
-    if (controller === null || typeof controller.handlePortalEvent !== "function") {
+    const currentBridge = await loadBridge();
+    const currentController = controllerFor(currentBridge);
+    if (currentController === null || typeof currentController.handlePortalEvent !== "function") {
       return automationUnavailable(message);
     }
     const event = {
@@ -555,7 +646,7 @@ export function createServiceWorker({
       tabId,
       frameId,
     };
-    return successResponse(message, await controller.handlePortalEvent(event));
+    return successResponse(message, await currentController.handlePortalEvent(event));
   }
 
   async function setReviewed(message) {
@@ -590,6 +681,8 @@ export function createServiceWorker({
         case MESSAGE_TYPES.AUTO_STOP:
         case MESSAGE_TYPES.AUTO_STATUS:
           return await handleAutomationMessage(validated, sender);
+        case MESSAGE_TYPES.AUTO_CONSUME_COMMAND:
+          return await handleConsumeCommandMessage(validated, sender);
         case MESSAGE_TYPES.PORTAL_EVENT:
           return await handlePortalEventMessage(validated, sender);
         case MESSAGE_TYPES.FORM_READY: {

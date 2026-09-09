@@ -174,6 +174,25 @@ function fromWireSnapshot(payload) {
   }
 }
 
+function fromWireCommandConsumption(payload) {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    throw invalidResponse("consumo de comando inválido");
+  }
+  if (payload.dispatch_allowed !== true || typeof payload.command_id !== "string" || !payload.command_id) {
+    throw invalidResponse("consumo de comando não autorizado");
+  }
+  const {
+    dispatch_allowed: _dispatchAllowed,
+    command_id: _commandId,
+    ...snapshotPayload
+  } = payload;
+  return {
+    ...fromWireSnapshot(snapshotPayload),
+    dispatch_allowed: true,
+    command_id: payload.command_id,
+  };
+}
+
 function validateSelection(selection) {
   if (selection === null || typeof selection !== 'object' || Array.isArray(selection)) {
     throw bridgeError('seleção inválida', 'INVALID_SELECTION');
@@ -365,6 +384,17 @@ export function createBridgeClient({ fetchImpl = globalThis.fetch, baseUrl, toke
         method: 'POST',
         body: wireEvent(event),
         validate: fromWireSnapshot,
+      });
+    },
+    async consumeAutomationCommand(runId, commandId, expectedRevision) {
+      if (typeof runId !== 'string' || !runId || typeof commandId !== 'string' || !commandId
+        || !Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
+        throw bridgeError('comando inválido', 'INVALID_COMMAND');
+      }
+      return request(`/automation/runs/${encodeURIComponent(runId)}/commands/${encodeURIComponent(commandId)}/consume`, {
+        method: 'POST',
+        body: { expected_revision: expectedRevision },
+        validate: fromWireCommandConsumption,
       });
     },
     async controlAutomationRun(runId, body) {

@@ -697,8 +697,72 @@ test("prepares and verifies the discovered form through typed APPLY_FIELDS witho
     "item_prepared",
     "fields_verified",
   ]);
+  const preparedEvent = bridge.calls.find(([name, , event]) => name === "event" && event.type === "item_prepared")[2];
+  assert.equal(preparedEvent.itemId, PREP_IDENTITY.portalActId);
+  assert.deepEqual(preparedEvent.payload.identity, PREP_IDENTITY);
+  assert.deepEqual(preparedEvent.payload.frame, { generation: 3, frameId: 0 });
+  assert.equal(preparedEvent.payload.dataset_sha256, HASH);
+  assert.match(preparedEvent.payload.context_hash, /^[0-9a-f]{64}$/u);
+  assert.deepEqual(preparedEvent.payload.matchKinds, Object.fromEntries(PREP_FIELDS.map((field) => [field, "exact"])));
+  assert.equal(Object.keys(preparedEvent.payload.before).length, PREP_FIELDS.length);
+  assert.equal(Object.keys(preparedEvent.payload.after).length, PREP_FIELDS.length);
+  assert.equal(JSON.stringify(preparedEvent.payload).includes(PREP_VALUES.cargo), false);
+  const verifiedEvent = bridge.calls.find(([name, , event]) => name === "event" && event.type === "fields_verified")[2];
+  assert.equal(Object.hasOwn(verifiedEvent.payload.fieldResults.cargo, "expected"), false);
+  assert.equal(Object.hasOwn(verifiedEvent.payload.fieldResults.cargo, "actual"), false);
+  assert.match(verifiedEvent.payload.fieldResults.cargo.expectedHash, /^[0-9a-f]{64}$/u);
   assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO), false);
   assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.OVERRIDE_FIELD), false);
+});
+
+test("fails closed when the integrated resolver cannot persist automation events", async () => {
+  const bridge = bridgeMock();
+  const chromeApi = preparationChromeMock();
+  const controller = createAutomationController({
+    chromeApi,
+    bridge,
+    resolveAutomaticAct: preparationResolverCalls([]),
+  });
+
+  const result = await controller.start({ spec: runSpec(), eventId: "start-no-event-append" });
+
+  assert.equal(result.status, "paused");
+  assert.match(result.pausedReason, /event persistence/u);
+  assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.APPLY_FIELDS), false);
+});
+
+test("rejects a post-apply catalog or field-state change across all seven fields", async () => {
+  const bridge = preparationBridge();
+  const chromeApi = preparationChromeMock();
+  const originalSendMessage = chromeApi.tabs.sendMessage;
+  let formReads = 0;
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    const response = await originalSendMessage(tabId, message, options);
+    if (message.type === MESSAGE_TYPES.GET_FORM_SNAPSHOT) {
+      formReads += 1;
+      if (formReads === 2) {
+        response.payload.options.modalidade = [
+          ...response.payload.options.modalidade,
+          { value: "m-new", label: "New catalog option" },
+        ];
+        response.payload.fields.genero.disabled = true;
+      }
+    }
+    return response;
+  };
+  const controller = createAutomationController({
+    chromeApi,
+    bridge,
+    resolveAutomaticAct: preparationResolverCalls([]),
+  });
+
+  await controller.start({ spec: runSpec(), eventId: "start-catalog-drift" });
+
+  assert.deepEqual(bridge.calls.filter(([name]) => name === "event").map(([, , event]) => event.type), [
+    "item_prepared",
+    "item_failed",
+  ]);
+  assert.match(bridge.calls.at(-1)[2].payload.error, /catalog|state|option|field/u);
 });
 
 test("does not partially write when the preflight snapshot contains a divergent field", async () => {

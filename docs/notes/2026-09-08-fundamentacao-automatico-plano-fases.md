@@ -10,7 +10,7 @@
 
 **Especificação:** seção 1 deste documento consolida as decisões da entrevista de 08/09/2026. O plano anterior na conversa é substituído por esta versão detalhada. Não depende de outro documento não salvo.
 
-**Estado:** PLANEJADO. Nenhuma fase funcional iniciada. Arquivos, funções e endpoints marcados como novos são propostas, não APIs existentes.
+**Estado:** EM EXECUÇÃO. Fases 0–7 foram implementadas localmente nesta branch; o envio real e a qualificação permanecem bloqueados até a Fase 9. Arquivos, funções e endpoints ainda não implementados seguem sendo propostas.
 
 **Revisão de 08/09/2026:** redesign solicitado após a primeira versão. A fase 8 foi ampliada em cinco entregas de design e implementação, com wireframes, tokens, acessibilidade, testes e impactos no empacotamento. A direção visual é uma proposta documentada; nenhuma interface foi implementada nesta revisão.
 
@@ -492,13 +492,13 @@ Retomada: paused -> running somente depois de reconciliar intenções anteriores
 
 **Interface:** `submitVerifiedAct({documentRef,command,verifyCurrentState,consumeCommand}) -> Promise<{dispatched:boolean,command_id:string}>`; `classifyPortalOutcome(observation,expected) -> {status:'confirmed'|'failed'|'unconfirmed', evidence:object}`.
 
-- [ ] RED para botão com ID duplicado, frame errado, comando expirado, comando duplicado, mudança de identidade entre preflight e clique e pausa solicitada antes do clique.
-- [ ] Backend persiste `send_intent` e comando de envio de uso único antes de liberar ação. Prazo do comando: 15 s; expirado vira item não enviado com necessidade de nova preparação, desde que consumo não tenha ocorrido.
-- [ ] Content script do frame de botões solicita consumo do comando ao worker, que o persiste no backend antes do clique. Uma falha entre consumo e clique continua incerta, sem repetição automática.
-- [ ] Revalidar identidade/campos imediatamente antes do consumo e novamente antes do clique. Frame de botões deve pertencer à mesma árvore de frames do formulário e estar visível.
-- [ ] Clicar apenas botão com texto exato “Complementar Ato” habilitado no papel `buttons`. Mensagem de página não pode autorizar envio. Não alterar o comportamento do sinal manual legado para que passe a enviar silenciosamente.
+- [x] RED para botão com ID duplicado, frame errado, comando expirado, comando duplicado, mudança de identidade entre preflight e clique e pausa solicitada antes do clique.
+- [x] Backend persiste `send_intent` e comando de envio de uso único antes de liberar ação. Prazo do comando: 15 s; expirado vira item não enviado com necessidade de nova preparação, desde que consumo não tenha ocorrido.
+- [x] Content script do frame de botões solicita consumo do comando ao worker, que o persiste no backend antes do clique. Uma falha entre consumo e clique continua incerta, sem repetição automática.
+- [x] Revalidar identidade/campos imediatamente antes do consumo e novamente antes do clique. Frame de botões deve pertencer à mesma árvore de frames do formulário e estar visível.
+- [x] Clicar apenas botão com texto exato “Complementar Ato” habilitado no papel `buttons`. Mensagem de página não pode autorizar envio. Não alterar o comportamento do sinal manual legado para que passe a enviar silenciosamente.
 - [ ] Aguardar até 30 s por resultado observado; uma leitura adicional sem clique é permitida. Timeout, diálogo desconhecido, queda de rede ou perda da página geram `unconfirmed` e pausam.
-- [ ] Confirmar somente com sinal real de aceitação e leitura posterior dos valores persistidos para a identidade esperada. Se o portal não fornecer prova suficiente, classificar como incerto.
+- [x] Confirmar somente com sinal real de aceitação e leitura posterior dos valores persistidos para a identidade esperada. Se o portal não fornecer prova suficiente, classificar como incerto.
 - [ ] Registrar confirmação durável e atualizar relatório antes de abrir o próximo ato.
 - [ ] Ao retomar, conciliar `send_intent`/`unconfirmed` por leitura. Valor persistido idêntico sem evidência suficiente de gravação não prova autoria da tentativa; registrar evidência e manter incerteza quando necessário.
 - [ ] Atos previamente confirmados não são reenviados, mesmo em outro lote. Alteração posterior no documento vira pendência de revisão, não autorização de edição automática.

@@ -947,6 +947,8 @@ test("integrates panel, worker, and matcher and recalculates changed options bef
   assert.ok(documentRef.getElementById("preview-body").querySelector('[data-kind="tie"]'));
   const apply = integration.forwardedToContent.find(({ message }) => message.type === MESSAGE_TYPES.APPLY_FIELDS);
   assert.ok(apply);
+  const formSnapshots = integration.forwardedToContent.filter(({ message }) => message.type === MESSAGE_TYPES.GET_FORM_SNAPSHOT);
+  assert.equal(apply.message.requestId, formSnapshots.at(-1).message.requestId);
   assert.equal(apply.message.payload.fields.modalidade, "m-current-a");
   assert.equal(apply.message.payload.matchKinds.modalidade, "tie");
   assert.equal(apply.message.payload.fields.fundamento_legal, "f-current");

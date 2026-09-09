@@ -15,6 +15,15 @@ import {
 import { MESSAGE_TYPES, createMessage } from "../lib/messages.js";
 
 const HASH = "a".repeat(64);
+const AUTOMATION_FIELDS = [
+  "modalidade",
+  "fundamento_legal",
+  "data_publicacao_doe",
+  "cargo",
+  "matricula",
+  "data_nascimento",
+  "genero",
+];
 
 function runSpec(overrides = {}) {
   return {
@@ -32,6 +41,46 @@ function identity(overrides = {}) {
     interestedNormalized: "ana da silva",
     portalActId: null,
     ...overrides,
+  };
+}
+
+function fieldEvidence() {
+  return Object.fromEntries(AUTOMATION_FIELDS.map((field) => [field, {
+    status: "present",
+    valueHash: HASH,
+    optionsHash: HASH,
+    disabled: false,
+    readOnly: false,
+    redacted: true,
+  }]));
+}
+
+function fieldResults() {
+  return Object.fromEntries(AUTOMATION_FIELDS.map((field) => [field, {
+    status: "verified",
+    expectedHash: HASH,
+    actualHash: HASH,
+    redacted: true,
+  }]));
+}
+
+function itemPreparedPayload() {
+  return {
+    reason: "ready",
+    identity: identity(),
+    frame: { generation: 3, frameId: 12 },
+    dataset_sha256: HASH,
+    context_hash: HASH,
+    legalDecision: {
+      status: "selected",
+      method: "rule",
+      rule_id: "EC41_COM_P5",
+      option_value: "f-professor",
+      rules_version: "legal-foundation-v1",
+    },
+    matchKinds: Object.fromEntries(AUTOMATION_FIELDS.map((field) => [field, "exact"])),
+    before: fieldEvidence(),
+    after: fieldEvidence(),
   };
 }
 
@@ -78,9 +127,9 @@ test("validates discriminated events and closed control requests", () => {
       fields: { cargo: "servidora" },
       citations: [{ source: "portal", reference: "act-1" }],
     },
-    send_intent: { expectedFieldsHash: HASH },
-    item_prepared: { reason: "ready" },
-    fields_verified: { fieldResults: {}, rereads: [] },
+    send_intent: { expectedFieldsHash: HASH, commandId: "command-1", expiresAt: 1600000000000 },
+    item_prepared: itemPreparedPayload(),
+    fields_verified: { fieldResults: fieldResults(), rereads: [] },
     item_pending: { reason: "requires review" },
     item_failed: { error: "portal unavailable" },
     send_unconfirmed: { reason: "confirmation missing", rereads: [] },
@@ -122,6 +171,54 @@ test("validates discriminated events and closed control requests", () => {
   assert.throws(
     () => validateControlRequest({ action: "send", eventId: "send-1", expectedRevision: 2 }),
     (error) => error instanceof AutomationSchemaError && error.code === "INVALID_ACTION",
+  );
+});
+
+test("requires complete redacted preparation evidence and rejects raw field values", () => {
+  const event = {
+    eventId: "prepared-evidence-1",
+    expectedRevision: 1,
+    itemId: "103439/2023",
+    type: "item_prepared",
+    payload: itemPreparedPayload(),
+  };
+
+  assert.deepEqual(validateAutomationEvent(event), event);
+  assert.throws(
+    () => validateAutomationEvent({
+      ...event,
+      payload: { ...itemPreparedPayload(), before: { cargo: "raw personal value" } },
+    }),
+    (error) => error instanceof AutomationSchemaError && error.code === "INVALID_VALUE",
+  );
+  assert.throws(
+    () => validateAutomationEvent({
+      ...event,
+      payload: { ...itemPreparedPayload(), context_hash: "not-a-hash" },
+    }),
+    (error) => error instanceof AutomationSchemaError && error.code === "INVALID_VALUE",
+  );
+});
+
+test("requires hashed field results for fields_verified evidence", () => {
+  const event = {
+    eventId: "verified-evidence-1",
+    expectedRevision: 1,
+    itemId: "103439/2023",
+    type: "fields_verified",
+    payload: { fieldResults: fieldResults(), rereads: [] },
+  };
+
+  assert.deepEqual(validateAutomationEvent(event), event);
+  assert.throws(
+    () => validateAutomationEvent({
+      ...event,
+      payload: {
+        fieldResults: { cargo: { expected: "raw", actual: "raw" } },
+        rereads: [],
+      },
+    }),
+    (error) => error instanceof AutomationSchemaError && error.code === "INVALID_VALUE",
   );
 });
 
@@ -210,7 +307,14 @@ test("validates v1 capabilities and run snapshots without changing legacy fields
 test("automation messages are typed and reject payload extras", () => {
   assert.deepEqual(
     Object.values(MESSAGE_TYPES).filter((type) => type.startsWith("AUTO_")),
-    ["AUTO_START", "AUTO_PAUSE", "AUTO_RESUME", "AUTO_STOP", "AUTO_STATUS"],
+    [
+      "AUTO_START",
+      "AUTO_PAUSE",
+      "AUTO_RESUME",
+      "AUTO_STOP",
+      "AUTO_STATUS",
+      "AUTO_CONSUME_COMMAND",
+    ],
   );
   assert.throws(
     () => createMessage(MESSAGE_TYPES.AUTO_STATUS, { runId: "run-1", extra: true }, "status-1"),
