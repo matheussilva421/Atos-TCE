@@ -111,6 +111,7 @@ function chromeMock(storage, sendMessage = async () => ({ ok: true }), session =
       async sendMessage(...args) { return sendMessage(...args); },
     },
     runtime: {
+      id: "test-extension",
       onMessage: { addListener() {} },
     },
     fireTabRemoved(tabId) {
@@ -664,4 +665,139 @@ test("rejects messages without requestId before dispatch", async () => {
 
   assert.equal(response.ok, false);
   assert.match(response.error.code, /INVALID_MESSAGE/u);
+});
+
+test("automation control messages are restricted to extension pages and use the injected bridge", async () => {
+  const storage = storageMock();
+  const calls = [];
+  const bridge = {
+    async createAutomationRun(spec, eventId) {
+      calls.push(["start", spec, eventId]);
+      return { api_version: 1, run_id: "run-1", revision: 0, status: "discovering", items: [], last_confirmed_item_id: null };
+    },
+    async controlAutomationRun(runId, body) {
+      calls.push(["control", runId, body]);
+      return { api_version: 1, run_id: runId, revision: body.expectedRevision + 1, status: body.action === "pause" ? "paused" : "stopped", items: [], last_confirmed_item_id: null };
+    },
+    async getAutomationRun(runId) {
+      calls.push(["status", runId]);
+      return { api_version: 1, run_id: runId, revision: 0, status: "discovering", items: [], last_confirmed_item_id: null };
+    },
+  };
+  const worker = createServiceWorker({ chromeApi: chromeMock(storage), bridge });
+  const spec = {
+    tabId: 7,
+    sector: "aposentadorias",
+    datasetSha256: "a".repeat(64),
+    rulesVersion: "legal-foundation-v1",
+  };
+
+  const denied = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_START, { spec, eventId: "start-denied" }, "auto-denied"),
+    sender(),
+  );
+  assert.equal(denied.ok, false);
+  assert.equal(denied.error.code, "UNAUTHORIZED");
+
+  const started = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_START, { spec, eventId: "start-1" }, "auto-start"),
+    extensionSender(),
+  );
+  assert.equal(started.ok, true);
+  assert.equal(started.payload.run_id, "run-1");
+
+  const paused = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_PAUSE, { runId: "run-1", eventId: "pause-1", expectedRevision: 0 }, "auto-pause"),
+    extensionSender(),
+  );
+  assert.equal(paused.ok, true);
+  const status = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_STATUS, { runId: "run-1" }, "auto-status"),
+    extensionSender(),
+  );
+  assert.equal(status.ok, true);
+  assert.deepEqual(calls.map((call) => call[0]), ["start", "control", "status"]);
+});
+
+test("automation control rejects a content script even when its sender id is the extension", async () => {
+  const bridge = {
+    async createAutomationRun() {
+      throw new Error("must not be called");
+    },
+  };
+  const worker = createServiceWorker({ chromeApi: chromeMock(storageMock()), bridge });
+  const response = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_START, {
+      spec: {
+        tabId: 7,
+        sector: "aposentadorias",
+        datasetSha256: "a".repeat(64),
+        rulesVersion: "legal-foundation-v1",
+      },
+      eventId: "start-content-script",
+    }, "auto-content-script"),
+    { ...sender(), id: "test-extension" },
+  );
+  assert.equal(response.ok, false);
+  assert.equal(response.error.code, "UNAUTHORIZED");
+});
+
+test("automation messages preserve manual fallback when the old service has no bridge", async () => {
+  const worker = createServiceWorker({ chromeApi: chromeMock(storageMock()) });
+  const response = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_START, {
+      spec: {
+        tabId: 7,
+        sector: "aposentadorias",
+        datasetSha256: "a".repeat(64),
+        rulesVersion: "legal-foundation-v1",
+      },
+      eventId: "start-old-service",
+    }, "auto-old-service"),
+    extensionSender(),
+  );
+  assert.equal(response.ok, false);
+  assert.equal(response.error.code, "AUTOMATION_UNAVAILABLE");
+});
+
+test("contextual getMatch caches by identity, dataset, rules and revision", async () => {
+  const dataset = await makeDataset();
+  const calls = [];
+  const ranker = (input) => {
+    calls.push(input.context);
+    return { kind: "pending", optionIndex: null, optionValue: null, optionLabel: null, score: 0, reasons: [] };
+  };
+  const storage = storageMock();
+  const worker = createServiceWorker({ chromeApi: chromeMock(storage), ranker });
+  await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.IMPORT_DATASET, { dataset }, "import-context"),
+    extensionSender(),
+  );
+  const context = {
+    schema_version: 1,
+    dataset_sha256: dataset.batch.logical_sha256,
+    process_key: PROCESS_KEY,
+    interested_normalized: "joao da silva",
+    resolution_status: "complete",
+    operative_text: "RESOLVE: Art. 6º da EC 41/2003.",
+    pages: [],
+  };
+  const payload = {
+    processKey: PROCESS_KEY,
+    interestedNormalized: "joao da silva",
+    options: { fundamento_legal: [{ value: "ec41", label: "Art. 6 da EC 41/2003" }] },
+    context,
+    datasetSha256: dataset.batch.logical_sha256,
+    rulesVersion: "legal-foundation-v1",
+    contextRevision: 1,
+  };
+  const first = await worker.handleMessage(createMessage(MESSAGE_TYPES.GET_MATCH, payload, "match-context-1"), extensionSender());
+  const second = await worker.handleMessage(createMessage(MESSAGE_TYPES.GET_MATCH, payload, "match-context-2"), extensionSender());
+  const third = await worker.handleMessage(createMessage(MESSAGE_TYPES.GET_MATCH, { ...payload, contextRevision: 2 }, "match-context-3"), extensionSender());
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  assert.equal(third.ok, true);
+  assert.equal(calls.length, 3);
+  assert.equal(calls[0].operative_text, context.operative_text);
+  assert.equal(calls[2].operative_text, context.operative_text);
 });

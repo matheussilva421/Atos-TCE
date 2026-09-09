@@ -51,6 +51,28 @@
 - Os dois documentos integram o commit documental desta entrega; obter seu identificador com `git log -1 --oneline -- docs/notes/2026-09-08-fundamentacao-automatico-plano-fases.md`.
 - Push indisponível sem destino; não configurar remoto arbitrário. Nenhum envio ao GitHub realizado.
 
+## Registro por fase — Fase 4 — API local e compatibilidade
+
+- Implementada a API autenticada v1 em `portable/app/local_service.py` para
+  capabilities, contexto jurídico, runs, queue, snapshot, events, control e
+  relatórios HTML/CSV. O serviço recalcula o hash do dataset atual, confere
+  identidade/contexto, limita corpo a 2 MiB e lote a 10.000, e não aceita
+  root/path/URL do cliente.
+- Implementados `automation-schema.js`, métodos de automação no bridge,
+  mensagens AUTO_START/AUTO_PAUSE/AUTO_RESUME/AUTO_STOP/AUTO_STATUS e cache
+  contextual no worker com invalidação por dataset/revisão. Serviço antigo
+  preserva o modo manual; somente páginas da extensão controlam execução.
+- TDD: RED cobriu falta de token/origin, dataset trocado, revisão obsoleta,
+  payload extra e limites; GREEN focal Python 30 testes (29 pass, 1 skip),
+  JS focal 37/37 e suíte JS 169/169. Python ampliado: 79 executados, 78 pass,
+  1 skip. `py_compile` e `git diff --check` passaram.
+- A descoberta Python completa foi tentada, ficou sem saída e foi encerrada no
+  PID específico 15456 após acesso negado no encerramento normal. Não restou
+  processo dessa execução; a descoberta ampla não é declarada PASS. Warnings
+  de `fitz`/`ResourceWarning` permanecem conhecidos do ambiente.
+- Nenhum envio real, consumo de comando ou alteração de navegação do portal
+  foi iniciado. Detalhes: `.superpowers/sdd/2026-09-08-fundamentacao-automatico-plano-fases/task-4-report.md` e `task-4-handoff.md`.
+
 ## Problemas e soluções
 
 - Primeiro `git add` falhou por acesso negado a `.git/index.lock` no sandbox.

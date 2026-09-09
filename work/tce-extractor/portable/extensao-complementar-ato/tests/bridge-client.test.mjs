@@ -153,3 +153,107 @@ test('bridge accepts only the configured loopback port range and rejects invalid
   );
   assert.equal(called, false);
 });
+
+test('bridge exposes authenticated automation methods with closed wire payloads', async () => {
+  const calls = [];
+  const bridge = createBridgeClient({
+    baseUrl: 'http://127.0.0.1:18743',
+    token: 'test',
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      if (url.endsWith('/automation/capabilities')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            api_version: 1,
+            automation_schema: 1,
+            legal_context_schema: 1,
+            rules_version: 'legal-foundation-v1',
+            real_send_enabled: false,
+          }),
+        };
+      }
+      if (url.includes('/legal-context?')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            api_version: 1,
+            context: {
+              schema_version: 1,
+              dataset_sha256: 'a'.repeat(64),
+              process_key: '103439/2023',
+              interested_normalized: 'ana',
+              resolution_status: 'pending',
+              operative_text: '',
+              pages: [],
+            },
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          api_version: 1,
+          run_id: 'run-1',
+          revision: 0,
+          status: 'discovering',
+          items: [],
+          last_confirmed_item_id: null,
+        }),
+      };
+    },
+  });
+
+  await bridge.getAutomationCapabilities();
+  await bridge.getLegalContext({ processKey: '103439/2023', interestedNormalized: 'ana' });
+  await bridge.createAutomationRun({
+    tabId: 7,
+    sector: 'aposentadorias',
+    datasetSha256: 'a'.repeat(64),
+    rulesVersion: 'legal-foundation-v1',
+  }, 'start-1');
+  await bridge.freezeAutomationQueue('run-1', {
+    identities: [{ processKey: '103439/2023', interestedNormalized: 'ana', portalActId: null }],
+    eventId: 'queue-1',
+    expectedRevision: 0,
+  });
+  await bridge.appendAutomationEvent('run-1', {
+    eventId: 'prepare-1',
+    expectedRevision: 1,
+    itemId: '103439/2023',
+    type: 'item_prepared',
+    payload: {},
+  });
+  await bridge.controlAutomationRun('run-1', { action: 'pause', eventId: 'pause-1', expectedRevision: 2 });
+
+  assert.match(calls[0].url, /\/automation\/capabilities$/u);
+  assert.match(calls[1].url, /process_key=103439%2F2023&interested_normalized=ana/u);
+  assert.deepEqual(JSON.parse(calls[2].options.body), {
+    tab_id: 7,
+    sector: 'aposentadorias',
+    dataset_sha256: 'a'.repeat(64),
+    rules_version: 'legal-foundation-v1',
+    event_id: 'start-1',
+  });
+  assert.deepEqual(JSON.parse(calls[3].options.body), {
+    identities: [{ process_key: '103439/2023', interested_normalized: 'ana', portal_act_id: null }],
+    event_id: 'queue-1',
+    expected_revision: 0,
+  });
+});
+
+test('new automation client falls back to manual mode when an old service lacks capabilities', async () => {
+  const bridge = createBridgeClient({
+    baseUrl: 'http://127.0.0.1:18743',
+    token: 'test',
+    fetchImpl: async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: { code: 'NOT_FOUND', message: 'rota não encontrada' } }),
+    }),
+  });
+  assert.equal(await bridge.getAutomationCapabilities(), null);
+});

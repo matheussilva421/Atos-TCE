@@ -28,7 +28,19 @@ for candidate in (APP_ROOT, PROJECT_ROOT):
         sys.path.insert(0, candidate_text)
 
 from bridge_auth import BridgeAuth, BridgeAuthError
+from automation_report import render_run_reports
+from automation_store import (
+    ActiveRunError,
+    AutomationStore,
+    EventConflict,
+    EventValidationError,
+    InvalidTransition,
+    LegacyEventReplayError,
+    RevisionConflict as AutomationRevisionConflict,
+    RunNotFound,
+)
 from html_generator import render_html
+from legal_context import LEGAL_CONTEXT_VERSION, _normalise_interested
 from prepare_transfer import _acquire_operation_lock, _active_runtime, _release_operation_lock, transfer_requested
 from workflow_state import RevisionConflict, WorkflowState
 
@@ -36,8 +48,54 @@ from workflow_state import RevisionConflict, WorkflowState
 API_VERSION = 1
 DEFAULT_PORT = 18743
 FALLBACK_PORTS = tuple(range(18744, 18753))
-MAX_BODY_BYTES = 1024 * 1024
+MAX_BODY_BYTES = 2 * 1024 * 1024
+MAX_AUTOMATION_IDENTITIES = 10_000
+AUTOMATION_SCHEMA_VERSION = 1
+RULES_VERSION = "legal-foundation-v1"
 PROCESS_KEY_RE = re.compile(r"^\d+/\d{4}$")
+AUTOMATION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$")
+AUTOMATION_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+_AUTOMATION_PAYLOAD_KEYS = frozenset(
+    {
+        "identity",
+        "item_id",
+        "itemId",
+        "fields",
+        "field_results",
+        "fieldResults",
+        "before",
+        "after",
+        "method",
+        "origin",
+        "rereads",
+        "re_read",
+        "reRead",
+        "legal_decision",
+        "legalDecision",
+        "decision",
+        "citations",
+        "timestamp",
+        "error",
+        "errors",
+        "reason",
+        "expected_fields_hash",
+        "expectedFieldsHash",
+    }
+)
+
+
+class _ApiProblem(ValueError):
+    def __init__(self, status: int, code: str, message: str):
+        super().__init__(message)
+        self.status = status
+        self.code = code
+
+
+class _BodyTooLarge(_ApiProblem):
+    def __init__(self):
+        super().__init__(413, "BODY_TOO_LARGE", "corpo excede o limite de 2 MiB")
 
 
 class _DocumentNotFound(Exception):
@@ -197,6 +255,319 @@ def _parse_range(value: str | None, size: int) -> tuple[int, int] | None:
     return start, min(end, size - 1)
 
 
+def _canonical_json(value: object) -> bytes:
+    try:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise _ApiProblem(400, "INVALID_PAYLOAD", "payload não é JSON serializável") from exc
+
+
+def _require_exact_keys(value: dict, required: set[str], optional: set[str] = frozenset()) -> None:
+    keys = set(value)
+    if not required.issubset(keys) or not keys.issubset(required | optional):
+        raise _ApiProblem(400, "INVALID_PAYLOAD", "payload contém chaves inesperadas")
+
+
+def _require_text(value: object, label: str, *, max_length: int = 256) -> str:
+    if not isinstance(value, str) or not value or len(value) > max_length:
+        raise _ApiProblem(400, "INVALID_PAYLOAD", f"{label} inválido")
+    return value
+
+
+def _require_revision(value: object, label: str = "expected_revision") -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise _ApiProblem(400, "INVALID_REVISION", f"{label} inválida")
+    return value
+
+
+def _reject_private_payload(value: object) -> None:
+    if isinstance(value, list):
+        for child in value:
+            _reject_private_payload(child)
+        return
+    if not isinstance(value, dict):
+        return
+    for key, child in value.items():
+        if re.search(r"(?:token|cookie|password|session|authorization|workflow_root|root_path|absolute_path|file_path)$", str(key), re.IGNORECASE):
+            raise _ApiProblem(400, "INVALID_PAYLOAD", "payload contém dado privado não permitido")
+        _reject_private_payload(child)
+
+
+def _logical_dataset_sha256(dataset: dict) -> str:
+    batch = dataset.get("batch")
+    if not isinstance(batch, dict):
+        raise ValueError("dataset sem batch")
+    logical = {
+        "schema_version": dataset.get("schema_version"),
+        "batch_id": batch.get("id"),
+        "process_keys": batch.get("process_keys"),
+        "records": dataset.get("records"),
+    }
+    return hashlib.sha256(_canonical_json(logical)).hexdigest()
+
+
+def _load_current_dataset(root: Path) -> tuple[int, dict, str]:
+    try:
+        publication = _current_publication_dataset(root)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise _ApiProblem(500, "PUBLICATION_INVALID", "ponteiro de publicação inválido") from exc
+    path = publication[1] if publication is not None else _sidecar(root, "dados-complementar-ato.json")
+    if path is None:
+        raise _ApiProblem(404, "DATASET_NOT_FOUND", "dataset não encontrado")
+    try:
+        dataset = _read_object(path)
+        computed = _logical_dataset_sha256(dataset)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise _ApiProblem(500, "DATASET_INVALID", "dataset inválido") from exc
+    declared = dataset.get("batch", {}).get("logical_sha256")
+    if not isinstance(declared, str) or not SHA256_RE.fullmatch(declared) or not compare_digest(declared, computed):
+        raise _ApiProblem(409, "DATASET_INVALID", "hash do dataset não corresponde ao conteúdo")
+    revision = publication[0] if publication is not None else 0
+    return revision, dataset, computed
+
+
+def _dataset_record(dataset: dict, process_key: str, interested_normalized: str) -> dict | None:
+    normalized = _normalise_interested(interested_normalized)
+    for record in dataset.get("records", []):
+        if not isinstance(record, dict):
+            continue
+        process = record.get("process")
+        interested = record.get("interested")
+        if not isinstance(process, dict) or not isinstance(interested, dict):
+            continue
+        if process.get("key") == process_key and _normalise_interested(interested.get("normalized")) == normalized:
+            return record
+    return None
+
+
+def _load_context_record(root: Path, process_key: str, interested_normalized: str, dataset_sha256: str) -> dict:
+    context_path = root / "fundamentos-contexto.v1.json"
+    if not context_path.is_file():
+        raise _ApiProblem(404, "LEGAL_CONTEXT_NOT_FOUND", "contexto jurídico não encontrado")
+    try:
+        payload = _read_object(context_path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise _ApiProblem(500, "LEGAL_CONTEXT_INVALID", "contexto jurídico inválido") from exc
+    if payload.get("schema_version") != 1:
+        raise _ApiProblem(409, "LEGAL_CONTEXT_SCHEMA_UNSUPPORTED", "schema do contexto jurídico incompatível")
+    if payload.get("dataset_sha256") != dataset_sha256:
+        raise _ApiProblem(409, "CONTEXT_DATASET_MISMATCH", "contexto jurídico pertence a outro dataset")
+    expected = _normalise_interested(interested_normalized)
+    records = payload.get("records")
+    if not isinstance(records, list):
+        raise _ApiProblem(500, "LEGAL_CONTEXT_INVALID", "registros de contexto inválidos")
+    matches = [
+        record
+        for record in records
+        if isinstance(record, dict)
+        and record.get("process_key") == process_key
+        and _normalise_interested(record.get("interested_normalized")) == expected
+    ]
+    if len(matches) != 1:
+        raise _ApiProblem(404, "LEGAL_CONTEXT_NOT_FOUND", "contexto jurídico exato não encontrado")
+    context = copy.deepcopy(matches[0])
+    if context.get("dataset_sha256", dataset_sha256) != dataset_sha256:
+        raise _ApiProblem(409, "CONTEXT_DATASET_MISMATCH", "registro de contexto pertence a outro dataset")
+    try:
+        encoded_size = len(_canonical_json(context))
+    except _ApiProblem:
+        raise _ApiProblem(500, "LEGAL_CONTEXT_INVALID", "contexto jurídico não serializável")
+    if encoded_size > MAX_BODY_BYTES:
+        context["resolution_status"] = "pending"
+        reasons = context.get("status_reasons")
+        if not isinstance(reasons, list):
+            reasons = []
+        context["status_reasons"] = [*reasons, {"code": "context_too_large"}]
+    return context
+
+
+def _validate_identity(value: object) -> dict:
+    if not isinstance(value, dict):
+        raise _ApiProblem(400, "INVALID_IDENTITY", "identidade inválida")
+    _require_exact_keys(value, {"process_key", "interested_normalized", "portal_act_id"})
+    process_key = _require_text(value.get("process_key"), "process_key")
+    if not PROCESS_KEY_RE.fullmatch(process_key):
+        raise _ApiProblem(400, "INVALID_PROCESS_KEY", "process_key não é canônico")
+    interested = _require_text(value.get("interested_normalized"), "interested_normalized")
+    if _normalise_interested(interested) != interested:
+        raise _ApiProblem(400, "INVALID_IDENTITY", "interested_normalized deve estar normalizado")
+    portal_act_id = value.get("portal_act_id")
+    if portal_act_id is not None:
+        portal_act_id = _require_text(portal_act_id, "portal_act_id")
+    return {
+        "process_key": process_key,
+        "interested_normalized": interested,
+        "portal_act_id": portal_act_id,
+    }
+
+
+def _validate_run_payload(payload: dict) -> tuple[dict, str]:
+    _require_exact_keys(payload, {"tab_id", "sector", "dataset_sha256", "rules_version", "event_id"})
+    tab_id = payload.get("tab_id")
+    if isinstance(tab_id, bool) or not isinstance(tab_id, int) or tab_id < 0:
+        raise _ApiProblem(400, "INVALID_TAB_ID", "tab_id inválido")
+    sector = _require_text(payload.get("sector"), "sector")
+    dataset_sha256 = _require_text(payload.get("dataset_sha256"), "dataset_sha256")
+    if not SHA256_RE.fullmatch(dataset_sha256):
+        raise _ApiProblem(400, "INVALID_DATASET_HASH", "dataset_sha256 inválido")
+    rules_version = _require_text(payload.get("rules_version"), "rules_version")
+    if rules_version != RULES_VERSION:
+        raise _ApiProblem(409, "RULES_VERSION_UNSUPPORTED", "rules_version incompatível")
+    event_id = _require_text(payload.get("event_id"), "event_id")
+    if not AUTOMATION_ID_RE.fullmatch(event_id):
+        raise _ApiProblem(400, "INVALID_EVENT_ID", "event_id inválido")
+    _reject_private_payload(payload)
+    return (
+        {
+            "tab_id": tab_id,
+            "sector": sector,
+            "dataset_sha256": dataset_sha256,
+            "rules_version": rules_version,
+            "event_id": event_id,
+        },
+        event_id,
+    )
+
+
+def _validate_queue_payload(payload: dict) -> tuple[list[dict], str, int]:
+    _require_exact_keys(payload, {"identities", "event_id", "expected_revision"})
+    identities = payload.get("identities")
+    if not isinstance(identities, list):
+        raise _ApiProblem(400, "INVALID_QUEUE", "identities deve ser uma lista")
+    if len(identities) > MAX_AUTOMATION_IDENTITIES:
+        raise _ApiProblem(413, "QUEUE_TOO_LARGE", "fila excede 10.000 identidades")
+    normalized = [_validate_identity(item) for item in identities]
+    event_id = _require_text(payload.get("event_id"), "event_id")
+    if not AUTOMATION_ID_RE.fullmatch(event_id):
+        raise _ApiProblem(400, "INVALID_EVENT_ID", "event_id inválido")
+    expected_revision = _require_revision(payload.get("expected_revision"))
+    _reject_private_payload(payload)
+    return normalized, event_id, expected_revision
+
+
+def _validate_event_payload(payload: dict) -> None:
+    if not isinstance(payload, dict):
+        raise _ApiProblem(400, "INVALID_EVENT", "payload do evento deve ser objeto")
+    if not set(payload).issubset(_AUTOMATION_PAYLOAD_KEYS):
+        raise _ApiProblem(400, "INVALID_PAYLOAD", "payload do evento contém chaves inesperadas")
+    _canonical_json(payload)
+    _reject_private_payload(payload)
+
+
+def _validate_event_input(payload: dict) -> dict:
+    _require_exact_keys(payload, {"event_id", "expected_revision", "item_id", "type", "payload"})
+    event_id = _require_text(payload.get("event_id"), "event_id")
+    if not AUTOMATION_ID_RE.fullmatch(event_id):
+        raise _ApiProblem(400, "INVALID_EVENT_ID", "event_id inválido")
+    expected_revision = _require_revision(payload.get("expected_revision"))
+    item_id = payload.get("item_id")
+    if item_id is not None:
+        item_id = _require_text(item_id, "item_id")
+    event_type = _require_text(payload.get("type"), "type")
+    if event_type not in {
+        "item_prepared", "fields_verified", "send_intent", "send_confirmed",
+        "item_pending", "item_failed", "send_unconfirmed", "run_paused",
+        "run_resumed", "run_stopped", "run_completed",
+    }:
+        raise _ApiProblem(400, "INVALID_EVENT_TYPE", "tipo de evento não aceito")
+    event_payload = payload.get("payload")
+    _validate_event_payload(event_payload)
+    result = {
+        "event_id": event_id,
+        "expected_revision": expected_revision,
+        "item_id": item_id,
+        "type": event_type,
+        "payload": copy.deepcopy(event_payload),
+    }
+    return result
+
+
+def _validate_control_payload(payload: dict) -> tuple[str, dict]:
+    _require_exact_keys(payload, {"action", "event_id", "expected_revision"})
+    action = payload.get("action")
+    if action not in {"pause", "resume", "stop"}:
+        raise _ApiProblem(400, "INVALID_ACTION", "ação de controle não aceita")
+    event_id = _require_text(payload.get("event_id"), "event_id")
+    if not AUTOMATION_ID_RE.fullmatch(event_id):
+        raise _ApiProblem(400, "INVALID_EVENT_ID", "event_id inválido")
+    expected_revision = _require_revision(payload.get("expected_revision"))
+    _reject_private_payload(payload)
+    return action, {
+        "event_id": event_id,
+        "expected_revision": expected_revision,
+    }
+
+
+def _automation_item_id(identity: dict) -> str:
+    portal_act_id = identity.get("portal_act_id")
+    if isinstance(portal_act_id, str) and portal_act_id:
+        return portal_act_id
+    return str(identity.get("process_key", ""))
+
+
+def _project_automation_snapshot(snapshot: dict, run_id: str, *, include_reports: bool = True) -> dict:
+    items = [
+        {
+            "item_id": _automation_item_id(item["identity"]),
+            "ordinal": item["ordinal"],
+            "identity": {
+                "process_key": item["identity"].get("process_key"),
+                "interested_normalized": item["identity"].get("interested_normalized"),
+                "portal_act_id": item["identity"].get("portal_act_id"),
+            },
+            "state": item["state"],
+        }
+        for item in snapshot.get("items", [])
+    ]
+    last_confirmed = snapshot.get("last_confirmed")
+    last_confirmed_item_id = None
+    if isinstance(last_confirmed, dict):
+        try:
+            identity = json.loads(str(last_confirmed.get("identity_key", "{}")))
+            if isinstance(identity, dict):
+                last_confirmed_item_id = _automation_item_id(identity)
+        except (TypeError, json.JSONDecodeError):
+            last_confirmed_item_id = None
+    result = {
+        "api_version": API_VERSION,
+        "run_id": run_id,
+        "revision": snapshot["revision"],
+        "status": snapshot["state"],
+        "items": items,
+        "last_confirmed_item_id": last_confirmed_item_id,
+    }
+    if include_reports:
+        result["reports"] = {
+            "html": f"/api/v1/automation/runs/{quote(run_id, safe='')}/report?format=html",
+            "csv": f"/api/v1/automation/runs/{quote(run_id, safe='')}/report?format=csv",
+        }
+    return result
+
+
+def _automation_store_error(error: Exception) -> _ApiProblem:
+    if isinstance(error, RunNotFound):
+        return _ApiProblem(404, "RUN_NOT_FOUND", str(error))
+    if isinstance(error, ActiveRunError):
+        return _ApiProblem(409, "ACTIVE_RUN", str(error))
+    if isinstance(error, AutomationRevisionConflict):
+        return _ApiProblem(409, "REVISION_CONFLICT", str(error))
+    if isinstance(error, EventConflict):
+        return _ApiProblem(409, "EVENT_CONFLICT", str(error))
+    if isinstance(error, InvalidTransition):
+        return _ApiProblem(409, "INVALID_TRANSITION", str(error))
+    if isinstance(error, LegacyEventReplayError):
+        return _ApiProblem(409, "LEGACY_EVENT_REPLAY", str(error))
+    if isinstance(error, EventValidationError):
+        return _ApiProblem(400, "INVALID_EVENT", str(error))
+    return _ApiProblem(500, "AUTOMATION_ERROR", "falha no diário de automação")
+
+
 class _WorkflowHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = False
@@ -204,6 +575,7 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
     def __init__(self, address, root: Path):
         self.workflow_root = root.resolve()
         workflow_state = WorkflowState(self.workflow_root)
+        automation_store = AutomationStore(self.workflow_root)
         self.auth = BridgeAuth()
         self.selection: dict | None = None
         self.review_bootstrap_code: str | None = secrets.token_urlsafe(32)
@@ -214,9 +586,11 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
         try:
             super().__init__(address, _WorkflowHandler)
         except Exception:
+            automation_store.close()
             workflow_state.close()
             raise
         self.workflow_state = workflow_state
+        self.automation_store = automation_store
         self.service_revision = self.workflow_state.snapshot()["revision"]
 
     def server_close(self):
@@ -226,6 +600,9 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
             workflow_state = getattr(self, "workflow_state", None)
             if workflow_state is not None:
                 workflow_state.close()
+            automation_store = getattr(self, "automation_store", None)
+            if automation_store is not None:
+                automation_store.close()
 
     def redeem_review_bootstrap(self, code: str) -> tuple[str, str]:
         with self._review_lock:
@@ -290,9 +667,9 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             return
-        if length <= 0 or length > MAX_BODY_BYTES:
+        if length <= 0:
             return
-        remaining = length
+        remaining = min(length, MAX_BODY_BYTES + 1)
         while remaining:
             chunk = self.rfile.read(min(64 * 1024, remaining))
             if not chunk:
@@ -364,8 +741,8 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
         except ValueError as exc:
             raise ValueError("Content-Length inválido") from exc
         if length < 0 or length > MAX_BODY_BYTES:
-            self._request_body_consumed = True
-            raise ValueError("corpo excede o limite")
+            self._request_body_consumed = False
+            raise _BodyTooLarge()
         self._request_body_consumed = True
         value = json.loads(self.rfile.read(length).decode("utf-8"))
         if not isinstance(value, dict):
@@ -395,6 +772,105 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
 
     def _send_text(self, status: int, value: str, *, content_type: str, headers: dict[str, str] | None = None) -> None:
         self._send(status, body=value.encode("utf-8"), headers={"Content-Type": content_type, **(headers or {})})
+
+    def _automation_snapshot(self, run_id: str, *, include_reports: bool = True) -> dict:
+        try:
+            snapshot = self.server_state.automation_store.snapshot(run_id)
+        except Exception as error:
+            raise _automation_store_error(error) from error
+        return _project_automation_snapshot(snapshot, run_id, include_reports=include_reports)
+
+    def _assert_run_dataset(self, run_snapshot: dict) -> tuple[dict, str]:
+        try:
+            _revision, dataset, computed = _load_current_dataset(self.server_state.workflow_root)
+        except _ApiProblem:
+            raise
+        spec = run_snapshot.get("spec")
+        if not isinstance(spec, dict) or spec.get("dataset_sha256") != computed:
+            raise _ApiProblem(409, "DATASET_MISMATCH", "dataset atual difere do dataset da execução")
+        return dataset, computed
+
+    def _send_automation_capabilities(self) -> None:
+        self._send(
+            200,
+            {
+                "api_version": API_VERSION,
+                "automation_schema": AUTOMATION_SCHEMA_VERSION,
+                "legal_context_schema": 1,
+                "rules_version": RULES_VERSION,
+                "real_send_enabled": False,
+            },
+        )
+
+    def _send_legal_context(self, params: dict[str, list[str]]) -> None:
+        if set(params) != {"process_key", "interested_normalized"}:
+            self._error(400, "INVALID_QUERY", "process_key e interested_normalized são obrigatórios")
+            return
+        process_values = params.get("process_key", [])
+        interested_values = params.get("interested_normalized", [])
+        if len(process_values) != 1 or len(interested_values) != 1:
+            self._error(400, "INVALID_QUERY", "parâmetros de contexto ambíguos")
+            return
+        process_key = process_values[0]
+        interested = interested_values[0]
+        if not PROCESS_KEY_RE.fullmatch(process_key) or not interested:
+            self._error(400, "INVALID_QUERY", "identidade de contexto inválida")
+            return
+        try:
+            _revision, _dataset, dataset_sha256 = _load_current_dataset(self.server_state.workflow_root)
+            context = _load_context_record(
+                self.server_state.workflow_root,
+                process_key,
+                interested,
+                dataset_sha256,
+            )
+        except _ApiProblem as problem:
+            self._error(problem.status, problem.code, str(problem))
+            return
+        self._send(200, {"api_version": API_VERSION, "context": context})
+
+    def _send_automation_run(self, run_id: str) -> None:
+        try:
+            payload = self._automation_snapshot(run_id)
+        except _ApiProblem as problem:
+            self._error(problem.status, problem.code, str(problem))
+            return
+        self._send(200, payload)
+
+    def _send_automation_report(self, run_id: str, params: dict[str, list[str]]) -> None:
+        if set(params) != {"format"} or len(params.get("format", [])) != 1:
+            self._error(400, "INVALID_QUERY", "format=html ou format=csv é obrigatório")
+            return
+        report_format = params["format"][0]
+        if report_format not in {"html", "csv"}:
+            self._error(400, "REPORT_FORMAT_UNSUPPORTED", "apenas html e csv são aceitos")
+            return
+        try:
+            rendered = render_run_reports(
+                self.server_state.automation_store,
+                run_id,
+                self.server_state.workflow_root,
+            )
+            report_path = Path(rendered[f"{report_format}_path"]).resolve()
+            if not _inside(self.server_state.workflow_root, report_path) or not report_path.is_file():
+                raise OSError("relatório fora da raiz do serviço")
+            body = report_path.read_bytes()
+        except RunNotFound as error:
+            self._error(404, "RUN_NOT_FOUND", str(error))
+            return
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            self._error(500, "REPORT_UNAVAILABLE", "relatório indisponível")
+            return
+        content_type = "text/html; charset=utf-8" if report_format == "html" else "text/csv; charset=utf-8"
+        self._send(
+            200,
+            body=body,
+            headers={
+                "Content-Type": content_type,
+                "Cache-Control": "no-store",
+                "Content-Disposition": f"inline; filename=relatorio.{report_format}",
+            },
+        )
 
     def _review_payload_for_browser(self, payload: dict) -> dict:
         result = copy.deepcopy(payload)
@@ -489,7 +965,27 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             if not self._valid_host() or not self._valid_origin_header():
                 self._error(403, "FORBIDDEN_ORIGIN", "Host ou Origin não permitido")
                 return
-            self._send(200, {"api_version": API_VERSION, "service": "tce-portable"})
+            self._send(
+                200,
+                {
+                    "api_version": API_VERSION,
+                    "service": "tce-portable",
+                    "automation_schema": AUTOMATION_SCHEMA_VERSION,
+                    "legal_context_schema": 1,
+                    "rules_version": RULES_VERSION,
+                    "real_send_enabled": False,
+                },
+            )
+            return
+        if parsed.path == "/api/v1/automation/capabilities":
+            if not self._require_auth():
+                return
+            self._send_automation_capabilities()
+            return
+        if parsed.path == "/api/v1/legal-context":
+            if not self._require_auth():
+                return
+            self._send_legal_context(parse_qs(parsed.query, keep_blank_values=True))
             return
         if parsed.path == "/review":
             if self._review_authorized():
@@ -544,6 +1040,21 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             })
             return
         if not self._require_auth():
+            return
+        automation_parts = [unquote(part) for part in parsed.path.split("/") if part]
+        if len(automation_parts) == 5 and automation_parts[:3] == ["api", "v1", "automation"] and automation_parts[3] == "runs":
+            run_id = automation_parts[4]
+            if not AUTOMATION_RUN_ID_RE.fullmatch(run_id):
+                self._error(404, "RUN_NOT_FOUND", "execução não encontrada")
+                return
+            self._send_automation_run(run_id)
+            return
+        if len(automation_parts) == 6 and automation_parts[:3] == ["api", "v1", "automation"] and automation_parts[3] == "runs" and automation_parts[5] == "report":
+            run_id = automation_parts[4]
+            if not AUTOMATION_RUN_ID_RE.fullmatch(run_id):
+                self._error(404, "RUN_NOT_FOUND", "execução não encontrada")
+                return
+            self._send_automation_report(run_id, parse_qs(parsed.query, keep_blank_values=True))
             return
         if parsed.path == "/api/v1/dataset":
             self._send_dataset()
@@ -694,6 +1205,105 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             )
             return
         if not self._require_auth():
+            return
+        if parsed.path == "/api/v1/automation/runs":
+            try:
+                payload = self._read_json()
+                spec, _event_id = _validate_run_payload(payload)
+                _revision, _dataset, computed = _load_current_dataset(self.server_state.workflow_root)
+                if spec["dataset_sha256"] != computed:
+                    raise _ApiProblem(409, "DATASET_MISMATCH", "dataset_sha256 não corresponde ao dataset atual")
+                created = self.server_state.automation_store.create_run(spec)
+                result = _project_automation_snapshot(created, created["run_id"])
+            except _ApiProblem as problem:
+                self._error(problem.status, problem.code, str(problem))
+                return
+            except _BodyTooLarge as problem:
+                self._error(problem.status, problem.code, str(problem))
+                return
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                self._error(400, "INVALID_JSON", "JSON inválido")
+                return
+            except Exception as error:
+                problem = _automation_store_error(error)
+                self._error(problem.status, problem.code, str(problem))
+                return
+            self._send(200, result)
+            return
+
+        automation_parts = [unquote(part) for part in parsed.path.split("/") if part]
+        if len(automation_parts) == 6 and automation_parts[:3] == ["api", "v1", "automation"] and automation_parts[3] == "runs":
+            run_id = automation_parts[4]
+            route = automation_parts[5]
+            if not AUTOMATION_RUN_ID_RE.fullmatch(run_id) or route not in {"queue", "events", "control"}:
+                self._error(404, "NOT_FOUND", "rota não encontrada")
+                return
+            try:
+                payload = self._read_json()
+                current = self.server_state.automation_store.snapshot(run_id)
+                if route == "queue":
+                    identities, event_id, expected_revision = _validate_queue_payload(payload)
+                    dataset, dataset_sha256 = self._assert_run_dataset(current)
+                    for identity in identities:
+                        if _dataset_record(dataset, identity["process_key"], identity["interested_normalized"]) is None:
+                            raise _ApiProblem(409, "IDENTITY_NOT_IN_DATASET", "identidade não pertence ao dataset atual")
+                        if (self.server_state.workflow_root / "fundamentos-contexto.v1.json").is_file():
+                            try:
+                                _load_context_record(
+                                    self.server_state.workflow_root,
+                                    identity["process_key"],
+                                    identity["interested_normalized"],
+                                    dataset_sha256,
+                                )
+                            except _ApiProblem as problem:
+                                if problem.code == "LEGAL_CONTEXT_NOT_FOUND":
+                                    raise _ApiProblem(409, "LEGAL_CONTEXT_NOT_FOUND", "identidade sem contexto jurídico exato") from problem
+                                raise
+                    updated = self.server_state.automation_store.freeze_queue(
+                        run_id, identities, event_id, expected_revision
+                    )
+                elif route == "events":
+                    event = _validate_event_input(payload)
+                    store_event = {
+                        "event_id": event["event_id"],
+                        "expected_revision": event["expected_revision"],
+                        "type": event["type"],
+                        "payload": event["payload"],
+                    }
+                    if event["item_id"] is not None:
+                        store_event["item_id"] = event["item_id"]
+                    updated = self.server_state.automation_store.append_event(run_id, store_event)
+                else:
+                    action, control = _validate_control_payload(payload)
+                    event_type = {
+                        "pause": "run_paused",
+                        "resume": "run_resumed",
+                        "stop": "run_stopped",
+                    }[action]
+                    updated = self.server_state.automation_store.append_event(
+                        run_id,
+                        {
+                            "event_id": control["event_id"],
+                            "expected_revision": control["expected_revision"],
+                            "type": event_type,
+                            "payload": {},
+                        },
+                    )
+                result = _project_automation_snapshot(updated, run_id)
+            except _ApiProblem as problem:
+                self._error(problem.status, problem.code, str(problem))
+                return
+            except _BodyTooLarge as problem:
+                self._error(problem.status, problem.code, str(problem))
+                return
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                self._error(400, "INVALID_JSON", "JSON inválido")
+                return
+            except Exception as error:
+                problem = _automation_store_error(error)
+                self._error(problem.status, problem.code, str(problem))
+                return
+            self._send(200, result)
             return
         if parsed.path == "/api/v1/selection":
             try:

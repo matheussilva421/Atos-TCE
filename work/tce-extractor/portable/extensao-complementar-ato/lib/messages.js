@@ -5,6 +5,12 @@ import {
   SchemaValidationError,
   validatePortalUrl,
 } from "./schema.js";
+import {
+  validateAutomationEvent,
+  validateAutomationRunSpec,
+  validateControlRequest,
+  validateLegalContext,
+} from "./automation-schema.js";
 
 export const MESSAGE_TYPES = Object.freeze({
   FORM_READY: "FORM_READY",
@@ -15,6 +21,11 @@ export const MESSAGE_TYPES = Object.freeze({
   OVERRIDE_FIELD: "OVERRIDE_FIELD",
   SET_REVIEWED: "SET_REVIEWED",
   REQUEST_COMPLEMENTAR_ATO: "REQUEST_COMPLEMENTAR_ATO",
+  AUTO_START: "AUTO_START",
+  AUTO_PAUSE: "AUTO_PAUSE",
+  AUTO_RESUME: "AUTO_RESUME",
+  AUTO_STOP: "AUTO_STOP",
+  AUTO_STATUS: "AUTO_STATUS",
 });
 
 const MESSAGE_TYPE_SET = new Set(Object.values(MESSAGE_TYPES));
@@ -32,6 +43,14 @@ function isRecord(value) {
 function exactKeys(value, expected, label) {
   const keys = Object.keys(value);
   if (keys.length !== expected.length || expected.some((key) => !keys.includes(key))) {
+    invalid(`${label} has unexpected keys`);
+  }
+}
+
+function exactKeysFrom(value, required, optional, label) {
+  const allowed = new Set([...required, ...optional]);
+  const keys = Object.keys(value);
+  if (keys.some((key) => !allowed.has(key)) || required.some((key) => !Object.hasOwn(value, key))) {
     invalid(`${label} has unexpected keys`);
   }
 }
@@ -120,10 +139,34 @@ function validatePayload(type, payload) {
       }
       break;
     case MESSAGE_TYPES.GET_MATCH:
-      exactKeys(payload, ["processKey", "interestedNormalized", "options"], "GET_MATCH payload");
+      exactKeysFrom(
+        payload,
+        ["processKey", "interestedNormalized", "options"],
+        ["context", "datasetSha256", "rulesVersion", "contextRevision"],
+        "GET_MATCH payload",
+      );
       nonEmptyString(payload.processKey, "GET_MATCH processKey");
       nonEmptyString(payload.interestedNormalized, "GET_MATCH interestedNormalized");
       validateOptions(payload.options);
+      if (Object.hasOwn(payload, "datasetSha256") && (typeof payload.datasetSha256 !== "string" || !/^[0-9a-f]{64}$/u.test(payload.datasetSha256))) {
+        invalid("GET_MATCH datasetSha256 is invalid");
+      }
+      if (Object.hasOwn(payload, "rulesVersion")) nonEmptyString(payload.rulesVersion, "GET_MATCH rulesVersion");
+      if (Object.hasOwn(payload, "contextRevision") && (!Number.isSafeInteger(payload.contextRevision) || payload.contextRevision < 0)) {
+        invalid("GET_MATCH contextRevision is invalid");
+      }
+      if (Object.hasOwn(payload, "context") && payload.context !== null) {
+        try {
+          validateLegalContext(payload.context, {
+            processKey: payload.processKey,
+            interestedNormalized: payload.interestedNormalized,
+            datasetSha256: payload.datasetSha256,
+          });
+        } catch (error) {
+          if (error instanceof SchemaValidationError) throw error;
+          invalid(error instanceof Error ? error.message : "GET_MATCH context is invalid");
+        }
+      }
       break;
     case MESSAGE_TYPES.APPLY_FIELDS:
       exactKeys(
@@ -149,6 +192,34 @@ function validatePayload(type, payload) {
       exactKeys(payload, ["processKey", "interestedNormalized"], "REQUEST_COMPLEMENTAR_ATO payload");
       nonEmptyString(payload.processKey, "REQUEST_COMPLEMENTAR_ATO processKey");
       nonEmptyString(payload.interestedNormalized, "REQUEST_COMPLEMENTAR_ATO interestedNormalized");
+      break;
+    case MESSAGE_TYPES.AUTO_START:
+      exactKeys(payload, ["spec", "eventId"], "AUTO_START payload");
+      try {
+        validateAutomationRunSpec(payload.spec);
+      } catch (error) {
+        invalid(error instanceof Error ? error.message : "AUTO_START spec is invalid");
+      }
+      nonEmptyString(payload.eventId, "AUTO_START eventId");
+      break;
+    case MESSAGE_TYPES.AUTO_PAUSE:
+    case MESSAGE_TYPES.AUTO_RESUME:
+    case MESSAGE_TYPES.AUTO_STOP:
+      exactKeys(payload, ["runId", "eventId", "expectedRevision"], `${type} payload`);
+      nonEmptyString(payload.runId, `${type} runId`, 128);
+      try {
+        validateControlRequest({
+          action: type.slice("AUTO_".length).toLowerCase(),
+          eventId: payload.eventId,
+          expectedRevision: payload.expectedRevision,
+        });
+      } catch (error) {
+        invalid(error instanceof Error ? error.message : `${type} payload is invalid`);
+      }
+      break;
+    case MESSAGE_TYPES.AUTO_STATUS:
+      exactKeys(payload, ["runId"], "AUTO_STATUS payload");
+      nonEmptyString(payload.runId, "AUTO_STATUS runId", 128);
       break;
     default:
       invalid(`type ${type} is unsupported`);

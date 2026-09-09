@@ -2,6 +2,17 @@ const MIN_PORT = 18743;
 const MAX_PORT = 18752;
 const API_VERSION = 1;
 
+import {
+  validateAutomationCapabilities,
+  validateAutomationEvent,
+  validateAutomationIdentity,
+  validateAutomationQueue,
+  validateAutomationRunSpec,
+  validateAutomationSnapshot,
+  validateControlRequest,
+  validateLegalContext,
+} from "./automation-schema.js";
+
 function bridgeError(message, code = 'BRIDGE_ERROR', status = null) {
   const error = new Error(message);
   error.code = code;
@@ -77,6 +88,90 @@ function validateProgressEnvelope(payload) {
   requireApiVersion(payload, 'progress');
   nonNegativeInteger(payload.revision, 'progress.revision');
   return payload;
+}
+
+function wireIdentity(identity) {
+  validateAutomationIdentity(identity);
+  return {
+    process_key: identity.processKey,
+    interested_normalized: identity.interestedNormalized,
+    portal_act_id: identity.portalActId,
+  };
+}
+
+function wireRunSpec(spec, eventId) {
+  validateAutomationRunSpec(spec);
+  if (typeof eventId !== "string" || !eventId) throw bridgeError("eventId inválido", "INVALID_EVENT_ID");
+  return {
+    tab_id: spec.tabId,
+    sector: spec.sector,
+    dataset_sha256: spec.datasetSha256,
+    rules_version: spec.rulesVersion,
+    event_id: eventId,
+  };
+}
+
+function wireQueue(value) {
+  validateAutomationQueue(value);
+  return {
+    identities: value.identities.map(wireIdentity),
+    event_id: value.eventId,
+    expected_revision: value.expectedRevision,
+  };
+}
+
+function wireEvent(value) {
+  validateAutomationEvent(value);
+  return {
+    event_id: value.eventId,
+    expected_revision: value.expectedRevision,
+    item_id: value.itemId,
+    type: value.type,
+    payload: value.payload,
+  };
+}
+
+function wireControl(value) {
+  validateControlRequest(value);
+  return {
+    action: value.action,
+    event_id: value.eventId,
+    expected_revision: value.expectedRevision,
+  };
+}
+
+function fromWireIdentity(identity) {
+  if (identity === null || typeof identity !== "object" || Array.isArray(identity)) {
+    throw invalidResponse("identity inválida");
+  }
+  const result = {
+    processKey: identity.process_key,
+    interestedNormalized: identity.interested_normalized,
+    portalActId: identity.portal_act_id,
+  };
+  try {
+    return validateAutomationIdentity(result);
+  } catch {
+    throw invalidResponse("identity inválida");
+  }
+}
+
+function fromWireSnapshot(payload) {
+  requireApiVersion(payload, "automation snapshot");
+  const translated = {
+    ...payload,
+    items: Array.isArray(payload.items)
+      ? payload.items.map((item) => ({
+        ...item,
+        identity: fromWireIdentity(item.identity),
+      }))
+      : payload.items,
+  };
+  try {
+    return validateAutomationSnapshot(translated);
+  } catch (error) {
+    throw invalidResponse(error instanceof Error ? error.message : "snapshot inválido");
+  }
 }
 
 function validateSelection(selection) {
@@ -201,6 +296,83 @@ export function createBridgeClient({ fetchImpl = globalThis.fetch, baseUrl, toke
         method: 'PUT',
         body: { completed, expected_revision: expectedRevision },
         validate: validateProgressEnvelope,
+      });
+    },
+    async getAutomationCapabilities() {
+      try {
+        return await request('/automation/capabilities', { validate: (payload) => {
+          try {
+            return validateAutomationCapabilities(payload);
+          } catch (error) {
+            throw invalidResponse(error.message);
+          }
+        } });
+      } catch (error) {
+        if (error?.status === 404 || error?.code === 'NOT_FOUND') return null;
+        throw error;
+      }
+    },
+    async getLegalContext(identity) {
+      if (identity === null || typeof identity !== 'object' || Array.isArray(identity)
+        || Object.keys(identity).length !== 2
+        || typeof identity.processKey !== 'string'
+        || typeof identity.interestedNormalized !== 'string'
+        || !identity.processKey
+        || !identity.interestedNormalized) {
+        throw bridgeError('identidade inválida', 'INVALID_IDENTITY');
+      }
+      const query = new URLSearchParams({
+        process_key: identity.processKey,
+        interested_normalized: identity.interestedNormalized,
+      });
+      return request(`/legal-context?${query.toString()}`, {
+        validate: (payload) => {
+          requireApiVersion(payload, 'legal-context');
+          try {
+            validateLegalContext(payload.context, {
+              processKey: identity.processKey,
+              interestedNormalized: identity.interestedNormalized,
+            });
+          } catch (error) {
+            throw invalidResponse(error instanceof Error ? error.message : 'legal-context.context inválido');
+          }
+          return payload;
+        },
+      });
+    },
+    async createAutomationRun(spec, eventId) {
+      return request('/automation/runs', {
+        method: 'POST',
+        body: wireRunSpec(spec, eventId),
+        validate: fromWireSnapshot,
+      });
+    },
+    async freezeAutomationQueue(runId, body) {
+      if (typeof runId !== 'string' || !runId) throw bridgeError('runId inválido', 'INVALID_RUN_ID');
+      return request(`/automation/runs/${encodeURIComponent(runId)}/queue`, {
+        method: 'POST',
+        body: wireQueue(body),
+        validate: fromWireSnapshot,
+      });
+    },
+    async getAutomationRun(runId) {
+      if (typeof runId !== 'string' || !runId) throw bridgeError('runId inválido', 'INVALID_RUN_ID');
+      return request(`/automation/runs/${encodeURIComponent(runId)}`, { validate: fromWireSnapshot });
+    },
+    async appendAutomationEvent(runId, event) {
+      if (typeof runId !== 'string' || !runId) throw bridgeError('runId inválido', 'INVALID_RUN_ID');
+      return request(`/automation/runs/${encodeURIComponent(runId)}/events`, {
+        method: 'POST',
+        body: wireEvent(event),
+        validate: fromWireSnapshot,
+      });
+    },
+    async controlAutomationRun(runId, body) {
+      if (typeof runId !== 'string' || !runId) throw bridgeError('runId inválido', 'INVALID_RUN_ID');
+      return request(`/automation/runs/${encodeURIComponent(runId)}/control`, {
+        method: 'POST',
+        body: wireControl(body),
+        validate: fromWireSnapshot,
       });
     },
   });

@@ -11,6 +11,7 @@ import {
   createMessage,
   validateMessage,
 } from "../lib/messages.js";
+import { validateLegalContext } from "../lib/automation-schema.js";
 
 export const FRAME_REGISTRATIONS_STORAGE_KEY = "frame-registrations:v1";
 
@@ -53,6 +54,10 @@ function senderIsExtension(sender, chromeApi) {
   return typeof sender?.url === "string" && sender.url.startsWith("chrome-extension://");
 }
 
+function senderIsExtensionPage(sender) {
+  return typeof sender?.url === "string" && sender.url.startsWith("chrome-extension://");
+}
+
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value);
 }
@@ -62,6 +67,7 @@ export function createServiceWorker({
   ranker = rankPortalOptions,
   now = () => new Date().toISOString(),
   storageArea = chromeApi?.storage?.local,
+  bridge = null,
 } = {}) {
   if (!chromeApi?.storage?.local) {
     throw new TypeError("createServiceWorker requires chromeApi.storage.local");
@@ -78,6 +84,7 @@ export function createServiceWorker({
   let frameRegistrationsLoadPromise = null;
   let framePersistencePromise = Promise.resolve();
   let listenerRegistered = false;
+  const contextCache = new Map();
 
   function isStoredFrameRegistration(value) {
     return isRecord(value)
@@ -303,6 +310,7 @@ export function createServiceWorker({
     dataset = importedDataset;
     datasetIndex = nextIndex;
     reviewed = nextReviewed;
+    contextCache.clear();
     loadPromise = Promise.resolve();
     return successResponse(message, {
       batchId: importedDataset.batch.id,
@@ -316,9 +324,27 @@ export function createServiceWorker({
     if (!dataset || !datasetIndex) {
       return successResponse(message, { record: null, matches: {}, reason: "NO_DATASET" });
     }
-    const { processKey, interestedNormalized, options } = message.payload;
+    const {
+      processKey,
+      interestedNormalized,
+      options,
+      context,
+      datasetSha256,
+      rulesVersion,
+      contextRevision,
+    } = message.payload;
     const record = resolveIndexedRecord(datasetIndex, processKey, interestedNormalized);
     if (!record) return successResponse(message, { record: null, matches: {}, reason: "RECORD_NOT_FOUND" });
+
+    const contextKey = `${processKey}\u0000${interestedNormalized}\u0000${datasetSha256 ?? ""}\u0000${rulesVersion ?? ""}\u0000${contextRevision ?? ""}`;
+    if (context !== undefined) {
+      if (context === null) contextCache.delete(contextKey);
+      else contextCache.set(
+        contextKey,
+        validateLegalContext(context, { processKey, interestedNormalized, datasetSha256 }),
+      );
+    }
+    const cachedContext = contextCache.get(contextKey) ?? null;
 
     const matches = {};
     for (const [field, fieldOptions] of Object.entries(options)) {
@@ -329,6 +355,7 @@ export function createServiceWorker({
         documentaryValue,
         hints: {},
         options: fieldOptions,
+        context: field === "fundamento_legal" ? cachedContext : null,
       });
     }
     return successResponse(message, {
@@ -336,6 +363,36 @@ export function createServiceWorker({
       matches,
       reviewed: reviewedValue(processKey, record.interested.normalized),
     });
+  }
+
+  function automationUnavailable(message) {
+    return errorResponse(message.requestId, "AUTOMATION_UNAVAILABLE", "o serviço local não expõe a API de automação; o modo manual permanece disponível");
+  }
+
+  async function handleAutomationMessage(message, sender) {
+    if (!senderIsExtensionPage(sender)) {
+      return errorResponse(message.requestId, "UNAUTHORIZED", "somente páginas da extensão podem controlar a execução");
+    }
+    if (bridge === null) return automationUnavailable(message);
+    try {
+      if (message.type === MESSAGE_TYPES.AUTO_START) {
+        return successResponse(message, await bridge.createAutomationRun(message.payload.spec, message.payload.eventId));
+      }
+      if (message.type === MESSAGE_TYPES.AUTO_STATUS) {
+        return successResponse(message, await bridge.getAutomationRun(message.payload.runId));
+      }
+      const action = message.type.slice("AUTO_".length).toLowerCase();
+      return successResponse(message, await bridge.controlAutomationRun(message.payload.runId, {
+        action,
+        eventId: message.payload.eventId,
+        expectedRevision: message.payload.expectedRevision,
+      }));
+    } catch (error) {
+      if (error?.code === "NOT_FOUND" || error?.code === "AUTOMATION_UNAVAILABLE") {
+        return automationUnavailable(message);
+      }
+      return errorResponse(message.requestId, error?.code || "AUTOMATION_ERROR", error instanceof Error ? error.message : "automation bridge request failed");
+    }
   }
 
   async function setReviewed(message) {
@@ -364,6 +421,12 @@ export function createServiceWorker({
 
     try {
       switch (validated.type) {
+        case MESSAGE_TYPES.AUTO_START:
+        case MESSAGE_TYPES.AUTO_PAUSE:
+        case MESSAGE_TYPES.AUTO_RESUME:
+        case MESSAGE_TYPES.AUTO_STOP:
+        case MESSAGE_TYPES.AUTO_STATUS:
+          return await handleAutomationMessage(validated, sender);
         case MESSAGE_TYPES.FORM_READY: {
           const tabId = tabIdFromSender(sender);
           const frameId = frameIdFromSender(sender);
