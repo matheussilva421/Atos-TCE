@@ -4,7 +4,7 @@
 
 - Implementação iniciada em `codex/fundamentacao-automatico`, derivada de `main` em `dc84402`.
 - O ledger vivo está em `.superpowers/sdd/2026-09-08-fundamentacao-automatico-plano-fases/progress.md` (git-ignorado) e registra tasks, conflitos e decisões.
-- Task atual: revisão final da Fase 5 — navegação, frames e descoberta da fila; Fases 1–4 aprovadas e fechadas.
+- Task atual: Fase 6 — preparação e preenchimento verificável; Fases 1–5 aprovadas e fechadas.
 - Baseline desta execução: `npm test` 124/124 pass; Python focal 99/99 pass, 1 skip ambiental. Warnings de `fitz` depreciado e `ResourceWarning` já aparecem na baseline e não foram introduzidos nesta branch.
 - Fase 0 concluída e revisada: commits `b99fd80` e `54dcf9f`; fixtures/testes sanitizados aprovados em re-revisão Luna. A suíte JS pós-fase ficou 125/126 porque a regressão RED do matcher continua intencional para a Fase 2.
 - Fase 1 aprovada em revisão final após cinco rounds de correção: commits de código `f0a72b5`, `e84ac95`, `8b3a411`, `e85aa35`, `d305ee6`, `0876f2d` e documentação `5b1a732`, `8a64d4d`, `86837a9`, `559b089`, `6a3b63c`, `45e225e`. Último foco: 18/18 testes de contexto, 7/7 pipeline dirigido, 89/89 focal Python, 19/19 batch runner; revisão final Approved. O pacote portátil continua pendente para a Fase 10.
@@ -425,7 +425,6 @@
 - Limitações: qualificação de browser/portal real, preflight, preenchimento,
   envio, redesign e empacotamento seguem fora desta fase; linha sem controles
   suficientes pausa para intervenção manual.
-- Status: revisão independente final da rodada `a4d2e66` ainda pendente; não
-  marcar a Fase 5 como aprovada nem iniciar a Fase 6 antes desse gate.
-- Próxima tarefa após aprovação: Fase 6, sem deslocar envio ou preflight para
-  o controller da Fase 5.
+- Status: revisão independente final da Fase 5 **APROVADA**, sem achados.
+- Próxima tarefa: Fase 6, com preflight separado, escrita allowlisted e
+  verificação pós-eventos; sem deslocar envio para o controller da Fase 5.
