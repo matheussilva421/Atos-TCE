@@ -160,21 +160,30 @@ _PRIVATE_PACKAGE_DIRECTORY_ALLOWLIST = {
 _ALLOWED_HOST = "https://novaarearestrita.tce.rn.gov.br"
 _ALLOWED_HOST_PATTERN = f"{_ALLOWED_HOST}/*"
 _ALLOWED_BRIDGE_HOST_PATTERN = "http://127.0.0.1/*"
+_EXTENSION_VERSION = "1.1.0"
 _EXTENSION_FILE_ALLOWLIST = frozenset(
     {
         "manifest.json",
         "package.json",
         "content/package.json",
         "content/form-detector.js",
+        "content/portal-navigation.js",
+        "content/portal-submit.js",
         "background/service-worker.js",
+        "background/automation-controller.js",
+        "lib/automation-preflight.js",
+        "lib/automation-schema.js",
         "lib/matcher.js",
         "lib/messages.js",
         "lib/bridge-client.js",
+        "lib/legal-foundation.js",
         "lib/normalizer.js",
         "lib/schema.js",
         "sidepanel/panel.css",
         "sidepanel/panel.html",
         "sidepanel/panel.js",
+        "sidepanel/panel-tokens.css",
+        "sidepanel/panel-view.js",
     }
 )
 _SENSITIVE_JSON_KEYS = frozenset(
@@ -840,16 +849,23 @@ def _audit_extension(
             _relative_name(root, manifest_path),
             "a extensão deve usar Manifest V3",
         )
+    if manifest.get("version") != _EXTENSION_VERSION:
+        report.add(
+            "extension_version",
+            _relative_name(root, manifest_path),
+            f"versão da extensão deve ser {_EXTENSION_VERSION}",
+        )
 
     permissions = manifest.get("permissions")
     if not isinstance(permissions, list) or [str(item) for item in permissions] != [
         "storage",
         "sidePanel",
+        "alarms",
     ]:
         report.add(
             "extension_permissions",
             _relative_name(root, manifest_path),
-            "permissões devem ser exatamente storage e sidePanel",
+            "permissões devem ser exatamente storage, sidePanel e alarms",
         )
 
     host_permissions = manifest.get("host_permissions")

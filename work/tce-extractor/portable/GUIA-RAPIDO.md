@@ -217,7 +217,7 @@ carregue a pasta `extensao-complementar-ato` do kit novo ou recarregue a extens�
 se atualizou a mesma pasta. Evite manter duas cópias habilitadas ao mesmo tempo.
 Depois de atualizar, recarregue a tela do portal **somente se não houver edição
 pendente** e importe o JSON do lote desejado. Não recarregue um formulário com
-dados ainda não salvos. A versão corrigida é **1.0.1**.
+dados ainda não salvos. A versão compatível desta rodada é **1.1.0**.
 
 ### O terminal diz que a sessão não está autenticada
 

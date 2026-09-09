@@ -177,6 +177,7 @@ def _assert_manifest_contract(test: unittest.TestCase) -> dict[str, Any]:
     test.assertTrue(manifest_path.is_file(), manifest_path)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     test.assertEqual(manifest["manifest_version"], 3)
+    test.assertEqual(manifest["version"], "1.1.0")
     test.assertEqual(manifest["permissions"], ["storage", "sidePanel", "alarms"])
     test.assertEqual(
         manifest["host_permissions"], [f"https://{ALLOWED_HOST}/*", "http://127.0.0.1/*"]

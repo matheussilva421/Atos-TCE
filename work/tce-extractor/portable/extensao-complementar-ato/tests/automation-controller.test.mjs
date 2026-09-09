@@ -310,6 +310,36 @@ test("freezes then resets from the final discovery page and completes the full f
   assert.equal(chromeApi.calls.filter(([, message]) => message.type === "PORTAL_NAVIGATE" && message.payload.action === "open_act").length, 5);
 });
 
+test("integrated local qualification processes 25 acts across two pages and preserves three pending identities", async () => {
+  const all = Array.from({ length: 22 }, (_, index) => identity(
+    `${200000 + index}/2024`,
+    `interessado ${index + 1}`,
+    `act-${index + 1}`,
+  ));
+  const pending = [
+    { processKey: "pending-1/2024", interestedOriginal: "", interestedNormalized: null, portalActId: null, pending: true },
+    { processKey: "pending-2/2024", interestedOriginal: "", interestedNormalized: null, portalActId: null, pending: true },
+    { processKey: "pending-3/2024", interestedOriginal: "", interestedNormalized: null, portalActId: null, pending: true },
+  ];
+  const firstValid = all.slice(0, 11);
+  const secondValid = all.slice(11);
+  const first = { ...lifecycleList(1, firstValid, { next: true }), identities: [...firstValid, pending[0], pending[1]] };
+  const second = { ...lifecycleList(2, secondValid, { first: true }), identities: [...secondValid, pending[2]] };
+  const bridge = bridgeMock();
+  const chromeApi = lifecycleChromeMock({ 1: first, 2: second, 3: first });
+  const result = await createAutomationController({ chromeApi, bridge }).start({
+    spec: runSpec(),
+    eventId: "qualification-25-acts",
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.totals.discovered, 25);
+  assert.equal(result.totals.unique, 25);
+  assert.equal(result.totals.pending, 3);
+  assert.equal(bridge.calls.find(([name]) => name === "freeze")[2].identities.length, 22);
+  assert.equal(chromeApi.calls.filter(([, message]) => message.type === "PORTAL_NAVIGATE" && message.payload.action === "open_act").length, 22);
+});
+
 test("completes and advances when the selected interested return control is generic", async () => {
   const requested = identity("103401/2023", "ana da silva", "act-1");
   const second = identity("103402/2023", "bruno de souza", "act-2");

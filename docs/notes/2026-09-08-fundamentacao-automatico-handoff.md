@@ -503,3 +503,31 @@
 - Próxima tarefa: iniciar a Fase 9 pelo portal simulado integrado, reinícios,
   duas abas, 25 atos, pendências e timeout; não liberar envio real por inferência
   de fixtures ou do smoke do Chrome.
+
+## Registro por fase — Fases 9 e 10 — qualificação sintética e pacote
+
+- Estado: gates locais concluídos nesta retomada; qualificação real continua
+  bloqueada por checkpoint de segurança e autorização.
+- Fase 9: criado `tests/fixtures/automatic-portal/simulator.html` com duas
+  páginas, pendência documental, seleção e retorno; o formulário sintético
+  passou a conter sete campos, interessado e botões em frame separado.
+  `test_automation_browser.py` exercita os content scripts reais no Chrome
+  descartável por mensagens da página de extensão, e comprova bloqueio sem
+  serviço sem clicar o botão.
+- Fase 9: `portable/test_automation_integration.py` persiste 25 identidades,
+  três itens `pending`, timeout no ordinal 11 como `unconfirmed`, recovery para
+  `paused` e retomada somente após `run_resumed`. O controller JS cobre a
+  descoberta 11+11 em duas páginas mais três pendências.
+- Fase 10: `package_audit.py` e `package_complete_archive.py` foram alinhados
+  com os módulos de automação e views; `alarms` passou a ser permissão auditada;
+  a extensão agora é `1.1.0`; a fixture autocontida inclui `legal_context.py`.
+- Validação: `npm test` 249/249; focal Python de integração/recuperação 5/5;
+  focal browser/API/serviço/redesign/smoke/pacote 41/41 com 1 skip;
+  `test_package_audit` 41/41 com 2 skips; `test_portable_end_to_end` 3/3;
+  combinação de pacote 61/61 com 2 skips; suíte Python ampla 373/373 com
+  5 skips ambientais. `git diff --check` será repetido antes do commit.
+- GitHub: branch `codex/fundamentacao-automatico`, sem remoto configurado;
+  não houve push. As mudanças desta rodada ainda precisam de commit explícito.
+- Pendências: gate real do portal, piloto autorizado, runtime portátil real e
+  smoke de uma release final. Não abrir perfil autenticado nem habilitar envio
+  no próximo passo sem autorização explícita.

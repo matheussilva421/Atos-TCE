@@ -113,15 +113,23 @@ EXTENSION_FILE_ALLOWLIST = frozenset(
         "package.json",
         "content/package.json",
         "content/form-detector.js",
+        "content/portal-navigation.js",
+        "content/portal-submit.js",
         "background/service-worker.js",
+        "background/automation-controller.js",
+        "lib/automation-preflight.js",
+        "lib/automation-schema.js",
         "lib/matcher.js",
         "lib/messages.js",
         "lib/bridge-client.js",
+        "lib/legal-foundation.js",
         "lib/normalizer.js",
         "lib/schema.js",
         "sidepanel/panel.css",
         "sidepanel/panel.html",
         "sidepanel/panel.js",
+        "sidepanel/panel-tokens.css",
+        "sidepanel/panel-view.js",
     }
 )
 EXTENSION_SOURCE_EXCLUDED_DIRECTORIES = frozenset({"tests"})

@@ -5,6 +5,13 @@
     <form id="tbcomplementarato">
       <input id="txtNumeroProcesso" value="SYN-0001">
       <input id="txtAnoProcesso" value="2099">
+      <table id="interessados">
+        <thead><tr><th>Selecionar</th><th>Nome</th></tr></thead>
+        <tbody><tr>
+          <td><input type="radio" name="interessado" value="synthetic-person-a" checked></td>
+          <td>Pessoa Sintética A</td>
+        </tr></tbody>
+      </table>
       <select id="txtModalidade"><option value="synthetic-modality">Aposentadoria sintética</option></select>
       <select id="txtFundamentoLegal"><option value="synthetic-ec41-without-p5">Fundamentação sintética</option></select>
       <input id="txtDataDOE" value="01/01/2099">
@@ -12,6 +19,8 @@
       <input id="txtMatricula" value="MAT-SIM-0001">
       <input id="txtDataNascimento" value="01/01/1970">
       <input id="txtGenero" value="Não informado">
+      <button id="btnComplementar" type="button" data-click-count="0">Complementar Ato</button>
+      <button id="btnLimpar" type="button" data-click-count="0">Limpar</button>
     </form>
   </body>
 </html>

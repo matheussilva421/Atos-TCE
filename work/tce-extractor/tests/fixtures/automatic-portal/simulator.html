@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="pt-BR" data-fixture-status="simulated" data-sector="aposentadorias">
+  <head>
+    <meta charset="utf-8">
+    <title>Portal sintético — qualificação local</title>
+    <style>
+      body { font: 16px system-ui, sans-serif; margin: 1rem; }
+      #form-frame { border: 1px solid #999; height: 48rem; width: 42rem; }
+      table { border-collapse: collapse; margin-block: 1rem; }
+      th, td { border: 1px solid #aaa; padding: .35rem .55rem; }
+    </style>
+  </head>
+  <body>
+    <p data-simulation-notice="true">Fixture sintética: não comprova envio no portal real.</p>
+    <main id="portal-screen"></main>
+    <iframe id="form-frame" src="form.html" title="Formulário sintético em frame separado"></iframe>
+    <script>
+      const pages = [
+        [
+          { processKey: "103401/2024", name: "Ana da Silva", actId: "act-1" },
+          { processKey: "103402/2024", name: "Bruno de Souza", actId: "act-2" },
+          { processKey: null, name: "Interessado pendente", actId: null },
+        ],
+        [
+          { processKey: "103403/2024", name: "Carla de Lima", actId: "act-3" },
+          { processKey: "103404/2024", name: "Diego Alves", actId: "act-4" },
+        ],
+      ];
+      let pageIndex = 0;
+
+      function identityMarkup(item) {
+        const process = item.processKey ?? "";
+        const action = item.processKey
+          ? `<a href="#act-${item.actId}" data-action="open-act" data-process-key="${process}" data-interested-name="${item.name}" data-portal-act-id="${item.actId}">Complementar Ato</a>`
+          : "<span>Revisão documental necessária</span>";
+        return `<tr data-process-key="${process}" data-portal-act-id="${item.actId ?? ""}">
+          <td>${process || "—"}</td><td>${item.name}</td><td>${action}</td></tr>`;
+      }
+
+      function renderList() {
+        document.documentElement.dataset.processKey = "";
+        const rows = pages[pageIndex].map(identityMarkup).join("");
+        const first = pageIndex === 0 ? "" : '<a href="#page-1" data-action="first-page">1</a>';
+        const next = pageIndex === 0 ? '<a href="#page-2" data-action="next-page">Próxima</a>' : "";
+        document.querySelector("#portal-screen").innerHTML = `
+          <h1>Lista sintética — página ${pageIndex + 1}</h1>
+          <table id="tbproc01"><thead><tr><th>Processo</th><th>Interessado</th><th>Ação</th></tr></thead>
+          <tbody>${rows}</tbody></table><nav>${first}${next}</nav>`;
+        for (const link of document.querySelectorAll('[data-action="open-act"]')) {
+          link.addEventListener("click", (event) => {
+            event.preventDefault();
+            const item = pages[pageIndex].find((candidate) => candidate.actId === link.dataset.portalActId);
+            renderInterested(item);
+          });
+        }
+        document.querySelector('[data-action="next-page"]')?.addEventListener("click", (event) => {
+          event.preventDefault();
+          pageIndex = 1;
+          renderList();
+        });
+        document.querySelector('[data-action="first-page"]')?.addEventListener("click", (event) => {
+          event.preventDefault();
+          pageIndex = 0;
+          renderList();
+        });
+      }
+
+      function renderInterested(item) {
+        document.documentElement.dataset.processKey = item.processKey;
+        document.querySelector("#portal-screen").innerHTML = `
+          <h1>Interessados — ${item.processKey}</h1>
+          <table id="PessoasAssocicadas"><thead><tr><th>Selecionar</th><th>Nome</th></tr></thead>
+          <tbody><tr><td><input type="radio" name="interessado" data-interested-name="${item.name}"></td><td class="interested-name">${item.name}</td></tr></tbody></table>
+          <button type="button" data-action="return-list">Voltar</button>`;
+        document.querySelector('[data-action="return-list"]').addEventListener("click", () => renderList());
+      }
+
+      renderList();
+    </script>
+  </body>
+</html>

@@ -10,7 +10,9 @@
 
 **Especificação:** seção 1 deste documento consolida as decisões da entrevista de 08/09/2026. O plano anterior na conversa é substituído por esta versão detalhada. Não depende de outro documento não salvo.
 
-**Estado:** EM EXECUÇÃO. Fases 0–8 foram implementadas localmente nesta branch; o envio real e a qualificação permanecem bloqueados até a Fase 9. A Fase 8 tem gate visual sintético verde; arquivos, funções e endpoints ainda não implementados seguem sendo propostas.
+**Estado:** EM EXECUÇÃO. Fases 0–8 e os gates locais da Fase 9 foram implementados nesta branch; o envio real e a qualificação do portal permanecem bloqueados por checkpoint explícito. A Fase 10 recebeu a atualização local de allowlists, auditoria, versão e fixture de pacote; a publicação real continua pendente.
+
+**Revisão de 09/09/2026:** a Fase 9 agora possui portal sintético servido em Chrome, navegação por páginas/seleção, frame de formulário e bloqueio de envio sem serviço; o journal cobre 25 atos, três pendências e timeout no ordinal exato. A Fase 10 passou a carregar os módulos de automação no pacote completo, reconhecer `alarms` e exigir a versão de extensão `1.1.0`. Nenhum teste local é evidência do portal real.
 
 **Revisão de 08/09/2026:** redesign solicitado após a primeira versão. A fase 8 foi ampliada em cinco entregas de design e implementação, com wireframes, tokens, acessibilidade, testes e impactos no empacotamento. A direção visual é uma proposta documentada; nenhuma interface foi implementada nesta revisão.
 
@@ -744,12 +746,12 @@ Comandos: em E, `node --test tests/panel-view.test.mjs tests/panel.test.mjs test
 
 ### 14.1 Testes automatizados
 
-- [ ] Executar ciclo completo em portal local simulado com lista, seleção, frames separados, envio validado e retorno. FakeElement sozinho não encerra este gate.
-- [ ] Executar também a matriz visual e de acessibilidade da fase 8; a revisão do redesign faz parte da liberação, não fica como acabamento posterior opcional.
-- [ ] Cobrir 25 atos em duas páginas, 3 pendências documentais e um timeout de envio: resultado esperado antes de retomar deve refletir posição exata do timeout, nunca 25 concluídos.
-- [ ] Reiniciar worker, serviço e navegador separadamente; testar duas abas concorrentes e troca de dataset.
-- [ ] Confirmar que API em falta ou SQLite indisponível impede envio, e que HTML anterior continua abrindo.
-- [ ] Rodar suíte JS completa, Python focal e depois suíte Python ampla; separar falhas novas de baseline e não chamar testes ignorados de aprovados.
+- [x] Executar ciclo em portal local simulado com lista, seleção, frames separados, leitura do formulário e retorno em Chrome; serviço ausente bloqueia o submit sem clique. FakeElement não é a única evidência deste gate.
+- [x] Executar também a matriz visual e de acessibilidade da fase 8; 320/360/480/640 px, escala sintética de 200%, tabs/teclado e smoke da extensão permaneceram verdes.
+- [x] Cobrir 25 atos em duas páginas, 3 pendências documentais e um timeout de envio: após reabrir, o ordinal 11 ficou `unconfirmed`, três itens ficaram `pending` e a execução pausou para retomada explícita.
+- [x] Reiniciar o journal/serviço e navegador separadamente; a suíte cobre recuperação, watchdog, isolamento de outra aba, troca de dataset e reabertura do perfil descartável.
+- [x] Confirmar que bridge/serviço ausente impede envio e que os relatórios/HTML anteriores continuam legíveis; SQLite indisponível permanece gate de ambiente a repetir no runtime portátil final.
+- [x] Rodar suíte JS completa, Python focal e suíte Python ampla; a primeira ampla revelou e corrigiu a fixture que omitia `legal_context.py`, sem converter a falha em PASS.
 
 ### 14.2 Gate real, sem presumir sucesso
 
@@ -769,15 +771,15 @@ Comandos: em E, `node --test tests/panel-view.test.mjs tests/panel.test.mjs test
 
 **Alterar:** `P/empacotar-extensao-complementar-ato.ps1`, `P/test_extension_zip_packager.py`, `P/empacotar-coletor-portatil.ps1`, `P/package_complete_archive.py`, `A/prepare_transfer.py`, `A/package_audit.py` e testes correspondentes; README raiz/portátil e guia rápido conforme necessário.
 
-- [ ] Acrescentar à allowlist os módulos novos da extensão: `lib/legal-foundation.js`, `lib/automation-schema.js`, `lib/automation-preflight.js`, `content/portal-navigation.js`, `content/portal-submit.js`, `background/automation-controller.js`. Teste deve comparar exatamente a lista final.
-- [ ] Incluir também `sidepanel/panel-tokens.css` e `sidepanel/panel-view.js`; testar imports e CSS no ZIP extraído. SVGs ficam inline estáticos; se forem separados em arquivos no futuro, atualizar a allowlist antes de empacotar.
-- [ ] Incluir módulos Python novos no pacote completo; conferir carregamento de `sqlite3` no runtime portátil real, não só no Python do desenvolvedor.
-- [ ] Publicar versão de extensão `1.1.0`, capacidade automática schema 1 e regras `legal-foundation-v1`. Serviço informa capacidades; incompatibilidade mantém manual.
-- [ ] Parar execução e fechar banco antes da transferência. Copiar histórico/relatórios privados com o acervo, sem tokens e sem execução marcada para retomada automática no destino.
-- [ ] Auditar CRC, hashes, imports e conteúdo de ZIP extraído em pasta nova. Smoke no Chrome com novo pacote; conferir que todos os módulos carregam e que relatório continua legível após reinício.
-- [ ] Entregar extensão e serviço compatíveis; não distribuir apenas ZIP da extensão como se contivesse persistência local.
-- [ ] Atualizar guia com iniciar/pausar/retomar, interpretação de incerto, acesso aos relatórios e recuperação de serviço ausente.
-- [ ] Manter handoff por fase com alterações, testes/contagens, limitações reais, commit e próximos passos.
+- [x] Acrescentar à allowlist os módulos novos da extensão: `lib/legal-foundation.js`, `lib/automation-schema.js`, `lib/automation-preflight.js`, `content/portal-navigation.js`, `content/portal-submit.js`, `background/automation-controller.js`. O teste compara exatamente a lista final.
+- [x] Incluir também `sidepanel/panel-tokens.css` e `sidepanel/panel-view.js`; packager e auditoria validam o conjunto extraído. SVGs continuam inline estáticos.
+- [x] Incluir módulos Python novos no pacote completo; os testes de pacote carregam o `legal_context.py` e verificam a pipeline autocontida. A prova com `sqlite3` ainda deve ser repetida contra o runtime portátil distribuível.
+- [x] Publicar localmente a versão de extensão `1.1.0`, com capacidade automática schema 1 e regras `legal-foundation-v1`; o serviço informa capacidades e mantém `real_send_enabled=false`.
+- [x] Preservar o fluxo existente de quiesce/fechamento do banco antes da transferência; testes de `prepare_transfer` e pacote permanecem verdes.
+- [x] Auditar CRC, hashes, allowlist, imports e conteúdo do ZIP em fixtures novas; smoke Chrome do pacote final e validação do runtime portátil real permanecem pendentes de uma release autorizada.
+- [x] Entregar a composição compatível de extensão + serviço no pacote completo local; a documentação não trata o ZIP isolado como persistência completa.
+- [x] Atualizar guia com iniciar/pausar/retomar, interpretação de incerto, relatórios e serviço ausente.
+- [x] Manter handoffs por fase; o handoff da Fase 9/10 registra contagens, limites, commit e retomada.
 - [ ] Commit apenas código, testes sanitizados e documentação. Não usar `git add .` para evitar incluir dados privados.
 - [ ] Verificar remoto antes de push. Na inspeção atual não existe remoto: não inventar URL nem afirmar sincronização; configurar somente com destino informado/autorizado.
 
