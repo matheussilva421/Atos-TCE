@@ -56,7 +56,8 @@ consumir comando quando `real_send_enabled=false`; o serviço devolve
 `REAL_SEND_DISABLED` sem persistir `command_consumed`. O piloto opt-in ainda não
 foi executado no portal; sua infraestrutura local agora exige `--automation-pilot`,
 identidade explícita, conserva o limite de um comando após reinício e recebe
-`AUTO_START` no worker/controller do painel.
+`AUTO_START`/`AUTO_PAUSE`/`AUTO_RESUME`/`AUTO_STOP` no worker/controller do
+painel.
 
 Três auditorias Luna xhigh foram solicitadas em paralelo para separar checklists
 históricos das pendências reais, mas permaneceram sem resposta e foram

@@ -971,17 +971,28 @@ export function createPanelApp({
   async function controlAutomation(action) {
     const run = state.automationRun;
     if (!run || !state.bridgeClient || typeof state.bridgeClient.controlAutomationRun !== "function") return false;
+    const messageType = {
+      pause: MESSAGE_TYPES.AUTO_PAUSE,
+      resume: MESSAGE_TYPES.AUTO_RESUME,
+      stop: MESSAGE_TYPES.AUTO_STOP,
+    }[action];
+    if (!messageType) return false;
     if (action === "resume" && run.items?.some((item) => item.state === "unconfirmed")) {
       setMessage("Concilie o resultado incerto antes de retomar.", true);
       render();
       return false;
     }
     try {
-      state.automationRun = await state.bridgeClient.controlAutomationRun(run.run_id, {
-        action,
+      const response = await send(messageType, {
         eventId: `panel-${action}-${Date.now()}`,
+        runId: run.run_id,
         expectedRevision: run.revision,
       });
+      const forwarded = unwrapResponse(response);
+      if (!forwarded.ok || !isRecord(forwarded.payload)) {
+        throw new Error(responseFailure(forwarded, "worker não alterou a execução"));
+      }
+      state.automationRun = forwarded.payload;
       state.selectedView = "execution";
       setMessage(action === "pause" ? "Execução pausada; nenhum novo envio será iniciado." : action === "stop" ? "Execução encerrada; o relatório foi preservado." : "Execução retomada após conciliação.");
       render();

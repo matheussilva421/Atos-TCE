@@ -549,6 +549,9 @@ test("automation view requires a compatible bridge, starts explicitly, and keeps
     if (message.type === MESSAGE_TYPES.AUTO_START) {
       return { ok: true, payload: { ...run, spec: message.payload.spec, status: "discovering" } };
     }
+    if (message.type === MESSAGE_TYPES.AUTO_PAUSE) {
+      return { ok: true, payload: { ...run, revision: 1, status: "paused" } };
+    }
     return sendMessage(message);
   };
   const { app, documentRef } = await startApp({
@@ -571,8 +574,10 @@ test("automation view requires a compatible bridge, starts explicitly, and keeps
   assert.match(documentRef.getElementById("permanent-warning").textContent, /pausada|Nenhum novo envio/iu);
   assert.equal(await app.openAutomationHistory("run-panel-1"), true);
   assert.equal(app.getState().selectedView, "history");
-  assert.deepEqual(calls.filter(([name]) => ["capabilities", "history", "pause"].includes(name)).map(([name]) => name), ["capabilities", "history", "pause"]);
+  assert.deepEqual(calls.filter(([name]) => ["capabilities", "history", "pause"].includes(name)).map(([name]) => name), ["capabilities", "history"]);
   assert.equal(workerCalls.some((message) => message.type === MESSAGE_TYPES.AUTO_START), true);
+  assert.equal(workerCalls.some((message) => message.type === MESSAGE_TYPES.AUTO_PAUSE), true);
+  assert.equal(calls.some(([name]) => name === "pause"), false);
   assert.equal(calls.some(([name, runId]) => name === "events" && runId === "run-panel-1"), true);
 });
 
