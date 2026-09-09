@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   detectPortalScreen,
   executeNavigation,
+  createMessageHandler,
   snapshotPortalScreen,
 } from "../content/portal-navigation.js";
 
@@ -312,6 +313,7 @@ test("selects one interested person and supports return to the list", async () =
   });
   assert.equal(afterSelect.ok, true);
   assert.equal(documentRef.querySelector('input[type="radio"]').checked, true);
+  assert.deepEqual(afterSelect.snapshot.actions.find((action) => action.action === "return_list").identity, identity("103401/2023", "Ana da Silva"));
   const returned = await executeNavigation(documentRef, {
     action: "return_list",
     identity: identity("103401/2023", "Ana da Silva"),
@@ -319,6 +321,23 @@ test("selects one interested person and supports return to the list", async () =
   });
   assert.equal(returned.ok, true);
   assert.equal(detectPortalScreen(documentRef), "list");
+});
+
+test("echoes the navigation request token in the command response", async () => {
+  const documentRef = buildListDocument("1", [{ processKey: "103401/2023", interested: "Ana da Silva" }]);
+  const handler = createMessageHandler(documentRef);
+  const response = await handler({
+    type: "PORTAL_NAVIGATE",
+    requestId: "navigation-token-3",
+    payload: {
+      action: "open_act",
+      identity: identity("103401/2023", "Ana da Silva"),
+      expected_generation: snapshotPortalScreen(documentRef).generation,
+    },
+  });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.navigationToken, "navigation-token-3");
 });
 
 test("advances through three synthetic pages, invalidates generation on rerender, and never repeats an unverified click", async () => {

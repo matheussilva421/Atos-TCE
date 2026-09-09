@@ -89,11 +89,20 @@ function chromeMock(snapshots) {
       async sendMessage(tabId, message, options) {
         calls.push([tabId, message, options]);
         if (message.type === "PORTAL_GET_SNAPSHOT") {
-          return { ok: true, payload: structuredClone(snapshots[Math.min(current, snapshots.length - 1)]) };
+          return {
+            ok: true,
+            frameId: Number.isSafeInteger(options?.frameId) ? options.frameId : 0,
+            payload: structuredClone(snapshots[Math.min(current, snapshots.length - 1)]),
+          };
         }
         if (message.type === "PORTAL_NAVIGATE") {
           current += 1;
-          return { ok: true, payload: { snapshot: structuredClone(snapshots[Math.min(current, snapshots.length - 1)]) } };
+          return {
+            ok: true,
+            frameId: Number.isSafeInteger(options?.frameId) ? options.frameId : 0,
+            navigationToken: message.requestId,
+            payload: { snapshot: structuredClone(snapshots[Math.min(current, snapshots.length - 1)]) },
+          };
         }
         return { ok: true, payload: {} };
       },
@@ -113,7 +122,14 @@ function activeChromeMock(page) {
   const chromeApi = chromeMock([page]);
   const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
   chromeApi.tabs.sendMessage = async (tabId, message, options) => {
-    if (message.type === "PORTAL_NAVIGATE") return { ok: true, payload: {} };
+    if (message.type === "PORTAL_NAVIGATE") {
+      return {
+        ok: true,
+        frameId: Number.isSafeInteger(options?.frameId) ? options.frameId : 0,
+        navigationToken: message.requestId,
+        payload: {},
+      };
+    }
     return originalSendMessage(tabId, message, options);
   };
   return chromeApi;
@@ -205,7 +221,7 @@ function lifecycleList(page, identities, { next = false, first = false } = {}) {
   );
 }
 
-function lifecycleChromeMock(pages) {
+function lifecycleChromeMock(pages, { genericReturnList = false } = {}) {
   const calls = [];
   let currentPage = 1;
   let currentSurface = pages[1];
@@ -215,7 +231,13 @@ function lifecycleChromeMock(pages) {
     tabs: {
       async sendMessage(tabId, message, options) {
         calls.push([tabId, message, options]);
-        if (message.type === "PORTAL_GET_SNAPSHOT") return { ok: true, payload: structuredClone(currentSurface) };
+        if (message.type === "PORTAL_GET_SNAPSHOT") {
+          return {
+            ok: true,
+            frameId: Number.isSafeInteger(options?.frameId) ? options.frameId : 0,
+            payload: structuredClone(currentSurface),
+          };
+        }
         if (message.type !== "PORTAL_NAVIGATE") return { ok: true, payload: {} };
         const { action, identity: requested } = message.payload;
         if (action === "next_page") {
@@ -231,18 +253,34 @@ function lifecycleChromeMock(pages) {
         } else if (action === "select_interested") {
           currentSurface = snapshot("interested", 20 + currentPage, [
             { ...requested, selected: true },
-          ], [
-            { action: "return_list", enabled: true, identity: { ...requested, selected: true } },
-          ]);
+          ], genericReturnList
+            ? [{ action: "return_list", enabled: true }]
+            : [{ action: "return_list", enabled: true, identity: { ...requested, selected: true } }]);
         } else if (action === "return_list") {
           currentPage = 1;
           currentSurface = pages[1];
         }
-        return { ok: true, payload: { snapshot: structuredClone(currentSurface) } };
+        return {
+          ok: true,
+          frameId: Number.isSafeInteger(options?.frameId) ? options.frameId : 0,
+          navigationToken: message.requestId,
+          payload: { snapshot: structuredClone(currentSurface) },
+        };
       },
       onRemoved: { addListener() {} },
     },
   };
+}
+
+function responseFrameChromeMock(page, frameId) {
+  const chromeApi = activeChromeMock(page);
+  const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    const response = await originalSendMessage(tabId, message, options);
+    if (message.type === "PORTAL_GET_SNAPSHOT") return { ...response, frameId };
+    return response;
+  };
+  return chromeApi;
 }
 
 test("freezes then resets from the final discovery page and completes the full five-item cycle", async () => {
@@ -269,6 +307,22 @@ test("freezes then resets from the final discovery page and completes the full f
   assert.equal(result.currentIdentity, null);
   assert.equal(result.totals.unique, 5);
   assert.equal(chromeApi.calls.filter(([, message]) => message.type === "PORTAL_NAVIGATE" && message.payload.action === "open_act").length, 5);
+});
+
+test("completes and advances when the selected interested return control is generic", async () => {
+  const requested = identity("103401/2023", "ana da silva", "act-1");
+  const second = identity("103402/2023", "bruno de souza", "act-2");
+  const pages = { 1: lifecycleList(1, [requested, second]) };
+  const bridge = bridgeMock();
+  const chromeApi = lifecycleChromeMock(pages, { genericReturnList: true });
+  const result = await createAutomationController({ chromeApi, bridge }).start({
+    spec: runSpec(),
+    eventId: "start-generic-return",
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.currentIdentity, null);
+  assert.equal(chromeApi.calls.filter(([, message]) => message.type === "PORTAL_NAVIGATE" && message.payload.action === "open_act").length, 2);
 });
 
 test("keeps unresolved identities in totals, pauses on manual/sector changes, and ignores another tab", async () => {
@@ -305,9 +359,10 @@ test("does not pause for its own loading marker but pauses for an external loadi
   const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
   chromeApi.tabs.sendMessage = async (tabId, message, options) => {
     if (message.type === "PORTAL_NAVIGATE") {
-      chromeApi.fireTabUpdated(7, { status: "loading" });
-      const response = { ok: true, payload: {} };
-      chromeApi.fireTabUpdated(7, { status: "complete" });
+      const frameId = options?.frameId ?? 0;
+      chromeApi.fireTabUpdated(7, { status: "loading", frameId, navigationToken: message.requestId });
+      const response = { ok: true, frameId, navigationToken: message.requestId, payload: {} };
+      chromeApi.fireTabUpdated(7, { status: "complete", frameId, navigationToken: message.requestId });
       return response;
     }
     return originalSendMessage(tabId, message, options);
@@ -321,6 +376,58 @@ test("does not pause for its own loading marker but pauses for an external loadi
   chromeApi.fireTabUpdated(7, { status: "loading" });
   assert.equal(controller.status().status, "paused");
   assert.equal(controller.status().pausedReason, "manual navigation detected");
+});
+
+test("pauses when a same-tab loading event has the wrong navigation token or frame", async () => {
+  const activePage = snapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
+    { action: "open_act", enabled: true, identity: identity("103401/2023", "ana da silva", "act-1") },
+  ]);
+  const chromeApi = activeChromeMock(activePage);
+  const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    if (message.type === "PORTAL_NAVIGATE") {
+      chromeApi.fireTabUpdated(7, { status: "loading", frameId: (options?.frameId ?? 0) + 1, navigationToken: "wrong-token" });
+      return { ok: true, frameId: options?.frameId ?? 0, navigationToken: message.requestId, payload: {} };
+    }
+    return originalSendMessage(tabId, message, options);
+  };
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  const started = await controller.start({ spec: runSpec(), eventId: "start-wrong-loading" });
+  assert.equal(started.status, "paused");
+  assert.equal(started.pausedReason, "navigation token/frame mismatch");
+});
+
+test("binds an explicitly identified non-zero frame from the initial snapshot response", async () => {
+  const activePage = snapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
+    { action: "open_act", enabled: true, identity: identity("103401/2023", "ana da silva", "act-1") },
+  ]);
+  const chromeApi = responseFrameChromeMock(activePage, 3);
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  const started = await controller.start({ spec: runSpec(), eventId: "start-response-frame" });
+  assert.equal(started.frame.frameId, 3);
+  assert.equal(chromeApi.calls.find(([, message]) => message.type === "PORTAL_GET_SNAPSHOT")[2], undefined);
+});
+
+test("fails closed when a broadcast snapshot does not identify its responding frame", async () => {
+  const activePage = snapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
+    { action: "open_act", enabled: true, identity: identity("103401/2023", "ana da silva", "act-1") },
+  ]);
+  const chromeApi = activeChromeMock(activePage);
+  const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    if (message.type === "PORTAL_GET_SNAPSHOT" && options === undefined) {
+      return { ok: true, payload: structuredClone(activePage) };
+    }
+    return originalSendMessage(tabId, message, options);
+  };
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  const started = await controller.start({ spec: runSpec(), eventId: "start-ambiguous-frame" });
+  assert.equal(started.status, "paused");
+  assert.equal(started.pausedReason, "portal frame unavailable");
+  assert.equal(started.frame, null);
 });
 
 test("binds the discovered frame and pauses fail-closed on frame send errors", async () => {

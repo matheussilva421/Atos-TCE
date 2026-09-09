@@ -243,7 +243,14 @@ function actionSnapshot(documentRef, role) {
     for (const entry of interestedIdentityEntries(documentRef)) {
       if (hasCanonicalIdentity(entry.identity)) actions.push({ action: "select_interested", enabled: true, identity: entry.identity });
     }
-    if (findReturnControl(documentRef)) actions.push({ action: "return_list", enabled: true });
+    const selected = selectedIdentity(documentRef);
+    if (findReturnControl(documentRef)) {
+      actions.push({
+        action: "return_list",
+        enabled: true,
+        ...(selected ? { identity: actionIdentity(selected) } : {}),
+      });
+    }
   }
   if (role === "form" || role === "buttons") {
     const processKey = processKeyFromDocument(documentRef);
@@ -301,6 +308,16 @@ function sameIdentity(left, right) {
 
 function selectedIdentity(documentRef) {
   return interestedIdentityEntries(documentRef).find(({ identity }) => identity.selected && hasCanonicalIdentity(identity))?.identity ?? null;
+}
+
+function actionIdentity(identity) {
+  if (!identity) return null;
+  return {
+    processKey: identity.processKey,
+    interestedOriginal: identity.interestedOriginal,
+    interestedNormalized: identity.interestedNormalized,
+    portalActId: identity.portalActId ?? null,
+  };
 }
 
 function isProgress(documentRef, before, after, action, identity) {
@@ -416,7 +433,10 @@ function createMessageHandler(documentRef = globalThis.document) {
       return { ok: true, payload: snapshotPortalScreen(documentRef) };
     }
     if (message.type === "PORTAL_NAVIGATE") {
-      return executeNavigation(documentRef, message.payload);
+      const result = await executeNavigation(documentRef, message.payload);
+      return result?.ok === true
+        ? { ...result, navigationToken: message.requestId }
+        : result;
     }
     return navigationError("UNSUPPORTED_MESSAGE", `unsupported portal navigation message: ${message.type}`);
   };

@@ -105,7 +105,9 @@ function actionFor(snapshot, action, identity = null) {
   return (snapshot?.actions ?? []).find((candidate) => (
     candidate?.action === action
     && candidate.enabled !== false
-    && (identity === null || identityKey(identityFromAction(candidate)) === identityKey(identity))
+    && (identity === null
+      || identityKey(identityFromAction(candidate)) === identityKey(identity)
+      || (action === "return_list" && identityFromAction(candidate) === null))
   )) ?? null;
 }
 
@@ -128,6 +130,7 @@ export function createAutomationController({
   let inFlight = null;
   let expectedNavigation = null;
   let navigationToken = 0;
+  let messageSequence = 0;
   let state = {
     runId: null,
     status: "stopped",
@@ -215,8 +218,9 @@ export function createAutomationController({
     }
   }
 
-  async function sendPortalMessage(tabId, type, payload, frameId = null) {
-    const message = createMessage(type, payload, `${state.eventPrefix}-${String(now())}`);
+  async function sendPortalMessage(tabId, type, payload, frameId = null, requestId = null) {
+    const resolvedRequestId = requestId ?? `${state.eventPrefix}-${String(now())}-${String(++messageSequence)}`;
+    const message = createMessage(type, payload, resolvedRequestId);
     const options = Number.isSafeInteger(frameId) && frameId >= 0 ? { frameId } : undefined;
     const response = options === undefined
       ? await chromeApi.tabs.sendMessage(tabId, message)
@@ -236,8 +240,19 @@ export function createAutomationController({
         setPaused("portal frame unavailable");
         return null;
       }
-      registerFrame(tabId, Number.isSafeInteger(frameId) ? frameId : 0, snapshot);
-      return { snapshot, frameId: Number.isSafeInteger(frameId) ? frameId : 0 };
+      const requestedFrameId = Number.isSafeInteger(frameId) && frameId >= 0 ? frameId : null;
+      const responseFrameId = Number.isSafeInteger(response?.frameId) && response.frameId >= 0 ? response.frameId : null;
+      if (requestedFrameId !== null && responseFrameId !== null && requestedFrameId !== responseFrameId) {
+        setPaused("navigation token/frame mismatch");
+        return null;
+      }
+      const resolvedFrameId = requestedFrameId ?? responseFrameId;
+      if (resolvedFrameId === null) {
+        setPaused("portal frame unavailable");
+        return null;
+      }
+      registerFrame(tabId, resolvedFrameId, snapshot);
+      return { snapshot, frameId: resolvedFrameId };
     } catch (error) {
       setPaused(error?.code === "TAB_CLOSED" ? "tab closed" : "portal frame unavailable");
       return null;
@@ -246,7 +261,7 @@ export function createAutomationController({
 
   async function navigate(tabId, frameId, action, identity, generation) {
     const navigation = {
-      token: ++navigationToken,
+      token: `${state.eventPrefix}-navigation-${String(++navigationToken)}`,
       tabId,
       frameId,
       action,
@@ -259,9 +274,18 @@ export function createAutomationController({
         action,
         identity: identity ?? null,
         expected_generation: generation,
-      }, frameId);
+      }, frameId, navigation.token);
       if (response?.ok !== true) {
         setPaused(response?.error?.code === "TAB_CLOSED" ? "tab closed" : "portal frame unavailable");
+        return { ok: false, response };
+      }
+      const responseFrameId = Number.isSafeInteger(response?.frameId) && response.frameId >= 0 ? response.frameId : null;
+      if (responseFrameId !== null && responseFrameId !== frameId) {
+        setPaused("navigation token/frame mismatch");
+        return { ok: false, response };
+      }
+      if (response?.navigationToken !== undefined && response.navigationToken !== navigation.token) {
+        setPaused("navigation token/frame mismatch");
         return { ok: false, response };
       }
       const snapshot = snapshotFromResponse(response);
@@ -597,13 +621,20 @@ export function createAutomationController({
   if (chromeApi.tabs.onUpdated?.addListener) {
     chromeApi.tabs.onUpdated.addListener((tabId, changeInfo) => {
       if (tabId !== state.tabId || !ACTIVE_STATUSES.has(state.status)) return;
-      if (changeInfo?.status === "complete" && expectedNavigation?.tabId === tabId) {
+      const matchesExpectedNavigation = expectedNavigation?.tabId === tabId
+        && (changeInfo?.frameId === undefined || changeInfo.frameId === expectedNavigation.frameId)
+        && (changeInfo?.navigationToken === undefined || changeInfo.navigationToken === expectedNavigation.token);
+      if (changeInfo?.status === "complete" && matchesExpectedNavigation) {
         expectedNavigation = null;
         return;
       }
       if (changeInfo?.status !== "loading") return;
-      if (expectedNavigation?.tabId === tabId) {
+      if (matchesExpectedNavigation) {
         expectedNavigation.loadingObserved = true;
+        return;
+      }
+      if (expectedNavigation?.tabId === tabId) {
+        setPaused("navigation token/frame mismatch");
         expectedNavigation = null;
         return;
       }
