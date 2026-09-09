@@ -91,6 +91,12 @@ genero
 
 Aproximações e empates ficam amarelos. **Divergências** não são sobrescritas sem override individual. A extensão não submete, não limpa, não assina, não tramita e não conclui o ato.
 
+O painel possui as abas **Ato atual**, **Execução** e **Histórico** para separar
+conferência, acompanhamento e consulta. A execução automática exige serviço
+local compatível e início explícito, mas continua bloqueada para envio real até
+o gate de qualificação; `real_send_enabled=false`. Fechar o painel não retoma a
+execução, e um resultado incerto exige conciliação, sem botão de reenvio direto.
+
 ## HTML, revisão e diagnóstico
 
 O HTML continua disponível. No modo servido pelo helper, **Processo feito** é

@@ -19,15 +19,23 @@ $temporaryZip = Join-Path $outputParent ('.' + [IO.Path]::GetFileName($outputZip
 $EXTENSION_FILE_ALLOWLIST = @(
     'manifest.json',
     'background/service-worker.js',
+    'background/automation-controller.js',
     'content/form-detector.js',
+    'content/portal-navigation.js',
+    'content/portal-submit.js',
+    'lib/automation-preflight.js',
+    'lib/automation-schema.js',
     'lib/bridge-client.js',
+    'lib/legal-foundation.js',
     'lib/matcher.js',
     'lib/messages.js',
     'lib/normalizer.js',
     'lib/schema.js',
     'sidepanel/panel.css',
     'sidepanel/panel.html',
-    'sidepanel/panel.js'
+    'sidepanel/panel.js',
+    'sidepanel/panel-tokens.css',
+    'sidepanel/panel-view.js'
 )
 
 function Assert-NoReparsePoint {

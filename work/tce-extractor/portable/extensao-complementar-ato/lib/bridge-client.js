@@ -193,6 +193,46 @@ function fromWireCommandConsumption(payload) {
   };
 }
 
+function fromWireRunHistory(payload) {
+  requireApiVersion(payload, "automation run history");
+  if (!Array.isArray(payload.runs)) throw invalidResponse("automation run history.runs inválido");
+  if (payload.next_cursor !== null && typeof payload.next_cursor !== "string") {
+    throw invalidResponse("automation run history.next_cursor inválido");
+  }
+  for (const run of payload.runs) {
+    if (run === null || typeof run !== "object" || Array.isArray(run)
+      || typeof run.run_id !== "string" || !run.run_id
+      || !Number.isSafeInteger(run.revision) || run.revision < 0
+      || typeof run.state !== "string" || typeof run.created_at !== "string"
+      || typeof run.updated_at !== "string" || run.totals === null
+      || typeof run.totals !== "object" || Array.isArray(run.totals)) {
+      throw invalidResponse("automation run history entry inválida");
+    }
+  }
+  return payload;
+}
+
+function fromWireEvents(payload) {
+  requireApiVersion(payload, "automation event history");
+  if (!Array.isArray(payload.events) || typeof payload.has_more !== "boolean") {
+    throw invalidResponse("automation event history inválida");
+  }
+  if (payload.next_after !== null && (!Number.isSafeInteger(payload.next_after) || payload.next_after < 0)) {
+    throw invalidResponse("automation event history.next_after inválido");
+  }
+  for (const event of payload.events) {
+    if (event === null || typeof event !== "object" || Array.isArray(event)
+      || typeof event.event_id !== "string" || typeof event.run_id !== "string"
+      || !Number.isSafeInteger(event.seq) || event.seq < 1
+      || typeof event.type !== "string" || event.payload === null
+      || typeof event.payload !== "object" || Array.isArray(event.payload)
+      || typeof event.created_at !== "string") {
+      throw invalidResponse("automation event history entry inválida");
+    }
+  }
+  return payload;
+}
+
 function validateSelection(selection) {
   if (selection === null || typeof selection !== 'object' || Array.isArray(selection)) {
     throw bridgeError('seleção inválida', 'INVALID_SELECTION');
@@ -297,6 +337,27 @@ export function createBridgeClient({ fetchImpl = globalThis.fetch, baseUrl, toke
     return validate ? validate(payload) : payload;
   }
 
+  async function requestBinary(path) {
+    const response = await fetchWithTimeout(fetchImpl, `${normalizedBaseUrl}/api/v1${path}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    }, timeoutMs, 'tempo limite do bridge excedido');
+    if (response === null || typeof response !== 'object' || typeof response.ok !== 'boolean') {
+      throw invalidResponse('resposta HTTP inválida');
+    }
+    if (!response.ok) {
+      const payload = await readResponsePayload(response);
+      throw errorFromResponse(response, payload);
+    }
+    if (typeof response.arrayBuffer !== 'function') throw invalidResponse('corpo binário ausente');
+    const body = await response.arrayBuffer();
+    if (!(body instanceof ArrayBuffer)) throw invalidResponse('corpo binário inválido');
+    const contentType = typeof response.headers?.get === 'function'
+      ? response.headers.get('Content-Type') || 'application/octet-stream'
+      : 'application/octet-stream';
+    return { body, contentType };
+  }
+
   return Object.freeze({
     async getState(since) {
       if (since !== undefined && (!Number.isInteger(since) || since < 0)) throw bridgeError('since inválido', 'INVALID_STATE_REVISION');
@@ -330,6 +391,25 @@ export function createBridgeClient({ fetchImpl = globalThis.fetch, baseUrl, toke
         if (error?.status === 404 || error?.code === 'NOT_FOUND') return null;
         throw error;
       }
+    },
+    async listAutomationRuns({ limit = 20, before } = {}) {
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw bridgeError("limit inválido", "INVALID_LIMIT");
+      if (before !== undefined && (typeof before !== "string" || !before)) throw bridgeError("cursor inválido", "INVALID_CURSOR");
+      const query = new URLSearchParams({ limit: String(limit) });
+      if (before !== undefined) query.set("before", before);
+      return request(`/automation/runs?${query.toString()}`, { validate: fromWireRunHistory });
+    },
+    async getAutomationEvents(runId, { after = 0, limit = 100 } = {}) {
+      if (typeof runId !== "string" || !runId) throw bridgeError("runId inválido", "INVALID_RUN_ID");
+      if (!Number.isSafeInteger(after) || after < 0) throw bridgeError("after inválido", "INVALID_AFTER");
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) throw bridgeError("limit inválido", "INVALID_LIMIT");
+      const query = new URLSearchParams({ after: String(after), limit: String(limit) });
+      return request(`/automation/runs/${encodeURIComponent(runId)}/events?${query.toString()}`, { validate: fromWireEvents });
+    },
+    async getAutomationReport(runId, format = 'html') {
+      if (typeof runId !== 'string' || !runId) throw bridgeError('runId inválido', 'INVALID_RUN_ID');
+      if (format !== 'html' && format !== 'csv') throw bridgeError('formato inválido', 'INVALID_REPORT_FORMAT');
+      return requestBinary(`/automation/runs/${encodeURIComponent(runId)}/report?format=${encodeURIComponent(format)}`);
     },
     async getLegalContext(identity) {
       if (identity === null || typeof identity !== 'object' || Array.isArray(identity)

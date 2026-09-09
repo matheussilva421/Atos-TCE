@@ -14,8 +14,14 @@ PACKAGER = ROOT / "empacotar-extensao-complementar-ato.ps1"
 EXPECTED = {
     "extensao-complementar-ato/manifest.json",
     "extensao-complementar-ato/background/service-worker.js",
+    "extensao-complementar-ato/background/automation-controller.js",
     "extensao-complementar-ato/content/form-detector.js",
+    "extensao-complementar-ato/content/portal-navigation.js",
+    "extensao-complementar-ato/content/portal-submit.js",
+    "extensao-complementar-ato/lib/automation-preflight.js",
+    "extensao-complementar-ato/lib/automation-schema.js",
     "extensao-complementar-ato/lib/bridge-client.js",
+    "extensao-complementar-ato/lib/legal-foundation.js",
     "extensao-complementar-ato/lib/matcher.js",
     "extensao-complementar-ato/lib/messages.js",
     "extensao-complementar-ato/lib/normalizer.js",
@@ -23,6 +29,8 @@ EXPECTED = {
     "extensao-complementar-ato/sidepanel/panel.css",
     "extensao-complementar-ato/sidepanel/panel.html",
     "extensao-complementar-ato/sidepanel/panel.js",
+    "extensao-complementar-ato/sidepanel/panel-tokens.css",
+    "extensao-complementar-ato/sidepanel/panel-view.js",
 }
 
 

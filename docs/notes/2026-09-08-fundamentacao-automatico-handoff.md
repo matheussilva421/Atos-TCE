@@ -477,3 +477,29 @@
   clique, preenchimento ou envio real foi executado.
 - Próxima tarefa: Fase 7, criando comando de envio de uso único, confirmação e
   recuperação apenas em harness/simulador local.
+
+## Registro por fase — Fase 8 — redesign operacional, execução e histórico
+
+- Implementação local concluída no checkout atual; o relatório detalhado está
+  em `docs/notes/2026-09-09-fase8-task-8-report.md` e a retomada em
+  `docs/notes/2026-09-09-fase8-task-8-handoff.md`.
+- O painel agora separa Ato atual, Execução e Histórico, com cartões dos sete
+  campos, fundamentação por método, estados divergente/incerto, tabs
+  acessíveis, navegação por teclado, preservação de foco, polling de 2 s,
+  paginação de histórico, detalhe de eventos e download autenticado de
+  relatório.
+- O serviço acrescenta `list_runs`/histórico de eventos com cursores opacos e
+  limites fechados. O worker registra watchdog `chrome.alarms` apenas para
+  consultar estado de execução ativa; encerrar remove o alarme.
+- TDD/gates: `npm test` 248/248; Python focal de API/serviço/redesign/smoke/
+  pacote 40/40 com 1 skip ambiental; recuperação portátil 4/4; Chrome
+  descartável do redesign 1/1 e smoke da extensão 5/5.
+- O smoke foi atualizado dos seletores de tabela para os cartões `[data-field]`;
+  a allowlist do empacotador inclui os módulos novos e os tokens/view do painel.
+- Limites: nenhuma página real do portal, clique real, envio real ou
+  habilitação de `real_send_enabled`; a Fase 9 continua obrigatória.
+- GitHub: sem remoto configurado; não houve push. O commit desta fase será
+  registrado após a checagem final do diff.
+- Próxima tarefa: iniciar a Fase 9 pelo portal simulado integrado, reinícios,
+  duas abas, 25 atos, pendências e timeout; não liberar envio real por inferência
+  de fixtures ou do smoke do Chrome.

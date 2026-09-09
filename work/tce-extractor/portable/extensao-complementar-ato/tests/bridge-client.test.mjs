@@ -325,3 +325,65 @@ test('bridge consumes a command once and returns dispatch authorization separate
   assert.match(calls[0].url, /\/automation\/runs\/run-1\/commands\/command-1\/consume$/u);
   assert.deepEqual(JSON.parse(calls[0].options.body), { expected_revision: 4 });
 });
+
+test('bridge exposes paginated run history and event cursors', async () => {
+  const calls = [];
+  const bridge = createBridgeClient({
+    baseUrl: 'http://127.0.0.1:18743',
+    token: 'test',
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      if (url.includes('/events?')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            api_version: 1,
+            events: [{ event_id: 'event-1', run_id: 'run-1', seq: 1, type: 'queue_frozen', payload: {}, created_at: '2026-09-09T12:00:00Z' }],
+            next_after: 1,
+            has_more: false,
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          api_version: 1,
+          runs: [{ run_id: 'run-1', state: 'paused', revision: 3, created_at: '2026-09-09T12:00:00Z', updated_at: '2026-09-09T12:01:00Z', totals: { confirmed: 0 } }],
+          next_cursor: null,
+        }),
+      };
+    },
+  });
+
+  const runs = await bridge.listAutomationRuns({ limit: 20 });
+  const events = await bridge.getAutomationEvents('run-1', { after: 0, limit: 100 });
+  assert.equal(runs.runs[0].run_id, 'run-1');
+  assert.equal(events.events[0].type, 'queue_frozen');
+  assert.match(calls[0].url, /\/automation\/runs\?limit=20$/u);
+  assert.match(calls[1].url, /\/automation\/runs\/run-1\/events\?after=0&limit=100$/u);
+});
+
+test('bridge downloads an authenticated automation report without exposing its token', async () => {
+  const calls = [];
+  const bridge = createBridgeClient({
+    baseUrl: 'http://127.0.0.1:18743',
+    token: 'secret-token',
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: (name) => name === 'Content-Type' ? 'text/html; charset=utf-8' : null },
+        async arrayBuffer() { return new TextEncoder().encode('<h1>relatório</h1>').buffer; },
+      };
+    },
+  });
+  const report = await bridge.getAutomationReport('run-1', 'html');
+  assert.equal(report.contentType, 'text/html; charset=utf-8');
+  assert.equal(new TextDecoder().decode(report.body), '<h1>relatório</h1>');
+  assert.match(calls[0].url, /\/automation\/runs\/run-1\/report\?format=html$/u);
+  assert.equal(calls[0].options.headers.Authorization, 'Bearer secret-token');
+  assert.equal(calls[0].url.includes('secret-token'), false);
+});

@@ -5,7 +5,8 @@
   "description": "Prévia local e preenchimento documental controlado para Complementar Ato.",
   "permissions": [
     "storage",
-    "sidePanel"
+    "sidePanel",
+    "alarms"
   ],
   "host_permissions": [
     "https://novaarearestrita.tce.rn.gov.br/*",

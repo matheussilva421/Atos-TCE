@@ -17,6 +17,7 @@ import { createBridgeClient } from "../lib/bridge-client.js";
 import { createAutomationController } from "./automation-controller.js";
 
 export const FRAME_REGISTRATIONS_STORAGE_KEY = "frame-registrations:v1";
+export const AUTOMATION_WATCHDOG_ALARM = "automation-watchdog-v1";
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -111,7 +112,18 @@ export function createServiceWorker({
   let activeBridge = bridge;
   let activeController = automationController;
   let activeAutomationSpec = null;
+  let activeAutomationRunId = null;
   const contextCache = new Map();
+
+  function scheduleAutomationWatchdog() {
+    if (typeof chromeApi?.alarms?.create !== "function") return;
+    chromeApi.alarms.create(AUTOMATION_WATCHDOG_ALARM, { periodInMinutes: 1 });
+  }
+
+  function clearAutomationWatchdog() {
+    if (typeof chromeApi?.alarms?.clear !== "function") return;
+    void Promise.resolve(chromeApi.alarms.clear(AUTOMATION_WATCHDOG_ALARM)).catch(() => undefined);
+  }
 
   function bridgeCredentials(value) {
     if (!isRecord(value)) return null;
@@ -595,7 +607,10 @@ export function createServiceWorker({
     try {
       if (message.type === MESSAGE_TYPES.AUTO_START) {
         activeAutomationSpec = clone(message.payload.spec);
-        return successResponse(message, await currentController.start(message.payload.spec, message.payload.eventId));
+        const started = await currentController.start(message.payload.spec, message.payload.eventId);
+        activeAutomationRunId = typeof started?.run_id === "string" ? started.run_id : null;
+        scheduleAutomationWatchdog();
+        return successResponse(message, started);
       }
       if (message.type === MESSAGE_TYPES.AUTO_STATUS) {
         return successResponse(message, await currentController.status({ refresh: true, runId: message.payload.runId }));
@@ -608,7 +623,11 @@ export function createServiceWorker({
         eventId: message.payload.eventId,
         expectedRevision: message.payload.expectedRevision,
       });
-      if (action === "stop") activeAutomationSpec = null;
+      if (action === "stop") {
+        activeAutomationSpec = null;
+        activeAutomationRunId = null;
+        clearAutomationWatchdog();
+      }
       return successResponse(message, result);
     } catch (error) {
       if (error?.code === "NOT_FOUND" || error?.code === "AUTOMATION_UNAVAILABLE") {
@@ -754,6 +773,23 @@ export function createServiceWorker({
 
   if (chromeApi.tabs?.onRemoved?.addListener) {
     chromeApi.tabs.onRemoved.addListener((tabId) => clearFrame(tabId));
+  }
+
+  if (chromeApi.alarms?.onAlarm?.addListener) {
+    chromeApi.alarms.onAlarm.addListener((alarm) => {
+      if (alarm?.name !== AUTOMATION_WATCHDOG_ALARM || activeAutomationSpec === null
+        || activeAutomationRunId === null || activeController === null
+        || typeof activeController.status !== "function") return;
+      void activeController.status({ refresh: true, runId: activeAutomationRunId })
+        .then((snapshot) => {
+          if (snapshot?.status === "stopped" || snapshot?.status === "completed") {
+            activeAutomationSpec = null;
+            activeAutomationRunId = null;
+            clearAutomationWatchdog();
+          }
+        })
+        .catch(() => undefined);
+    });
   }
 
   const api = {

@@ -430,6 +430,12 @@ class AutomationApiTests(unittest.TestCase):
                     revision = queued["revision"]
                     event_url = f"{base}/api/v1/automation/runs/{run_id}/events"
                     for index, (seed_type, seed_payload) in enumerate(seeds):
+                        if seed_type == "send_intent":
+                            seed_payload = {
+                                **seed_payload,
+                                "command_id": f"command-seed-{event_type}",
+                                "expires_at": 4102444800,
+                            }
                         _status, _headers, seeded = request_json(
                             event_url,
                             method="POST",
@@ -806,6 +812,98 @@ class AutomationApiTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertIn("text/html", headers.get_content_type())
             self.assertIn("Relatório", report if isinstance(report, str) else "")
+
+    def test_history_requires_auth_paginates_runs_and_events_without_run_payloads(self):
+        with running_server() as (root, server, base):
+            _dataset, digest = write_fixture(root, "Ana")
+            token = self.pair(server, base)
+            history_url = f"{base}/api/v1/automation/runs"
+
+            unauthorized_status, _headers, unauthorized = request_json(history_url)
+            self.assertEqual(unauthorized_status, 401)
+            self.assertEqual(unauthorized["error"]["code"], "UNAUTHORIZED")
+
+            created_ids = []
+            for index in range(2):
+                status, _headers, created = request_json(
+                    history_url,
+                    method="POST",
+                    token=token,
+                    payload=self.run_spec(digest, event_id=f"history-start-{index}"),
+                )
+                self.assertEqual(status, 200, created)
+                created_ids.append(created["run_id"])
+                if index == 0:
+                    status, _headers, stopped = request_json(
+                        f"{history_url}/{created['run_id']}/control",
+                        method="POST",
+                        token=token,
+                        payload={"action": "stop", "event_id": "history-stop", "expected_revision": 0},
+                    )
+                    self.assertEqual(status, 200, stopped)
+
+            status, _headers, first_page = request_json(
+                f"{history_url}?limit=1", token=token
+            )
+            self.assertEqual(status, 200, first_page)
+            self.assertEqual(first_page["api_version"], 1)
+            self.assertEqual(len(first_page["runs"]), 1)
+            self.assertIsNotNone(first_page["next_cursor"])
+            self.assertIn("spec", first_page["runs"][0])
+            self.assertNotIn("items", first_page["runs"][0])
+            self.assertNotIn("token", json.dumps(first_page, ensure_ascii=False).lower())
+
+            status, _headers, second_page = request_json(
+                f"{history_url}?limit=1&before={first_page['next_cursor']}", token=token
+            )
+            self.assertEqual(status, 200, second_page)
+            self.assertEqual(len(second_page["runs"]), 1)
+            self.assertNotEqual(first_page["runs"][0]["run_id"], second_page["runs"][0]["run_id"])
+            self.assertEqual(set(created_ids), {first_page["runs"][0]["run_id"], second_page["runs"][0]["run_id"]})
+
+            run_id = first_page["runs"][0]["run_id"]
+            status, _headers, queued = request_json(
+                f"{history_url}/{run_id}/queue",
+                method="POST",
+                token=token,
+                payload={
+                    "identities": [{
+                        "process_key": "103439/2023",
+                        "interested_normalized": "ana",
+                        "portal_act_id": None,
+                    }],
+                    "event_id": "history-queue",
+                    "expected_revision": 0,
+                },
+            )
+            self.assertEqual(status, 200, queued)
+            status, _headers, paused = request_json(
+                f"{history_url}/{run_id}/control",
+                method="POST",
+                token=token,
+                payload={"action": "pause", "event_id": "history-pause", "expected_revision": 1},
+            )
+            self.assertEqual(status, 200, paused)
+
+            events_url = f"{history_url}/{run_id}/events"
+            unauthorized_status, _headers, unauthorized = request_json(events_url)
+            self.assertEqual(unauthorized_status, 401)
+            self.assertEqual(unauthorized["error"]["code"], "UNAUTHORIZED")
+
+            status, _headers, event_page = request_json(
+                f"{events_url}?after=0&limit=1", token=token
+            )
+            self.assertEqual(status, 200, event_page)
+            self.assertEqual(len(event_page["events"]), 1)
+            self.assertTrue(event_page["has_more"])
+            self.assertIsNotNone(event_page["next_after"])
+
+            status, _headers, tail = request_json(
+                f"{events_url}?after={event_page['next_after']}&limit=100", token=token
+            )
+            self.assertEqual(status, 200, tail)
+            self.assertEqual(len(tail["events"]), 1)
+            self.assertFalse(tail["has_more"])
 
 
 if __name__ == "__main__":

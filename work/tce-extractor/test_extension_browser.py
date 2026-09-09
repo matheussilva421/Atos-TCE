@@ -177,7 +177,7 @@ def _assert_manifest_contract(test: unittest.TestCase) -> dict[str, Any]:
     test.assertTrue(manifest_path.is_file(), manifest_path)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     test.assertEqual(manifest["manifest_version"], 3)
-    test.assertEqual(manifest["permissions"], ["storage", "sidePanel"])
+    test.assertEqual(manifest["permissions"], ["storage", "sidePanel", "alarms"])
     test.assertEqual(
         manifest["host_permissions"], [f"https://{ALLOWED_HOST}/*", "http://127.0.0.1/*"]
     )
@@ -290,7 +290,7 @@ def _wait_for_preview(
             ),
         )
         panel.wait_for_function(
-            "() => document.querySelector('#preview-body').children.length === 7",
+            "() => document.querySelectorAll('#preview-body [data-field]').length === 7",
             timeout=(
                 _remaining_timeout_ms(deadline, "preview rows")
                 if deadline is not None
@@ -428,13 +428,13 @@ def run_smoke(
                     panel.screenshot(path=str(screenshot), full_page=True)
 
                     initial_kind = panel.locator(
-                        'tr[data-field="modalidade"] td[data-kind]'
+                        '[data-field="modalidade"][data-kind]'
                     ).get_attribute("data-kind")
                     test_state: dict[str, Any] = {
                         "chrome_version": _chrome_version(page),
                         "initial_identity": panel.locator("#identity-status").inner_text(),
                         "initial_modality_kind": initial_kind,
-                        "preview_rows": panel.locator("#preview-body tr").count(),
+                        "preview_rows": panel.locator("#preview-body [data-field]").count(),
                     }
 
                     before = _protected_form_snapshot(frame)
@@ -496,7 +496,7 @@ def run_smoke(
                         timeout=_remaining_timeout_ms(deadline, "process switch"),
                     )
                     tie_kind = panel.locator(
-                        'tr[data-field="fundamento_legal"] td[data-kind]'
+                        '[data-field="fundamento_legal"][data-kind]'
                     ).get_attribute("data-kind")
                     assert tie_kind == "tie", tie_kind
                     assert panel.locator("#fill-button").is_enabled()

@@ -620,6 +620,45 @@ def _validate_command_consume_payload(payload: dict) -> int:
     return _require_revision(payload.get("expected_revision"))
 
 
+def _validate_history_limit(value: str | None, maximum: int, default: int) -> int:
+    if value is None or value == "":
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise _ApiProblem(400, "INVALID_LIMIT", "limit inválido") from exc
+    if parsed < 1 or parsed > maximum:
+        raise _ApiProblem(400, "INVALID_LIMIT", f"limit deve estar entre 1 e {maximum}")
+    return parsed
+
+
+def _validate_history_query(params: dict[str, list[str]]) -> tuple[int, str | None]:
+    values = params.get("limit", [])
+    limit = _validate_history_limit(values[0] if values else None, 100, 20)
+    before_values = params.get("before", [])
+    before = before_values[0] if before_values else None
+    if before is not None and (not before or len(before) > 512):
+        raise _ApiProblem(400, "INVALID_CURSOR", "cursor inválido")
+    if any(key not in {"limit", "before"} for key in params):
+        raise _ApiProblem(400, "INVALID_QUERY", "parâmetro de histórico não aceito")
+    return limit, before
+
+
+def _validate_event_history_query(params: dict[str, list[str]]) -> tuple[int, int]:
+    after_values = params.get("after", [])
+    limit_values = params.get("limit", [])
+    try:
+        after = int(after_values[0]) if after_values else 0
+    except (TypeError, ValueError) as exc:
+        raise _ApiProblem(400, "INVALID_AFTER", "after inválido") from exc
+    if after < 0:
+        raise _ApiProblem(400, "INVALID_AFTER", "after inválido")
+    limit = _validate_history_limit(limit_values[0] if limit_values else None, 500, 100)
+    if any(key not in {"after", "limit"} for key in params):
+        raise _ApiProblem(400, "INVALID_QUERY", "parâmetro de eventos não aceito")
+    return after, limit
+
+
 def _automation_item_id(identity: dict) -> str:
     portal_act_id = identity.get("portal_act_id")
     if isinstance(portal_act_id, str) and portal_act_id:
@@ -965,6 +1004,40 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             return
         self._send(200, payload)
 
+    def _send_automation_runs(self, params: dict[str, list[str]]) -> None:
+        try:
+            limit, before = _validate_history_query(params)
+            result = self.server_state.automation_store.list_runs(limit=limit, before=before)
+        except _ApiProblem as problem:
+            self._error(problem.status, problem.code, str(problem))
+            return
+        except Exception as error:
+            problem = _automation_store_error(error)
+            self._error(problem.status, problem.code, str(problem))
+            return
+        self._send(200, {"api_version": API_VERSION, **result})
+
+    def _send_automation_events(self, run_id: str, params: dict[str, list[str]]) -> None:
+        try:
+            after, limit = _validate_event_history_query(params)
+            all_events = self.server_state.automation_store.get_events(run_id, after=after)
+        except _ApiProblem as problem:
+            self._error(problem.status, problem.code, str(problem))
+            return
+        except Exception as error:
+            problem = _automation_store_error(error)
+            self._error(problem.status, problem.code, str(problem))
+            return
+        events = all_events[:limit]
+        has_more = len(all_events) > limit
+        next_after = events[-1]["seq"] if events and has_more else None
+        self._send(200, {
+            "api_version": API_VERSION,
+            "events": events,
+            "next_after": next_after,
+            "has_more": has_more,
+        })
+
     def _send_automation_report(self, run_id: str, params: dict[str, list[str]]) -> None:
         if set(params) != {"format"} or len(params.get("format", [])) != 1:
             self._error(400, "INVALID_QUERY", "format=html ou format=csv é obrigatório")
@@ -1170,6 +1243,16 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
         if not self._require_auth():
             return
         automation_parts = [unquote(part) for part in parsed.path.split("/") if part]
+        if automation_parts == ["api", "v1", "automation", "runs"]:
+            self._send_automation_runs(parse_qs(parsed.query, keep_blank_values=True))
+            return
+        if len(automation_parts) == 6 and automation_parts[:3] == ["api", "v1", "automation"] and automation_parts[3] == "runs" and automation_parts[5] == "events":
+            run_id = automation_parts[4]
+            if not AUTOMATION_RUN_ID_RE.fullmatch(run_id):
+                self._error(404, "RUN_NOT_FOUND", "execução não encontrada")
+                return
+            self._send_automation_events(run_id, parse_qs(parsed.query, keep_blank_values=True))
+            return
         if len(automation_parts) == 5 and automation_parts[:3] == ["api", "v1", "automation"] and automation_parts[3] == "runs":
             run_id = automation_parts[4]
             if not AUTOMATION_RUN_ID_RE.fullmatch(run_id):

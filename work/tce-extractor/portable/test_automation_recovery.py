@@ -85,6 +85,16 @@ class AutomationRecoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(InvalidTransition, "COMMAND_NOT_READY"):
             reopened.consume_command(self.run_id, "command-1", snapshot["revision"], now_ms=100_000)
 
+    def test_history_lists_run_summaries_and_events_without_private_command_payloads(self):
+        runs = self.store.list_runs(limit=20)
+        self.assertEqual(runs["next_cursor"], None)
+        self.assertEqual(runs["runs"][0]["run_id"], self.run_id)
+        self.assertEqual(runs["runs"][0]["state"], "running")
+        self.assertNotIn("payload", runs["runs"][0])
+        events = self.store.get_events(self.run_id, after=0, through=2)
+        self.assertEqual([event["type"] for event in events], ["queue_frozen", "item_prepared"])
+        self.assertNotIn("payload_json", events[0])
+
 
 if __name__ == "__main__":
     unittest.main()

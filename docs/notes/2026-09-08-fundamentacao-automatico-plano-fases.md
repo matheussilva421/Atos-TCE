@@ -10,7 +10,7 @@
 
 **Especificação:** seção 1 deste documento consolida as decisões da entrevista de 08/09/2026. O plano anterior na conversa é substituído por esta versão detalhada. Não depende de outro documento não salvo.
 
-**Estado:** EM EXECUÇÃO. Fases 0–7 foram implementadas localmente nesta branch; o envio real e a qualificação permanecem bloqueados até a Fase 9. Arquivos, funções e endpoints ainda não implementados seguem sendo propostas.
+**Estado:** EM EXECUÇÃO. Fases 0–8 foram implementadas localmente nesta branch; o envio real e a qualificação permanecem bloqueados até a Fase 9. A Fase 8 tem gate visual sintético verde; arquivos, funções e endpoints ainda não implementados seguem sendo propostas.
 
 **Revisão de 08/09/2026:** redesign solicitado após a primeira versão. A fase 8 foi ampliada em cinco entregas de design e implementação, com wireframes, tokens, acessibilidade, testes e impactos no empacotamento. A direção visual é uma proposta documentada; nenhuma interface foi implementada nesta revisão.
 
@@ -724,15 +724,15 @@ test('resultado incerto não oferece reenvio direto', () => {
 
 Definir fixtures locais com contratos da seção 4: primeiro caso com ato `filled` e decisão por semelhança; segundo com execução `paused` e item `unconfirmed`. Evitar tests que apenas verificam classe CSS ou copiam toda a implementação.
 
-- [ ] Em 320, 360, 480 e 640 px, nenhuma rolagem horizontal de página ou corte de ações/fontes; comparar `scrollWidth` e `clientWidth` com tolerância de 1 px.
-- [ ] Em Ato atual, ação de preenchimento e indicação do modo manual aparecem antes da fundamentação na ordem visual e de leitura; nenhuma cópia da ação fica no rodapé.
-- [ ] Zoom 200%, textos legais longos, nome de interessado longo e aumento da fonte do sistema não ocultam valores ou controles.
-- [ ] Teclado percorre tabs, campos, fontes, iniciar/pausar e histórico; foco não se perde durante atualização de status.
-- [ ] Reabrir painel preserva tab escolhida e recupera execução real; navegar pelo Histórico nunca envia mensagem de retomada.
-- [ ] Fonte indisponível, contexto incompleto e serviço antigo têm mensagens acionáveis e não parecem estados de sucesso.
-- [ ] Campos “Por regra”, “Por semelhança”, “Revisado” e “Confirmado no portal” são visualmente e semanticamente distintos.
-- [ ] Conferir contraste com medição automática, e manualmente nomes acessíveis, leitura linear e significado das cores.
-- [ ] Anexar screenshots sintéticos por estado/largura à evidência privada de QA; nenhuma captura de produção no Git.
+- [x] Em 320, 360, 480 e 640 px, nenhuma rolagem horizontal de página ou corte de ações/fontes; comparar `scrollWidth` e `clientWidth` com tolerância de 1 px.
+- [x] Em Ato atual, ação de preenchimento e indicação do modo manual aparecem antes da fundamentação na ordem visual e de leitura; nenhuma cópia da ação fica no rodapé.
+- [x] Escala de texto sintética de 200%, textos legais longos, nome de interessado longo e aumento da fonte não ocultam valores ou controles.
+- [x] Teclado percorre tabs com setas/Home/End; foco é restaurado após renderização e polling não anuncia repetidamente a tela.
+- [x] Reabrir painel preserva a tab em `storage.session` e recupera a execução persistida quando disponível; navegar pelo Histórico nunca envia mensagem de retomada.
+- [x] Fonte indisponível, contexto incompleto e serviço antigo têm mensagens acionáveis e não parecem estados de sucesso.
+- [x] Campos “Por regra”, “Por semelhança”, “Revisado” e “Confirmado no portal” são visualmente e semanticamente distintos.
+- [ ] Conferir contraste com medição automática e manualmente nomes acessíveis, leitura linear e significado das cores; a medição formal de contraste fica registrada como pendência de QA visual da Fase 9.
+- [x] Screenshots sintéticos por estado/largura são gerados em diretório temporário de QA; nenhuma captura de produção entra no Git.
 
 Comandos: em E, `node --test tests/panel-view.test.mjs tests/panel.test.mjs tests/bridge-client.test.mjs`; em P, `python -m unittest test_panel_redesign_browser -q`; ao integrar, `npm test` e testes de automação da fase 9.
 

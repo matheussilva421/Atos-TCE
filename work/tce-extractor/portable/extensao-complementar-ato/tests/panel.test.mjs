@@ -9,7 +9,7 @@ import { ALLOWED_ORIGIN, STORAGE_KEYS, computeLogicalSha256 } from "../lib/schem
 import { createPanelApp, PANEL_FIELD_ORDER, PANEL_STATES } from "../sidepanel/panel.js";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const PERMANENT_WARNING = "A extensão não conclui o ato";
+const PERMANENT_WARNING = "Modo manual: preenche para revisão; não envia o ato.";
 const PORTAL_URL = `${ALLOWED_ORIGIN}/ComplementarAto`;
 
 class FakeEvent {
@@ -91,6 +91,7 @@ class FakeElement {
     if (role) return this.getAttribute("data-role") === role[1];
     const field = /^\[data-field=["']([^"']+)["']\]$/u.exec(selector);
     if (field) return this.getAttribute("data-field") === field[1];
+    if (selector === "[data-field]") return this.getAttribute("data-field") !== null;
     const kind = /^\[data-kind=["']([^"']+)["']\]$/u.exec(selector);
     if (kind) return this.getAttribute("data-kind") === kind[1];
     return this.tagName === selector.toUpperCase();
@@ -117,7 +118,11 @@ class FakeDocument extends FakeElement {
     this.body = new FakeElement("body");
     this.append(this.body);
   }
-  createElement(tagName) { return new FakeElement(tagName); }
+  createElement(tagName) {
+    const element = new FakeElement(tagName);
+    element.ownerDocument = this;
+    return element;
+  }
   getElementById(id) { return this.querySelector(`#${id}`); }
 }
 
@@ -154,7 +159,7 @@ function buildPanelDocument() {
   addElement(documentRef, "section", "review-section");
   const reviewed = addElement(documentRef, "input", "reviewed-checkbox", { type: "checkbox" });
   reviewed.checked = false;
-  addElement(documentRef, "tbody", "preview-body");
+  addElement(documentRef, "div", "preview-body");
   return documentRef;
 }
 
@@ -408,6 +413,8 @@ async function startApp({
   chromeApi = null,
   bridgeClientFactory = undefined,
   pairingFactory = undefined,
+  setTimeoutFn = undefined,
+  clearTimeoutFn = undefined,
 } = {}) {
   const documentRef = buildPanelDocument();
   const resolvedChromeApi = chromeApi ?? makeRuntime({
@@ -419,7 +426,7 @@ async function startApp({
     applyResponses,
     overrideResponses,
   });
-  const app = createPanelApp({ documentRef, chromeApi: resolvedChromeApi, confirmFn, bridgeClientFactory, pairingFactory });
+  const app = createPanelApp({ documentRef, chromeApi: resolvedChromeApi, confirmFn, bridgeClientFactory, pairingFactory, setTimeoutFn, clearTimeoutFn });
   await app.init();
   return { app, documentRef, chromeApi: resolvedChromeApi };
 }
@@ -427,7 +434,7 @@ async function startApp({
 test("renders no-dataset state and permanent warning with inaccessible actions", async () => {
   const { documentRef } = await startApp({ snapshots: [null] });
   assert.equal(documentRef.getElementById("dataset-status").textContent, "Nenhum lote importado.");
-  assert.equal(documentRef.getElementById("permanent-warning").textContent, "A extensão não conclui o ato");
+  assert.equal(documentRef.getElementById("permanent-warning").textContent, PERMANENT_WARNING);
   assert.equal(documentRef.getElementById("fill-button").disabled, true);
   assert.equal(documentRef.getElementById("complement-button").disabled, true);
 });
@@ -505,6 +512,90 @@ test("optionally pairs with the local mesa and publishes the current selection w
     sequence: 1,
   });
   assert.equal(documentRef.getElementById("fill-button").disabled, false);
+});
+
+test("automation view requires a compatible bridge, starts explicitly, and keeps manual fill blocked while active", async () => {
+  const dataset = await makeDataset();
+  const calls = [];
+  const run = {
+    api_version: 1,
+    run_id: "run-panel-1",
+    revision: 0,
+    status: "discovering",
+    spec: { sector: "aposentadorias" },
+    items: [],
+    last_confirmed_item_id: null,
+  };
+  const client = {
+    async publishSelection(value) { calls.push(["selection", value]); return { accepted: true, revision: 1 }; },
+    async getState() { return { revision: 1 }; },
+    async setCompleted() { return { revision: 2 }; },
+    async getDataset() { return { api_version: 1, revision: 1, dataset }; },
+    async getAutomationCapabilities() { calls.push(["capabilities"]); return { api_version: 1, automation_schema: 1, legal_context_schema: 1, rules_version: "legal-foundation-v1", real_send_enabled: false }; },
+    async listAutomationRuns() { calls.push(["history"]); return { api_version: 1, runs: [{ run_id: "run-panel-1", state: "paused", revision: 0, created_at: "2026-09-09T12:00:00Z", updated_at: "2026-09-09T12:00:00Z", totals: {} }], next_cursor: null }; },
+    async getAutomationEvents(runId) { calls.push(["events", runId]); return { api_version: 1, events: [{ type: "queue_frozen", created_at: "2026-09-09T12:01:00Z" }], next_after: null, has_more: false }; },
+    async createAutomationRun(spec, eventId) { calls.push(["start", spec, eventId]); return { ...run, spec, status: "discovering" }; },
+    async controlAutomationRun(runId, body) { calls.push([body.action, runId, body]); return { ...run, run_id: runId, revision: body.expectedRevision + 1, status: body.action === "pause" ? "paused" : body.action === "stop" ? "stopped" : "running" }; },
+  };
+  const { app, documentRef } = await startApp({
+    dataset,
+    snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })],
+    matches: [{ record: dataset.records[0], matches: fullMatches(), reviewed: false }],
+    pairingFactory: async () => "token",
+    bridgeClientFactory: () => client,
+  });
+  documentRef.getElementById("bridge-pairing-code").value = "12345678";
+  documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
+  for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(app.getState().automationCapabilities, documentRef.getElementById("bridge-status").textContent);
+  assert.equal(app.getState().automationCapabilities.real_send_enabled, false);
+  assert.equal(await app.startAutomation(), true);
+  assert.equal(app.getState().selectedView, "execution");
+  assert.equal(documentRef.getElementById("fill-button").disabled, true);
+  assert.equal(await app.controlAutomation("pause"), true);
+  assert.match(documentRef.getElementById("permanent-warning").textContent, /pausada|Nenhum novo envio/iu);
+  assert.equal(await app.openAutomationHistory("run-panel-1"), true);
+  assert.equal(app.getState().selectedView, "history");
+  assert.deepEqual(calls.filter(([name]) => ["capabilities", "history", "start", "pause"].includes(name)).map(([name]) => name), ["capabilities", "history", "start", "pause"]);
+  assert.equal(calls.some(([name, runId]) => name === "events" && runId === "run-panel-1"), true);
+});
+
+test("automation status polls every two seconds without requiring a panel action", async () => {
+  const dataset = await makeDataset();
+  const calls = [];
+  const timers = [];
+  const client = {
+    async getDataset() { return { api_version: 1, revision: 1, dataset }; },
+    async publishSelection() { return { accepted: true, revision: 1 }; },
+    async getState() { return { revision: 1 }; },
+    async getAutomationCapabilities() { calls.push("capabilities"); return { api_version: 1, automation_schema: 1, legal_context_schema: 1, rules_version: "legal-foundation-v1", real_send_enabled: false }; },
+    async listAutomationRuns() { calls.push("history"); return { api_version: 1, runs: [], next_cursor: null }; },
+  };
+  const setTimeoutFn = (callback, delay) => {
+    const timer = { callback, delay, unref() {} };
+    timers.push(timer);
+    return timer;
+  };
+  const clearTimeoutFn = (timer) => { timer.cleared = true; };
+  const { app, documentRef } = await startApp({
+    dataset,
+    snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12 } })],
+    matches: [{ record: dataset.records[0], matches: fullMatches(), reviewed: false }],
+    pairingFactory: async () => "token",
+    bridgeClientFactory: () => client,
+    setTimeoutFn,
+    clearTimeoutFn,
+  });
+  documentRef.getElementById("bridge-pairing-code").value = "12345678";
+  documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
+  for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  const automationTimer = timers.find((timer) => timer.delay === 2000);
+  assert.ok(automationTimer, "automation polling timer should be scheduled");
+  await automationTimer.callback();
+  assert.equal(calls.filter((call) => call === "capabilities").length, 2);
+  assert.ok(timers.filter((timer) => timer.delay === 2000).length >= 2);
+  app.stopBridgePolling();
+  assert.ok(timers.some((timer) => timer.delay === 2000 && timer.cleared === true));
 });
 
 test("rapid refreshes publish only the newest tab identity with increasing sequences", async () => {
@@ -693,14 +784,14 @@ test("renders a preview from current portal options with exact green and approxi
   assert.equal(documentRef.getElementById("fill-button").disabled, false);
   const matchRequest = chromeApi.calls.find((message) => message.type === MESSAGE_TYPES.GET_MATCH);
   assert.deepEqual(matchRequest.payload.options, currentOptions());
-  const rows = documentRef.getElementById("preview-body").querySelectorAll("tr");
+  const rows = documentRef.getElementById("preview-body").querySelectorAll("[data-field]");
   assert.equal(rows.length, 7);
   const exactControl = documentRef.getElementById("preview-body").querySelector('[data-kind="exact"]');
   const approximateControl = documentRef.getElementById("preview-body").querySelector('[data-kind="probable"]');
   assert.ok(exactControl);
   assert.ok(approximateControl);
   assert.match(approximateControl.textContent, /aproximado/iu);
-  assert.equal(documentRef.getElementById("permanent-warning").textContent, "A extensão não conclui o ato");
+  assert.equal(documentRef.getElementById("permanent-warning").textContent, PERMANENT_WARNING);
 });
 
 test("renders untrusted JSON values only as text, never as markup", async () => {
@@ -813,7 +904,7 @@ test("blocks and invalidates every stale preview after an operation failure", as
     assert.equal(state.reviewed, false);
     assert.equal(state.previewIdentity, null);
     assert.equal(started.documentRef.getElementById("result-summary").textContent, "");
-    assert.equal(started.documentRef.getElementById("preview-body").querySelectorAll("tr").length, 0);
+    assert.equal(started.documentRef.getElementById("preview-body").querySelectorAll("[data-field]").length, 0);
     assert.equal(started.documentRef.getElementById("preview-body").querySelector('[data-role="override"]'), null);
     assert.equal(started.documentRef.getElementById("fill-button").disabled, true);
     assert.equal(started.documentRef.getElementById("reviewed-checkbox").disabled, true);
@@ -1134,7 +1225,7 @@ test("has structurally associated labels, keyboard focus styles, and disabled in
   assert.match(html, /<button\b[^>]*\bid="fill-button"[^>]*\bdisabled\b/iu);
   assert.match(css, /button:focus-visible\s*,\s*input:focus-visible\s*\{/u);
   assert.match(css, /button:disabled\s*\{/u);
-  assert.match(html, /A extensão não conclui o ato/u);
+  assert.match(html, /Modo manual: o preenchimento permanece para revisão/u);
   assert.match(html, /aria-live="polite"/u);
   assert.doesNotMatch(`${html}\n${css}\n${js}`, /localStorage|fetch\s*\(|eval\s*\(|clipboard|chrome\.tabs/u);
 });

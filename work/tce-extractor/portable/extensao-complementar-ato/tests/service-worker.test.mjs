@@ -719,6 +719,58 @@ test("automation control messages are restricted to extension pages and use the 
   assert.deepEqual(calls.map((call) => call[0]), ["start", "control", "status"]);
 });
 
+test("automation watchdog refreshes an active run and clears after an explicit stop", async () => {
+  const storage = storageMock();
+  const alarms = { created: [], cleared: [], listeners: [] };
+  const chromeApi = chromeMock(storage);
+  chromeApi.alarms = {
+    onAlarm: { addListener(listener) { alarms.listeners.push(listener); } },
+    create(name, info) { alarms.created.push({ name, info }); },
+    clear(name) { alarms.cleared.push(name); },
+  };
+  const calls = [];
+  const controller = {
+    async start(spec, eventId) {
+      calls.push(["start", spec, eventId]);
+      return { run_id: "run-watchdog", revision: 0, status: "running" };
+    },
+    async status(options) {
+      calls.push(["status", options]);
+      return { run_id: "run-watchdog", revision: 1, status: "running" };
+    },
+    async stop(payload) {
+      calls.push(["stop", payload]);
+      return { run_id: "run-watchdog", revision: 2, status: "stopped" };
+    },
+  };
+  const worker = createServiceWorker({ chromeApi, bridge: {}, automationController: controller });
+  const spec = {
+    tabId: 7,
+    sector: "aposentadorias",
+    datasetSha256: "a".repeat(64),
+    rulesVersion: "legal-foundation-v1",
+  };
+
+  const started = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_START, { spec, eventId: "watchdog-start" }, "watchdog-start"),
+    extensionSender(),
+  );
+  assert.equal(started.ok, true);
+  assert.deepEqual(alarms.created, [{ name: "automation-watchdog-v1", info: { periodInMinutes: 1 } }]);
+  assert.equal(alarms.listeners.length, 1);
+
+  alarms.listeners[0]({ name: "automation-watchdog-v1" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls[1], ["status", { refresh: true, runId: "run-watchdog" }]);
+
+  const stopped = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_STOP, { runId: "run-watchdog", eventId: "watchdog-stop", expectedRevision: 0 }, "watchdog-stop"),
+    extensionSender(),
+  );
+  assert.equal(stopped.ok, true);
+  assert.deepEqual(alarms.cleared, ["automation-watchdog-v1"]);
+});
+
 test("portal content events are routed to the automation controller with tab and frame identity", async () => {
   const events = [];
   const controller = {

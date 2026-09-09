@@ -8,6 +8,7 @@ and returns a defensive projection of the durable state.
 from __future__ import annotations
 
 from copy import deepcopy
+import base64
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -137,6 +138,24 @@ def _validate_revision(value: object, name: str = "expected_revision") -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise EventValidationError(f"{name} deve ser inteiro não negativo")
     return value
+
+
+def _encode_run_cursor(created_at: str, run_id: str) -> str:
+    raw = _canonical_json({"created_at": created_at, "run_id": run_id}).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _decode_run_cursor(value: object) -> tuple[str, str]:
+    if not isinstance(value, str) or not value or len(value) > 512:
+        raise EventValidationError("cursor de execução inválido")
+    try:
+        padded = value + "=" * (-len(value) % 4)
+        decoded = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError, base64.binascii.Error) as exc:
+        raise EventValidationError("cursor de execução inválido") from exc
+    if not isinstance(decoded, dict) or not isinstance(decoded.get("created_at"), str) or not isinstance(decoded.get("run_id"), str):
+        raise EventValidationError("cursor de execução inválido")
+    return decoded["created_at"], _validate_run_id(decoded["run_id"])
 
 
 def _identity_key(identity: dict[str, Any]) -> str:
@@ -1002,6 +1021,60 @@ class AutomationStore:
                     (run_id, after, through),
                 ).fetchall()
             return [self._event_from_row(row) for row in rows]
+
+        return self._run_transaction(read)
+
+    def list_runs(self, limit: int = 20, before: str | None = None) -> dict[str, Any]:
+        """List stable run summaries for the current workflow root."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise EventValidationError("limit de execuções deve estar entre 1 e 100")
+        cursor = _decode_run_cursor(before) if before is not None else None
+
+        def read(connection: sqlite3.Connection) -> dict[str, Any]:
+            query = (
+                "SELECT * FROM runs WHERE root_key = ?"
+            )
+            values: list[Any] = [str(self.root)]
+            if cursor is not None:
+                query += " AND (created_at < ? OR (created_at = ? AND run_id < ?))"
+                values.extend([cursor[0], cursor[0], cursor[1]])
+            query += " ORDER BY created_at DESC, run_id DESC LIMIT ?"
+            values.append(limit + 1)
+            rows = connection.execute(query, tuple(values)).fetchall()
+            has_more = len(rows) > limit
+            page = rows[:limit]
+            summaries: list[dict[str, Any]] = []
+            for row in page:
+                run_id = str(row["run_id"])
+                counts = connection.execute(
+                    "SELECT state, COUNT(*) AS count FROM items WHERE run_id = ? GROUP BY state",
+                    (run_id,),
+                ).fetchall()
+                totals = {str(count["state"]): int(count["count"]) for count in counts}
+                totals["total"] = sum(totals.values())
+                confirmed = connection.execute(
+                    "SELECT confirmed_at FROM confirmed_acts WHERE run_id = ? ORDER BY confirmed_at DESC LIMIT 1",
+                    (run_id,),
+                ).fetchone()
+                summaries.append({
+                    "run_id": run_id,
+                    "state": str(row["state"]),
+                    "revision": int(row["revision"]),
+                    "spec": _decode_json(str(row["spec_json"])),
+                    "created_at": str(row["created_at"]),
+                    "updated_at": str(row["updated_at"]),
+                    "started_at": row["started_at"],
+                    "paused_at": row["paused_at"],
+                    "stopped_at": row["stopped_at"],
+                    "completed_at": row["completed_at"],
+                    "totals": totals,
+                    "last_confirmed_at": str(confirmed["confirmed_at"]) if confirmed else None,
+                })
+            next_cursor = None
+            if has_more and page:
+                last = page[-1]
+                next_cursor = _encode_run_cursor(str(last["created_at"]), str(last["run_id"]))
+            return {"runs": summaries, "next_cursor": next_cursor}
 
         return self._run_transaction(read)
 

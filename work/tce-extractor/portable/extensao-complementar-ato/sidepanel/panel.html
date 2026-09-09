@@ -4,13 +4,14 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Complementar Ato</title>
+    <link rel="stylesheet" href="panel-tokens.css">
     <link rel="stylesheet" href="panel.css">
   </head>
   <body>
     <main id="panel-root">
       <header class="panel-header">
         <h1>Complementar Ato</h1>
-        <p id="permanent-warning" class="safety-warning" role="alert" aria-live="polite">A extensão não conclui o ato</p>
+        <p id="permanent-warning" class="safety-warning" role="status" aria-live="polite">Modo manual: preenche para revisão; não envia o ato.</p>
       </header>
 
       <section class="panel-section" aria-labelledby="dataset-heading">
@@ -21,7 +22,7 @@
         <p id="last-imported"></p>
       </section>
 
-      <section class="panel-section" aria-labelledby="current-heading">
+      <section class="panel-section current-section" aria-labelledby="current-heading">
         <h2 id="current-heading">Tela atual</h2>
         <p id="screen-status" role="status" aria-live="polite">Aguardando a tela Complementar Ato.</p>
         <p id="identity-status" aria-live="polite">Processo e interessado ainda não detectados.</p>
@@ -53,25 +54,11 @@
       <section class="panel-section" aria-labelledby="preview-heading">
         <h2 id="preview-heading">Prévia</h2>
         <p id="panel-message" role="status" aria-live="polite"></p>
-        <div class="table-wrap">
-          <table>
-            <caption>Campos documentais e correspondência atual</caption>
-            <thead>
-              <tr>
-                <th scope="col">Campo</th>
-                <th scope="col">Valor documental</th>
-                <th scope="col">Opção proposta</th>
-                <th scope="col">Confiança/status</th>
-                <th scope="col">Fonte</th>
-                <th scope="col"><span class="visually-hidden">Ação</span></th>
-              </tr>
-            </thead>
-            <tbody id="preview-body"></tbody>
-          </table>
-        </div>
         <button id="fill-button" type="button" disabled>Preencher campos disponíveis</button>
+        <p class="manual-mode-note">Modo manual: o preenchimento permanece para revisão.</p>
         <button id="complement-button" type="button" disabled>Sinalizar Complementar Ato</button>
         <p id="result-summary" aria-live="polite"></p>
+        <div id="preview-body" class="panel-view-root"></div>
       </section>
 
       <section id="review-section" class="panel-section review-section" aria-labelledby="review-heading" hidden>

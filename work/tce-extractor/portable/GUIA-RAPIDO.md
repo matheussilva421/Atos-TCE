@@ -115,6 +115,26 @@ A importação é feita uma vez para o lote inteiro, e não uma vez por processo
 A extensão reconhece automaticamente o processo e o interessado que estão na
 tela.
 
+### Ato atual, Execução e Histórico
+
+O painel lateral organiza a conferência em três abas:
+
+- **Ato atual:** mostra a fundamentação, a fonte documental, o valor atual do
+  portal e a proposta para cada um dos sete campos. “Por semelhança”,
+  “Divergente”, “Revisado” e “Confirmado no portal” são estados diferentes.
+- **Execução:** acompanha uma execução persistida pela mesa local. O botão de
+  início é explícito; pausar impede novos passos e encerrar preserva o
+  relatório. Fechar o painel não retoma nem cancela a execução.
+- **Histórico:** consulta execuções anteriores e abre o relatório HTML parcial.
+  Consultar histórico não muda a aba do portal e não retoma uma execução.
+
+Até a qualificação ponta a ponta, a capacidade de envio real permanece
+desabilitada (`real_send_enabled=false`). O modo manual continua sendo o caminho
+disponível: **Preencher campos disponíveis** só prepara valores para revisão e
+nenhuma ação do painel clica em **Complementar Ato**, limpa ou conclui o ato.
+Se o resultado ficar incerto, confira o portal e o relatório; não use um
+reenvio direto como recuperação.
+
 ### Significado das cores
 
 - **Verde:** correspondência exata ou segura.

@@ -7,6 +7,7 @@ import {
   validateDataset,
 } from "../lib/schema.js";
 import { createBridgeClient, pairBridge } from "../lib/bridge-client.js";
+import { buildPanelViewModel, renderPanelView } from "./panel-view.js";
 
 export const PANEL_FIELD_ORDER = Object.freeze([...ALLOWED_FIELDS]);
 
@@ -177,6 +178,8 @@ export function createPanelApp({
   ranker = rankPortalOptions,
   bridgeClientFactory = createBridgeClient,
   pairingFactory = pairBridge,
+  setTimeoutFn = globalThis.setTimeout,
+  clearTimeoutFn = globalThis.clearTimeout,
 } = {}) {
   const elements = Object.fromEntries(ELEMENT_IDS.map((id) => [id, documentRef?.getElementById?.(id)]));
   const missingElement = ELEMENT_IDS.find((id) => !elements[id]);
@@ -196,8 +199,16 @@ export function createPanelApp({
     bridgeDatasetRevision: null,
     bridgePollTimer: null,
     bridgePollDelay: 500,
+    automationPollTimer: null,
     bridgeSequence: 0,
     bridgeContext: null,
+    selectedView: "current",
+    matches: {},
+    automationRun: null,
+    automationCapabilities: null,
+    automationHistory: [],
+    automationHistoryCursor: null,
+    automationMode: "manual",
     refreshGeneration: 0,
     message: "",
     listenersInstalled: false,
@@ -221,6 +232,7 @@ export function createPanelApp({
     state.kind = kind;
     state.record = null;
     state.rows = [];
+    state.matches = {};
     state.reviewed = false;
     state.previewIdentity = null;
     state.result = null;
@@ -235,46 +247,6 @@ export function createPanelApp({
     setMessage(error instanceof Error ? error.message : String(error), true);
     render();
     return false;
-  }
-
-  function renderRows() {
-    const body = elements["preview-body"];
-    body.replaceChildren();
-    for (const rowModel of state.rows) {
-      const row = documentRef.createElement("tr");
-      row.setAttribute("data-field", rowModel.field);
-      const values = [
-        rowModel.label,
-        rowModel.documentaryValue || "—",
-        rowModel.divergent
-          ? `${rowModel.proposedLabel || "—"} · atual: ${rowModel.currentValue}`
-          : (rowModel.proposedLabel || "—"),
-      ];
-      for (const value of values) {
-        const cell = documentRef.createElement("td");
-        cell.textContent = value;
-        row.append(cell);
-      }
-      const statusCell = documentRef.createElement("td");
-      statusCell.setAttribute("data-kind", rowModel.kind);
-      statusCell.textContent = `${rowModel.statusText}${rowModel.confidence ? ` · ${rowModel.confidence}` : ""}`;
-      row.append(statusCell);
-      const sourceCell = documentRef.createElement("td");
-      sourceCell.textContent = rowModel.citation;
-      row.append(sourceCell);
-      const actionCell = documentRef.createElement("td");
-      if (rowModel.divergent) {
-        const button = documentRef.createElement("button");
-        button.setAttribute("type", "button");
-        button.setAttribute("data-role", "override");
-        button.setAttribute("data-field", rowModel.field);
-        button.textContent = "Substituir este campo";
-        button.addEventListener("click", () => { void overrideField(rowModel.field); });
-        actionCell.append(button);
-      }
-      row.append(actionCell);
-      body.append(row);
-    }
   }
 
   function renderResult() {
@@ -329,15 +301,33 @@ export function createPanelApp({
   }
 
   function render() {
+    const focusedId = typeof documentRef?.activeElement?.id === "string" ? documentRef.activeElement.id : "";
     const datasetStatus = state.dataset
       ? `Lote importado: ${state.dataset.batch.process_count} processo${state.dataset.batch.process_count === 1 ? "" : "s"}, ${state.dataset.batch.record_count} interessado${state.dataset.batch.record_count === 1 ? "" : "s"}.`
       : "Nenhum lote importado.";
     elements["dataset-status"].textContent = datasetStatus;
     elements["last-imported"].textContent = state.dataset ? `Última importação: ${state.dataset.generated_at}` : "";
-    elements["permanent-warning"].textContent = "A extensão não conclui o ato";
+    const connection = {
+      connected: Boolean(state.bridgeClient),
+      automationAvailable: Boolean(state.automationCapabilities),
+      realSendEnabled: state.automationCapabilities?.real_send_enabled === true,
+    };
+    const viewModel = buildPanelViewModel({
+      record: state.record,
+      snapshot: state.snapshot,
+      matches: state.matches,
+      run: state.automationRun,
+      history: state.automationHistory,
+      historyNextCursor: state.automationHistoryCursor,
+      connection,
+      selectedView: state.selectedView,
+      mode: state.automationMode,
+    });
+    elements["permanent-warning"].textContent = viewModel.banner.message;
     if (!state.message) elements["panel-message"].textContent = "";
     else elements["panel-message"].textContent = state.message;
     const canFill = Boolean(state.dataset && state.record && state.previewIdentity
+      && !["discovering", "running", "paused"].includes(state.automationRun?.status)
       && (state.kind === PANEL_STATES.PREVIEW_READY || state.kind === PANEL_STATES.EXISTING_DIVERGENCE));
     elements["fill-button"].disabled = !canFill;
     elements["complement-button"].disabled = !canFill;
@@ -347,7 +337,24 @@ export function createPanelApp({
     elements["review-section"].hidden = !state.record;
     elements["reviewed-checkbox"].disabled = !state.record;
     elements["reviewed-checkbox"].checked = state.reviewed;
-    renderRows();
+    renderPanelView(elements["preview-body"], viewModel, {
+      selectView(view) {
+        state.selectedView = view;
+        void chromeApi?.storage?.session?.set?.({ [STORAGE_KEYS.PANEL_VIEW]: view });
+        render();
+      },
+      overrideField(field) { void overrideField(field); },
+      start() { void startAutomation(); },
+      pause() { void controlAutomation("pause"); },
+      resume() { void controlAutomation("resume"); },
+      stop() { void controlAutomation("stop"); },
+      openDetails(runId) { void openAutomationHistory(runId); },
+      loadMore() { void loadMoreAutomationHistory(); },
+      openReport(runId) { void openAutomationReport(runId); },
+    });
+    if (focusedId && typeof documentRef?.getElementById === "function") {
+      documentRef.getElementById(focusedId)?.focus?.();
+    }
     renderResult();
     renderSearchResults();
     if (bridgeElements["bridge-connect-button"]) bridgeElements["bridge-connect-button"].disabled = !bridgeElements["bridge-pairing-code"]?.value?.trim();
@@ -439,8 +446,12 @@ export function createPanelApp({
 
   function stopBridgePolling() {
     if (state.bridgePollTimer !== null) {
-      clearTimeout(state.bridgePollTimer);
+      clearTimeoutFn(state.bridgePollTimer);
       state.bridgePollTimer = null;
+    }
+    if (state.automationPollTimer !== null) {
+      clearTimeoutFn(state.automationPollTimer);
+      state.automationPollTimer = null;
     }
   }
 
@@ -448,13 +459,24 @@ export function createPanelApp({
     if (!state.bridgeClient || typeof state.bridgeClient.getDataset !== "function" || state.bridgePollTimer !== null) return;
     const hidden = documentRef?.visibilityState === "hidden";
     const delay = hidden ? 2000 : state.bridgePollDelay;
-    state.bridgePollTimer = setTimeout(async () => {
+    state.bridgePollTimer = setTimeoutFn(async () => {
       state.bridgePollTimer = null;
       const synced = await syncBridgeDataset();
       state.bridgePollDelay = synced ? 500 : Math.min(10000, Math.max(500, state.bridgePollDelay * 2));
       scheduleBridgePolling();
     }, delay);
     if (typeof state.bridgePollTimer?.unref === "function") state.bridgePollTimer.unref();
+  }
+
+  function scheduleAutomationPolling() {
+    if (!state.bridgeClient || typeof state.bridgeClient.getAutomationCapabilities !== "function"
+      || state.automationPollTimer !== null) return;
+    state.automationPollTimer = setTimeoutFn(async () => {
+      state.automationPollTimer = null;
+      await refreshAutomationState({ loadHistory: false });
+      scheduleAutomationPolling();
+    }, 2000);
+    if (typeof state.automationPollTimer?.unref === "function") state.automationPollTimer.unref();
   }
 
   async function connectBridge() {
@@ -478,7 +500,9 @@ export function createPanelApp({
       setBridgeStatus("Mesa local conectada. A seleção será publicada, sem preencher campos.");
       render();
       await syncBridgeDataset({ force: true });
+      await refreshAutomationState();
       scheduleBridgePolling();
+      scheduleAutomationPolling();
       return true;
     } catch (error) {
       state.bridgeClient = null;
@@ -506,7 +530,9 @@ export function createPanelApp({
       if (bridgeElements["bridge-base-url"]) bridgeElements["bridge-base-url"].value = stored[STORAGE_KEYS.BRIDGE_BASE_URL];
       setBridgeStatus("Mesa local restaurada nesta sessão.");
       await syncBridgeDataset({ force: true });
+      await refreshAutomationState();
       scheduleBridgePolling();
+      scheduleAutomationPolling();
     } catch {
       state.bridgeClient = null;
       setBridgeStatus("Pareamento salvo inválido; conecte novamente.", true);
@@ -572,6 +598,7 @@ export function createPanelApp({
       const payload = await getMatch(snapshot);
       if (refreshGeneration !== state.refreshGeneration) return false;
       state.record = payload.record;
+      state.matches = payload.matches ?? {};
       state.rows = createRows(payload.record, snapshot, payload.matches);
       state.reviewed = payload.reviewed === true;
       state.previewIdentity = identity;
@@ -635,6 +662,7 @@ export function createPanelApp({
       state.snapshot = null;
       state.record = null;
       state.rows = [];
+      state.matches = {};
       state.previewIdentity = null;
       state.result = null;
       state.searchSelection = null;
@@ -647,6 +675,7 @@ export function createPanelApp({
       state.snapshot = previous.snapshot;
       state.record = previous.record;
       state.rows = previous.rows;
+      state.matches = previous.matches;
       state.reviewed = previous.reviewed;
       state.previewIdentity = previous.previewIdentity;
       state.result = previous.result;
@@ -683,6 +712,7 @@ export function createPanelApp({
       const payload = await getMatch(freshSnapshot);
       state.snapshot = freshSnapshot;
       state.record = payload.record;
+      state.matches = payload.matches ?? {};
       state.rows = createRows(payload.record, freshSnapshot, payload.matches);
       state.reviewed = payload.reviewed === true;
       const apply = applyPayload();
@@ -795,6 +825,171 @@ export function createPanelApp({
     return true;
   }
 
+  async function refreshAutomationState({ loadHistory = true } = {}) {
+    const bridgeClient = state.bridgeClient;
+    if (!bridgeClient || typeof bridgeClient.getAutomationCapabilities !== "function") return false;
+    try {
+      state.automationCapabilities = await bridgeClient.getAutomationCapabilities();
+      if (!state.automationCapabilities) {
+        state.automationRun = null;
+        state.automationHistory = [];
+        state.automationHistoryCursor = null;
+        state.automationMode = "manual";
+        render();
+        return false;
+      }
+      if (loadHistory && typeof bridgeClient.listAutomationRuns === "function") {
+        const history = await bridgeClient.listAutomationRuns({ limit: 20 });
+        state.automationHistory = Array.isArray(history?.runs) ? history.runs : [];
+        state.automationHistoryCursor = typeof history?.next_cursor === "string" ? history.next_cursor : null;
+      }
+      const session = chromeApi?.storage?.session;
+      const stored = typeof session?.get === "function"
+        ? await session.get([STORAGE_KEYS.AUTOMATION_RUN_ID, STORAGE_KEYS.PANEL_VIEW])
+        : {};
+      const storedRunId = stored?.[STORAGE_KEYS.AUTOMATION_RUN_ID];
+      let run = null;
+      if (typeof storedRunId === "string" && typeof bridgeClient.getAutomationRun === "function") {
+        try { run = await bridgeClient.getAutomationRun(storedRunId); } catch { run = null; }
+      }
+      if (!run) {
+        const candidate = state.automationHistory.find((item) => ["discovering", "running", "paused"].includes(item.state));
+        if (candidate && typeof bridgeClient.getAutomationRun === "function") {
+          try { run = await bridgeClient.getAutomationRun(candidate.run_id); } catch { run = null; }
+        }
+      }
+      state.automationRun = run;
+      state.automationMode = run ? "automatic" : "manual";
+      if (typeof stored?.[STORAGE_KEYS.PANEL_VIEW] === "string") state.selectedView = stored[STORAGE_KEYS.PANEL_VIEW];
+      if (run && typeof session?.set === "function") await session.set({ [STORAGE_KEYS.AUTOMATION_RUN_ID]: run.run_id });
+      render();
+      return true;
+    } catch (error) {
+      state.automationCapabilities = null;
+      setBridgeStatus(`Automação indisponível: ${error instanceof Error ? error.message : String(error)}`, true);
+      render();
+      return false;
+    }
+  }
+
+  async function startAutomation() {
+    if (!state.bridgeClient || !state.automationCapabilities || !state.dataset) {
+      setMessage("Conecte um serviço local compatível antes de iniciar a execução.", true);
+      render();
+      return false;
+    }
+    const context = state.snapshot?.bridgeContext;
+    if (!context || !Number.isSafeInteger(context.tab_id) || !Number.isSafeInteger(context.frame_id)) {
+      setMessage("Aba/frame do portal não identificado; atualize a prévia antes de iniciar.", true);
+      render();
+      return false;
+    }
+    try {
+      const spec = {
+        tabId: context.tab_id,
+        sector: context.sector ?? "setor atual",
+        datasetSha256: state.dataset.batch.logical_sha256,
+        rulesVersion: state.automationCapabilities.rules_version,
+      };
+      const run = await state.bridgeClient.createAutomationRun(spec, `panel-start-${Date.now()}`);
+      state.automationRun = run;
+      state.automationMode = "automatic";
+      state.selectedView = "execution";
+      const session = chromeApi?.storage?.session;
+      if (typeof session?.set === "function") await session.set({ [STORAGE_KEYS.AUTOMATION_RUN_ID]: run.run_id });
+      setMessage("Execução criada; a descoberta da fila ocorrerá no worker.");
+      render();
+      return true;
+    } catch (error) {
+      setMessage(`Execução não iniciada: ${error instanceof Error ? error.message : String(error)}`, true);
+      render();
+      return false;
+    }
+  }
+
+  async function openAutomationHistory(runId) {
+    if (!state.bridgeClient || typeof state.bridgeClient.getAutomationEvents !== "function") {
+      setMessage("O histórico detalhado não está disponível na ponte atual.", true);
+      render();
+      return false;
+    }
+    try {
+      const result = await state.bridgeClient.getAutomationEvents(runId, { after: 0, limit: 100 });
+      state.automationHistory = state.automationHistory.map((run) => (
+        run.run_id === runId ? { ...run, events: Array.isArray(result?.events) ? result.events : [] } : run
+      ));
+      state.selectedView = "history";
+      setMessage("Cronologia persistida carregada; nenhuma ação de retomada foi enviada.");
+      render();
+      return true;
+    } catch (error) {
+      setMessage(`Detalhes do histórico indisponíveis: ${error instanceof Error ? error.message : String(error)}`, true);
+      render();
+      return false;
+    }
+  }
+
+  async function loadMoreAutomationHistory() {
+    if (!state.bridgeClient || typeof state.bridgeClient.listAutomationRuns !== "function" || !state.automationHistoryCursor) return false;
+    try {
+      const history = await state.bridgeClient.listAutomationRuns({ limit: 20, before: state.automationHistoryCursor });
+      state.automationHistory = [...state.automationHistory, ...(Array.isArray(history?.runs) ? history.runs : [])];
+      state.automationHistoryCursor = typeof history?.next_cursor === "string" ? history.next_cursor : null;
+      render();
+      return true;
+    } catch (error) {
+      setMessage(`Mais histórico indisponível: ${error instanceof Error ? error.message : String(error)}`, true);
+      render();
+      return false;
+    }
+  }
+
+  async function controlAutomation(action) {
+    const run = state.automationRun;
+    if (!run || !state.bridgeClient || typeof state.bridgeClient.controlAutomationRun !== "function") return false;
+    if (action === "resume" && run.items?.some((item) => item.state === "unconfirmed")) {
+      setMessage("Concilie o resultado incerto antes de retomar.", true);
+      render();
+      return false;
+    }
+    try {
+      state.automationRun = await state.bridgeClient.controlAutomationRun(run.run_id, {
+        action,
+        eventId: `panel-${action}-${Date.now()}`,
+        expectedRevision: run.revision,
+      });
+      state.selectedView = "execution";
+      setMessage(action === "pause" ? "Execução pausada; nenhum novo envio será iniciado." : action === "stop" ? "Execução encerrada; o relatório foi preservado." : "Execução retomada após conciliação.");
+      render();
+      return true;
+    } catch (error) {
+      setMessage(`Controle da execução falhou: ${error instanceof Error ? error.message : String(error)}`, true);
+      render();
+      return false;
+    }
+  }
+
+  async function openAutomationReport(runId) {
+    if (!state.bridgeClient || typeof state.bridgeClient.getAutomationReport !== "function") {
+      setMessage("O relatório está disponível na mesa local; a ponte atual não expõe download.", true);
+      render();
+      return false;
+    }
+    try {
+      const report = await state.bridgeClient.getAutomationReport(runId, "html");
+      if (typeof Blob !== "function" || typeof URL?.createObjectURL !== "function") throw new Error("download de relatório indisponível neste ambiente");
+      const url = URL.createObjectURL(new Blob([report.body], { type: report.contentType }));
+      if (typeof globalThis.open === "function") globalThis.open(url, "_blank", "noopener");
+      setMessage("Relatório HTML aberto em uma nova aba.");
+      render();
+      return true;
+    } catch (error) {
+      setMessage(`Relatório indisponível: ${error instanceof Error ? error.message : String(error)}`, true);
+      render();
+      return false;
+    }
+  }
+
   async function init() {
     if (!state.listenersInstalled) {
       elements["import-button"].addEventListener("click", () => elements["dataset-file"].click?.());
@@ -808,6 +1003,8 @@ export function createPanelApp({
       bridgeElements["bridge-connect-button"]?.addEventListener("click", () => { void connectBridge(); });
       state.listenersInstalled = true;
     }
+    const storedView = await chromeApi?.storage?.session?.get?.([STORAGE_KEYS.PANEL_VIEW]);
+    if (typeof storedView?.[STORAGE_KEYS.PANEL_VIEW] === "string") state.selectedView = storedView[STORAGE_KEYS.PANEL_VIEW];
     await restoreBridge();
     try {
       const stored = await chromeApi?.storage?.local?.get?.([STORAGE_KEYS.DATASET]);
@@ -822,6 +1019,8 @@ export function createPanelApp({
       state.kind = PANEL_STATES.NO_DATASET;
       setMessage(`Lote persistido inválido: ${error instanceof Error ? error.message : String(error)}`, true);
     }
+    await refreshAutomationState();
+    scheduleAutomationPolling();
     render();
     return getState();
   }
@@ -838,6 +1037,12 @@ export function createPanelApp({
       result: state.result,
       searchSelection: state.searchSelection,
       message: state.message,
+      selectedView: state.selectedView,
+      automationRun: state.automationRun,
+      automationCapabilities: state.automationCapabilities,
+      automationHistory: state.automationHistory,
+      automationHistoryCursor: state.automationHistoryCursor,
+      automationMode: state.automationMode,
     };
   }
 
@@ -851,7 +1056,12 @@ export function createPanelApp({
     refresh,
     setReviewed,
     syncBridgeDataset,
-    stopBridgePolling,
+      stopBridgePolling,
+    startAutomation,
+    controlAutomation,
+    openAutomationHistory,
+    loadMoreAutomationHistory,
+    refreshAutomationState,
   };
 }
 

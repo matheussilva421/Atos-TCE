@@ -1,0 +1,19 @@
+:root {
+  --surface-canvas: #f2f5f7;
+  --surface-panel: #ffffff;
+  --text-primary: #182b36;
+  --text-secondary: #526572;
+  --accent-primary: #145b6b;
+  --line-subtle: #ccd7de;
+  --status-success: #176343;
+  --status-attention: #875300;
+  --status-error: #a52b35;
+  --focus-ring: #075fc6;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --radius-control: 6px;
+  --radius-panel: 10px;
+}
