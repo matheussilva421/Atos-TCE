@@ -1,4 +1,5 @@
 import { extractLegalSignals, normalizeLegalText } from "./normalizer.js";
+import { resolveLegalFoundation } from "./legal-foundation.js";
 
 const WEIGHTS = Object.freeze({
   benefit: 100,
@@ -233,7 +234,25 @@ function resultFor(option, index, kind, score, reasons) {
  * and option labels are returned untouched; normalized signatures exist only
  * inside this comparison.
  */
-export function rankPortalOptions({ field, documentaryValue, hints = {}, options = [] }) {
+export function rankPortalOptions({ field, documentaryValue, hints = {}, options = [], context = null }) {
+  if (field === "fundamento_legal" && context !== null && context !== undefined) {
+    const legalDecision = resolveLegalFoundation({ context, options });
+    const optionIndex = legalDecision.option_value === null
+      ? null
+      : options.findIndex((option) => optionParts(option).value === legalDecision.option_value);
+    return {
+      kind: legalDecision.status === "resolved"
+        ? (legalDecision.method === "exact" ? "exact" : "probable")
+        : "pending",
+      optionIndex: optionIndex >= 0 ? optionIndex : null,
+      optionValue: legalDecision.option_value,
+      optionLabel: legalDecision.option_label,
+      score: legalDecision.score,
+      reasons: legalDecision.reasons,
+      legalDecision,
+    };
+  }
+
   if (!asText(documentaryValue).trim()) {
     return {
       kind: "missing-source",
@@ -283,7 +302,14 @@ export function rankPortalOptions({ field, documentaryValue, hints = {}, options
 
   const best = ranked[0];
   if (best.score === 0) {
-    return resultFor(best.option, best.index, "probable", 0, ["no-positive-signal"]);
+    return {
+      kind: "pending",
+      optionIndex: null,
+      optionValue: null,
+      optionLabel: null,
+      score: 0,
+      reasons: ["no-positive-signal"],
+    };
   }
 
   const tied = ranked.filter((candidate) => candidate.score === best.score);

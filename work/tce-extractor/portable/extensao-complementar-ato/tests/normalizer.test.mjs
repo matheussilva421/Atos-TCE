@@ -72,3 +72,29 @@ test("extracts modality, benefit, parity, professor, article, paragraph, inciso,
     },
   );
 });
+
+test("keeps EC and ECE as distinct normalized diplomas", () => {
+  assert.notEqual(
+    normalizeLegalText("EC nº 41/2003"),
+    normalizeLegalText("ECE nº 41/2003"),
+  );
+  assert.equal(
+    normalizeLegalText("EC nº 41/2003"),
+    normalizeLegalText("Emenda Constitucional nº 41/2003"),
+  );
+});
+
+test("normalizes CF and article suffixes without losing the suffix", () => {
+  assert.equal(
+    normalizeLegalText("CF art. 40, § 1º, inciso II"),
+    normalizeLegalText("Constituição Federal artigo 40, parágrafo 1, inciso II"),
+  );
+  assert.equal(normalizeLegalText("art. 6º-A"), "artigo 6a");
+});
+
+test("normalizes roman inciso ranges and combined-reference notation", () => {
+  assert.equal(
+    normalizeLegalText("incisos I a IV c/c artigo 2º"),
+    normalizeLegalText("incisos 1 a 4 combinado com artigo 2"),
+  );
+});

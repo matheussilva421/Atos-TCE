@@ -227,3 +227,36 @@
 - Ownership: nenhum empacotamento, matcher ou lógica funcional foi alterado.
 - BLOCKED: nenhum. Retomada: manter fixtures versionados sem caminhos
   absolutos reais ou literais de máquina.
+
+## Registro por fase — Fase 2 — resolvedor específico de fundamento
+
+- Estado: implementação local concluída no commit com a mensagem
+  `fix: resolve legal foundations from documentary references`.
+- Ownership: criados `work/tce-extractor/portable/extensao-complementar-ato/lib/legal-foundation.js`
+  e seu teste; alterados somente `lib/matcher.js`, `lib/normalizer.js` e os
+  respectivos testes, além deste handoff e do relatório da Fase 2.
+- Contrato: `parseLegalReferences(text)` separa EC/ECE/CF, preserva ano,
+  artigo com sufixo, parágrafos/incisos, `ambos`, `c/c`, referências invertidas
+  e retorna sinais por referência. `resolveLegalFoundation` consome
+  `LegalContext` completo e retorna `LegalDecision` com `status`, `method`,
+  `rule_id`, opção, score, razões, ranking completo, referências, citações e
+  versão das regras.
+- Regras: EC41 aceita art. 6º ou 7º ligado à EC41/2003; §5 só é ativado por
+  CF art. 40 §5 no trecho operativo; EC47 art. 3º exige seus sinais; art. 6º-A,
+  ECE, ano ausente, ano divergente, conflito, empate e score zero não fazem
+  seleção silenciosa. Placeholder e opções sem valor não entram no ranking.
+- TDD: RED/GREEN detalhado em
+  `.superpowers/sdd/2026-09-08-fundamentacao-automatico-plano-fases/task-2-report.md`.
+  Focal final: 52/52; full final: 144/144. `git diff --check` passou no
+  estado de código atual.
+- Compatibilidade: chamadas legadas do matcher continuam sem contexto e a
+  modalidade não usa o resolvedor; com contexto explícito, o matcher carrega
+  `legalDecision` sem alterar os campos v1. Worker, painel, API, persistência,
+  navegação, envio, redesign e dataset v1 continuam fora desta fase.
+- Validação manual: cenários sintéticos apenas; nenhuma sessão, clique,
+  preenchimento ou envio real foi iniciado.
+- Concern: o empacotador ainda não inclui `legal_context.py` da Fase 1; isso
+  permanece pendência posterior e não foi expandido nesta implementação.
+- GitHub: branch `codex/fundamentacao-automatico`; checkout sem remoto, sem
+  push. Retomada: verificar o commit e só depois permitir integração
+  sequencial nas fases futuras.

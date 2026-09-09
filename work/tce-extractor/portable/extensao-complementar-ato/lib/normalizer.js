@@ -85,7 +85,14 @@ function canonicalizeTokens(tokens) {
     const previous = tokens[index - 1];
     const roman = romanToArabic(token);
 
-    if (roman !== null && (token.length > 1 || previous === "inciso" || previous === "incisos")) {
+    if (roman !== null && (
+      token.length > 1
+      || previous === "inciso"
+      || previous === "incisos"
+      || previous === "a"
+      || tokens[index - 2] === "inciso"
+      || tokens[index - 2] === "incisos"
+    )) {
       return roman;
     }
     return token;
@@ -143,17 +150,28 @@ export function normalizeLegalText(value) {
     .replace(COMBINING_MARKS, "")
     .toLowerCase();
 
+  text = text.replace(
+    /(\d+)\s*[ºª°o]\s*[-–]\s*([a-z])(?=\s|[^\p{L}\p{N}]|$)/gu,
+    "$1 article suffix $2",
+  );
+
   text = text
     .replace(/§/gu, " paragrafo ")
+    .replace(/\barts\s*\.\s*/gu, " artigos ")
     .replace(/\bart\s*\.\s*/gu, " artigo ")
     .replace(/\bart\b/gu, " artigo ")
     .replace(/\bpar\s*\.\s*/gu, " paragrafo ")
     .replace(/\binc\s*\.\s*/gu, " inciso ")
     .replace(/\bn\s*(?:\.\s*)?[º°o]\s*/gu, " numero ")
+    .replace(/(\d+)\s*[ºª°o]\s*[-–]\s*([a-z])(?=\s|[^\p{L}\p{N}]|$)/gu, "$1$2")
+    .replace(/(\d+)\s*[-–]\s*([a-z])(?=\s|[^\p{L}\p{N}]|$)/gu, "$1$2")
+    .replace(/(\d+)\s*[ºª°o](?=\s|[^\p{L}\p{N}]|$)/gu, "$1")
     .replace(/(\d+)[oa](?=\s|[^\p{L}\p{N}]|$)/gu, "$1")
     .replace(/\baposentacao\b/gu, " aposentadoria ")
     .replace(/\bece\b/gu, " emenda constitucional estadual ")
     .replace(/\bec\b/gu, " emenda constitucional ")
+    .replace(/\bcf\b/gu, " constituicao federal ")
+    .replace(/\bc\s*\/\s*c\b/gu, " combinado com ")
     .replace(/\blce?\b/gu, " lei complementar ")
     .replace(/\bincisos\b/gu, " incisos ")
     .replace(/\bparagrafos\b/gu, " paragrafos ");
@@ -163,7 +181,9 @@ export function normalizeLegalText(value) {
     return "";
   }
 
-  return canonicalizeTokens(text.split(/\s+/u)).join(" ");
+  return canonicalizeTokens(text.split(/\s+/u))
+    .join(" ")
+    .replace(/\b(\d+)\s+article\s+suffix\s+([a-z])\b/gu, "$1$2");
 }
 
 function firstMatchingValue(text, patterns) {

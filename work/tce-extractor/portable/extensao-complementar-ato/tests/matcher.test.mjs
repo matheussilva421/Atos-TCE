@@ -451,3 +451,38 @@ test("does not select an option when the source has no positive legal signal", (
 
   assert.equal(result.optionValue, null);
 });
+
+test("returns pending with a null option when foundation scoring has no positive signal", () => {
+  const result = rankPortalOptions({
+    field: "fundamento_legal",
+    documentaryValue: "texto sem referências",
+    hints: {},
+    options: legalFoundationFixture.options,
+  });
+
+  assert.equal(result.kind, "pending");
+  assert.equal(result.optionIndex, null);
+  assert.equal(result.optionValue, null);
+  assert.equal(result.optionLabel, null);
+});
+
+test("carries a resolved legal decision without changing the legacy matcher fields", () => {
+  const result = rankPortalOptions({
+    field: "fundamento_legal",
+    documentaryValue: "texto legado",
+    context: {
+      resolution_status: "complete",
+      operative_text: "RESOLVE: Art. 3º, incisos I a III e parágrafo único, da EC nº 47/2005.",
+      pages: [],
+    },
+    options: [
+      legalFoundationFixture.options[0],
+      legalFoundationFixture.options[2],
+    ],
+  });
+
+  assert.equal(result.kind, "probable");
+  assert.equal(result.optionValue, "synthetic-ec47-art3");
+  assert.equal(result.legalDecision.status, "resolved");
+  assert.equal(result.legalDecision.rule_id, "EC47_ART3");
+});
