@@ -12,8 +12,10 @@ worker`), seguidos de `453a043` (`docs: record portable runtime probe`) e
 `0ec7109` (`docs: reconcile local phase tasks`), com documentação intermediária
 em `9ad2a50`, `76e37f5`, `5e1617c` e `407ca6c`, além de `42eeeac`
 (`fix: require portable service readiness`) e `21e9a63` (`docs: record launcher
-gate boundary`), e `9d21441` (`feat: harden automation confirmation
-recovery`). O repositório não possui remoto configurado, portanto não há push.
+gate boundary`), `9d21441` (`feat: harden automation confirmation recovery`),
+`a8ae6e2` (`fix: complete portable package inventory`) e `1fcfad8` (`docs:
+record verified portable composition`). O repositório não possui remoto
+configurado, portanto não há push.
 
 O launcher portátil agora exige `service.json` produzido pelo próprio helper;
 se o processo encerra ou não confirma a ponte, o menu não fabrica PID/porta e
@@ -107,8 +109,8 @@ encerradas; não produziram alterações nem evidência adicional.
 2. Manter `42eeeac` como referência da correção do launcher; depois rodar
    `git diff --check` e `git status --short --branch`.
 3. Se houver nova alteração, revisar mudanças privadas/ignoradas e fazer stage
-   explícito; não usar `git add .`. O bloco atual ainda precisa de commit dos
-   quatro arquivos de packager/teste/diagnóstico.
+   explícito; não usar `git add .`. O bloco de packager/teste/diagnóstico foi
+   commitado em `a8ae6e2`; esta documentação foi atualizada em `1fcfad8`.
 4. Os commits `61dce28`, `c4246c6`, `453a043` e `0ec7109` contêm
    guard/piloto, delegação ao worker, controles, probe e reconciliação das
    tasks locais; o gate formal de acessibilidade está em `692ed27`.
