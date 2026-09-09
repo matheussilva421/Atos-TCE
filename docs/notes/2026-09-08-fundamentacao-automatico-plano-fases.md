@@ -408,9 +408,17 @@ Comandos: em P, `python -m unittest test_automation_api test_local_service test_
   disponível.
 
 **Gate do incidente:** não considerar o pareamento concluído apenas porque o
-  código apareceu ou foi aceito pelo formulário; a conexão só passa com uma
-  resposta autenticada válida de `capabilities` e teste automatizado da mesma
-  sequência.
+código apareceu ou foi aceito pelo formulário; a conexão só passa com uma
+resposta autenticada válida de `capabilities` e teste automatizado da mesma
+sequência.
+
+**Remediação local registrada em 2026-09-09:** `INICIAR.cmd`/`menu.ps1` não
+fabricam mais `service.json` quando o helper encerra ou não confirma a ponte;
+`Wait-TceLocalServiceReady` valida PID/porta e preserva o modo manual. O teste
+`work/tce-extractor/tests/Test-PortableMenu.ps1` passou 75/75. Isso corrige a
+falha de prontidão do launcher, mas não substitui a reprodução no pacote real
+nem a sequência autenticada `pair` → `capabilities`; os quatro gates acima
+permanecem pendentes.
 
 ## 10. Fase 5 — navegação, frames e descoberta da fila
 
