@@ -527,7 +527,7 @@
   combinação de pacote 61/61 com 2 skips; suíte Python ampla 373/373 com
   5 skips ambientais. `git diff --check` será repetido antes do commit.
 - GitHub: branch `codex/fundamentacao-automatico`, sem remoto configurado;
-  não houve push. As mudanças desta rodada ainda precisam de commit explícito.
+  commit `25ca99e` criado localmente; não houve push.
 - Pendências: gate real do portal, piloto autorizado, runtime portátil real e
   smoke de uma release final. Não abrir perfil autenticado nem habilitar envio
   no próximo passo sem autorização explícita.
