@@ -365,3 +365,17 @@
 - Pendências: integração com a API/serviço e fases posteriores; eventos
   legados sem `result_json` exigem backfill antes de replay.
 - Próxima tarefa: executar a Fase 4 conforme `task-4-brief.md`.
+
+## Pendência adicionada — conexão após pareamento no pacote portátil
+
+- Relato reproduzido em 2026-09-09: o serviço local exibiu o código de
+  pareamento, mas a extensão permaneceu desconectada depois que o código foi
+  inserido.
+- O plano recebeu a seção 9.1 com a sequência de diagnóstico e o gate de
+  aceitação: pareamento só é considerado concluído após uma chamada
+  autenticada de `capabilities` retornar sucesso.
+- Hipóteses a verificar na Fase 4: corrida do launcher com
+  `dados-locais/bridge/service.json`, processo local já existente, expiração ou
+  consumo único do código, `Origin` da extensão e emissão/uso do token.
+- Não foi alterado código nesta side conversation; a correção deve ser feita
+  pela thread principal com teste de regressão e sem habilitar envio real.

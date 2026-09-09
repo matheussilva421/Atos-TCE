@@ -383,6 +383,28 @@ Comandos: em P, `python -m unittest test_automation_api test_local_service test_
 
 **Aceite:** contratos autenticados, compatibilidade v1 e idempotência local comprovados. Commit: `feat: expose authenticated automation API`.
 
+### 9.1 Incidente de conexão observado no pacote portátil
+
+- [ ] Reproduzir no pacote portátil real: `INICIAR.cmd` inicia o serviço e
+  exibe um código de pareamento, mas a extensão permanece desconectada após o
+  código ser inserido.
+- [ ] Capturar, em fixture/teste local, a sequência completa
+  `INICIAR.cmd` → `service.json`/código → `POST /api/v1/pair` → primeira
+  chamada autenticada (`capabilities`), registrando status HTTP e erro tipado
+  sem expor o código.
+- [ ] Verificar a corrida entre o launcher oculto e a criação de
+  `dados-locais/bridge/service.json`, a reutilização de um processo existente,
+  expiração/consumo único do código, `Origin` da extensão e o token emitido.
+- [ ] Corrigir a causa e adicionar uma regressão que prove que, após o
+  pareamento, a extensão mostra conexão ativa e consegue consultar
+  `capabilities`; manter fallback manual quando o serviço não estiver
+  disponível.
+
+**Gate do incidente:** não considerar o pareamento concluído apenas porque o
+  código apareceu ou foi aceito pelo formulário; a conexão só passa com uma
+  resposta autenticada válida de `capabilities` e teste automatizado da mesma
+  sequência.
+
 ## 10. Fase 5 — navegação, frames e descoberta da fila
 
 **Criar:** `E/content/portal-navigation.js`, `E/tests/portal-navigation.test.mjs`, `E/background/automation-controller.js`, `E/tests/automation-controller.test.mjs`.
