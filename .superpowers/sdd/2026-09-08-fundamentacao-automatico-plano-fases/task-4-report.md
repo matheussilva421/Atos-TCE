@@ -197,3 +197,33 @@ Commit final: `fix: harden automation retries and event payloads`. Branch local:
 `codex/fundamentacao-automatico`; nenhum remoto está configurado e nenhum
 push foi realizado. O SHA final foi verificado no fechamento do checkout e é
 reportado na resposta da sessão.
+
+## Correção final — identidade global de `event_id`
+
+Foi corrigida a colisão entre `run_creation_requests.event_id` e
+`events.event_id`. O store agora mantém `event_id_registry` e reserva o ID
+na mesma transação da criação/replay do run ou da persistência do evento.
+Retries idempotentes continuam sendo resolvidos primeiro: `create_run` com o
+mesmo payload e eventos já persistidos retornam o resultado original; payload
+alterado ou colisão entre namespaces gera `EventConflict` sem avançar a
+revisão. A checagem ocorre antes da validação de dataset no replay.
+
+Para bancos existentes, a inicialização cria a tabela ausente e faz backfill
+tolerante (`INSERT OR IGNORE`) de `run_creation_requests` e `events`, sem
+invalidar o banco por duplicidades históricas. O teste de migração também
+confirma replay legado e bloqueio posterior da colisão.
+
+TDD e gates desta rodada:
+
+- RED: 2 testes reproduziram o mesmo ID em `create_run`/evento e em
+  evento/`create_run`; ambos falharam antes da correção por ausência de
+  conflito.
+- GREEN: `test_automation_store` 20/20; Python API/serviço/auth 37 testes,
+  36 pass, 0 fail e 1 skip ambiental; Node focal 41/41; `npm test` 173/173.
+- `python -m py_compile` passou e `git diff --check` passou.
+
+Arquivos funcionais deste round: `portable/app/automation_store.py` e
+`test_automation_store.py`, além deste relatório e do handoff. Empacotador,
+`consume_command` e envio real permaneceram fora do escopo. O blocker da Fase
+10 sobre a allowlist/QA do pacote permanece registrado acima e não é falha da
+Fase 4.

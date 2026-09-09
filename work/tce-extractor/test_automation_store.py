@@ -146,6 +146,106 @@ class AutomationStoreTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_event_id_is_global_between_run_creation_and_later_events(self) -> None:
+        store = self._store()
+        self.addCleanup(store.close)
+        spec = {"run_id": "run-1", "schema_version": 1}
+
+        created = store.create_run(spec, "shared-event-id")
+        frozen = store.freeze_queue(
+            "run-1",
+            [{"process_key": "103439/2023"}],
+            "queue-event",
+            created["revision"],
+        )
+        before = store.snapshot("run-1")
+
+        with self.assertRaises(self.EventConflict):
+            store.append_event(
+                "run-1",
+                {
+                    "event_id": "shared-event-id",
+                    "type": "item_prepared",
+                    "expected_revision": frozen["revision"],
+                    "item_id": "103439/2023",
+                    "reason": "prepared",
+                },
+            )
+
+        self.assertEqual(store.snapshot("run-1"), before)
+        self.assertEqual(
+            [event["event_id"] for event in store.get_events("run-1")],
+            ["queue-event"],
+        )
+
+    def test_event_id_from_an_event_blocks_later_run_creation(self) -> None:
+        store = self._store()
+        self.addCleanup(store.close)
+        self._create_running_run(store)
+
+        prepared = store.append_event(
+            "run-1",
+            {
+                "event_id": "shared-event-id",
+                "type": "item_prepared",
+                "expected_revision": 1,
+                "item_id": "103439/2023",
+                "reason": "prepared",
+            },
+        )
+        stopped = store.append_event(
+            "run-1",
+            {
+                "event_id": "stop-event",
+                "type": "run_stopped",
+                "expected_revision": prepared["revision"],
+            },
+        )
+
+        with self.assertRaises(self.EventConflict):
+            store.create_run({"run_id": "run-2", "schema_version": 1}, "shared-event-id")
+
+        self.assertEqual(store.snapshot("run-1"), stopped)
+        self.assertEqual(store.snapshot("run-1")["revision"], 3)
+
+    def test_existing_database_backfills_global_event_ids_without_breaking_replay(self) -> None:
+        store = self._store()
+        identity = {"process_key": "103439/2023"}
+        store.create_run({"run_id": "run-1", "schema_version": 1})
+        store.freeze_queue("run-1", [identity], "queue-event", 0)
+        event = {
+            "event_id": "legacy-event",
+            "type": "item_prepared",
+            "expected_revision": 1,
+            "item_id": identity["process_key"],
+            "reason": "prepared",
+        }
+        prepared = store.append_event("run-1", event)
+        store.append_event(
+            "run-1",
+            {
+                "event_id": "stop-event",
+                "type": "run_stopped",
+                "expected_revision": prepared["revision"],
+            },
+        )
+        store.close()
+
+        connection = sqlite3.connect(store.database_path)
+        try:
+            connection.execute("DROP TABLE event_id_registry")
+            connection.execute("DROP TABLE run_creation_requests")
+            connection.commit()
+        finally:
+            connection.close()
+
+        reopened = self._store()
+        self.addCleanup(reopened.close)
+        replay = reopened.append_event("run-1", {**event, "expected_revision": 0})
+        self.assertEqual(replay, prepared)
+        with self.assertRaises(self.EventConflict):
+            reopened.create_run({"run_id": "run-2", "schema_version": 1}, "legacy-event")
+
     def test_repeated_event_returns_original_result_after_later_events(self) -> None:
         store = self._store()
         self.addCleanup(store.close)

@@ -105,3 +105,30 @@ foi verificado no fechamento e é reportado na resposta da sessão. O checkout e
 houve push. O próximo agente deve manter `consume_command`, envio real e
 empacotamento fora desta fase e tratar o módulo `automation-schema.js` como
 blocker explícito da Fase 10.
+
+## Retomada final — identidade global de `event_id`
+
+Implementado em `portable/app/automation_store.py` e coberto em
+`test_automation_store.py`:
+
+- `event_id_registry` é criado/migrado de forma compatível com bancos
+  existentes e recebe backfill tolerante de `run_creation_requests` e
+  `events`;
+- reserva e checagem global acontecem atomicamente na transação de criação do
+  run e na transação de evento;
+- retry idempotente de `create_run` com mesmo payload e retry de evento foram
+  preservados;
+- colisão cruzada ou payload divergente rejeita sem avanço de revisão e sem
+  validar dataset antes do replay.
+
+RED/GREEN: os 2 testes de colisão global falharam antes da implementação e
+passaram depois; o teste de banco legado/backfill também passou.
+
+Validação final: store 20/20; Python API/serviço/auth 37 testes, 36 pass,
+0 fail e 1 skip; Node focal 41/41; `npm test` 173/173; `py_compile` e
+`git diff --check` passaram. Nenhum empacotador, `consume_command` ou envio
+foi alterado. O blocker da Fase 10 sobre o empacotador permanece explícito e
+fora da avaliação da Fase 4.
+
+Commit pendente de registrar nesta retomada: `fix: enforce global automation
+event identity`. Não fazer push; o checkout não possui remoto configurado.

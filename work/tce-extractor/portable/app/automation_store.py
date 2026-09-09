@@ -297,6 +297,10 @@ class AutomationStore:
                     result_json TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS event_id_registry (
+                    event_id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS commands (
                     command_id TEXT PRIMARY KEY,
                     run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
@@ -330,6 +334,14 @@ class AutomationStore:
                 connection.execute(
                     "ALTER TABLE runs ADD COLUMN paused_from_state TEXT"
                 )
+            connection.execute(
+                "INSERT OR IGNORE INTO event_id_registry(event_id, created_at) "
+                "SELECT event_id, created_at FROM run_creation_requests"
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO event_id_registry(event_id, created_at) "
+                "SELECT event_id, created_at FROM events"
+            )
             connection.commit()
         except Exception:
             connection.rollback()
@@ -523,6 +535,26 @@ class AutomationStore:
             f"evento legado sem resultado persistido: {event_id}"
         )
 
+    def _ensure_event_id_available(
+        self, connection: sqlite3.Connection, event_id: str
+    ) -> None:
+        row = connection.execute(
+            "SELECT 1 FROM event_id_registry WHERE event_id = ?", (event_id,)
+        ).fetchone()
+        if row is not None:
+            raise EventConflict(f"event_id já usado: {event_id}")
+
+    def _reserve_event_id(
+        self, connection: sqlite3.Connection, event_id: str
+    ) -> None:
+        try:
+            connection.execute(
+                "INSERT INTO event_id_registry(event_id, created_at) VALUES (?, ?)",
+                (event_id, _now()),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise EventConflict(f"event_id já usado: {event_id}") from exc
+
     def _append_event_transaction(
         self,
         connection: sqlite3.Connection,
@@ -538,6 +570,7 @@ class AutomationStore:
         )
         if existing is not None:
             return existing
+        self._reserve_event_id(connection, event_id)
         run = self._get_run(connection, run_id)
         actual_revision = int(run["revision"])
         if expected_revision is not None and expected_revision != actual_revision:
@@ -726,6 +759,7 @@ class AutomationStore:
                             "resultado persistido de criação inválido"
                         )
                     return replay
+                self._ensure_event_id_available(connection, event_id)
             active = connection.execute(
                 "SELECT run_id FROM runs WHERE root_key = ? AND state IN "
                 "('discovering', 'running', 'paused') LIMIT 1",
@@ -748,6 +782,7 @@ class AutomationStore:
                 raise EventConflict(f"run_id já existe: {run_id}") from exc
             result = self._snapshot_transaction(connection, run_id)
             if event_id is not None:
+                self._reserve_event_id(connection, event_id)
                 connection.execute(
                     "INSERT INTO run_creation_requests(event_id, run_id, spec_json, "
                     "result_json, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -777,6 +812,7 @@ class AutomationStore:
                 (event_id,),
             ).fetchone()
             if existing is None:
+                self._ensure_event_id_available(connection, event_id)
                 return None
             if str(existing["spec_json"]) != spec_json:
                 raise EventConflict(
@@ -824,13 +860,16 @@ class AutomationStore:
 
         def lookup(connection: sqlite3.Connection) -> dict[str, Any] | None:
             self._get_run(connection, run_id)
-            return self._existing_event_result(
+            result = self._existing_event_result(
                 connection,
                 run_id,
                 event_id,
                 "queue_frozen",
                 {"identities": normalized_identities},
             )
+            if result is None:
+                self._ensure_event_id_available(connection, event_id)
+            return result
 
         return self._run_transaction(lookup)
 
