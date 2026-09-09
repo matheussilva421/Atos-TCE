@@ -852,6 +852,7 @@ test("bridge dataset refresh updates the current panel without applying fields",
   currentRevision = 2;
   await app.syncBridgeDataset();
   assert.equal(app.getState().dataset.records[0].interested.original, "Maria Atualizada");
+  assert.match(documentRef.getElementById("bridge-status").textContent, /^Mesa local conectada\./u);
   const incrementalImport = chromeApi.calls.find((message) => message.type === MESSAGE_TYPES.IMPORT_DATASET);
   assert.equal(incrementalImport.payload.preserveReviewed, true);
   assert.equal(chromeApi.calls.some((message) => message.type === MESSAGE_TYPES.APPLY_FIELDS), false);

@@ -250,6 +250,7 @@ try {
         'automation_report.py',
         'automation_store.py',
         'legal_context.py',
+        'qualification.py',
         'local_service.py',
         'workflow_state.py',
         'filter_new_batch.py',

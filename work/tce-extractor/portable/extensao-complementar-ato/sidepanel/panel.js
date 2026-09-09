@@ -439,7 +439,7 @@ export function createPanelApp({
         setMessage("Dataset atualizado pela mesa local; atualize a prévia para conferir a tela atual.");
         render();
       }
-      setBridgeStatus("Dataset incremental sincronizado; nenhum campo foi preenchido.");
+      setBridgeStatus("Mesa local conectada. Dataset incremental sincronizado; nenhum campo foi preenchido.");
       return true;
     } catch (error) {
       setBridgeStatus(`Mesa local desconectada: ${error instanceof Error ? error.message : String(error)}`, true);

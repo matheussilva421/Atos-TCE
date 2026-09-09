@@ -24,6 +24,35 @@ processo; nunca retorna token, nomes, texto bruto ou URL com hash. O RED foi
 observado por `KeyError: process_key_count` e o GREEN passou em 1/1 com
 `python -m unittest test_real_portal_session -v`.
 
+## Atualização de implementação local — qualificação e pacote final10
+
+Foi adicionado `portable/app/qualification.py`, com validação fail-closed e
+versões exatas para extensão `1.1.0`, serviço/schema jurídico/regras e
+classificador `portal-outcome-v1`. O serviço agora aceita `--enable-real-send`
+somente quando `<workflow_root>/automacao/qualificacao.json` existe, tem schema
+estrito, hashes SHA-256 válidos, ID de evento e versões iguais às atuais; sem a
+flag ou com qualquer divergência, `real_send_enabled` permanece falso e o lote
+comum devolve `REAL_SEND_DISABLED`. O arquivo é estado local e não é colocado
+no ZIP.
+
+A allowlist pública e o diagnóstico `TESTAR-PACOTE.ps1` agora incluem
+`app\qualification.py`. O teste de contrato teve RED por módulo ausente e
+GREEN após a inclusão. O ZIP final10 foi recomposto em caminho separado:
+95.839.875 bytes, SHA-256
+`06fc7a5fc005f698b35f332239bafb26979b0f95569f0c9cdd97d81149d23920`; a cópia
+extraída passou as 6 verificações offline e o smoke Chrome descartável passou
+1/1 (`pair`, capabilities, sincronização e token de sessão).
+
+O smoke revelou ainda uma regressão de observabilidade: a sincronização do
+dataset apagava o texto “Mesa local conectada.”. O teste JS reproduziu RED e a
+correção mínima passou o teste focado; o status final agora mantém o prefixo de
+conexão e informa que nenhum campo foi preenchido.
+
+Verificação final do bloco: `python -m unittest test_automation_qualification
+test_automation_api test_package_audit -v` executou 67 testes, aprovou 65,
+falhou 0 e teve 2 skips ambientais; `npm test` executou 256/256; `git
+diff --check` passou.
+
 Próximo passo seguro: mantendo esta janela aberta, obter a tela de formulário
 real na Área Restrita e localizar três atos representativos por navegação
 supervisionada. Só depois fazer preflight sem envio. O primeiro clique real e o
@@ -114,6 +143,7 @@ Nenhum portal real, ato real ou envio foi acessado.
 - `work/tce-extractor/portable/app/automation_store.py`
 - `work/tce-extractor/portable/app/bridge_auth.py`
 - `work/tce-extractor/portable/app/local_service.py`
+- `work/tce-extractor/portable/app/qualification.py`
 - `work/tce-extractor/portable/extensao-complementar-ato/lib/bridge-client.js`
 - `work/tce-extractor/portable/extensao-complementar-ato/tests/automation-schema.test.mjs`
 - `work/tce-extractor/portable/extensao-complementar-ato/tests/automation-controller.test.mjs`
@@ -123,6 +153,9 @@ Nenhum portal real, ato real ou envio foi acessado.
 - `work/tce-extractor/test_local_service.py`
 - `work/tce-extractor/test_portable_zip_browser_smoke.py`
 - `work/tce-extractor/portable/extensao-complementar-ato/sidepanel/panel.js`
+- `work/tce-extractor/portable/TESTAR-PACOTE.ps1`
+- `work/tce-extractor/empacotar-coletor-portatil.ps1`
+- `work/tce-extractor/test_automation_qualification.py`
 - `work/tce-extractor/portable/extensao-complementar-ato/manifest.json`
 - `docs/notes/2026-09-08-fundamentacao-automatico-plano-fases.md`
 - `docs/notes/2026-09-09-fase9-10-task-9-10-report.md`

@@ -42,6 +42,7 @@ from automation_store import (
 from html_generator import render_html
 from legal_context import LEGAL_CONTEXT_VERSION, _normalise_interested
 from prepare_transfer import _acquire_operation_lock, _active_runtime, _release_operation_lock, transfer_requested
+from qualification import expected_qualification_versions, inspect_qualification
 from workflow_state import RevisionConflict, WorkflowState
 
 
@@ -52,6 +53,8 @@ MAX_BODY_BYTES = 2 * 1024 * 1024
 MAX_AUTOMATION_IDENTITIES = 10_000
 AUTOMATION_SCHEMA_VERSION = 1
 RULES_VERSION = "legal-foundation-v1"
+EXTENSION_VERSION = "1.1.0"
+QUALIFICATION_RELATIVE_PATH = Path("automacao") / "qualificacao.json"
 PROCESS_KEY_RE = re.compile(r"^\d+/\d{4}$")
 PROCESS_KEY_QUERY_RE = re.compile(r"^(\d+)\s*/\s*(\d{4})$")
 AUTOMATION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$")
@@ -760,9 +763,18 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = False
 
-    def __init__(self, address, root: Path, *, automation_pilot: bool = False):
+    def __init__(self, address, root: Path, *, automation_pilot: bool = False, enable_real_send: bool = False):
         self.workflow_root = root.resolve()
         self.automation_pilot = automation_pilot is True
+        self.real_send_enabled = False
+        if enable_real_send:
+            qualification = inspect_qualification(
+                self.workflow_root / QUALIFICATION_RELATIVE_PATH,
+                expected_qualification_versions(EXTENSION_VERSION),
+            )
+            if not qualification.valid:
+                raise ValueError(f"qualificação real inválida: {qualification.reason}")
+            self.real_send_enabled = True
         workflow_state = WorkflowState(self.workflow_root)
         automation_store = AutomationStore(self.workflow_root)
         self.auth = BridgeAuth()
@@ -996,7 +1008,7 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
                 "automation_schema": AUTOMATION_SCHEMA_VERSION,
                 "legal_context_schema": 1,
                 "rules_version": RULES_VERSION,
-                "real_send_enabled": False,
+                "real_send_enabled": self.server_state.real_send_enabled,
                 "pilot_enabled": self.server_state.automation_pilot,
                 "pilot_consumes_remaining": self.server_state.automation_pilot
                 and not self.server_state.automation_store.pilot_command_consumed(),
@@ -1216,7 +1228,7 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
                     "automation_schema": AUTOMATION_SCHEMA_VERSION,
                     "legal_context_schema": 1,
                     "rules_version": RULES_VERSION,
-                    "real_send_enabled": False,
+                    "real_send_enabled": self.server_state.real_send_enabled,
                     "pilot_enabled": self.server_state.automation_pilot,
                     "pilot_consumes_remaining": self.server_state.automation_pilot
                     and not self.server_state.automation_store.pilot_command_consumed(),
@@ -1510,17 +1522,27 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
                 expected_revision = _validate_command_consume_payload(payload)
                 run_snapshot = self.server_state.automation_store.snapshot(run_id)
                 run_mode = run_snapshot.get("spec", {}).get("mode", "batch")
-                if run_mode != "pilot" or not self.server_state.automation_pilot:
+                if run_mode == "pilot":
+                    if not self.server_state.automation_pilot:
+                        raise _ApiProblem(
+                            409,
+                            "REAL_SEND_DISABLED",
+                            "envio real está desabilitado; use somente o piloto explicitamente qualificado",
+                        )
+                    enforce_pilot_budget = True
+                elif not self.server_state.real_send_enabled:
                     raise _ApiProblem(
                         409,
                         "REAL_SEND_DISABLED",
-                        "envio real está desabilitado; use somente o piloto explicitamente qualificado",
+                        "envio em lote exige uma qualificação local válida e ativação explícita",
                     )
+                else:
+                    enforce_pilot_budget = False
                 consumed = self.server_state.automation_store.consume_command(
                     run_id,
                     command_id,
                     expected_revision,
-                    enforce_pilot_budget=True,
+                    enforce_pilot_budget=enforce_pilot_budget,
                 )
                 snapshot = _project_automation_snapshot(consumed, run_id)
                 result = {
@@ -1687,6 +1709,7 @@ def create_server(
     port: int = DEFAULT_PORT,
     *,
     automation_pilot: bool = False,
+    enable_real_send: bool = False,
 ):
     if host != "127.0.0.1":
         raise ValueError("o serviço deve usar 127.0.0.1")
@@ -1698,7 +1721,12 @@ def create_server(
     last_error = None
     for candidate in candidates:
         try:
-            server = _WorkflowHTTPServer((host, candidate), root, automation_pilot=automation_pilot)
+            server = _WorkflowHTTPServer(
+                (host, candidate),
+                root,
+                automation_pilot=automation_pilot,
+                enable_real_send=enable_real_send,
+            )
             return server
         except OSError as exc:
             last_error = exc
@@ -1741,6 +1769,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--automation-pilot", action="store_true")
+    parser.add_argument("--enable-real-send", action="store_true")
     args = parser.parse_args(argv)
     package_root = args.root.resolve().parent
     operation_lock_path, operation_lock_token = _acquire_operation_lock(package_root)
@@ -1758,6 +1787,7 @@ def main(argv: list[str] | None = None) -> int:
             host=args.host,
             port=args.port,
             automation_pilot=args.automation_pilot,
+            enable_real_send=args.enable_real_send,
         )
         metadata_path = args.bridge_root / "service.json"
         _write_runtime_metadata(metadata_path, server)

@@ -1034,7 +1034,12 @@ class PackagerContractTests(unittest.TestCase):
         ):
             with self.subTest(asset=asset):
                 self.assertIn(f"'{asset}'", packager)
-        for module in ("automation_report.py", "automation_store.py", "legal_context.py"):
+        for module in (
+            "automation_report.py",
+            "automation_store.py",
+            "legal_context.py",
+            "qualification.py",
+        ):
             with self.subTest(module=module):
                 self.assertIn(f"'{module}'", packager)
 

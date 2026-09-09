@@ -22,6 +22,7 @@ APP_ROOT = Path(__file__).parent / "portable" / "app"
 sys.path.insert(0, str(APP_ROOT))
 
 from local_service import create_server  # noqa: E402
+from qualification import expected_qualification_versions  # noqa: E402
 
 
 EXTENSION_ORIGIN = "chrome-extension://test-extension"
@@ -92,6 +93,24 @@ def write_context(root: Path, dataset_sha256: str, *names: str) -> None:
     }
     (root / "fundamentos-contexto.v1.json").write_text(
         json.dumps(context, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def write_qualification(root: Path) -> None:
+    path = root / "automacao" / "qualificacao.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "status": "qualified",
+                "versions": expected_qualification_versions("1.1.0"),
+                "fixture_hashes": ["a" * 64],
+                "real_event_id": "real-event-2026-09-09",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
     )
 
 
@@ -280,6 +299,122 @@ class AutomationApiTests(unittest.TestCase):
             self.assertFalse(body["real_send_enabled"])
             self.assertFalse(body["pilot_enabled"])
             self.assertFalse(body["pilot_consumes_remaining"])
+
+    def test_qualified_batch_requires_explicit_activation_and_matching_versions(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_fixture(root, "Ana")
+            write_qualification(root)
+
+            server = create_server(root, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://127.0.0.1:{server.server_port}"
+            try:
+                token = self.pair(server, base)
+                status, _headers, capabilities = request_json(
+                    f"{base}/api/v1/automation/capabilities", token=token
+                )
+                self.assertEqual(status, 200, capabilities)
+                self.assertFalse(capabilities["real_send_enabled"])
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+
+    def test_explicitly_qualified_batch_can_consume_one_prepared_command(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _dataset, digest = write_fixture(root, "Ana")
+            write_qualification(root)
+            server = create_server(root, port=0, enable_real_send=True)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://127.0.0.1:{server.server_port}"
+            try:
+                token = self.pair(server, base)
+                status, _headers, created = request_json(
+                    f"{base}/api/v1/automation/runs",
+                    method="POST",
+                    token=token,
+                    payload=self.run_spec(digest, event_id="qualified-batch-start"),
+                )
+                self.assertEqual(status, 200, created)
+                run_id = created["run_id"]
+                identity = {
+                    "process_key": "103439/2023",
+                    "interested_normalized": "ana",
+                    "portal_act_id": None,
+                }
+                status, _headers, queued = request_json(
+                    f"{base}/api/v1/automation/runs/{run_id}/queue",
+                    method="POST",
+                    token=token,
+                    payload={
+                        "identities": [identity],
+                        "event_id": "qualified-batch-queue",
+                        "expected_revision": 0,
+                    },
+                )
+                self.assertEqual(status, 200, queued)
+                revision = queued["revision"]
+                events_url = f"{base}/api/v1/automation/runs/{run_id}/events"
+                for event_id, event_type, payload in (
+                    ("qualified-batch-prepared", "item_prepared", {"reason": "ready"}),
+                    ("qualified-batch-verified", "fields_verified", {"field_results": {}, "rereads": []}),
+                    (
+                        "qualified-batch-intent",
+                        "send_intent",
+                        {
+                            "expected_fields_hash": "a" * 64,
+                            "command_id": "qualified-batch-command",
+                            "expires_at": 4102444800000,
+                        },
+                    ),
+                ):
+                    status, _headers, result = request_json(
+                        events_url,
+                        method="POST",
+                        token=token,
+                        payload={
+                            "event_id": event_id,
+                            "expected_revision": revision,
+                            "item_id": "103439/2023",
+                            "type": event_type,
+                            "payload": payload,
+                        },
+                    )
+                    self.assertEqual(status, 200, result)
+                    revision = result["revision"]
+
+                status, _headers, consumed = request_json(
+                    f"{base}/api/v1/automation/runs/{run_id}/commands/qualified-batch-command/consume",
+                    method="POST",
+                    token=token,
+                    payload={"expected_revision": revision},
+                )
+                self.assertEqual(status, 200, consumed)
+                self.assertTrue(consumed["dispatch_allowed"])
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+
+            server = create_server(root, port=0, enable_real_send=True)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://127.0.0.1:{server.server_port}"
+            try:
+                token = self.pair(server, base)
+                status, _headers, capabilities = request_json(
+                    f"{base}/api/v1/automation/capabilities", token=token
+                )
+                self.assertEqual(status, 200, capabilities)
+                self.assertTrue(capabilities["real_send_enabled"])
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
 
     def test_pilot_run_requires_explicit_service_flag(self):
         with running_server() as (root, server, base):
