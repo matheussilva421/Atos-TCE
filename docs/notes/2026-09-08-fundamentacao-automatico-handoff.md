@@ -402,7 +402,7 @@
 
 - Estado: implementação local endurecida na branch
   `codex/fundamentacao-automatico`; base documental corrigida para `fdd7ee0`;
-  commits `5372067` e `12491d3`.
+  commits `5372067`, `12491d3` e `a4d2e66`.
 - Ownership: content script de navegação, controller fora do painel, integração
   mínima em worker/messages/manifest, testes do controller/navegação/worker e
   fixture sintética da terceira página.
@@ -413,18 +413,19 @@
   aba não vinculada é ignorada. `PORTAL_EVENT` exige content script da própria
   extensão, origem portal e par `tabId`/`frameId`; loading automático exige
   request ID e frame correspondentes e erro de frame pausa fail-closed. Frame
-  inicial sem identificação explícita falha fechado. Descoberta na
+  inicial sem identificação explícita falha fechado; os listeners de
+  navegação/formulário ignoram mensagens da outra família. Descoberta na
   página 3 volta pela ação `direction: "first"` antes do primeiro processo;
   `queueFrozen` impede novas identidades.
 - TDD: RED inicial e correções estão registrados em `task-5-report.md`;
-  GREEN focal 49/49 e `npm test` 198/198. `node --check` e
+  GREEN focal 74/74 e `npm test` 200/200. `node --check` e
   `git diff --check` verdes.
 - Validação manual: somente fixtures/Fake DOM/bridge locais; nenhum portal real,
   clique real, preenchimento ou envio foi iniciado.
 - Limitações: qualificação de browser/portal real, preflight, preenchimento,
   envio, redesign e empacotamento seguem fora desta fase; linha sem controles
   suficientes pausa para intervenção manual.
-- Status: revisão independente final da rodada `12491d3` ainda pendente; não
+- Status: revisão independente final da rodada `a4d2e66` ainda pendente; não
   marcar a Fase 5 como aprovada nem iniciar a Fase 6 antes desse gate.
 - Próxima tarefa após aprovação: Fase 6, sem deslocar envio ou preflight para
   o controller da Fase 5.
