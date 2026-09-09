@@ -11,8 +11,9 @@ automation pilot guard`) e `c4246c6` (`fix: route automation controls through
 worker`), seguidos de `453a043` (`docs: record portable runtime probe`) e
 `0ec7109` (`docs: reconcile local phase tasks`), com documentação intermediária
 em `9ad2a50`, `76e37f5`, `5e1617c` e `407ca6c`, além de `42eeeac`
-(`fix: require portable service readiness`). O repositório não possui remoto
-configurado, portanto não há push.
+(`fix: require portable service readiness`) e `21e9a63` (`docs: record launcher
+gate boundary`). O repositório não possui remoto configurado, portanto não há
+push.
 
 O launcher portátil agora exige `service.json` produzido pelo próprio helper;
 se o processo encerra ou não confirma a ponte, o menu não fabrica PID/porta e
