@@ -4,7 +4,7 @@
 
 - Implementação iniciada em `codex/fundamentacao-automatico`, derivada de `main` em `dc84402`.
 - O ledger vivo está em `.superpowers/sdd/2026-09-08-fundamentacao-automatico-plano-fases/progress.md` (git-ignorado) e registra tasks, conflitos e decisões.
-- Task atual: Fase 2 — resolvedor específico de fundamento; Fase 1 aprovada e fechada.
+- Task atual: Fase 3 — diário durável e relatórios; Fases 1 e 2 aprovadas e fechadas.
 - Baseline desta execução: `npm test` 124/124 pass; Python focal 99/99 pass, 1 skip ambiental. Warnings de `fitz` depreciado e `ResourceWarning` já aparecem na baseline e não foram introduzidos nesta branch.
 - Fase 0 concluída e revisada: commits `b99fd80` e `54dcf9f`; fixtures/testes sanitizados aprovados em re-revisão Luna. A suíte JS pós-fase ficou 125/126 porque a regressão RED do matcher continua intencional para a Fase 2.
 - Fase 1 aprovada em revisão final após cinco rounds de correção: commits de código `f0a72b5`, `e84ac95`, `8b3a411`, `e85aa35`, `d305ee6`, `0876f2d` e documentação `5b1a732`, `8a64d4d`, `86837a9`, `559b089`, `6a3b63c`, `45e225e`. Último foco: 18/18 testes de contexto, 7/7 pipeline dirigido, 89/89 focal Python, 19/19 batch runner; revisão final Approved. O pacote portátil continua pendente para a Fase 10.
@@ -313,13 +313,15 @@
 - Contrato preservado: `LegalDecision.status` permanece `selected|pending` e
   `method` permanece `exact|rule|similarity|none`; valores de mensagem v1
   desconhecidos continuam rejeitados.
-- GREEN focal: 75/75; `npm test`: 157/157; `git diff --check`: sem diagnóstico.
+- GREEN focal: 64/64; `npm test`: 157/157; `git diff --check`: sem diagnóstico.
 - Testes alterados: `tests/legal-foundation.test.mjs`,
   `tests/matcher.test.mjs` e `tests/schema.test.mjs`.
 - Escopo: somente resolvedor, normalizador, matcher, mensagens e testes/
   documentação foram alterados; nenhum worker, painel, API, persistência,
   navegação, ambiente ou envio real foi alterado ou executado.
 - GitHub: checkout sem remoto configurado; commit local pendente, sem push.
-- Retomada: conferir `git status`, criar o commit
-  `fix: preserve legacy matcher and combined foundation behavior` e validar o
-  SHA final.
+- Fechamento: commit funcional `7ceb326c43adf9bb347712b6e3b20ed6125d4ab8`.
+- Revisão independente final: aprovada sem achados funcionais; a correção
+  posterior foi apenas documental, ajustando o focal para 64/64.
+- GitHub: checkout sem remoto configurado; nenhum push foi realizado.
+- Próxima tarefa: executar a Fase 3 conforme `task-3-brief.md`.
