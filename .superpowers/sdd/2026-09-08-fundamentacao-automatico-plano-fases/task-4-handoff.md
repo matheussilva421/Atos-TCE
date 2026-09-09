@@ -2,10 +2,10 @@
 
 ## Estado
 
-Fase 4 implementada na branch `codex/fundamentacao-automatico`. O código
-está pronto para revisão/integracão no commit solicitado
-`feat: expose authenticated automation API`; o checkout não possui remoto.
-Envio real permanece bloqueado.
+Fase 4 implementada na branch `codex/fundamentacao-automatico`. A rodada de
+correções da revisão independente está concluída e será registrada no commit
+`fix: bind automation API identity and retry state`; o checkout não possui
+remoto. Envio real permanece bloqueado.
 
 ## O que foi feito
 
@@ -19,23 +19,31 @@ Envio real permanece bloqueado.
   fallback manual quando capabilities não existem.
 - Worker recebe contexto com cache indexado por identidade/hash/regras/revisão
   e restringe controle automático a páginas da extensão.
+- Retry de criação preserva o `event_id` inicial e o snapshot original de
+  forma atômica no `AutomationStore`; payload divergente gera conflito.
+- Legal-context canonicaliza a consulta, confere presença no dataset e hash
+  por registro, e retorna revisão/regras autoritativas sem mutar o sidecar.
+- Cache do worker só usa identidade/hash/regras/revisão verificados da resposta
+  do backend e invalida a identidade em troca de dataset ou revisão.
 
 ## Arquivos de ownership
 
 `work/tce-extractor/portable/app/local_service.py`
+`work/tce-extractor/portable/app/automation_store.py`
 `work/tce-extractor/portable/extensao-complementar-ato/lib/bridge-client.js`
 `work/tce-extractor/portable/extensao-complementar-ato/lib/messages.js`
 `work/tce-extractor/portable/extensao-complementar-ato/background/service-worker.js`
 `work/tce-extractor/portable/extensao-complementar-ato/lib/automation-schema.js`
 `work/tce-extractor/test_automation_api.py`
+`work/tce-extractor/test_automation_store.py`
 `work/tce-extractor/portable/extensao-complementar-ato/tests/automation-schema.test.mjs`
 e os testes bridge/worker correspondentes.
 
 ## Verificação
 
-Focais Python: 30/30 sem falhas, 1 skip ambiental. Python ampliado: 79
-executados, 78 pass, 1 skip. JS focal: 37/37. `npm test`: 169/169.
-`py_compile` e `git diff --check` passaram.
+Focais Python: 32 executados, 31 pass, 0 falhas, 1 skip ambiental. Store:
+17/17. JS focal: 38/38. `npm test`: 170/170. `py_compile` e `git diff
+--check` passaram.
 
 A descoberta Python completa foi interrompida após ficar sem saída; o PID
 15456 foi encerrado de forma segura. Não há processo Python dessa execução

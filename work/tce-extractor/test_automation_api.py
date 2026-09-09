@@ -81,6 +81,7 @@ def write_context(root: Path, dataset_sha256: str, *names: str) -> None:
             {
                 "process_key": "103439/2023",
                 "interested_normalized": name.casefold(),
+                "dataset_sha256": dataset_sha256,
                 "resolution_status": "complete",
                 "operative_text": f"RESOLVE: fundamento de {name}",
                 "pages": [{"text": f"RESOLVE: fundamento de {name}", "citation": {"page": 1}}],
@@ -214,6 +215,44 @@ class AutomationApiTests(unittest.TestCase):
             finally:
                 db.close()
 
+    def test_run_creation_retries_are_idempotent_and_conflicting_payloads_rejected(self):
+        with running_server() as (root, server, base):
+            _dataset, digest = write_fixture(root, "Ana")
+            token = self.pair(server, base)
+            run_url = f"{base}/api/v1/automation/runs"
+
+            status, _headers, first = request_json(
+                run_url,
+                method="POST",
+                token=token,
+                payload=self.run_spec(digest),
+            )
+            self.assertEqual(status, 200, first)
+
+            status, _headers, replay = request_json(
+                run_url,
+                method="POST",
+                token=token,
+                payload=self.run_spec(digest),
+            )
+            self.assertEqual(status, 200, replay)
+            self.assertEqual(replay, first)
+
+            status, _headers, conflict = request_json(
+                run_url,
+                method="POST",
+                token=token,
+                payload=self.run_spec(digest, sector="outro-setor"),
+            )
+            self.assertEqual(status, 409)
+            self.assertEqual(conflict["error"]["code"], "EVENT_CONFLICT")
+
+            db = sqlite3.connect(root / "automacao" / "execucoes.sqlite3")
+            try:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM runs").fetchone()[0], 1)
+            finally:
+                db.close()
+
     def test_backend_rejects_dataset_swap_and_stale_queue_without_changing_snapshot(self):
         with running_server() as (root, server, base):
             _dataset, digest = write_fixture(root, "Ana")
@@ -277,7 +316,48 @@ class AutomationApiTests(unittest.TestCase):
                 token=token,
             )
             self.assertEqual(status, 404)
-            self.assertEqual(body["error"]["code"], "LEGAL_CONTEXT_NOT_FOUND")
+            self.assertEqual(body["error"]["code"], "IDENTITY_NOT_IN_DATASET")
+
+    def test_context_lookup_canonicalizes_and_requires_dataset_identity_and_record_hash(self):
+        with running_server() as (root, server, base):
+            _dataset, digest = write_fixture(root, "Ana")
+            write_context(root, digest, "Ana", "Bia")
+            token = self.pair(server, base)
+
+            status, _headers, body = request_json(
+                f"{base}/api/v1/legal-context?process_key=103439%20%2F%202023&interested_normalized=Ana%20",
+                token=token,
+            )
+            self.assertEqual(status, 200, body)
+            self.assertEqual(body["context"]["process_key"], "103439/2023")
+            self.assertEqual(body["context"]["interested_normalized"], "ana")
+
+            status, _headers, body = request_json(
+                f"{base}/api/v1/legal-context?process_key=103439%2F2023&interested_normalized=bia",
+                token=token,
+            )
+            self.assertEqual(status, 404)
+            self.assertEqual(body["error"]["code"], "IDENTITY_NOT_IN_DATASET")
+
+            context_path = root / "fundamentos-contexto.v1.json"
+            context = json.loads(context_path.read_text(encoding="utf-8"))
+            context["records"][0].pop("dataset_sha256")
+            context_path.write_text(json.dumps(context), encoding="utf-8")
+            status, _headers, body = request_json(
+                f"{base}/api/v1/legal-context?process_key=103439%2F2023&interested_normalized=ana",
+                token=token,
+            )
+            self.assertEqual(status, 500)
+            self.assertEqual(body["error"]["code"], "LEGAL_CONTEXT_INVALID")
+
+            context["records"][0]["dataset_sha256"] = "f" * 64
+            context_path.write_text(json.dumps(context), encoding="utf-8")
+            status, _headers, body = request_json(
+                f"{base}/api/v1/legal-context?process_key=103439%2F2023&interested_normalized=ana",
+                token=token,
+            )
+            self.assertEqual(status, 409)
+            self.assertEqual(body["error"]["code"], "CONTEXT_DATASET_MISMATCH")
 
     def test_event_replay_is_idempotent_but_changed_payload_conflicts(self):
         with running_server() as (root, server, base):

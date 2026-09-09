@@ -53,6 +53,7 @@ MAX_AUTOMATION_IDENTITIES = 10_000
 AUTOMATION_SCHEMA_VERSION = 1
 RULES_VERSION = "legal-foundation-v1"
 PROCESS_KEY_RE = re.compile(r"^\d+/\d{4}$")
+PROCESS_KEY_QUERY_RE = re.compile(r"^(\d+)\s*/\s*(\d{4})$")
 AUTOMATION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$")
 AUTOMATION_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -346,6 +347,15 @@ def _dataset_record(dataset: dict, process_key: str, interested_normalized: str)
     return None
 
 
+def _canonical_process_key(value: object) -> str:
+    if not isinstance(value, str):
+        raise _ApiProblem(400, "INVALID_PROCESS_KEY", "process_key inválido")
+    match = PROCESS_KEY_QUERY_RE.fullmatch(value.strip())
+    if match is None:
+        raise _ApiProblem(400, "INVALID_PROCESS_KEY", "process_key não é canônico")
+    return f"{match.group(1)}/{match.group(2)}"
+
+
 def _load_context_record(root: Path, process_key: str, interested_normalized: str, dataset_sha256: str) -> dict:
     context_path = root / "fundamentos-contexto.v1.json"
     if not context_path.is_file():
@@ -367,12 +377,14 @@ def _load_context_record(root: Path, process_key: str, interested_normalized: st
         for record in records
         if isinstance(record, dict)
         and record.get("process_key") == process_key
-        and _normalise_interested(record.get("interested_normalized")) == expected
+        and record.get("interested_normalized") == expected
     ]
     if len(matches) != 1:
         raise _ApiProblem(404, "LEGAL_CONTEXT_NOT_FOUND", "contexto jurídico exato não encontrado")
     context = copy.deepcopy(matches[0])
-    if context.get("dataset_sha256", dataset_sha256) != dataset_sha256:
+    if "dataset_sha256" not in context:
+        raise _ApiProblem(500, "LEGAL_CONTEXT_INVALID", "hash do registro de contexto ausente")
+    if context["dataset_sha256"] != dataset_sha256:
         raise _ApiProblem(409, "CONTEXT_DATASET_MISMATCH", "registro de contexto pertence a outro dataset")
     try:
         encoded_size = len(_canonical_json(context))
@@ -811,19 +823,27 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
         if len(process_values) != 1 or len(interested_values) != 1:
             self._error(400, "INVALID_QUERY", "parâmetros de contexto ambíguos")
             return
-        process_key = process_values[0]
-        interested = interested_values[0]
-        if not PROCESS_KEY_RE.fullmatch(process_key) or not interested:
-            self._error(400, "INVALID_QUERY", "identidade de contexto inválida")
+        try:
+            process_key = _canonical_process_key(process_values[0])
+            interested = _normalise_interested(interested_values[0])
+        except _ApiProblem as problem:
+            self._error(problem.status, problem.code, str(problem))
+            return
+        if not interested:
+            self._error(400, "INVALID_IDENTITY", "interested_normalized inválido")
             return
         try:
-            _revision, _dataset, dataset_sha256 = _load_current_dataset(self.server_state.workflow_root)
+            revision, dataset, dataset_sha256 = _load_current_dataset(self.server_state.workflow_root)
+            if _dataset_record(dataset, process_key, interested) is None:
+                raise _ApiProblem(404, "IDENTITY_NOT_IN_DATASET", "identidade não pertence ao dataset atual")
             context = _load_context_record(
                 self.server_state.workflow_root,
                 process_key,
                 interested,
                 dataset_sha256,
             )
+            context["context_revision"] = revision
+            context["rules_version"] = RULES_VERSION
         except _ApiProblem as problem:
             self._error(problem.status, problem.code, str(problem))
             return
@@ -1209,11 +1229,11 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/v1/automation/runs":
             try:
                 payload = self._read_json()
-                spec, _event_id = _validate_run_payload(payload)
+                spec, event_id = _validate_run_payload(payload)
                 _revision, _dataset, computed = _load_current_dataset(self.server_state.workflow_root)
                 if spec["dataset_sha256"] != computed:
                     raise _ApiProblem(409, "DATASET_MISMATCH", "dataset_sha256 não corresponde ao dataset atual")
-                created = self.server_state.automation_store.create_run(spec)
+                created = self.server_state.automation_store.create_run(spec, event_id)
                 result = _project_automation_snapshot(created, created["run_id"])
             except _ApiProblem as problem:
                 self._error(problem.status, problem.code, str(problem))

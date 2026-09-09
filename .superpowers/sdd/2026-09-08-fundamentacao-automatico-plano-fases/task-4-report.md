@@ -44,7 +44,7 @@ integração foi corrigida uma falha estrutural do backend: colisão entre o
 método HTTP e a função de projeção de snapshot, agravada por chamadas sem o
 rótulo obrigatório em `_require_text`; isso convertia criações válidas em 500.
 
-Gates aprovados:
+Gates aprovados da rodada inicial:
 
 - `python -m unittest test_automation_api -q`: 7 executados, 7 passaram, 0 falharam.
 - `python -m unittest test_automation_api test_local_service test_bridge_auth -q`:
@@ -58,6 +58,41 @@ Gates aprovados:
 - `python -m py_compile portable/app/local_service.py test_automation_api.py`:
   passou.
 - `git diff --check`: passou.
+
+## Rodada de correções após revisão independente
+
+Correções TDD concluídas no mesmo checkout, sem alterar navegação, envio,
+empacotamento ou liberar `consume_command`:
+
+- `AutomationStore` persiste o `event_id` inicial, o spec e o snapshot de
+  criação na mesma transação. Retry com o mesmo payload devolve o mesmo
+  resultado; reuso com payload diferente retorna `EVENT_CONFLICT` antes de
+  considerar execução ativa.
+- `GET /api/v1/legal-context` canonicaliza processo/interessado, exige que a
+  identidade exista no dataset carregado, exige `dataset_sha256` por registro
+  e injeta somente `context_revision`/`rules_version` derivados do backend.
+  Hash ausente/divergente e identidade ausente permanecem erros tipados; o
+  caminho de contexto grande altera apenas a cópia de resposta para `pending`.
+- O service worker compara contexto com o hash do dataset importado, valida a
+  revisão e as regras retornadas pelo backend, usa esses valores verificados
+  na chave e invalida entradas da identidade quando dataset/revisão mudam.
+  Metadados arbitrários do cliente não populam cache.
+
+Gates desta rodada:
+
+- `python -m unittest test_automation_api test_local_service test_bridge_auth -q`:
+  32 executados, 31 passaram, 0 falharam, 1 skip ambiental.
+- `python -m unittest test_automation_store -q`: 17 executados, 17 passaram,
+  0 falharam.
+- `node --test tests/automation-schema.test.mjs tests/bridge-client.test.mjs
+  tests/service-worker.test.mjs`: 38/38 passaram.
+- `npm test`: 170/170 passaram.
+- `python -m py_compile portable/app/local_service.py
+  portable/app/automation_store.py test_automation_api.py
+  test_automation_store.py`: passou.
+- `git diff --check`: passou.
+
+Commit: `fix: bind automation API identity and retry state`.
 
 Warnings conhecidos: `fitz` depreciado e `ResourceWarning` de limpeza de
 `HTTPError` já emitidos pelo ambiente/suítes; não alteraram o resultado.
@@ -75,10 +110,12 @@ evidência GREEN desta fase; nenhum envio ou navegação real foi iniciado.
 ## Arquivos
 
 Alterados/criados no escopo: `portable/app/local_service.py`,
+`portable/app/automation_store.py`,
 `portable/extensao-complementar-ato/lib/bridge-client.js`,
 `lib/messages.js`, `background/service-worker.js`,
 `lib/automation-schema.js`, `test_automation_api.py`,
-`tests/automation-schema.test.mjs`, `tests/bridge-client.test.mjs` e
+`test_automation_store.py`, `tests/automation-schema.test.mjs`,
+`tests/bridge-client.test.mjs` e
 `tests/service-worker.test.mjs`.
 
 ## Retomada

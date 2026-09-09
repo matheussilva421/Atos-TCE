@@ -129,6 +129,23 @@ class AutomationStoreTests(unittest.TestCase):
             )
         self.assertEqual(store.snapshot("run-1")["revision"], 2)
 
+    def test_run_creation_event_replays_original_snapshot_and_conflicts_on_changed_spec(self) -> None:
+        store = self._store()
+        self.addCleanup(store.close)
+        spec = {"run_id": "run-1", "schema_version": 1}
+
+        first = store.create_run(spec, "start-run")
+        replay = store.create_run(spec, "start-run")
+        self.assertEqual(replay, first)
+
+        with self.assertRaises(self.EventConflict):
+            store.create_run({**spec, "sector": "aposentadorias"}, "start-run")
+        connection = sqlite3.connect(store.database_path)
+        try:
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0], 1)
+        finally:
+            connection.close()
+
     def test_repeated_event_returns_original_result_after_later_events(self) -> None:
         store = self._store()
         self.addCleanup(store.close)

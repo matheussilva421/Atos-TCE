@@ -290,6 +290,13 @@ class AutomationStore:
                     created_at TEXT NOT NULL,
                     UNIQUE (run_id, seq)
                 );
+                CREATE TABLE IF NOT EXISTS run_creation_requests (
+                    event_id TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+                    spec_json TEXT NOT NULL,
+                    result_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS commands (
                     command_id TEXT PRIMARY KEY,
                     run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
@@ -687,10 +694,12 @@ class AutomationStore:
         )
         return result
 
-    def create_run(self, spec: dict) -> dict:
+    def create_run(self, spec: dict, event_id: str | None = None) -> dict:
         if not isinstance(spec, dict):
             raise EventValidationError("spec deve ser um objeto")
         spec_copy = deepcopy(spec)
+        if event_id is not None:
+            event_id = _validate_event_id(event_id)
         raw_run_id = spec_copy.get("run_id")
         run_id = (
             _validate_run_id(raw_run_id)
@@ -700,6 +709,23 @@ class AutomationStore:
         spec_json = _canonical_json(spec_copy)
 
         def create(connection: sqlite3.Connection) -> dict[str, Any]:
+            if event_id is not None:
+                existing = connection.execute(
+                    "SELECT spec_json, result_json FROM run_creation_requests "
+                    "WHERE event_id = ?",
+                    (event_id,),
+                ).fetchone()
+                if existing is not None:
+                    if str(existing["spec_json"]) != spec_json:
+                        raise EventConflict(
+                            f"event_id já usado com payload diferente: {event_id}"
+                        )
+                    replay = _decode_json(str(existing["result_json"]))
+                    if not isinstance(replay, dict):
+                        raise AutomationStoreError(
+                            "resultado persistido de criação inválido"
+                        )
+                    return replay
             active = connection.execute(
                 "SELECT run_id FROM runs WHERE root_key = ? AND state IN "
                 "('discovering', 'running', 'paused') LIMIT 1",
@@ -720,7 +746,20 @@ class AutomationStore:
                 if "one_active_run" in str(exc) or "runs.root_key" in str(exc):
                     raise ActiveRunError("já existe execução ativa") from exc
                 raise EventConflict(f"run_id já existe: {run_id}") from exc
-            return self._snapshot_transaction(connection, run_id)
+            result = self._snapshot_transaction(connection, run_id)
+            if event_id is not None:
+                connection.execute(
+                    "INSERT INTO run_creation_requests(event_id, run_id, spec_json, "
+                    "result_json, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        event_id,
+                        run_id,
+                        spec_json,
+                        _canonical_json(result),
+                        timestamp,
+                    ),
+                )
+            return result
 
         return self._run_transaction(create)
 

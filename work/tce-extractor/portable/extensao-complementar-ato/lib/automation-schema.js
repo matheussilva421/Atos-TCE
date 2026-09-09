@@ -181,7 +181,7 @@ export function validateLegalContext(value, expected = {}) {
   exactKeysWithOptional(
     value,
     ["schema_version", "dataset_sha256", "process_key", "interested_normalized", "resolution_status", "operative_text", "pages"],
-    ["extraction_version", "source_evidence", "status_reasons", "geometry_status"],
+    ["extraction_version", "source_evidence", "status_reasons", "geometry_status", "context_revision", "rules_version"],
   );
   if (value.schema_version !== LEGAL_CONTEXT_SCHEMA_VERSION) invalid("unsupported context schema", "INVALID_CONTEXT_SCHEMA");
   if (typeof value.dataset_sha256 !== "string" || !SHA256_RE.test(value.dataset_sha256)) invalid("context dataset hash is invalid", "INVALID_DATASET_HASH");
@@ -193,6 +193,10 @@ export function validateLegalContext(value, expected = {}) {
   if (!["complete", "missing", "incomplete", "conflict", "pending"].includes(value.resolution_status)) invalid("context resolution status is invalid", "INVALID_CONTEXT_STATUS");
   if (typeof value.operative_text !== "string") invalid("context operative_text must be a string", "INVALID_CONTEXT");
   if (!Array.isArray(value.pages)) invalid("context pages must be an array", "INVALID_CONTEXT");
+  if (Object.hasOwn(value, "context_revision") && (!Number.isSafeInteger(value.context_revision) || value.context_revision < 0)) {
+    invalid("context revision is invalid", "INVALID_REVISION");
+  }
+  if (Object.hasOwn(value, "rules_version")) nonEmptyString(value.rules_version, "context rules_version");
   rejectPrivateKeys(value);
   if (contextByteLength(value) > MAX_CONTEXT_BYTES) {
     const pending = clone(value);

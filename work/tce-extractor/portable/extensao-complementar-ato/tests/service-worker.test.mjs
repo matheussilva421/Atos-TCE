@@ -781,6 +781,8 @@ test("contextual getMatch caches by identity, dataset, rules and revision", asyn
     resolution_status: "complete",
     operative_text: "RESOLVE: Art. 6º da EC 41/2003.",
     pages: [],
+    context_revision: 1,
+    rules_version: "legal-foundation-v1",
   };
   const payload = {
     processKey: PROCESS_KEY,
@@ -793,11 +795,75 @@ test("contextual getMatch caches by identity, dataset, rules and revision", asyn
   };
   const first = await worker.handleMessage(createMessage(MESSAGE_TYPES.GET_MATCH, payload, "match-context-1"), extensionSender());
   const second = await worker.handleMessage(createMessage(MESSAGE_TYPES.GET_MATCH, payload, "match-context-2"), extensionSender());
-  const third = await worker.handleMessage(createMessage(MESSAGE_TYPES.GET_MATCH, { ...payload, contextRevision: 2 }, "match-context-3"), extensionSender());
+  const third = await worker.handleMessage(createMessage(MESSAGE_TYPES.GET_MATCH, {
+    ...payload,
+    context: { ...context, context_revision: 2 },
+    contextRevision: 2,
+  }, "match-context-3"), extensionSender());
   assert.equal(first.ok, true);
   assert.equal(second.ok, true);
   assert.equal(third.ok, true);
   assert.equal(calls.length, 3);
   assert.equal(calls[0].operative_text, context.operative_text);
   assert.equal(calls[2].operative_text, context.operative_text);
+});
+
+test("contextual getMatch rejects backend context hash or revision mismatches", async () => {
+  const dataset = await makeDataset();
+  const worker = createServiceWorker({ chromeApi: chromeMock(storageMock()) });
+  await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.IMPORT_DATASET, { dataset }, "import-context-bindings"),
+    extensionSender(),
+  );
+
+  const baseContext = {
+    schema_version: 1,
+    dataset_sha256: dataset.batch.logical_sha256,
+    process_key: PROCESS_KEY,
+    interested_normalized: "joao da silva",
+    resolution_status: "complete",
+    operative_text: "RESOLVE: Art. 6º",
+    pages: [],
+    context_revision: 7,
+    rules_version: "legal-foundation-v1",
+  };
+  const options = { fundamento_legal: [{ value: "art-6", label: "Art. 6º" }] };
+
+  const hashMismatch = await worker.handleMessage(
+    createMessage(
+      MESSAGE_TYPES.GET_MATCH,
+      {
+        processKey: PROCESS_KEY,
+        interestedNormalized: "joao da silva",
+        options,
+        context: { ...baseContext, dataset_sha256: "b".repeat(64) },
+        datasetSha256: "b".repeat(64),
+        rulesVersion: "legal-foundation-v1",
+        contextRevision: 7,
+      },
+      "match-context-hash-mismatch",
+    ),
+    extensionSender(),
+  );
+  assert.equal(hashMismatch.ok, false);
+  assert.equal(hashMismatch.error.code, "CONTEXT_DATASET_MISMATCH");
+
+  const revisionMismatch = await worker.handleMessage(
+    createMessage(
+      MESSAGE_TYPES.GET_MATCH,
+      {
+        processKey: PROCESS_KEY,
+        interestedNormalized: "joao da silva",
+        options,
+        context: baseContext,
+        datasetSha256: dataset.batch.logical_sha256,
+        rulesVersion: "legal-foundation-v1",
+        contextRevision: 8,
+      },
+      "match-context-revision-mismatch",
+    ),
+    extensionSender(),
+  );
+  assert.equal(revisionMismatch.ok, false);
+  assert.equal(revisionMismatch.error.code, "CONTEXT_REVISION_MISMATCH");
 });
