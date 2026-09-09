@@ -23,6 +23,11 @@ configurado, portanto não há push.
 - `work/tce-extractor/test_portable_end_to_end.py`
 - `work/tce-extractor/test_panel_accessibility.py`
 - `work/tce-extractor/test_automation_api.py`
+- `work/tce-extractor/portable/app/automation_store.py`
+- `work/tce-extractor/portable/extensao-complementar-ato/tests/automation-schema.test.mjs`
+- `work/tce-extractor/portable/extensao-complementar-ato/tests/automation-controller.test.mjs`
+- `work/tce-extractor/portable/extensao-complementar-ato/tests/panel.test.mjs`
+- `work/tce-extractor/portable/extensao-complementar-ato/sidepanel/panel.js`
 - `work/tce-extractor/portable/extensao-complementar-ato/manifest.json`
 - `docs/notes/2026-09-08-fundamentacao-automatico-plano-fases.md`
 - `docs/notes/2026-09-09-fase9-10-task-9-10-report.md`
@@ -49,7 +54,9 @@ em 5/5.
 Foi adicionada uma regressão de segurança na API: execução comum não pode
 consumir comando quando `real_send_enabled=false`; o serviço devolve
 `REAL_SEND_DISABLED` sem persistir `command_consumed`. O piloto opt-in ainda não
-existe/habilitado, portanto nenhum caminho de envio real foi aberto.
+foi executado no portal; sua infraestrutura local agora exige `--automation-pilot`,
+identidade explícita, conserva o limite de um comando após reinício e recebe
+`AUTO_START` no worker/controller do painel.
 
 Três auditorias Luna xhigh foram solicitadas em paralelo para separar checklists
 históricos das pendências reais, mas permaneceram sem resposta e foram
@@ -57,13 +64,14 @@ encerradas; não produziram alterações nem evidência adicional.
 
 ## Retomada imediata
 
-1. Repetir a suíte ampla somente se houver novas alterações; o último gate foi
-   `373/373`, com 5 skips ambientais. O último focal de painel/automação foi
-   `5/5`; a API focal passou `16/16` após o guard.
+1. Repetir a suíte ampla somente se houver novas alterações; o último gate amplo
+   anterior foi `373/373`, com 5 skips ambientais. O gate JavaScript atual passou
+   `253/253`; API/store passou `39/39`, recuperação `4/4` e a suíte Python
+   ampla passou `380/380`, com 5 skips ambientais.
 2. Rodar `git diff --check` e `git status --short --branch`.
 3. Se houver nova alteração, revisar mudanças privadas/ignoradas e fazer stage
    explícito; não usar `git add .`.
-4. Criar commit específico para o guard de envio; o gate formal de acessibilidade
+4. Criar commit específico para o guard/piloto e delegação ao worker; o gate formal de acessibilidade
    está em `692ed27`; não executar push sem remoto.
 5. Atualizar este handoff somente se o estado mudar.
 

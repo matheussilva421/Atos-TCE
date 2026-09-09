@@ -243,6 +243,7 @@ buscar magnolia   pesquisa antes da seleção</pre>
         <p>O painel separa a conferência em <strong>Ato atual</strong>, o acompanhamento de uma execução persistida em <strong>Execução</strong> e a consulta de relatórios em <strong>Histórico</strong>. Consultar o histórico não muda a aba do portal nem retoma uma execução.</p>
         <div class="callout danger"><strong>Automação ainda qualificada somente localmente:</strong> <code>real_send_enabled=false</code>. O início é explícito, fechar o painel não retoma o lote e resultado incerto exige conciliação; não existe reenvio direto.</div>
         <p>Esta rodada entrega a extensão compatível <strong>1.1.0</strong>; o serviço informa schema automático 1 e regras <code>legal-foundation-v1</code>, mantendo o envio real bloqueado até o gate autorizado.</p>
+        <p>O botão <strong>Executar piloto de um ato</strong> só aparece com o serviço iniciado explicitamente em <code>--automation-pilot</code>. O piloto exige um ato atual, permite um único comando por raiz mesmo após reinício e não habilita lotes comuns; não o use no portal real antes da autorização e dos gates da Fase 9.</p>
         <h3>Como interpretar a prévia</h3>
         <div class="status-grid">
           <div class="status green"><b>Verde</b>Correspondência exata ou segura.</div>

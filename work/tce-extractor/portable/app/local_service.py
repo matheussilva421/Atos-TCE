@@ -468,8 +468,12 @@ def _validate_identity(value: object) -> dict:
     }
 
 
-def _validate_run_payload(payload: dict) -> tuple[dict, str]:
-    _require_exact_keys(payload, {"tab_id", "sector", "dataset_sha256", "rules_version", "event_id"})
+def _validate_run_payload(payload: dict, *, pilot_enabled: bool = False) -> tuple[dict, str]:
+    _require_exact_keys(
+        payload,
+        {"tab_id", "sector", "dataset_sha256", "rules_version", "event_id"},
+        {"mode", "pilot_identity"},
+    )
     tab_id = payload.get("tab_id")
     if isinstance(tab_id, bool) or not isinstance(tab_id, int) or tab_id < 0:
         raise _ApiProblem(400, "INVALID_TAB_ID", "tab_id inválido")
@@ -480,6 +484,18 @@ def _validate_run_payload(payload: dict) -> tuple[dict, str]:
     rules_version = _require_text(payload.get("rules_version"), "rules_version")
     if rules_version != RULES_VERSION:
         raise _ApiProblem(409, "RULES_VERSION_UNSUPPORTED", "rules_version incompatível")
+    mode = payload.get("mode", "batch")
+    if not isinstance(mode, str) or mode not in {"batch", "pilot"}:
+        raise _ApiProblem(400, "INVALID_MODE", "modo de automação inválido")
+    if mode == "pilot" and not pilot_enabled:
+        raise _ApiProblem(409, "PILOT_DISABLED", "piloto não foi habilitado neste processo do serviço")
+    pilot_identity = payload.get("pilot_identity")
+    if mode == "pilot":
+        if not isinstance(pilot_identity, dict):
+            raise _ApiProblem(400, "INVALID_PILOT_IDENTITY", "piloto exige a identidade de um único ato")
+        pilot_identity = _validate_identity(pilot_identity)
+    elif pilot_identity is not None:
+        raise _ApiProblem(400, "INVALID_MODE", "pilot_identity só é aceita no modo piloto")
     event_id = _require_text(payload.get("event_id"), "event_id")
     if not AUTOMATION_ID_RE.fullmatch(event_id):
         raise _ApiProblem(400, "INVALID_EVENT_ID", "event_id inválido")
@@ -491,6 +507,8 @@ def _validate_run_payload(payload: dict) -> tuple[dict, str]:
             "dataset_sha256": dataset_sha256,
             "rules_version": rules_version,
             "event_id": event_id,
+            "mode": mode,
+            "pilot_identity": pilot_identity,
         },
         event_id,
     )
@@ -716,7 +734,13 @@ def _automation_store_error(error: Exception) -> _ApiProblem:
         return _ApiProblem(409, "EVENT_CONFLICT", str(error))
     if isinstance(error, InvalidTransition):
         message = str(error)
-        for code in ("COMMAND_ALREADY_CONSUMED", "COMMAND_EXPIRED", "COMMAND_NOT_READY", "COMMAND_NOT_FOUND"):
+        for code in (
+            "COMMAND_ALREADY_CONSUMED",
+            "COMMAND_EXPIRED",
+            "COMMAND_NOT_READY",
+            "COMMAND_NOT_FOUND",
+            "PILOT_EXHAUSTED",
+        ):
             if code in message:
                 return _ApiProblem(409, code, message)
         return _ApiProblem(409, "INVALID_TRANSITION", str(error))
@@ -731,8 +755,9 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = False
 
-    def __init__(self, address, root: Path):
+    def __init__(self, address, root: Path, *, automation_pilot: bool = False):
         self.workflow_root = root.resolve()
+        self.automation_pilot = automation_pilot is True
         workflow_state = WorkflowState(self.workflow_root)
         automation_store = AutomationStore(self.workflow_root)
         self.auth = BridgeAuth()
@@ -958,6 +983,9 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
                 "legal_context_schema": 1,
                 "rules_version": RULES_VERSION,
                 "real_send_enabled": False,
+                "pilot_enabled": self.server_state.automation_pilot,
+                "pilot_consumes_remaining": self.server_state.automation_pilot
+                and not self.server_state.automation_store.pilot_command_consumed(),
             },
         )
 
@@ -1175,6 +1203,9 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
                     "legal_context_schema": 1,
                     "rules_version": RULES_VERSION,
                     "real_send_enabled": False,
+                    "pilot_enabled": self.server_state.automation_pilot,
+                    "pilot_consumes_remaining": self.server_state.automation_pilot
+                    and not self.server_state.automation_store.pilot_command_consumed(),
                 },
             )
             return
@@ -1420,7 +1451,10 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/v1/automation/runs":
             try:
                 payload = self._read_json()
-                spec, event_id = _validate_run_payload(payload)
+                spec, event_id = _validate_run_payload(
+                    payload,
+                    pilot_enabled=self.server_state.automation_pilot,
+                )
                 created = self.server_state.automation_store.replay_run_creation(spec, event_id)
                 if created is None:
                     _revision, _dataset, computed = _load_current_dataset(self.server_state.workflow_root)
@@ -1462,14 +1496,17 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
                 expected_revision = _validate_command_consume_payload(payload)
                 run_snapshot = self.server_state.automation_store.snapshot(run_id)
                 run_mode = run_snapshot.get("spec", {}).get("mode", "batch")
-                if run_mode != "pilot" or not getattr(self.server_state, "automation_pilot", False):
+                if run_mode != "pilot" or not self.server_state.automation_pilot:
                     raise _ApiProblem(
                         409,
                         "REAL_SEND_DISABLED",
                         "envio real está desabilitado; use somente o piloto explicitamente qualificado",
                     )
                 consumed = self.server_state.automation_store.consume_command(
-                    run_id, command_id, expected_revision
+                    run_id,
+                    command_id,
+                    expected_revision,
+                    enforce_pilot_budget=True,
                 )
                 snapshot = _project_automation_snapshot(consumed, run_id)
                 result = {
@@ -1617,7 +1654,13 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
         self._send(200, {"api_version": API_VERSION, "revision": result["revision"], "state": result})
 
 
-def create_server(root: Path, host: str = "127.0.0.1", port: int = DEFAULT_PORT):
+def create_server(
+    root: Path,
+    host: str = "127.0.0.1",
+    port: int = DEFAULT_PORT,
+    *,
+    automation_pilot: bool = False,
+):
     if host != "127.0.0.1":
         raise ValueError("o serviço deve usar 127.0.0.1")
     if not isinstance(port, int) or port < 0 or port > 65535:
@@ -1628,7 +1671,7 @@ def create_server(root: Path, host: str = "127.0.0.1", port: int = DEFAULT_PORT)
     last_error = None
     for candidate in candidates:
         try:
-            server = _WorkflowHTTPServer((host, candidate), root)
+            server = _WorkflowHTTPServer((host, candidate), root, automation_pilot=automation_pilot)
             return server
         except OSError as exc:
             last_error = exc
@@ -1670,6 +1713,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--bridge-root", type=Path, required=True)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--automation-pilot", action="store_true")
     args = parser.parse_args(argv)
     package_root = args.root.resolve().parent
     operation_lock_path, operation_lock_token = _acquire_operation_lock(package_root)
@@ -1682,7 +1726,12 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError(
                 f"execução ativa ({active}); serviço local não será iniciado"
             )
-        server = create_server(args.root, host=args.host, port=args.port)
+        server = create_server(
+            args.root,
+            host=args.host,
+            port=args.port,
+            automation_pilot=args.automation_pilot,
+        )
         metadata_path = args.bridge_root / "service.json"
         _write_runtime_metadata(metadata_path, server)
         server.serve_forever(poll_interval=0.25)

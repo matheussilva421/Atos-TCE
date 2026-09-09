@@ -135,6 +135,12 @@ nenhuma ação do painel clica em **Complementar Ato**, limpa ou conclui o ato.
 Se o resultado ficar incerto, confira o portal e o relatório; não use um
 reenvio direto como recuperação.
 
+O botão **Executar piloto de um ato** só aparece quando o serviço foi iniciado
+explicitamente com `--automation-pilot` e há um ato atual identificado. Ele
+limita o serviço a um único comando consumido por raiz, permanece bloqueado para
+lotes comuns e não deve ser usado em portal real antes da autorização e dos
+gates da Fase 9. Reiniciar o serviço não restaura o crédito do piloto.
+
 ### Significado das cores
 
 - **Verde:** correspondência exata ou segura.

@@ -96,6 +96,22 @@ test("validates the closed automation RunSpec and rejects a swapped hash or extr
   );
 });
 
+test("validates the explicit one-act pilot mode and optional pilot capabilities", () => {
+  const pilot = runSpec({ mode: "pilot", pilotIdentity: identity() });
+  assert.deepEqual(validateAutomationRunSpec(pilot), pilot);
+  const capabilities = validateAutomationCapabilities({
+    api_version: 1,
+    automation_schema: 1,
+    legal_context_schema: 1,
+    rules_version: "legal-foundation-v1",
+    real_send_enabled: false,
+    pilot_enabled: true,
+    pilot_consumes_remaining: true,
+  });
+  assert.equal(capabilities.pilot_enabled, true);
+  assert.equal(capabilities.pilot_consumes_remaining, true);
+});
+
 test("validates exact identities and the ten-thousand item queue limit", () => {
   assert.deepEqual(validateAutomationIdentity(identity()), identity());
   assert.throws(

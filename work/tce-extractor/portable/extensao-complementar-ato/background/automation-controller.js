@@ -39,6 +39,8 @@ function statusToPublic(state) {
     revision: state.revision,
     tabId: state.tabId,
     sector: state.sector,
+    mode: state.mode,
+    pilotIdentity: state.pilotIdentity,
     queueFrozen: state.queueFrozen,
     currentIdentity: state.currentIdentity,
     pausedReason: state.pausedReason,
@@ -273,6 +275,8 @@ export function createAutomationController({
     revision: 0,
     tabId: null,
     sector: null,
+    mode: "batch",
+    pilotIdentity: null,
     queueFrozen: false,
     currentIdentity: null,
     pausedReason: null,
@@ -692,6 +696,8 @@ export function createAutomationController({
       revision: 0,
       tabId: spec.tabId,
       sector: spec.sector,
+      mode: spec.mode ?? "batch",
+      pilotIdentity: spec.pilotIdentity ?? null,
       queueFrozen: false,
       currentIdentity: null,
       pausedReason: null,
@@ -722,6 +728,17 @@ export function createAutomationController({
       return statusToPublic(state);
     }
     const discovered = await discoverList(spec.tabId, first.snapshot);
+    if (state.mode === "pilot") {
+      const targetKey = identityKey(state.pilotIdentity);
+      const target = state.queue.find((candidate) => identityKey(candidate) === targetKey);
+      if (!target) {
+        setPaused("pilot identity was not discovered in the current portal queue");
+        return statusToPublic(state);
+      }
+      state.queue = [target];
+      state.totals.unique = 1;
+      state.totals.pending = 0;
+    }
     await freezeQueue(spec, startEventId);
     if (state.status === "discovering") state.status = "running";
     if (state.status === "running") {

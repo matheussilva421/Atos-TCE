@@ -180,13 +180,21 @@ export function validateAutomationIdentity(value) {
 
 export function validateAutomationRunSpec(value) {
   if (!isRecord(value)) invalid("RunSpec must be an object", "INVALID_RUN_SPEC");
-  exactKeys(value, ["tabId", "sector", "datasetSha256", "rulesVersion"]);
+  exactKeysWithOptional(value, ["tabId", "sector", "datasetSha256", "rulesVersion"], ["mode", "pilotIdentity"]);
   if (!Number.isSafeInteger(value.tabId) || value.tabId < 0) invalid("tabId is invalid", "INVALID_TAB_ID");
   nonEmptyString(value.sector, "sector");
   if (typeof value.datasetSha256 !== "string" || !SHA256_RE.test(value.datasetSha256)) {
     invalid("datasetSha256 is invalid", "INVALID_DATASET_HASH");
   }
   nonEmptyString(value.rulesVersion, "rulesVersion");
+  if (Object.hasOwn(value, "mode") && !new Set(["batch", "pilot"]).has(value.mode)) {
+    invalid("mode is invalid", "INVALID_MODE");
+  }
+  if (Object.hasOwn(value, "pilotIdentity")) {
+    if (value.pilotIdentity === null) invalid("pilotIdentity is required when present", "INVALID_IDENTITY");
+    validateAutomationIdentity(value.pilotIdentity);
+    if (value.mode !== "pilot") invalid("pilotIdentity requires pilot mode", "INVALID_MODE");
+  }
   rejectPrivateKeys(value);
   return value;
 }
@@ -383,12 +391,14 @@ export function validateLegalContext(value, expected = {}) {
 
 export function validateAutomationCapabilities(value) {
   if (!isRecord(value)) invalid("capabilities must be an object", "INVALID_CAPABILITIES");
-  exactKeys(value, ["api_version", "automation_schema", "legal_context_schema", "rules_version", "real_send_enabled"]);
+  exactKeysWithOptional(value, ["api_version", "automation_schema", "legal_context_schema", "rules_version", "real_send_enabled"], ["pilot_enabled", "pilot_consumes_remaining"]);
   if (value.api_version !== API_VERSION || value.automation_schema !== AUTOMATION_SCHEMA_VERSION || value.legal_context_schema !== LEGAL_CONTEXT_SCHEMA_VERSION) {
     invalid("capabilities version is incompatible", "INCOMPATIBLE_VERSION");
   }
   nonEmptyString(value.rules_version, "rules_version");
   if (typeof value.real_send_enabled !== "boolean") invalid("real_send_enabled must be boolean", "INVALID_CAPABILITIES");
+  if (Object.hasOwn(value, "pilot_enabled") && typeof value.pilot_enabled !== "boolean") invalid("pilot_enabled must be boolean", "INVALID_CAPABILITIES");
+  if (Object.hasOwn(value, "pilot_consumes_remaining") && typeof value.pilot_consumes_remaining !== "boolean") invalid("pilot_consumes_remaining must be boolean", "INVALID_CAPABILITIES");
   return value;
 }
 

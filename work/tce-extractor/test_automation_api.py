@@ -133,10 +133,10 @@ def request_json(
 
 
 @contextlib.contextmanager
-def running_server():
+def running_server(*, automation_pilot: bool = False):
     with TemporaryDirectory() as temporary:
         root = Path(temporary)
-        server = create_server(root, port=0)
+        server = create_server(root, port=0, automation_pilot=automation_pilot)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         base = f"http://127.0.0.1:{server.server_port}"
@@ -192,10 +192,177 @@ class AutomationApiTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertEqual(
                 set(body),
-                {"api_version", "automation_schema", "legal_context_schema", "rules_version", "real_send_enabled"},
+                {
+                    "api_version",
+                    "automation_schema",
+                    "legal_context_schema",
+                    "rules_version",
+                    "real_send_enabled",
+                    "pilot_enabled",
+                    "pilot_consumes_remaining",
+                },
             )
             self.assertEqual(body["api_version"], 1)
             self.assertFalse(body["real_send_enabled"])
+            self.assertFalse(body["pilot_enabled"])
+            self.assertFalse(body["pilot_consumes_remaining"])
+
+    def test_pilot_run_requires_explicit_service_flag(self):
+        with running_server() as (root, server, base):
+            _dataset, digest = write_fixture(root, "Ana")
+            token = self.pair(server, base)
+            status, _headers, body = request_json(
+                f"{base}/api/v1/automation/runs",
+                method="POST",
+                token=token,
+                payload=self.run_spec(
+                    digest,
+                    mode="pilot",
+                    pilot_identity={"process_key": "103439/2023", "interested_normalized": "ana", "portal_act_id": None},
+                    event_id="pilot-without-flag",
+                ),
+            )
+            self.assertEqual(status, 409, body)
+            self.assertEqual(body["error"]["code"], "PILOT_DISABLED")
+
+        with running_server(automation_pilot=True) as (root, server, base):
+            _dataset, digest = write_fixture(root, "Ana")
+            token = self.pair(server, base)
+            status, _headers, capabilities = request_json(
+                f"{base}/api/v1/automation/capabilities", token=token
+            )
+            self.assertEqual(status, 200, capabilities)
+            self.assertTrue(capabilities["pilot_enabled"])
+            self.assertTrue(capabilities["pilot_consumes_remaining"])
+            status, _headers, created = request_json(
+                f"{base}/api/v1/automation/runs",
+                method="POST",
+                token=token,
+                payload=self.run_spec(
+                    digest,
+                    mode="pilot",
+                    pilot_identity={"process_key": "103439/2023", "interested_normalized": "ana", "portal_act_id": None},
+                    event_id="pilot-with-flag",
+                ),
+            )
+            self.assertEqual(status, 200, created)
+
+    def test_pilot_allows_one_command_and_does_not_reset_after_service_restart(self):
+        def seed_intent(base, token, run_id, prefix):
+            identity = {
+                "process_key": "103439/2023",
+                "interested_normalized": "ana",
+                "portal_act_id": None,
+            }
+            status, _headers, queued = request_json(
+                f"{base}/api/v1/automation/runs/{run_id}/queue",
+                method="POST",
+                token=token,
+                payload={"identities": [identity], "event_id": f"{prefix}-queue", "expected_revision": 0},
+            )
+            self.assertEqual(status, 200, queued)
+            revision = queued["revision"]
+            event_url = f"{base}/api/v1/automation/runs/{run_id}/events"
+            for event_id, event_type, payload in (
+                (f"{prefix}-prepared", "item_prepared", {"reason": "prepared"}),
+                (f"{prefix}-verified", "fields_verified", {"field_results": {}, "rereads": []}),
+                (
+                    f"{prefix}-intent",
+                    "send_intent",
+                    {"expected_fields_hash": "a" * 64, "command_id": f"{prefix}-command", "expires_at": 4102444800000},
+                ),
+            ):
+                status, _headers, result = request_json(
+                    event_url,
+                    method="POST",
+                    token=token,
+                    payload={
+                        "event_id": event_id,
+                        "expected_revision": revision,
+                        "item_id": "103439/2023",
+                        "type": event_type,
+                        "payload": payload,
+                    },
+                )
+                self.assertEqual(status, 200, result)
+                revision = result["revision"]
+            return revision, f"{base}/api/v1/automation/runs/{run_id}/commands/{prefix}-command/consume"
+
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_fixture(root, "Ana")
+            server = create_server(root, port=0, automation_pilot=True)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://127.0.0.1:{server.server_port}"
+            try:
+                token = self.pair(server, base)
+                _dataset, digest = write_fixture(root, "Ana")
+                status, _headers, created = request_json(
+                    f"{base}/api/v1/automation/runs",
+                    method="POST",
+                    token=token,
+                    payload=self.run_spec(
+                        digest,
+                        mode="pilot",
+                        pilot_identity={"process_key": "103439/2023", "interested_normalized": "ana", "portal_act_id": None},
+                        event_id="pilot-first-start",
+                    ),
+                )
+                self.assertEqual(status, 200, created)
+                revision, consume_url = seed_intent(base, token, created["run_id"], "pilot-first")
+                status, _headers, consumed = request_json(
+                    consume_url,
+                    method="POST",
+                    token=token,
+                    payload={"expected_revision": revision},
+                )
+                self.assertEqual(status, 200, consumed)
+                self.assertTrue(consumed["dispatch_allowed"])
+                status, _headers, stopped = request_json(
+                    f"{base}/api/v1/automation/runs/{created['run_id']}/control",
+                    method="POST",
+                    token=token,
+                    payload={"action": "stop", "event_id": "pilot-first-stop", "expected_revision": consumed["revision"]},
+                )
+                self.assertEqual(status, 200, stopped)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+
+            server = create_server(root, port=0, automation_pilot=True)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://127.0.0.1:{server.server_port}"
+            try:
+                token = self.pair(server, base)
+                _dataset, digest = write_fixture(root, "Ana")
+                status, _headers, created = request_json(
+                    f"{base}/api/v1/automation/runs",
+                    method="POST",
+                    token=token,
+                    payload=self.run_spec(
+                        digest,
+                        mode="pilot",
+                        pilot_identity={"process_key": "103439/2023", "interested_normalized": "ana", "portal_act_id": None},
+                        event_id="pilot-second-start",
+                    ),
+                )
+                self.assertEqual(status, 200, created)
+                revision, consume_url = seed_intent(base, token, created["run_id"], "pilot-second")
+                status, _headers, body = request_json(
+                    consume_url,
+                    method="POST",
+                    token=token,
+                    payload={"expected_revision": revision},
+                )
+                self.assertEqual(status, 409, body)
+                self.assertEqual(body["error"]["code"], "PILOT_EXHAUSTED")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
 
     def test_extra_run_payload_is_rejected_before_persistence(self):
         with running_server() as (root, server, base):
@@ -214,6 +381,19 @@ class AutomationApiTests(unittest.TestCase):
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM runs").fetchone()[0], 0)
             finally:
                 db.close()
+
+    def test_run_mode_must_be_a_supported_scalar(self):
+        with running_server(automation_pilot=True) as (root, server, base):
+            _dataset, digest = write_fixture(root, "Ana")
+            token = self.pair(server, base)
+            status, _headers, body = request_json(
+                f"{base}/api/v1/automation/runs",
+                method="POST",
+                token=token,
+                payload=self.run_spec(digest, mode=[]),
+            )
+            self.assertEqual(status, 400, body)
+            self.assertEqual(body["error"]["code"], "INVALID_MODE")
 
     def test_run_creation_retries_are_idempotent_and_conflicting_payloads_rejected(self):
         with running_server() as (root, server, base):

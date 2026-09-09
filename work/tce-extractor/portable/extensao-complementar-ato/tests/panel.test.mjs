@@ -537,7 +537,22 @@ test("automation view requires a compatible bridge, starts explicitly, and keeps
     async createAutomationRun(spec, eventId) { calls.push(["start", spec, eventId]); return { ...run, spec, status: "discovering" }; },
     async controlAutomationRun(runId, body) { calls.push([body.action, runId, body]); return { ...run, run_id: runId, revision: body.expectedRevision + 1, status: body.action === "pause" ? "paused" : body.action === "stop" ? "stopped" : "running" }; },
   };
+  const chromeApi = makeRuntime({
+    dataset,
+    snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })],
+    matches: [{ record: dataset.records[0], matches: fullMatches(), reviewed: false }],
+  });
+  const workerCalls = [];
+  const sendMessage = chromeApi.runtime.sendMessage;
+  chromeApi.runtime.sendMessage = async (message) => {
+    workerCalls.push(message);
+    if (message.type === MESSAGE_TYPES.AUTO_START) {
+      return { ok: true, payload: { ...run, spec: message.payload.spec, status: "discovering" } };
+    }
+    return sendMessage(message);
+  };
   const { app, documentRef } = await startApp({
+    chromeApi,
     dataset,
     snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })],
     matches: [{ record: dataset.records[0], matches: fullMatches(), reviewed: false }],
@@ -556,8 +571,140 @@ test("automation view requires a compatible bridge, starts explicitly, and keeps
   assert.match(documentRef.getElementById("permanent-warning").textContent, /pausada|Nenhum novo envio/iu);
   assert.equal(await app.openAutomationHistory("run-panel-1"), true);
   assert.equal(app.getState().selectedView, "history");
-  assert.deepEqual(calls.filter(([name]) => ["capabilities", "history", "start", "pause"].includes(name)).map(([name]) => name), ["capabilities", "history", "start", "pause"]);
+  assert.deepEqual(calls.filter(([name]) => ["capabilities", "history", "pause"].includes(name)).map(([name]) => name), ["capabilities", "history", "pause"]);
+  assert.equal(workerCalls.some((message) => message.type === MESSAGE_TYPES.AUTO_START), true);
   assert.equal(calls.some(([name, runId]) => name === "events" && runId === "run-panel-1"), true);
+});
+
+test("pilot action is explicit, targets the current identity, and preserves the one-act mode", async () => {
+  const dataset = await makeDataset();
+  const calls = [];
+  const run = {
+    api_version: 1,
+    run_id: "run-pilot-1",
+    revision: 0,
+    status: "discovering",
+    spec: { sector: "aposentadorias" },
+    items: [],
+    last_confirmed_item_id: null,
+  };
+  const client = {
+    async getDataset() { return { api_version: 1, revision: 1, dataset }; },
+    async publishSelection() { return { accepted: true, revision: 1 }; },
+    async getState() { return { revision: 1 }; },
+    async getAutomationCapabilities() {
+      return {
+        api_version: 1,
+        automation_schema: 1,
+        legal_context_schema: 1,
+        rules_version: "legal-foundation-v1",
+        real_send_enabled: false,
+        pilot_enabled: true,
+        pilot_consumes_remaining: true,
+      };
+    },
+    async listAutomationRuns() { return { runs: [], next_cursor: null }; },
+    async createAutomationRun(spec, eventId) { calls.push(["start", spec, eventId]); return { ...run, spec, status: "discovering" }; },
+  };
+  const chromeApi = makeRuntime({
+    dataset,
+    snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })],
+    matches: [{ record: dataset.records[0], matches: fullMatches(), reviewed: false }],
+  });
+  const workerCalls = [];
+  const sendMessage = chromeApi.runtime.sendMessage;
+  chromeApi.runtime.sendMessage = async (message) => {
+    workerCalls.push(message);
+    if (message.type === MESSAGE_TYPES.AUTO_START) {
+      return { ok: true, payload: { ...run, spec: message.payload.spec, status: "discovering" } };
+    }
+    return sendMessage(message);
+  };
+  const { app, documentRef } = await startApp({
+    chromeApi,
+    dataset,
+    snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })],
+    matches: [{ record: dataset.records[0], matches: fullMatches(), reviewed: false }],
+    pairingFactory: async () => "token",
+    bridgeClientFactory: () => client,
+  });
+  documentRef.getElementById("bridge-pairing-code").value = "12345678";
+  documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
+  for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(await app.startAutomation("pilot"), true);
+  const started = workerCalls.find((message) => message.type === MESSAGE_TYPES.AUTO_START);
+  assert.equal(started.payload.spec.mode, "pilot");
+  assert.deepEqual(started.payload.spec.pilotIdentity, {
+    processKey: "103439/2023",
+    interestedNormalized: "maria de souza",
+    portalActId: null,
+  });
+  assert.match(documentRef.getElementById("permanent-warning").textContent, /lote|piloto/iu);
+});
+
+test("pilot action delegates run creation to the worker controller", async () => {
+  const dataset = await makeDataset();
+  const runtime = makeRuntime({
+    dataset,
+    snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })],
+    matches: [{ record: dataset.records[0], matches: fullMatches(), reviewed: false }],
+  });
+  const workerCalls = [];
+  const sendMessage = runtime.runtime.sendMessage;
+  runtime.runtime.sendMessage = async (message) => {
+    workerCalls.push(message);
+    if (message.type === MESSAGE_TYPES.AUTO_START) {
+      return {
+        ok: true,
+        payload: {
+          api_version: 1,
+          run_id: "run-pilot-worker",
+          revision: 0,
+          status: "discovering",
+          spec: message.payload.spec,
+          items: [],
+          last_confirmed_item_id: null,
+        },
+      };
+    }
+    return sendMessage(message);
+  };
+  const bridgeCalls = [];
+  const client = {
+    async getDataset() { return { api_version: 1, revision: 1, dataset }; },
+    async publishSelection() { return { accepted: true, revision: 1 }; },
+    async getState() { return { revision: 1 }; },
+    async getAutomationCapabilities() {
+      return {
+        api_version: 1,
+        automation_schema: 1,
+        legal_context_schema: 1,
+        rules_version: "legal-foundation-v1",
+        real_send_enabled: false,
+        pilot_enabled: true,
+        pilot_consumes_remaining: true,
+      };
+    },
+    async listAutomationRuns() { return { runs: [], next_cursor: null }; },
+    async createAutomationRun(spec, eventId) { bridgeCalls.push([spec, eventId]); throw new Error("panel must use worker"); },
+  };
+  const { app, documentRef } = await startApp({
+    chromeApi: runtime,
+    dataset,
+    snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })],
+    matches: [{ record: dataset.records[0], matches: fullMatches(), reviewed: false }],
+    pairingFactory: async () => "token",
+    bridgeClientFactory: () => client,
+  });
+  documentRef.getElementById("bridge-pairing-code").value = "12345678";
+  documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
+  for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(await app.startAutomation("pilot"), true);
+  const start = workerCalls.find((message) => message.type === MESSAGE_TYPES.AUTO_START);
+  assert.ok(start);
+  assert.equal(start.payload.spec.mode, "pilot");
+  assert.equal(start.payload.spec.pilotIdentity.interestedNormalized, "maria de souza");
+  assert.deepEqual(bridgeCalls, []);
 });
 
 test("automation status polls every two seconds without requiring a panel action", async () => {

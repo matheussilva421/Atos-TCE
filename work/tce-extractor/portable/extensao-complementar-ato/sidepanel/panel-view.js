@@ -116,10 +116,15 @@ export function buildPanelViewModel({
   const active = ["discovering", "running", "paused"].includes(run?.status);
   const manualAvailable = Boolean(record && snapshot && !active);
   const automationAvailable = Boolean(connection.connected && connection.automationAvailable);
+  const pilotAvailable = automationAvailable
+    && connection.pilotEnabled === true
+    && connection.pilotConsumesRemaining === true
+    && Boolean(identity.processKey && identity.interestedNormalized);
   const legalDecision = matches?.fundamento_legal?.legalDecision ?? null;
   const actions = [
     { id: "fill", label: "Preencher campos disponíveis", enabled: manualAvailable && mode === "manual", disabledReason: manualAvailable ? null : "Atualização manual indisponível durante uma execução ativa." },
     { id: "start", label: "Iniciar execução", enabled: automationAvailable && !active, disabledReason: automationAvailable ? (active ? "Já existe uma execução ativa." : null) : "Conecte um serviço compatível." },
+    { id: "pilot", label: "Executar piloto de um ato", enabled: pilotAvailable && !active, disabledReason: pilotAvailable ? (active ? "Já existe uma execução ativa." : null) : "Habilite o piloto explícito no serviço e atualize um ato atual." },
     { id: "pause", label: "Pausar", enabled: run?.status === "running" || run?.status === "discovering", disabledReason: "Nenhuma execução em andamento." },
     { id: "resume", label: "Retomar após conciliação", enabled: run?.status === "paused" && summary.unconfirmed === 0, disabledReason: summary.unconfirmed ? "Concilie o resultado incerto antes de retomar." : "A execução não está pausada." },
     { id: "stop", label: "Encerrar execução", enabled: active, disabledReason: "Nenhuma execução ativa." },
@@ -132,6 +137,8 @@ export function buildPanelViewModel({
       connected: connection.connected === true,
       automationAvailable,
       realSendEnabled: connection.realSendEnabled === true,
+      pilotEnabled: connection.pilotEnabled === true,
+      pilotConsumesRemaining: connection.pilotConsumesRemaining === true,
     },
     legalDecision,
     fields: buildFields(record, snapshot, matches),
@@ -199,7 +206,7 @@ function renderExecution(documentRef, root, model, handlers) {
   if (summary.current) section.append(element(documentRef, "p", `Agora: ${text(summary.current.identity?.processKey)}`));
   if (summary.lastConfirmed) section.append(element(documentRef, "p", `Último confirmado: ${summary.lastConfirmed}`));
   const actions = element(documentRef, "div", "", { class: "execution-actions" });
-  for (const id of ["start", "pause", "resume", "stop", "report"]) {
+  for (const id of ["pilot", "start", "pause", "resume", "stop", "report"]) {
     const action = model.actions.find((candidate) => candidate.id === id);
     if (action) actions.append(buttonFor(documentRef, action, handlers));
   }

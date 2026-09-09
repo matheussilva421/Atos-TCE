@@ -102,13 +102,16 @@ function wireIdentity(identity) {
 function wireRunSpec(spec, eventId) {
   validateAutomationRunSpec(spec);
   if (typeof eventId !== "string" || !eventId) throw bridgeError("eventId inválido", "INVALID_EVENT_ID");
-  return {
+  const wire = {
     tab_id: spec.tabId,
     sector: spec.sector,
     dataset_sha256: spec.datasetSha256,
     rules_version: spec.rulesVersion,
     event_id: eventId,
   };
+  if (spec.mode !== undefined) wire.mode = spec.mode;
+  if (spec.pilotIdentity !== undefined) wire.pilot_identity = wireIdentity(spec.pilotIdentity);
+  return wire;
 }
 
 function wireQueue(value) {

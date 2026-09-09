@@ -169,6 +169,22 @@ test("starts a run, discovers 2/2/1 pages, deduplicates rerenders, and freezes b
   assert.equal(chromeApi.storage.session.state["portal-frame-registrations:v1"][0].role, "list");
 });
 
+test("pilot mode freezes only the explicitly selected identity", async () => {
+  const target = identity("103401/2023", "ana da silva", "act-1");
+  const bridge = bridgeMock();
+  const controller = createAutomationController({ chromeApi: chromeMock([PAGE_1, PAGE_2, PAGE_3]), bridge });
+
+  await controller.start({
+    spec: { ...runSpec(), mode: "pilot", pilotIdentity: target },
+    eventId: "start-pilot",
+  });
+
+  const status = controller.status();
+  assert.equal(status.mode, "pilot");
+  assert.deepEqual(status.totals, { discovered: 5, unique: 1, pending: 0 });
+  assert.deepEqual(bridge.calls.find(([name]) => name === "freeze")[2].identities, [target]);
+});
+
 test("keeps an unresolved identity in totals and pauses when pagination repeats", async () => {
   const unresolved = snapshot("list", 1, [
     { processKey: null, interestedOriginal: "", interestedNormalized: null, portalActId: null, pending: true },

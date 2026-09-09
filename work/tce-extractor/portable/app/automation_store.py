@@ -892,6 +892,7 @@ class AutomationStore:
         expected_revision: int,
         *,
         now_ms: int | None = None,
+        enforce_pilot_budget: bool = False,
     ) -> dict[str, Any]:
         """Consume one issued portal command using a durable compare-and-set."""
         run_id = _validate_run_id(run_id)
@@ -903,6 +904,14 @@ class AutomationStore:
 
         def consume(connection: sqlite3.Connection) -> dict[str, Any]:
             run = self._get_run(connection, run_id)
+            run_spec = _decode_json(str(run["spec_json"]))
+            if (
+                enforce_pilot_budget
+                and isinstance(run_spec, dict)
+                and run_spec.get("mode", "batch") == "pilot"
+                and self._pilot_command_consumed_in_transaction(connection)
+            ):
+                raise InvalidTransition("PILOT_EXHAUSTED")
             actual_revision = int(run["revision"])
             command = connection.execute(
                 "SELECT * FROM commands WHERE command_id = ? AND run_id = ?",
@@ -1077,6 +1086,31 @@ class AutomationStore:
             return {"runs": summaries, "next_cursor": next_cursor}
 
         return self._run_transaction(read)
+
+    def pilot_command_consumed(self) -> bool:
+        """Return whether this workflow root already consumed a pilot command.
+
+        The answer is reconstructed from durable run/command rows so a service
+        restart cannot reset the one-command pilot allowance.
+        """
+
+        def read(connection: sqlite3.Connection) -> bool:
+            return self._pilot_command_consumed_in_transaction(connection)
+
+        return bool(self._run_transaction(read))
+
+    def _pilot_command_consumed_in_transaction(self, connection: sqlite3.Connection) -> bool:
+        rows = connection.execute(
+            "SELECT r.spec_json "
+            "FROM runs AS r JOIN commands AS c ON c.run_id = r.run_id "
+            "WHERE c.status = 'consumed' AND r.root_key = ?",
+            (str(self.root),),
+        ).fetchall()
+        for row in rows:
+            spec = _decode_json(str(row["spec_json"]))
+            if isinstance(spec, dict) and spec.get("mode", "batch") == "pilot":
+                return True
+        return False
 
     def close(self) -> None:
         self._closed = True

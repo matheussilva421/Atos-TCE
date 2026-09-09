@@ -12,7 +12,7 @@
 
 **Estado:** EM EXECUÇÃO. Fases 0–8 e os gates locais da Fase 9 foram implementados nesta branch; o envio real e a qualificação do portal permanecem bloqueados por checkpoint explícito. A Fase 10 recebeu a atualização local de allowlists, auditoria, versão e fixture de pacote; a publicação real continua pendente.
 
-**Revisão de 09/09/2026:** a Fase 9 agora possui portal sintético servido em Chrome, navegação por páginas/seleção, frame de formulário e bloqueio de envio sem serviço; o journal cobre 25 atos, três pendências e timeout no ordinal exato. A Fase 10 passou a carregar os módulos de automação no pacote completo, reconhecer `alarms` e exigir a versão de extensão `1.1.0`. O painel também tem gate estático de contraste, idioma, IDs/labels e cópia de segurança. Nenhum teste local é evidência do portal real.
+**Revisão de 09/09/2026:** a Fase 9 agora possui portal sintético servido em Chrome, navegação por páginas/seleção, frame de formulário e bloqueio de envio sem serviço; o journal cobre 25 atos, três pendências e timeout no ordinal exato. A infraestrutura local do piloto opt-in foi adicionada: flag `--automation-pilot`, modo de um ato, limite durável de um comando, delegação `AUTO_START` ao worker e ação explícita no painel, sem habilitar envio real. A Fase 10 passou a carregar os módulos de automação no pacote completo, reconhecer `alarms` e exigir a versão de extensão `1.1.0`. O painel também tem gate estático de contraste, idioma, IDs/labels e cópia de segurança. Nenhum teste local é evidência do portal real.
 
 **Revisão de 08/09/2026:** redesign solicitado após a primeira versão. A fase 8 foi ampliada em cinco entregas de design e implementação, com wireframes, tokens, acessibilidade, testes e impactos no empacotamento. O redesign foi implementado no side panel; o gate real do portal permanece separado e pendente.
 
@@ -356,7 +356,7 @@ Todas as rotas reutilizam autenticação existente e loopback. Respostas JSON: `
 
 | Método e rota nova | Entrada / saída |
 |---|---|
-| `GET /api/v1/automation/capabilities` | `{automation_schema:1, legal_context_schema:1, rules_version, real_send_enabled}` |
+| `GET /api/v1/automation/capabilities` | `{automation_schema:1, legal_context_schema:1, rules_version, real_send_enabled, pilot_enabled, pilot_consumes_remaining}` |
 | `GET /api/v1/legal-context?process_key=...&interested_normalized=...` | `{context: LegalContext}` ou erro tipado |
 | `POST /api/v1/automation/runs` | `RunSpec` + `event_id`; retorna `RunSnapshot` |
 | `POST /api/v1/automation/runs/<id>/queue` | `{identities,event_id,expected_revision}`; congela fila |
@@ -759,7 +759,7 @@ Comandos: em E, `node --test tests/panel-view.test.mjs tests/panel.test.mjs test
 - [ ] Capturar em leitura DOM sanitizado das telas reais atuais e comparar com fixtures. Não versionar CPF, nomes reais ou parâmetros de sessão.
 - [ ] Rodar descoberta e preflight reais sem clicar envio para três atos representativos disponíveis; comparar propostas à resolução manualmente.
 - [ ] Preparar um ato concreto e relatório prévio. Realizar o primeiro envio supervisionado no escopo autorizado; identificar mensagem real de aceitação/erro e reabrir o ato para ler os dados gravados.
-- [ ] Para o piloto, iniciar serviço com opção nova `--automation-pilot`, que permite no máximo um comando consumido no processo atual do serviço e mantém `real_send_enabled=false` para lotes. Exigir clique explícito no painel “Executar piloto de um ato”; reinício não repete o piloto. Essa opção só é usada durante qualificação, após os testes locais.
+- [x] Infraestrutura local do piloto implementada e testada: `--automation-pilot` aceita somente `mode=pilot` com `pilot_identity`, permite no máximo um comando consumido por raiz mesmo após reinício, mantém lotes comuns em `REAL_SEND_DISABLED` e expõe no painel “Executar piloto de um ato”. A execução real/qualificação continua pendente e não foi iniciada.
 - [ ] Converter a observação real em fixture sanitizada e teste de `classifyPortalOutcome`. Se o portal usar diálogos nativos, verificar mecanismo observado antes de automatizar aceitação; não criar substituição genérica de `window.confirm`.
 - [ ] Somente após o teste e a conferência do primeiro ato, habilitar `real_send_enabled`. Se não houver evidência suficiente, manter recurso real bloqueado e registrar o motivo exato; não simular PASS.
 - [ ] Registrar qualificação em `<workflow_root>/automacao/qualificacao.json`, com versões de extensão/serviço/regras, hash das fixtures sanitizadas e ID do evento real confirmado. O serviço habilita lote somente para versões iguais às qualificadas. Atualização que altera envio ou classificação exige renovar o gate; o arquivo não transporta autorização automática para outro computador.

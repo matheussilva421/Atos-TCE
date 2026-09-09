@@ -311,6 +311,8 @@ export function createPanelApp({
       connected: Boolean(state.bridgeClient),
       automationAvailable: Boolean(state.automationCapabilities),
       realSendEnabled: state.automationCapabilities?.real_send_enabled === true,
+      pilotEnabled: state.automationCapabilities?.pilot_enabled === true,
+      pilotConsumesRemaining: state.automationCapabilities?.pilot_consumes_remaining === true,
     };
     const viewModel = buildPanelViewModel({
       record: state.record,
@@ -345,6 +347,7 @@ export function createPanelApp({
       },
       overrideField(field) { void overrideField(field); },
       start() { void startAutomation(); },
+      pilot() { void startAutomation("pilot"); },
       pause() { void controlAutomation("pause"); },
       resume() { void controlAutomation("resume"); },
       stop() { void controlAutomation("stop"); },
@@ -872,7 +875,7 @@ export function createPanelApp({
     }
   }
 
-  async function startAutomation() {
+  async function startAutomation(mode = "batch") {
     if (!state.bridgeClient || !state.automationCapabilities || !state.dataset) {
       setMessage("Conecte um serviço local compatível antes de iniciar a execução.", true);
       render();
@@ -884,6 +887,15 @@ export function createPanelApp({
       render();
       return false;
     }
+    if (mode === "pilot" && (
+      state.automationCapabilities.pilot_enabled !== true
+      || state.automationCapabilities.pilot_consumes_remaining !== true
+      || !state.previewIdentity
+    )) {
+      setMessage("Piloto indisponível: habilite o piloto no serviço e atualize um ato atual.", true);
+      render();
+      return false;
+    }
     try {
       const spec = {
         tabId: context.tab_id,
@@ -891,7 +903,19 @@ export function createPanelApp({
         datasetSha256: state.dataset.batch.logical_sha256,
         rulesVersion: state.automationCapabilities.rules_version,
       };
-      const run = await state.bridgeClient.createAutomationRun(spec, `panel-start-${Date.now()}`);
+      if (mode === "pilot") {
+        spec.mode = "pilot";
+        spec.pilotIdentity = { ...state.previewIdentity, portalActId: state.previewIdentity.portalActId ?? null };
+      }
+      const response = await send(MESSAGE_TYPES.AUTO_START, {
+        spec,
+        eventId: `panel-start-${Date.now()}`,
+      });
+      const forwarded = unwrapResponse(response);
+      if (!forwarded.ok || !isRecord(forwarded.payload)) {
+        throw new Error(responseFailure(forwarded, "worker não iniciou a execução"));
+      }
+      const run = forwarded.payload;
       state.automationRun = run;
       state.automationMode = "automatic";
       state.selectedView = "execution";
