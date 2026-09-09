@@ -62,3 +62,46 @@ pendente. Isso fica como limitação ambiental, não como PASS.
 2. Revisar o relatório da Fase 4 e a ausência de endpoint de consumo.
 3. Usar os contratos de API/bridge para a Fase 5, sem tocar em navegação,
    preenchimento ou envio real.
+
+## Fix round atual — validado e pronto para commit
+
+Em 2026-09-09 foram implementados os fixes pendentes da revisão:
+
+- criação de run e congelamento de queue consultam replay por `event_id` e
+  payload canônico antes da validação do dataset atual;
+- retry idêntico continua idempotente após troca do dataset, payload diferente
+  conflita e `event_id` novo permanece sujeito ao dataset/identidade/contexto
+  atuais;
+- payloads de eventos são discriminados por tipo em Python e JS;
+  `send_confirmed` exige identidade, origem, timestamp, campos e citações não
+  vazios; hashes de intenção e eventos de controle têm validação fechada;
+- eventos de controle não aceitam `item_id`, e não há endpoint
+  `consume_command` nem envio real.
+
+RED/GREEN observado para `send_confirmed`: Python retornava 409 de transição e
+o schema JS aceitava `fields: {}`/`citations: []`; após a implementação ambos
+retornam a rejeição de contrato esperada. Estado focal atual: Python API,
+serviço e auth 37 testes, 36 pass e 1 skip ambiental; store 17/17; JS focal
+41/41.
+
+Blocker preservado para a Fase 10: `lib/automation-schema.js` foi alterado,
+mas a allowlist/empacotador não foi tocada. A Fase 10 precisa incluir o módulo
+e sua cobertura no pacote antes de qualquer declaração release-ready.
+
+Gates finais: Python API/serviço/auth 37 testes, 36 pass e 1 skip ambiental;
+store 17/17; Node focal 41/41; `npm test` 173/173; `py_compile` e
+`git diff --check` passaram. Warnings de `ResourceWarning`/`fitz` são conhecidos
+do ambiente. Não houve teste amplo pendente nesta retomada.
+
+Próxima retomada: conferir o SHA do commit
+`fix: harden automation retries and event payloads` e registrar que o checkout
+não possui remoto configurado; não fazer push se o remoto continuar ausente.
+
+## Fechamento final
+
+Commit criado: `fix: harden automation retries and event payloads`; o SHA final
+foi verificado no fechamento e é reportado na resposta da sessão. O checkout está limpo na branch local
+`codex/fundamentacao-automatico`; não há remoto configurado, portanto não
+houve push. O próximo agente deve manter `consume_command`, envio real e
+empacotamento fora desta fase e tratar o módulo `automation-schema.js` como
+blocker explícito da Fase 10.

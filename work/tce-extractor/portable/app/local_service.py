@@ -86,6 +86,51 @@ _AUTOMATION_PAYLOAD_KEYS = frozenset(
     }
 )
 
+_EVENT_PAYLOAD_CONTRACTS = {
+    "item_prepared": {
+        "required": (("reason",),),
+        "allowed": frozenset({"reason", "before", "after"}),
+    },
+    "fields_verified": {
+        "required": (("field_results", "fieldResults"), ("rereads", "re_read", "reRead")),
+        "allowed": frozenset({"field_results", "fieldResults", "rereads", "re_read", "reRead"}),
+    },
+    "send_intent": {
+        "required": (("expected_fields_hash", "expectedFieldsHash"),),
+        "allowed": frozenset(
+            {
+                "expected_fields_hash",
+                "expectedFieldsHash",
+                "identity",
+                "fields",
+                "method",
+                "origin",
+                "timestamp",
+            }
+        ),
+    },
+    "send_confirmed": {
+        "required": (("identity",), ("origin",), ("timestamp",), ("fields",), ("citations",)),
+        "allowed": frozenset({"identity", "fields", "origin", "timestamp", "citations"}),
+    },
+    "item_pending": {
+        "required": (("reason",),),
+        "allowed": frozenset({"reason", "legal_decision", "legalDecision", "decision"}),
+    },
+    "item_failed": {
+        "required": (("error", "errors"),),
+        "allowed": frozenset({"error", "errors", "reason"}),
+    },
+    "send_unconfirmed": {
+        "required": (("reason",), ("rereads", "re_read", "reRead")),
+        "allowed": frozenset({"reason", "rereads", "re_read", "reRead", "origin", "timestamp"}),
+    },
+    "run_paused": {"required": (), "allowed": frozenset()},
+    "run_resumed": {"required": (), "allowed": frozenset()},
+    "run_stopped": {"required": (), "allowed": frozenset()},
+    "run_completed": {"required": (), "allowed": frozenset()},
+}
+
 
 class _ApiProblem(ValueError):
     def __init__(self, status: int, code: str, message: str):
@@ -463,11 +508,52 @@ def _validate_queue_payload(payload: dict) -> tuple[list[dict], str, int]:
     return normalized, event_id, expected_revision
 
 
-def _validate_event_payload(payload: dict) -> None:
+def _validate_event_payload(payload: dict, event_type: str) -> None:
     if not isinstance(payload, dict):
         raise _ApiProblem(400, "INVALID_EVENT", "payload do evento deve ser objeto")
-    if not set(payload).issubset(_AUTOMATION_PAYLOAD_KEYS):
-        raise _ApiProblem(400, "INVALID_PAYLOAD", "payload do evento contém chaves inesperadas")
+    contract = _EVENT_PAYLOAD_CONTRACTS[event_type]
+    if not set(payload).issubset(contract["allowed"]):
+        raise _ApiProblem(400, "INVALID_EVENT", "payload do evento contém chaves inesperadas")
+    for aliases in contract["required"]:
+        if not any(key in payload for key in aliases):
+            raise _ApiProblem(400, "INVALID_EVENT", "payload do evento está incompleto")
+    string_keys = {
+        "reason",
+        "error",
+        "origin",
+        "timestamp",
+        "expected_fields_hash",
+        "expectedFieldsHash",
+        "method",
+    }
+    record_keys = {
+        "identity",
+        "fields",
+        "before",
+        "after",
+        "field_results",
+        "fieldResults",
+        "legal_decision",
+        "legalDecision",
+        "decision",
+    }
+    list_keys = {"rereads", "re_read", "reRead", "citations", "errors"}
+    for key, value in payload.items():
+        if key in string_keys and (not isinstance(value, str) or not value):
+            raise _ApiProblem(400, "INVALID_EVENT", f"{key} deve ser texto não vazio")
+        if key in {"expected_fields_hash", "expectedFieldsHash"} and not SHA256_RE.fullmatch(value):
+            raise _ApiProblem(400, "INVALID_EVENT", f"{key} deve ser SHA-256 hexadecimal")
+        if key in record_keys and not isinstance(value, dict):
+            raise _ApiProblem(400, "INVALID_EVENT", f"{key} deve ser objeto")
+        if key in list_keys and not isinstance(value, list):
+            raise _ApiProblem(400, "INVALID_EVENT", f"{key} deve ser lista")
+    if event_type == "send_confirmed":
+        if not payload["identity"]:
+            raise _ApiProblem(400, "INVALID_EVENT", "identity de confirmação não pode ser vazio")
+        if not payload["fields"]:
+            raise _ApiProblem(400, "INVALID_EVENT", "fields de confirmação não pode ser vazio")
+        if not payload["citations"]:
+            raise _ApiProblem(400, "INVALID_EVENT", "citations de confirmação não pode ser vazio")
     _canonical_json(payload)
     _reject_private_payload(payload)
 
@@ -488,8 +574,10 @@ def _validate_event_input(payload: dict) -> dict:
         "run_resumed", "run_stopped", "run_completed",
     }:
         raise _ApiProblem(400, "INVALID_EVENT_TYPE", "tipo de evento não aceito")
+    if event_type.startswith("run_") and item_id is not None:
+        raise _ApiProblem(400, "INVALID_EVENT", "evento de controle não aceita item_id")
     event_payload = payload.get("payload")
-    _validate_event_payload(event_payload)
+    _validate_event_payload(event_payload, event_type)
     result = {
         "event_id": event_id,
         "expected_revision": expected_revision,
@@ -1230,10 +1318,12 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             try:
                 payload = self._read_json()
                 spec, event_id = _validate_run_payload(payload)
-                _revision, _dataset, computed = _load_current_dataset(self.server_state.workflow_root)
-                if spec["dataset_sha256"] != computed:
-                    raise _ApiProblem(409, "DATASET_MISMATCH", "dataset_sha256 não corresponde ao dataset atual")
-                created = self.server_state.automation_store.create_run(spec, event_id)
+                created = self.server_state.automation_store.replay_run_creation(spec, event_id)
+                if created is None:
+                    _revision, _dataset, computed = _load_current_dataset(self.server_state.workflow_root)
+                    if spec["dataset_sha256"] != computed:
+                        raise _ApiProblem(409, "DATASET_MISMATCH", "dataset_sha256 não corresponde ao dataset atual")
+                    created = self.server_state.automation_store.create_run(spec, event_id)
                 result = _project_automation_snapshot(created, created["run_id"])
             except _ApiProblem as problem:
                 self._error(problem.status, problem.code, str(problem))
@@ -1263,25 +1353,29 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
                 current = self.server_state.automation_store.snapshot(run_id)
                 if route == "queue":
                     identities, event_id, expected_revision = _validate_queue_payload(payload)
-                    dataset, dataset_sha256 = self._assert_run_dataset(current)
-                    for identity in identities:
-                        if _dataset_record(dataset, identity["process_key"], identity["interested_normalized"]) is None:
-                            raise _ApiProblem(409, "IDENTITY_NOT_IN_DATASET", "identidade não pertence ao dataset atual")
-                        if (self.server_state.workflow_root / "fundamentos-contexto.v1.json").is_file():
-                            try:
-                                _load_context_record(
-                                    self.server_state.workflow_root,
-                                    identity["process_key"],
-                                    identity["interested_normalized"],
-                                    dataset_sha256,
-                                )
-                            except _ApiProblem as problem:
-                                if problem.code == "LEGAL_CONTEXT_NOT_FOUND":
-                                    raise _ApiProblem(409, "LEGAL_CONTEXT_NOT_FOUND", "identidade sem contexto jurídico exato") from problem
-                                raise
-                    updated = self.server_state.automation_store.freeze_queue(
-                        run_id, identities, event_id, expected_revision
-                    )
+                    replay = self.server_state.automation_store.replay_queue(run_id, identities, event_id)
+                    if replay is not None:
+                        updated = replay
+                    else:
+                        dataset, dataset_sha256 = self._assert_run_dataset(current)
+                        for identity in identities:
+                            if _dataset_record(dataset, identity["process_key"], identity["interested_normalized"]) is None:
+                                raise _ApiProblem(409, "IDENTITY_NOT_IN_DATASET", "identidade não pertence ao dataset atual")
+                            if (self.server_state.workflow_root / "fundamentos-contexto.v1.json").is_file():
+                                try:
+                                    _load_context_record(
+                                        self.server_state.workflow_root,
+                                        identity["process_key"],
+                                        identity["interested_normalized"],
+                                        dataset_sha256,
+                                    )
+                                except _ApiProblem as problem:
+                                    if problem.code == "LEGAL_CONTEXT_NOT_FOUND":
+                                        raise _ApiProblem(409, "LEGAL_CONTEXT_NOT_FOUND", "identidade sem contexto jurídico exato") from problem
+                                    raise
+                        updated = self.server_state.automation_store.freeze_queue(
+                            run_id, identities, event_id, expected_revision
+                        )
                 elif route == "events":
                     event = _validate_event_input(payload)
                     store_event = {

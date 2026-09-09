@@ -763,6 +763,32 @@ class AutomationStore:
 
         return self._run_transaction(create)
 
+    def replay_run_creation(self, spec: dict, event_id: str) -> dict | None:
+        """Return a persisted creation result without creating a new run."""
+        if not isinstance(spec, dict):
+            raise EventValidationError("spec deve ser um objeto")
+        event_id = _validate_event_id(event_id)
+        spec_json = _canonical_json(deepcopy(spec))
+
+        def lookup(connection: sqlite3.Connection) -> dict[str, Any] | None:
+            existing = connection.execute(
+                "SELECT spec_json, result_json FROM run_creation_requests "
+                "WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()
+            if existing is None:
+                return None
+            if str(existing["spec_json"]) != spec_json:
+                raise EventConflict(
+                    f"event_id já usado com payload diferente: {event_id}"
+                )
+            replay = _decode_json(str(existing["result_json"]))
+            if not isinstance(replay, dict):
+                raise AutomationStoreError("resultado persistido de criação inválido")
+            return replay
+
+        return self._run_transaction(lookup)
+
     def freeze_queue(
         self,
         run_id: str,
@@ -784,6 +810,29 @@ class AutomationStore:
                 expected_revision,
             )
         )
+
+    def replay_queue(
+        self,
+        run_id: str,
+        identities: list[dict],
+        event_id: str,
+    ) -> dict | None:
+        """Return a persisted queue result before current dataset checks."""
+        run_id = _validate_run_id(run_id)
+        event_id = _validate_event_id(event_id)
+        normalized_identities = _validate_identities(identities)
+
+        def lookup(connection: sqlite3.Connection) -> dict[str, Any] | None:
+            self._get_run(connection, run_id)
+            return self._existing_event_result(
+                connection,
+                run_id,
+                event_id,
+                "queue_frozen",
+                {"identities": normalized_identities},
+            )
+
+        return self._run_transaction(lookup)
 
     def append_event(self, run_id: str, event: dict) -> dict:
         run_id = _validate_run_id(run_id)

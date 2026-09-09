@@ -144,3 +144,56 @@ Alterados/criados no escopo: `portable/app/local_service.py`,
 Próxima fase: revisar esta API e consumir seus contratos na formação de fila
 da Fase 5. Não adicionar endpoint de consumo de comando, navegação de portal,
 preenchimento ou envio nesta fase.
+
+## Fix round — retries e payloads de eventos
+
+Data: 2026-09-09. Este round corrige os dois achados pendentes da revisão da
+Fase 4, preservando o checkout compartilhado e sem alterar empacotador,
+navegação, preenchimento ou envio.
+
+- `POST /api/v1/automation/runs` consulta primeiro o replay persistido por
+  `event_id` e payload canônico. Um retry idêntico devolve o snapshot original
+  mesmo se o dataset publicado mudou; payload diferente devolve
+  `EVENT_CONFLICT`; `event_id` novo continua sujeito ao hash do dataset atual.
+- `POST /api/v1/automation/runs/<run_id>/queue` aplica a mesma ordem por
+  `event_id`/payload antes de `_assert_run_dataset`. O retry idêntico sobrevive
+  à troca do dataset, conflito não muta estado e um evento novo continua
+  sujeito a `DATASET_MISMATCH`/identidade/contexto atuais.
+- Python e `automation-schema.js` agora discriminam os payloads por
+  `event_type`, rejeitam payload vazio/incompleto e chaves extras conforme o
+  contrato de cada evento, validam `expected_fields_hash` como SHA-256 e
+  restringem eventos de controle a `payload: {}` sem `item_id`.
+- `send_confirmed` exige identidade, origem, timestamp, campos e citações;
+  identidade/campos/citações não podem ser vazios. Isso mantém a confirmação
+  vinculada a dados observáveis, sem interpretar intenção ou estado local como
+  confirmação de portal.
+
+TDD desta rodada: o novo RED Python retornava 409 de transição porque o
+  payload vazio de confirmação era aceito; o RED JS não lançava exceção para
+  `fields: {}`/`citations: []`. Após a correção mínima, ambos passaram. Os
+  testes de replay foram mantidos no contrato HTTP para cobrir retry após
+  troca de dataset, conflito por payload e evento novo fail-closed.
+
+### Blocker da Fase 10
+
+`portable/extensao-complementar-ato/lib/automation-schema.js` foi alterado
+para fechar o contrato, mas o empacotador não foi alterado nesta fase. A Fase
+10 deve atualizar a allowlist/QA do pacote para incluir o módulo e seus testes;
+até essa integração, o ZIP portátil não deve ser declarado release-ready.
+
+Arquivos funcionais deste round: `portable/app/automation_store.py`,
+`portable/app/local_service.py`, `test_automation_api.py`,
+`portable/extensao-complementar-ato/lib/automation-schema.js`,
+`portable/extensao-complementar-ato/tests/automation-schema.test.mjs` e
+`tests/bridge-client.test.mjs`. Nenhum arquivo de empacotamento foi tocado.
+
+Gates finais do round: Python API/serviço/auth 37 testes, 36 pass e 1 skip
+ambiental; store 17/17; Node focal 41/41; `npm test` 173/173;
+`python -m py_compile` passou para os módulos/testes Python alterados;
+`git diff --check` passou. Warnings de `ResourceWarning`/`fitz` são do
+ambiente já conhecido e não falharam a suíte.
+
+Commit final: `fix: harden automation retries and event payloads`. Branch local:
+`codex/fundamentacao-automatico`; nenhum remoto está configurado e nenhum
+push foi realizado. O SHA final foi verificado no fechamento do checkout e é
+reportado na resposta da sessão.

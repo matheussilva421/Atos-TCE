@@ -253,6 +253,331 @@ class AutomationApiTests(unittest.TestCase):
             finally:
                 db.close()
 
+    def test_run_creation_replay_precedes_current_dataset_validation(self):
+        with running_server() as (root, server, base):
+            _dataset, original_digest = write_fixture(root, "Ana")
+            token = self.pair(server, base)
+            run_url = f"{base}/api/v1/automation/runs"
+            original_payload = self.run_spec(original_digest)
+
+            status, _headers, first = request_json(
+                run_url, method="POST", token=token, payload=original_payload
+            )
+            self.assertEqual(status, 200, first)
+
+            _dataset, replacement_digest = write_fixture(root, "Bia")
+            self.assertNotEqual(replacement_digest, original_digest)
+
+            status, _headers, replay = request_json(
+                run_url, method="POST", token=token, payload=original_payload
+            )
+            self.assertEqual(status, 200, replay)
+            self.assertEqual(replay, first)
+
+            status, _headers, conflict = request_json(
+                run_url,
+                method="POST",
+                token=token,
+                payload=self.run_spec(original_digest, sector="outro-setor"),
+            )
+            self.assertEqual(status, 409, conflict)
+            self.assertEqual(conflict["error"]["code"], "EVENT_CONFLICT")
+
+            status, _headers, unknown = request_json(
+                run_url,
+                method="POST",
+                token=token,
+                payload=self.run_spec(original_digest, event_id="start-after-dataset-swap"),
+            )
+            self.assertEqual(status, 409, unknown)
+            self.assertEqual(unknown["error"]["code"], "DATASET_MISMATCH")
+
+    def test_queue_replay_precedes_current_dataset_validation_and_unknown_event_is_rejected(self):
+        with running_server() as (root, server, base):
+            _dataset, original_digest = write_fixture(root, "Ana")
+            write_context(root, original_digest, "Ana")
+            token = self.pair(server, base)
+            _status, _headers, created = request_json(
+                f"{base}/api/v1/automation/runs",
+                method="POST",
+                token=token,
+                payload=self.run_spec(original_digest),
+            )
+            self.assertEqual(_status, 200, created)
+            run_id = created["run_id"]
+            identity = {
+                "process_key": "103439/2023",
+                "interested_normalized": "ana",
+                "portal_act_id": None,
+            }
+            queue_url = f"{base}/api/v1/automation/runs/{run_id}/queue"
+            original_payload = {
+                "identities": [identity],
+                "event_id": "queue-replay-1",
+                "expected_revision": 0,
+            }
+            status, _headers, first = request_json(
+                queue_url, method="POST", token=token, payload=original_payload
+            )
+            self.assertEqual(status, 200, first)
+
+            _dataset, replacement_digest = write_fixture(root, "Bia")
+            self.assertNotEqual(replacement_digest, original_digest)
+
+            status, _headers, replay = request_json(
+                queue_url, method="POST", token=token, payload=original_payload
+            )
+            self.assertEqual(status, 200, replay)
+            self.assertEqual(replay, first)
+
+            changed_identity = {**identity, "interested_normalized": "bia"}
+            status, _headers, conflict = request_json(
+                queue_url,
+                method="POST",
+                token=token,
+                payload={**original_payload, "identities": [changed_identity]},
+            )
+            self.assertEqual(status, 409, conflict)
+            self.assertEqual(conflict["error"]["code"], "EVENT_CONFLICT")
+
+            status, _headers, unknown = request_json(
+                queue_url,
+                method="POST",
+                token=token,
+                payload={
+                    "identities": [changed_identity],
+                    "event_id": "queue-never-persisted",
+                    "expected_revision": 1,
+                },
+            )
+            self.assertEqual(status, 409, unknown)
+            self.assertEqual(unknown["error"]["code"], "DATASET_MISMATCH")
+
+    def test_event_payloads_are_discriminated_and_controls_are_closed(self):
+        cases = [
+            ("item_prepared", [], {"reason": "prepared", "unexpected": True}),
+            (
+                "fields_verified",
+                [("item_prepared", {"reason": "prepared"})],
+                {"field_results": {}, "rereads": [], "unexpected": True},
+            ),
+            (
+                "send_intent",
+                [
+                    ("item_prepared", {"reason": "prepared"}),
+                    ("fields_verified", {"field_results": {}, "rereads": []}),
+                ],
+                {"expected_fields_hash": "a" * 64, "unexpected": True},
+            ),
+            (
+                "send_confirmed",
+                [
+                    ("item_prepared", {"reason": "prepared"}),
+                    ("fields_verified", {"field_results": {}, "rereads": []}),
+                    ("send_intent", {"expected_fields_hash": "a" * 64}),
+                ],
+                {
+                    "identity": {"process_key": "103439/2023"},
+                    "origin": "portal",
+                    "timestamp": "2026-09-09T12:00:00Z",
+                    "fields": {"cargo": "servidora"},
+                    "citations": [{"reference": "act-1"}],
+                    "unexpected": True,
+                },
+            ),
+            ("item_pending", [], {"reason": "review", "unexpected": True}),
+            ("item_failed", [], {"error": "failed", "unexpected": True}),
+            (
+                "send_unconfirmed",
+                [
+                    ("item_prepared", {"reason": "prepared"}),
+                    ("fields_verified", {"field_results": {}, "rereads": []}),
+                    ("send_intent", {"expected_fields_hash": "a" * 64}),
+                ],
+                {"reason": "uncertain", "rereads": [], "unexpected": True},
+            ),
+        ]
+        for event_type, seeds, invalid_payload in cases:
+            with self.subTest(event_type=event_type):
+                with running_server() as (root, server, base):
+                    _dataset, digest = write_fixture(root, "Ana")
+                    write_context(root, digest, "Ana")
+                    token = self.pair(server, base)
+                    _status, _headers, created = request_json(
+                        f"{base}/api/v1/automation/runs",
+                        method="POST",
+                        token=token,
+                        payload=self.run_spec(digest, event_id=f"start-{event_type}"),
+                    )
+                    self.assertEqual(_status, 200, created)
+                    run_id = created["run_id"]
+                    identity = {
+                        "process_key": "103439/2023",
+                        "interested_normalized": "ana",
+                        "portal_act_id": None,
+                    }
+                    _status, _headers, queued = request_json(
+                        f"{base}/api/v1/automation/runs/{run_id}/queue",
+                        method="POST",
+                        token=token,
+                        payload={
+                            "identities": [identity],
+                            "event_id": f"queue-{event_type}",
+                            "expected_revision": 0,
+                        },
+                    )
+                    self.assertEqual(_status, 200, queued)
+                    revision = queued["revision"]
+                    event_url = f"{base}/api/v1/automation/runs/{run_id}/events"
+                    for index, (seed_type, seed_payload) in enumerate(seeds):
+                        _status, _headers, seeded = request_json(
+                            event_url,
+                            method="POST",
+                            token=token,
+                            payload={
+                                "event_id": f"seed-{event_type}-{index}",
+                                "expected_revision": revision,
+                                "item_id": "103439/2023",
+                                "type": seed_type,
+                                "payload": seed_payload,
+                            },
+                        )
+                        self.assertEqual(_status, 200, seeded)
+                        revision = seeded["revision"]
+                    status, _headers, body = request_json(
+                        event_url,
+                        method="POST",
+                        token=token,
+                        payload={
+                            "event_id": f"invalid-{event_type}",
+                            "expected_revision": revision,
+                            "item_id": "103439/2023",
+                            "type": event_type,
+                            "payload": invalid_payload,
+                        },
+                    )
+                    self.assertEqual(status, 400, body)
+                    self.assertEqual(body["error"]["code"], "INVALID_EVENT", body)
+
+    def test_control_event_payloads_reject_nonempty_payloads(self):
+        for event_type, seeds in (
+            ("run_paused", []),
+            ("run_resumed", [("run_paused", None)]),
+            ("run_stopped", []),
+            ("run_completed", []),
+        ):
+            with self.subTest(event_type=event_type):
+                with running_server() as (root, server, base):
+                    _dataset, digest = write_fixture(root, "Ana")
+                    token = self.pair(server, base)
+                    _status, _headers, created = request_json(
+                        f"{base}/api/v1/automation/runs",
+                        method="POST",
+                        token=token,
+                        payload=self.run_spec(digest, event_id=f"start-{event_type}"),
+                    )
+                    self.assertEqual(_status, 200, created)
+                    run_id = created["run_id"]
+                    identity = {
+                        "process_key": "103439/2023",
+                        "interested_normalized": "ana",
+                        "portal_act_id": None,
+                    }
+                    _status, _headers, queued = request_json(
+                        f"{base}/api/v1/automation/runs/{run_id}/queue",
+                        method="POST",
+                        token=token,
+                        payload={
+                            "identities": [] if event_type == "run_completed" else [identity],
+                            "event_id": f"queue-{event_type}",
+                            "expected_revision": 0,
+                        },
+                    )
+                    self.assertEqual(_status, 200, queued)
+                    revision = queued["revision"]
+                    event_url = f"{base}/api/v1/automation/runs/{run_id}/events"
+                    for index, (seed_type, seed_payload) in enumerate(seeds):
+                        _status, _headers, seeded = request_json(
+                            event_url,
+                            method="POST",
+                            token=token,
+                            payload={
+                                "event_id": f"seed-{event_type}-{index}",
+                                "expected_revision": revision,
+                                "item_id": None,
+                                "type": seed_type,
+                                "payload": seed_payload or {},
+                            },
+                        )
+                        self.assertEqual(_status, 200, seeded)
+                        revision = seeded["revision"]
+                    status, _headers, body = request_json(
+                        event_url,
+                        method="POST",
+                        token=token,
+                        payload={
+                            "event_id": f"invalid-{event_type}",
+                            "expected_revision": revision,
+                            "item_id": None,
+                            "type": event_type,
+                            "payload": {"reason": "must-reject"},
+                        },
+                    )
+                    self.assertEqual(status, 400, body)
+                    self.assertEqual(body["error"]["code"], "INVALID_EVENT", body)
+
+                    status, _headers, body = request_json(
+                        event_url,
+                        method="POST",
+                        token=token,
+                        payload={
+                            "event_id": f"invalid-item-{event_type}",
+                            "expected_revision": revision,
+                            "item_id": "103439/2023",
+                            "type": event_type,
+                            "payload": {},
+                        },
+                    )
+                    self.assertEqual(status, 400, body)
+                    self.assertEqual(body["error"]["code"], "INVALID_EVENT", body)
+
+    def test_send_confirmed_requires_nonempty_proof_fields(self):
+        with running_server() as (root, server, base):
+            _dataset, digest = write_fixture(root, "Ana")
+            token = self.pair(server, base)
+            _status, _headers, created = request_json(
+                f"{base}/api/v1/automation/runs",
+                method="POST",
+                token=token,
+                payload=self.run_spec(digest, event_id="start-confirmed-proof"),
+            )
+            self.assertEqual(_status, 200, created)
+            run_id = created["run_id"]
+            status, _headers, body = request_json(
+                f"{base}/api/v1/automation/runs/{run_id}/events",
+                method="POST",
+                token=token,
+                payload={
+                    "event_id": "confirmed-proof-1",
+                    "expected_revision": 0,
+                    "item_id": "103439/2023",
+                    "type": "send_confirmed",
+                    "payload": {
+                        "identity": {
+                            "process_key": "103439/2023",
+                            "interested_normalized": "ana",
+                            "portal_act_id": None,
+                        },
+                        "origin": "portal",
+                        "timestamp": "2026-09-09T12:00:00Z",
+                        "fields": {},
+                        "citations": [],
+                    },
+                },
+            )
+            self.assertEqual(status, 400, body)
+            self.assertEqual(body["error"]["code"], "INVALID_EVENT", body)
+
     def test_backend_rejects_dataset_swap_and_stale_queue_without_changing_snapshot(self):
         with running_server() as (root, server, base):
             _dataset, digest = write_fixture(root, "Ana")
@@ -390,7 +715,7 @@ class AutomationApiTests(unittest.TestCase):
                 "expected_revision": 1,
                 "item_id": "103439/2023",
                 "type": "item_prepared",
-                "payload": {},
+                "payload": {"reason": "prepared"},
             }
             status, _headers, first = request_json(event_url, method="POST", token=token, payload=event)
             self.assertEqual(status, 200)

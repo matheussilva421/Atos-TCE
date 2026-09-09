@@ -225,7 +225,7 @@ test('bridge exposes authenticated automation methods with closed wire payloads'
     expectedRevision: 1,
     itemId: '103439/2023',
     type: 'item_prepared',
-    payload: {},
+    payload: { reason: 'prepared' },
   });
   await bridge.controlAutomationRun('run-1', { action: 'pause', eventId: 'pause-1', expectedRevision: 2 });
 

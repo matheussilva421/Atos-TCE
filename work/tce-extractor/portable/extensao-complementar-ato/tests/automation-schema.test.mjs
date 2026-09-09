@@ -70,18 +70,51 @@ test("validates exact identities and the ten-thousand item queue limit", () => {
 });
 
 test("validates discriminated events and closed control requests", () => {
-  const event = {
-    eventId: "prepare-1",
-    expectedRevision: 1,
-    itemId: "103439/2023",
-    type: "item_prepared",
-    payload: { reason: "ready" },
+  const validPayloads = {
+    send_confirmed: {
+      identity: { processKey: "103439/2023", interestedNormalized: "ana da silva", portalActId: null },
+      origin: "portal",
+      timestamp: "2026-09-09T12:00:00Z",
+      fields: { cargo: "servidora" },
+      citations: [{ source: "portal", reference: "act-1" }],
+    },
+    send_intent: { expectedFieldsHash: HASH },
+    item_prepared: { reason: "ready" },
+    fields_verified: { fieldResults: {}, rereads: [] },
+    item_pending: { reason: "requires review" },
+    item_failed: { error: "portal unavailable" },
+    send_unconfirmed: { reason: "confirmation missing", rereads: [] },
+    run_paused: {},
+    run_resumed: {},
+    run_stopped: {},
+    run_completed: {},
   };
-  assert.deepEqual(validateAutomationEvent(event), event);
-  assert.throws(
-    () => validateAutomationEvent({ ...event, payload: { arbitrary: true } }),
-    (error) => error instanceof AutomationSchemaError && error.code === "UNEXPECTED_KEY",
-  );
+  for (const [index, [type, payload]] of Object.entries(validPayloads).entries()) {
+    const event = {
+      eventId: `event-${type}`,
+      expectedRevision: index,
+      itemId: type.startsWith("run_") ? null : "103439/2023",
+      type,
+      payload,
+    };
+    assert.deepEqual(validateAutomationEvent(event), event);
+    if (!type.startsWith("run_")) {
+      assert.throws(
+        () => validateAutomationEvent({ ...event, payload: {} }),
+        (error) => error instanceof AutomationSchemaError && error.code === "MISSING_KEY",
+      );
+    }
+    assert.throws(
+      () => validateAutomationEvent({ ...event, payload: { ...payload, arbitrary: true } }),
+      (error) => error instanceof AutomationSchemaError && error.code === "UNEXPECTED_KEY",
+    );
+    if (type.startsWith("run_")) {
+      assert.throws(
+        () => validateAutomationEvent({ ...event, itemId: "103439/2023" }),
+        (error) => error instanceof AutomationSchemaError && error.code === "INVALID_EVENT",
+      );
+    }
+  }
   assert.deepEqual(
     validateControlRequest({ action: "pause", eventId: "pause-1", expectedRevision: 2 }),
     { action: "pause", eventId: "pause-1", expectedRevision: 2 },
@@ -89,6 +122,26 @@ test("validates discriminated events and closed control requests", () => {
   assert.throws(
     () => validateControlRequest({ action: "send", eventId: "send-1", expectedRevision: 2 }),
     (error) => error instanceof AutomationSchemaError && error.code === "INVALID_ACTION",
+  );
+});
+
+test("requires non-empty proof fields for send_confirmed", () => {
+  const event = {
+    eventId: "confirmed-1",
+    expectedRevision: 1,
+    itemId: "103439/2023",
+    type: "send_confirmed",
+    payload: {
+      identity: { processKey: "103439/2023", interestedNormalized: "ana da silva", portalActId: null },
+      origin: "portal",
+      timestamp: "2026-09-09T12:00:00Z",
+      fields: {},
+      citations: [],
+    },
+  };
+  assert.throws(
+    () => validateAutomationEvent(event),
+    (error) => error instanceof AutomationSchemaError && error.code === "INVALID_VALUE",
   );
 });
 

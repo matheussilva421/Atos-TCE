@@ -43,6 +43,38 @@ const EVENT_PAYLOAD_KEYS = new Set([
   "expectedFieldsHash",
 ]);
 
+const EVENT_PAYLOAD_CONTRACTS = new Map([
+  ["item_prepared", { required: [["reason"]], allowed: new Set(["reason", "before", "after"]) }],
+  ["fields_verified", {
+    required: [["fieldResults"], ["rereads", "reRead"]],
+    allowed: new Set(["fieldResults", "rereads", "reRead"]),
+  }],
+  ["send_intent", {
+    required: [["expectedFieldsHash"]],
+    allowed: new Set(["expectedFieldsHash", "identity", "fields", "method", "origin", "timestamp"]),
+  }],
+  ["send_confirmed", {
+    required: [["identity"], ["origin"], ["timestamp"], ["fields"], ["citations"]],
+    allowed: new Set(["identity", "fields", "origin", "timestamp", "citations"]),
+  }],
+  ["item_pending", {
+    required: [["reason"]],
+    allowed: new Set(["reason", "legalDecision", "decision"]),
+  }],
+  ["item_failed", {
+    required: [["error", "errors"]],
+    allowed: new Set(["error", "errors", "reason"]),
+  }],
+  ["send_unconfirmed", {
+    required: [["reason"], ["rereads", "reRead"]],
+    allowed: new Set(["reason", "rereads", "reRead", "origin", "timestamp"]),
+  }],
+  ["run_paused", { required: [], allowed: new Set() }],
+  ["run_resumed", { required: [], allowed: new Set() }],
+  ["run_stopped", { required: [], allowed: new Set() }],
+  ["run_completed", { required: [], allowed: new Set() }],
+]);
+
 export class AutomationSchemaError extends TypeError {
   constructor(message, code = "INVALID_AUTOMATION_SCHEMA") {
     super(`invalid automation schema: ${message}`);
@@ -144,9 +176,27 @@ export function validateAutomationQueue(value) {
   return value;
 }
 
-function validateEventPayload(payload) {
+function validateEventPayload(payload, type) {
   if (!isRecord(payload)) invalid("event payload must be an object", "INVALID_EVENT_PAYLOAD");
-  if (Object.keys(payload).some((key) => !EVENT_PAYLOAD_KEYS.has(key))) invalid("unexpected event payload key", "UNEXPECTED_KEY");
+  const contract = EVENT_PAYLOAD_CONTRACTS.get(type);
+  if (Object.keys(payload).some((key) => !contract.allowed.has(key))) invalid("unexpected event payload key", "UNEXPECTED_KEY");
+  for (const aliases of contract.required) {
+    if (!aliases.some((key) => Object.hasOwn(payload, key))) invalid("missing event payload key", "MISSING_KEY");
+  }
+  const stringKeys = new Set(["reason", "error", "origin", "timestamp", "expectedFieldsHash", "method"]);
+  const recordKeys = new Set(["identity", "fields", "before", "after", "fieldResults", "legalDecision", "decision"]);
+  const listKeys = new Set(["rereads", "reRead", "citations", "errors"]);
+  for (const [key, value] of Object.entries(payload)) {
+    if (stringKeys.has(key)) nonEmptyString(value, key);
+    if (key === "expectedFieldsHash" && !SHA256_RE.test(value)) invalid(`${key} must be a SHA-256 hex string`, "INVALID_VALUE");
+    if (recordKeys.has(key) && !isRecord(value)) invalid(`${key} must be an object`, "INVALID_VALUE");
+    if (listKeys.has(key) && !Array.isArray(value)) invalid(`${key} must be an array`, "INVALID_VALUE");
+  }
+  if (type === "send_confirmed") {
+    if (Object.keys(payload.identity).length === 0) invalid("identity must not be empty", "INVALID_VALUE");
+    if (Object.keys(payload.fields).length === 0) invalid("fields must not be empty", "INVALID_VALUE");
+    if (payload.citations.length === 0) invalid("citations must not be empty", "INVALID_VALUE");
+  }
   rejectPrivateKeys(payload);
 }
 
@@ -158,7 +208,8 @@ export function validateAutomationEvent(value) {
   revision(value.expectedRevision, "expectedRevision");
   if (value.itemId !== null) nonEmptyString(value.itemId, "itemId", 256);
   if (typeof value.type !== "string" || !EVENT_TYPES.has(value.type)) invalid("event type is unsupported", "INVALID_EVENT_TYPE");
-  validateEventPayload(value.payload);
+  if (value.type.startsWith("run_") && value.itemId !== null) invalid("control events cannot have itemId", "INVALID_EVENT");
+  validateEventPayload(value.payload, value.type);
   return value;
 }
 
