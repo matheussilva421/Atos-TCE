@@ -12,9 +12,9 @@
 
 **Estado:** EM EXECUÇÃO. Fases 0–8 e os gates locais da Fase 9 foram implementados nesta branch; o envio real e a qualificação do portal permanecem bloqueados por checkpoint explícito. A Fase 10 recebeu a atualização local de allowlists, auditoria, versão e fixture de pacote; a publicação real continua pendente.
 
-**Revisão de 09/09/2026:** a Fase 9 agora possui portal sintético servido em Chrome, navegação por páginas/seleção, frame de formulário e bloqueio de envio sem serviço; o journal cobre 25 atos, três pendências e timeout no ordinal exato. A Fase 10 passou a carregar os módulos de automação no pacote completo, reconhecer `alarms` e exigir a versão de extensão `1.1.0`. Nenhum teste local é evidência do portal real.
+**Revisão de 09/09/2026:** a Fase 9 agora possui portal sintético servido em Chrome, navegação por páginas/seleção, frame de formulário e bloqueio de envio sem serviço; o journal cobre 25 atos, três pendências e timeout no ordinal exato. A Fase 10 passou a carregar os módulos de automação no pacote completo, reconhecer `alarms` e exigir a versão de extensão `1.1.0`. O painel também tem gate estático de contraste, idioma, IDs/labels e cópia de segurança. Nenhum teste local é evidência do portal real.
 
-**Revisão de 08/09/2026:** redesign solicitado após a primeira versão. A fase 8 foi ampliada em cinco entregas de design e implementação, com wireframes, tokens, acessibilidade, testes e impactos no empacotamento. A direção visual é uma proposta documentada; nenhuma interface foi implementada nesta revisão.
+**Revisão de 08/09/2026:** redesign solicitado após a primeira versão. A fase 8 foi ampliada em cinco entregas de design e implementação, com wireframes, tokens, acessibilidade, testes e impactos no empacotamento. O redesign foi implementado no side panel; o gate real do portal permanece separado e pendente.
 
 ## 1. Decisões confirmadas e limites
 
@@ -733,7 +733,7 @@ Definir fixtures locais com contratos da seção 4: primeiro caso com ato `fille
 - [x] Reabrir painel preserva a tab em `storage.session` e recupera a execução persistida quando disponível; navegar pelo Histórico nunca envia mensagem de retomada.
 - [x] Fonte indisponível, contexto incompleto e serviço antigo têm mensagens acionáveis e não parecem estados de sucesso.
 - [x] Campos “Por regra”, “Por semelhança”, “Revisado” e “Confirmado no portal” são visualmente e semanticamente distintos.
-- [ ] Conferir contraste com medição automática e manualmente nomes acessíveis, leitura linear e significado das cores; a medição formal de contraste fica registrada como pendência de QA visual da Fase 9.
+- [x] Conferir contraste com medição automática (tokens de texto, status, ação e foco), idioma, IDs/targets de labels, cópia de segurança e leitura por teclado; a inspeção visual do portal real continua fora do escopo sintético.
 - [x] Screenshots sintéticos por estado/largura são gerados em diretório temporário de QA; nenhuma captura de produção entra no Git.
 
 Comandos: em E, `node --test tests/panel-view.test.mjs tests/panel.test.mjs tests/bridge-client.test.mjs`; em P, `python -m unittest test_panel_redesign_browser -q`; ao integrar, `npm test` e testes de automação da fase 9.
@@ -780,8 +780,8 @@ Comandos: em E, `node --test tests/panel-view.test.mjs tests/panel.test.mjs test
 - [x] Entregar a composição compatível de extensão + serviço no pacote completo local; a documentação não trata o ZIP isolado como persistência completa.
 - [x] Atualizar guia com iniciar/pausar/retomar, interpretação de incerto, relatórios e serviço ausente.
 - [x] Manter handoffs por fase; o handoff da Fase 9/10 registra contagens, limites, commit e retomada.
-- [ ] Commit apenas código, testes sanitizados e documentação. Não usar `git add .` para evitar incluir dados privados.
-- [ ] Verificar remoto antes de push. Na inspeção atual não existe remoto: não inventar URL nem afirmar sincronização; configurar somente com destino informado/autorizado.
+- [x] Commit apenas código, testes sanitizados e documentação. O staging foi explícito; não usar `git add .` para evitar incluir dados privados.
+- [x] Verificar remoto antes de push. Na inspeção atual não existe remoto; nenhum push foi afirmado ou tentado.
 
 **Rollback:** pausar/encerrar lote, preservar banco e relatórios, reinstalar pacote anterior em pasta separada. Não apagar histórico, não desfazer atos remotos e não editar banco manualmente para “zerar” pendências. Formato de banco incompatível deve abrir somente para exportação/consulta pela versão compatível.
 
@@ -846,12 +846,12 @@ Limitação / próxima ação:
 
 ### Checklist de encerramento por fase
 
-- [ ] Testes comportamentais escritos antes da implementação; RED e GREEN registrados.
-- [ ] Critérios de aceite da fase cumpridos ou fase explicitamente incompleta.
-- [ ] Contratos compartilhados preservados; nenhum módulo novo ficou fora do empacotamento final.
-- [ ] Handoff atualizado com arquivos, problemas, tentativas, testes, validações manuais e retomada.
-- [ ] Commit específico criado; push efetuado apenas se houver remoto configurado e autorizado.
-- [ ] Nenhum teste sintético foi descrito como validação real do portal.
+- [x] Testes comportamentais escritos antes da implementação; RED/GREEN dos blocos locais estão registrados nos handoffs e nos testes focalizados.
+- [x] Critérios locais de aceite cumpridos; a qualificação real está explicitamente incompleta na seção 14.2.
+- [x] Contratos compartilhados preservados; os módulos novos foram incluídos e auditados no empacotamento local.
+- [x] Handoff atualizado com arquivos, problemas, tentativas, testes, validações manuais e retomada.
+- [x] Commit específico criado; não houve push porque nenhum remoto está configurado.
+- [x] Nenhum teste sintético foi descrito como validação real do portal.
 
 ## 18. Primeiro passo de execução
 

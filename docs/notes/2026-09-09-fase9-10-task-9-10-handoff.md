@@ -20,6 +20,7 @@ portanto não há push.
 - `work/tce-extractor/package_complete_archive.py`
 - `work/tce-extractor/test_package_audit.py`
 - `work/tce-extractor/test_portable_end_to_end.py`
+- `work/tce-extractor/test_panel_accessibility.py`
 - `work/tce-extractor/portable/extensao-complementar-ato/manifest.json`
 - `docs/notes/2026-09-08-fundamentacao-automatico-plano-fases.md`
 - `docs/notes/2026-09-09-fase9-10-task-9-10-report.md`
@@ -38,14 +39,21 @@ da extensão, pois content scripts rodam em isolated world. O envio é bloqueado
 sem bridge e o botão sintético permanece sem clique. Isso é uma qualificação
 local de integração, não uma prova do portal real.
 
+O gate adicional de acessibilidade passou em 3/3: contraste mínimo dos tokens
+de texto/status/ação/foco, `lang=pt-BR`, IDs únicos, targets de labels existentes
+e cópia estática de segurança. O smoke combinado de painel e automação passou
+em 5/5.
+
 ## Retomada imediata
 
 1. Repetir a suíte ampla somente se houver novas alterações; o último gate foi
-   `373/373`, com 5 skips ambientais.
+   `373/373`, com 5 skips ambientais. O último focal de painel/automação foi
+   `5/5`.
 2. Rodar `git diff --check` e `git status --short --branch`.
 3. Se houver nova alteração, revisar mudanças privadas/ignoradas e fazer stage
    explícito; não usar `git add .`.
-4. Não executar push sem remoto; o SHA atual é `25ca99e`.
+4. Criar commit específico para o gate de acessibilidade; não executar push
+   sem remoto.
 5. Atualizar este handoff somente se o estado mudar.
 
 ## Pendência bloqueante
