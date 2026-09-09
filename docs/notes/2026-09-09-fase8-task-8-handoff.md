@@ -6,6 +6,8 @@ Fase 8 foi integrada localmente em 09/09/2026. O painel preserva o caminho
 manual, acompanha estado durável sem duplicá-lo no DOM e consulta histórico sem
 enviar comandos de retomada. O envio real continua desabilitado.
 
+Commit da integração: `f095545 feat: integrate phase 8 panel redesign`.
+
 ## Arquivos centrais
 
 - Interface: `work/tce-extractor/portable/extensao-complementar-ato/sidepanel/panel.html`, `panel.css`, `panel-tokens.css`, `panel-view.js`, `panel.js`.
@@ -34,6 +36,7 @@ enviar comandos de retomada. O envio real continua desabilitado.
 - Recuperação portátil: 4/4.
 - Chrome descartável: redesign 1/1 e smoke da extensão 5/5.
 - Nenhum portal real, clique real, envio real ou token publicado.
+- GitHub: checkout sem remoto configurado; não houve push.
 
 ## Próxima etapa
 

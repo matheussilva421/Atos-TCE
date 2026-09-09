@@ -3,6 +3,7 @@
 Data: 09/09/2026
 Branch: `codex/fundamentacao-automatico`
 Status: implementação local concluída; envio real continua bloqueado pela Fase 9.
+Commit: `f095545 feat: integrate phase 8 panel redesign`
 
 ## Entrega
 

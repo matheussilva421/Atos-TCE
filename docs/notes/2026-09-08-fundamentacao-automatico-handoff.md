@@ -498,8 +498,8 @@
   a allowlist do empacotador inclui os módulos novos e os tokens/view do painel.
 - Limites: nenhuma página real do portal, clique real, envio real ou
   habilitação de `real_send_enabled`; a Fase 9 continua obrigatória.
-- GitHub: sem remoto configurado; não houve push. O commit desta fase será
-  registrado após a checagem final do diff.
+- GitHub: sem remoto configurado; não houve push. Commit local da Fase 8:
+  `f095545 feat: integrate phase 8 panel redesign`.
 - Próxima tarefa: iniciar a Fase 9 pelo portal simulado integrado, reinícios,
   duas abas, 25 atos, pendências e timeout; não liberar envio real por inferência
   de fixtures ou do smoke do Chrome.
