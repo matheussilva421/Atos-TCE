@@ -15,8 +15,9 @@ em `9ad2a50`, `76e37f5`, `5e1617c` e `407ca6c`, além de `42eeeac`
 gate boundary`), `9d21441` (`feat: harden automation confirmation recovery`),
 `a8ae6e2` (`fix: complete portable package inventory`), `1fcfad8` (`docs:
 record verified portable composition`) e `e1d9618` (`test: verify portable
-bridge startup sequence`). O repositório não possui remoto configurado,
-portanto não há push.
+bridge startup sequence`), seguido de `8de1b87` (`docs: record portable bridge
+qualification`). O repositório não possui remoto configurado, portanto não há
+push.
 
 O launcher portátil agora exige `service.json` produzido pelo próprio helper;
 se o processo encerra ou não confirma a ponte, o menu não fabrica PID/porta e
@@ -119,7 +120,7 @@ encerradas; não produziram alterações nem evidência adicional.
 3. Se houver nova alteração, revisar mudanças privadas/ignoradas e fazer stage
    explícito; não usar `git add .`. O bloco de packager/teste/diagnóstico foi
    commitado em `a8ae6e2`, a sequência bridge em `e1d9618`; esta documentação
-   foi atualizada em `1fcfad8` e deve receber o fechamento deste bloco.
+   foi atualizada em `8de1b87`.
 4. Os commits `61dce28`, `c4246c6`, `453a043` e `0ec7109` contêm
    guard/piloto, delegação ao worker, controles, probe e reconciliação das
    tasks locais; o gate formal de acessibilidade está em `692ed27`.
