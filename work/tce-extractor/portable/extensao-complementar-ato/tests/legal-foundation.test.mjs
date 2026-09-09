@@ -104,7 +104,7 @@ test("resolves EC47 article 3 structurally and preserves ranking and citations",
   });
 
   assert.equal(result.status, "resolved");
-  assert.equal(result.method, "rule");
+  assert.equal(result.method, "equivalence");
   assert.equal(result.rule_id, "EC47_ART3");
   assert.equal(result.option_value, "ec47");
   assert.equal(result.option_label.startsWith("Civil - Artigo 3"), true);
@@ -199,6 +199,92 @@ test("resolves CF article 40 paragraph 1 item II without an EC rule id", () => {
   assert.equal(result.status, "resolved");
   assert.equal(result.option_value, "cf40");
   assert.equal(result.rule_id, null);
+});
+
+test("does not resolve an ECE reference against an EC option", () => {
+  const result = resolveLegalFoundation({
+    context: contextFor("RESOLVE: Art. 1º da ECE nº 20/2020."),
+    options: [option(null, "ec", "Art. 1º da EC nº 20/1998.")],
+  });
+
+  assert.equal(result.status, "pending");
+  assert.equal(result.option_value, null);
+});
+
+test("does not resolve a state constitution reference against a federal option", () => {
+  const result = resolveLegalFoundation({
+    context: contextFor("RESOLVE: Art. 40 da Constituição Estadual."),
+    options: [option(null, "cf", "Art. 40 da Constituição Federal.")],
+  });
+
+  assert.equal(result.status, "pending");
+  assert.equal(result.option_value, null);
+});
+
+test("leaves incompatible EC and ECE references pending", () => {
+  const result = resolveLegalFoundation({
+    context: contextFor(
+      "RESOLVE: Art. 6º da EC nº 41/2003 e art. 7º da ECE nº 41/2003.",
+    ),
+    options: [option("EC41_SEM_P5", "ec41", "Art. 6º e 7º da EC nº 41/2003.")],
+  });
+
+  assert.equal(result.status, "pending");
+  assert.equal(result.option_value, null);
+});
+
+test("does not select an unrecognized OTHER family by lexical similarity", () => {
+  const result = resolveLegalFoundation({
+    context: contextFor("RESOLVE: Art. 1º da EC nº 20/2020."),
+    options: [option(null, "wrong", "Art. 1º da EC nº 19/1998.")],
+  });
+
+  assert.equal(result.status, "pending");
+  assert.equal(result.option_value, null);
+});
+
+test("leaves EC41 references with divergent years pending across articles", () => {
+  const result = resolveLegalFoundation({
+    context: contextFor(
+      "RESOLVE: Art. 6º da EC nº 41/2003 e art. 7º da EC nº 41/2004.",
+    ),
+    options: [option("EC41_SEM_P5", "ec41", "Art. 6º e 7º da EC nº 41/2003.")],
+  });
+
+  assert.equal(result.status, "pending");
+  assert.equal(result.option_value, null);
+  assert.ok(result.reasons.includes("contradictory-reference"));
+});
+
+test("resolves bare EC47 article 3 and keeps extra qualifiers optional", () => {
+  const result = resolveLegalFoundation({
+    context: contextFor("RESOLVE: Art. 3º da EC nº 47/2005."),
+    options: [option(
+      "EC47_ART3",
+      "ec47",
+      "Civil - Artigo 3º, incisos I a III e parágrafo único, da EC nº 47/2005",
+    )],
+  });
+
+  assert.equal(result.status, "resolved");
+  assert.equal(result.method, "rule");
+  assert.equal(result.rule_id, "EC47_ART3");
+  assert.equal(result.option_value, "ec47");
+});
+
+test("uses structural equivalence before rule or similarity", () => {
+  const result = resolveLegalFoundation({
+    context: contextFor("RESOLVE: Art. 7º da EC nº 41/2003."),
+    options: [option(
+      "EC41_SEM_P5",
+      "equivalent",
+      "Civil - Artigo 7º da Emenda Constitucional nº 41/2003",
+    )],
+  });
+
+  assert.equal(result.status, "resolved");
+  assert.equal(result.method, "equivalence");
+  assert.equal(result.option_value, "equivalent");
 });
 
 test("returns pending for empty, incomplete, contradictory, conflicting, and unmatched contexts", () => {

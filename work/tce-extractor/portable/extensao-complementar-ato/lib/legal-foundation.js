@@ -217,10 +217,6 @@ function hasParagraph(reference, paragraph) {
   return reference.paragraph === paragraph;
 }
 
-function hasIncisos(reference, values) {
-  return values.every((value) => reference.incisos.includes(value));
-}
-
 function sourceFamilies(references) {
   const families = [];
   const hasEc41Base = hasArticle(references, "ec", "41", "2003", "6")
@@ -251,7 +247,6 @@ function sourceFamilies(references) {
     "2005",
     "3",
     null,
-    (reference) => hasParagraph(reference, "unico") && hasIncisos(reference, ["1", "2", "3"]),
   )) {
     families.push("EC47_ART3");
   }
@@ -277,6 +272,22 @@ function familyForOption(option, references) {
   if (declared === "EC41_ART6A" || declared === "CF40_P1_II") return declared;
   if (RULE_IDS.has(declared)) return declared;
   return sourceFamilies(references)[0] ?? "OTHER";
+}
+
+function diplomaFamilyKey(reference) {
+  const type = reference.diploma?.type;
+  if (!new Set(["ec", "ece", "cf", "ce"]).has(type)) return null;
+  return diplomaKey(reference.diploma);
+}
+
+function diplomaFamilyKeys(references) {
+  return new Set(references.map(diplomaFamilyKey).filter(Boolean));
+}
+
+function hasIncompatibleDiplomaFamilies(references) {
+  const types = new Set(references.map((reference) => reference.diploma?.type));
+  return (types.has("ec") && types.has("ece"))
+    || (types.has("cf") && types.has("ce"));
 }
 
 function diplomaKey(diploma) {
@@ -307,9 +318,20 @@ function scoreCandidate(sourceReferences, option, operativeText, sourceFamily) {
   const candidateReferences = parseLegalReferences(option.label);
   const candidateFamily = familyForOption(option, candidateReferences);
   const exactText = normalizeLegalText(operativeText) === normalizeLegalText(option.label);
+  const sourceDiplomaFamilies = diplomaFamilyKeys(sourceReferences);
+  const candidateDiplomaFamilies = diplomaFamilyKeys(candidateReferences);
+  const sharedDiplomaFamily = [...sourceDiplomaFamilies]
+    .some((family) => candidateDiplomaFamilies.has(family));
   const familyMatches = sourceFamily === "OTHER"
     ? candidateFamily === "OTHER"
-    : candidateFamily === sourceFamily;
+      && sourceDiplomaFamilies.size > 0
+      && candidateDiplomaFamilies.size > 0
+      && sharedDiplomaFamily
+    : candidateFamily === sourceFamily
+      && (candidateDiplomaFamilies.size === 0
+        || sourceDiplomaFamilies.size === 0
+        || sharedDiplomaFamily)
+      && !hasIncompatibleDiplomaFamilies([...sourceReferences, ...candidateReferences]);
   if (!familyMatches) {
     return {
       candidateReferences,
@@ -322,6 +344,8 @@ function scoreCandidate(sourceReferences, option, operativeText, sourceFamily) {
 
   const sourceKeys = new Set(sourceReferences.map(referenceKey));
   const candidateKeys = new Set(candidateReferences.map(referenceKey));
+  const structurallyEquivalent = sourceKeys.size === candidateKeys.size
+    && [...sourceKeys].every((key) => candidateKeys.has(key));
   const completeReferences = [...candidateKeys].filter((key) => sourceKeys.has(key)).length;
   const sourceDiplomas = sourceReferences.map((reference) => diplomaKey(reference.diploma)).filter(Boolean);
   const candidateDiplomas = candidateReferences.map((reference) => diplomaKey(reference.diploma)).filter(Boolean);
@@ -353,11 +377,13 @@ function scoreCandidate(sourceReferences, option, operativeText, sourceFamily) {
     reasons: reasons.length > 0 ? reasons : ["no-positive-signal"],
     method: exactText
       ? "exact"
-      : sourceFamily === candidateFamily && sourceFamily !== "OTHER"
-        ? "rule"
-        : score > 0
-          ? "similarity"
-          : "none",
+      : structurallyEquivalent
+        ? "equivalence"
+        : sourceFamily === candidateFamily && sourceFamily !== "OTHER"
+          ? "rule"
+          : score > 0
+            ? "similarity"
+            : "none",
   };
 }
 
@@ -373,7 +399,7 @@ function diceScore(left, right) {
 function hasContradiction(references) {
   const yearsByDevice = new Map();
   for (const reference of references) {
-    const key = `${reference.diploma?.type ?? ""}:${reference.diploma?.number ?? ""}:${reference.article ?? ""}:${reference.suffix ?? ""}`;
+    const key = `${reference.diploma?.type ?? ""}:${reference.diploma?.number ?? ""}`;
     const year = reference.diploma?.year;
     if (!key || !year) continue;
     const years = yearsByDevice.get(key) ?? new Set();
@@ -452,6 +478,9 @@ export function resolveLegalFoundation({ context, options = [] } = {}) {
   }
   if (hasContradiction(references)) {
     return baseDecision(context, ["contradictory-reference"], zeroRanking(options, "contradictory-reference"), 0);
+  }
+  if (hasIncompatibleDiplomaFamilies(references)) {
+    return baseDecision(context, ["family-conflict"], zeroRanking(options, "family-conflict"), 0);
   }
 
   const families = sourceFamilies(references);
