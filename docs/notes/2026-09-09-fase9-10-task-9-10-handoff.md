@@ -23,6 +23,17 @@ O launcher portátil agora exige `service.json` produzido pelo próprio helper;
 se o processo encerra ou não confirma a ponte, o menu não fabrica PID/porta e
 preserva o modo manual.
 
+Atualização final de 09/09/2026: o commit `03b5b8e` (`fix: qualify portable
+bridge in Chrome`) corrigiu o listener do código de pareamento no painel, a
+opção CORS do cliente loopback e a compatibilidade de autenticação para GETs
+sem `Origin` (somente leituras; mutações continuam exigindo origem de
+extensão). O smoke `test_portable_zip_browser_smoke.py` abriu a extensão do
+ZIP final6 em Chrome com perfil descartável, iniciou o Python portátil,
+pareou, sincronizou dataset/capabilities e confirmou o token em
+`chrome.storage.session`. ZIP final6: 95.838.384 bytes, SHA-256
+`4ecbbf150a13e1f45b454a5097f67329d7086994cef3cde24d67b9ad54f73770`.
+Nenhum portal real, ato real ou envio foi acessado.
+
 ## Arquivos principais
 
 - `work/tce-extractor/test_automation_browser.py`
@@ -37,9 +48,16 @@ preserva o modo manual.
 - `work/tce-extractor/test_panel_accessibility.py`
 - `work/tce-extractor/test_automation_api.py`
 - `work/tce-extractor/portable/app/automation_store.py`
+- `work/tce-extractor/portable/app/bridge_auth.py`
+- `work/tce-extractor/portable/app/local_service.py`
+- `work/tce-extractor/portable/extensao-complementar-ato/lib/bridge-client.js`
 - `work/tce-extractor/portable/extensao-complementar-ato/tests/automation-schema.test.mjs`
 - `work/tce-extractor/portable/extensao-complementar-ato/tests/automation-controller.test.mjs`
 - `work/tce-extractor/portable/extensao-complementar-ato/tests/panel.test.mjs`
+- `work/tce-extractor/portable/extensao-complementar-ato/tests/bridge-client.test.mjs`
+- `work/tce-extractor/test_bridge_auth.py`
+- `work/tce-extractor/test_local_service.py`
+- `work/tce-extractor/test_portable_zip_browser_smoke.py`
 - `work/tce-extractor/portable/extensao-complementar-ato/sidepanel/panel.js`
 - `work/tce-extractor/portable/extensao-complementar-ato/manifest.json`
 - `docs/notes/2026-09-08-fundamentacao-automatico-plano-fases.md`
@@ -71,18 +89,29 @@ que estavam ausentes da allowlist. A validação de startup revelou também que
 `local_service.py` precisava de `automation_report.py`, `automation_store.py` e
 `legal_context.py`; os três módulos agora são copiados explicitamente. A
 composição final extraída em pasta limpa passou runtime Python/Tesseract,
-manifesto, auditoria pública e diagnóstico PowerShell: ZIP temporário de
-95.838.277 bytes, SHA-256
-`5d8496be04bccfd461b9476531ce95ad0c5fbd5cc3202b7f9b09a2a5fa497900`.
+manifesto, auditoria pública e diagnóstico PowerShell: ZIP final6 de
+95.838.384 bytes, SHA-256
+`4ecbbf150a13e1f45b454a5097f67329d7086994cef3cde24d67b9ad54f73770`.
 
 No mesmo ZIP, o serviço portátil publicou `service.json`, aceitou `pair=200`,
 respondeu `capabilities=200` autenticado com `real_send_enabled=false`,
-rejeitou o reuso do código com 401 e foi encerrado pelo helper.
+rejeitou o reuso do código com 401 e foi encerrado pelo helper. O smoke Chrome
+adicional também passou no mesmo pacote extraído; isso é evidência local da
+integração, não qualificação do portal real.
 
 O diagnóstico PowerShell também foi alinhado à permissão `alarms` do manifesto.
 O RED foi observado primeiro no contrato da allowlist (8 assets) e depois no
 teste PowerShell do manifesto; ambos ficaram verdes após as correções. Isso é
-evidência offline da composição local, não smoke Chrome nem qualificação real.
+evidência offline e de integração local da composição, não qualificação do
+portal real.
+
+O smoke Chrome acrescentado depois encontrou e corrigiu duas falhas de
+integração locais: o botão não era reabilitado ao editar o código e os GETs
+autenticados chegavam sem `Origin`. Há regressões para ambos os casos. A
+extração final6 passou `TESTAR-PACOTE.ps1`, pareamento, dataset e capabilities
+no Chrome descartável; o fixture limpa `service.json` anterior e usa um lote
+sanitizado válido. A versão final do pacote é o hash registrado no bloco de
+estado acima.
 
 O incidente do launcher foi coberto em TDD: o teste RED reproduziu a ausência
 de confirmação para um processo encerrado; a correção passou no teste completo
@@ -110,17 +139,17 @@ encerradas; não produziram alterações nem evidência adicional.
 
 ## Retomada imediata
 
-1. Repetir a suíte ampla somente se houver novas alterações; o último gate amplo
-   anterior foi `382/382`, com 5 skips ambientais. O gate JavaScript atual passou
-   `255/255`; API/store/report passou `56/56`, recuperação `5/5`, o focal
-   pacote/end-to-end/serviço passou `68` testes com `3` skips, e
+1. Repetir a suíte ampla somente se houver novas alterações; o gate atual passou
+   `385/385`, com 6 skips ambientais. O gate JavaScript atual passou
+   `256/256`; o focal pacote/end-to-end/serviço/auth passou `69` testes com
+   `3` skips, o smoke Chrome do ZIP passou `1/1`, e
    `Test-TcePortable.ps1` passou `114/114`.
 2. Manter `42eeeac` como referência da correção do launcher; depois rodar
    `git diff --check` e `git status --short --branch`.
 3. Se houver nova alteração, revisar mudanças privadas/ignoradas e fazer stage
    explícito; não usar `git add .`. O bloco de packager/teste/diagnóstico foi
-   commitado em `a8ae6e2`, a sequência bridge em `e1d9618`; esta documentação
-   foi atualizada em `8de1b87`.
+   commitado em `a8ae6e2`, a sequência bridge em `e1d9618`, e o smoke/browser
+   bridge em `03b5b8e`; esta documentação deve receber um commit final separado.
 4. Os commits `61dce28`, `c4246c6`, `453a043` e `0ec7109` contêm
    guard/piloto, delegação ao worker, controles, probe e reconciliação das
    tasks locais; o gate formal de acessibilidade está em `692ed27`.
