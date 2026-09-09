@@ -123,7 +123,7 @@ function chromeMock(storage, sendMessage = async () => ({ ok: true }), session =
 function extensionSender(tabId) {
   return {
     id: "test-extension",
-    url: "chrome-extension://test/panel.html",
+    url: "chrome-extension://test-extension/panel.html",
     ...(tabId === undefined ? {} : { tab: { id: tabId } }),
   };
 }
@@ -740,6 +740,64 @@ test("automation control rejects a content script even when its sender id is the
   );
   assert.equal(response.ok, false);
   assert.equal(response.error.code, "UNAUTHORIZED");
+});
+
+async function assertAutomationRejectedForSender(senderValue) {
+  const calls = [];
+  const bridge = {
+    async createAutomationRun() {
+      calls.push("start");
+      return {};
+    },
+    async controlAutomationRun() {
+      calls.push("control");
+      return {};
+    },
+    async getAutomationRun() {
+      calls.push("status");
+      return {};
+    },
+  };
+  const worker = createServiceWorker({ chromeApi: chromeMock(storageMock()), bridge });
+  const messages = [
+    [MESSAGE_TYPES.AUTO_START, {
+      spec: {
+        tabId: 7,
+        sector: "aposentadorias",
+        datasetSha256: "a".repeat(64),
+        rulesVersion: "legal-foundation-v1",
+      },
+      eventId: "identity-check-start",
+    }],
+    [MESSAGE_TYPES.AUTO_PAUSE, { runId: "run-1", eventId: "identity-check-pause", expectedRevision: 0 }],
+    [MESSAGE_TYPES.AUTO_RESUME, { runId: "run-1", eventId: "identity-check-resume", expectedRevision: 0 }],
+    [MESSAGE_TYPES.AUTO_STOP, { runId: "run-1", eventId: "identity-check-stop", expectedRevision: 0 }],
+    [MESSAGE_TYPES.AUTO_STATUS, { runId: "run-1" }],
+  ];
+
+  for (const [index, [type, payload]] of messages.entries()) {
+    const response = await worker.handleMessage(
+      createMessage(type, payload, `identity-check-${index}`),
+      senderValue,
+    );
+    assert.equal(response.ok, false, `${type} should be rejected`);
+    assert.equal(response.error.code, "UNAUTHORIZED", `${type} should be unauthorized`);
+  }
+  assert.deepEqual(calls, []);
+}
+
+test("automation control rejects another extension id in the sender URL", async () => {
+  await assertAutomationRejectedForSender({
+    id: "test-extension",
+    url: "chrome-extension://other-extension/panel.html",
+  });
+});
+
+test("automation control rejects a sender id that differs from the installed extension", async () => {
+  await assertAutomationRejectedForSender({
+    id: "other-extension",
+    url: "chrome-extension://test-extension/panel.html",
+  });
 });
 
 test("automation messages preserve manual fallback when the old service has no bridge", async () => {

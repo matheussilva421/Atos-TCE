@@ -92,10 +92,31 @@ Gates desta rodada:
   test_automation_store.py`: passou.
 - `git diff --check`: passou.
 
-Commit: `fix: bind automation API identity and retry state`.
+Commit anterior: `fix: bind automation API identity and retry state`.
 
 Warnings conhecidos: `fitz` depreciado e `ResourceWarning` de limpeza de
 `HTTPError` já emitidos pelo ambiente/suítes; não alteraram o resultado.
+
+## Correção após revisão independente
+
+- Os testes RED adicionados em `tests/service-worker.test.mjs` cobrem URL
+  `chrome-extension://` de outro ID e `sender.id` divergente do
+  `chromeApi.runtime.id`; cada cenário rejeita os cinco tipos `AUTO_*` com
+  `UNAUTHORIZED` sem chamar o bridge.
+- `background/service-worker.js` agora exige simultaneamente `sender.id` igual
+  ao ID da própria extensão e URL `chrome-extension:` válida cujo hostname é o
+  mesmo ID antes de despachar controle automático.
+- O fallback manual para serviço antigo e as mensagens existentes foram
+  preservados. Navegação, envio real e `consume_command` não foram alterados.
+
+Gates desta correção:
+
+- RED confirmado antes da implementação: 2 testes falharam porque o bridge
+  era alcançado nos dois cenários.
+- `node --test tests/automation-schema.test.mjs tests/bridge-client.test.mjs
+  tests/service-worker.test.mjs`: 40 executados, 40 passaram, 0 falharam.
+- `npm test`: 172 executados, 172 passaram, 0 falharam.
+- `git diff --check`: passou.
 
 ## Limitação registrada
 

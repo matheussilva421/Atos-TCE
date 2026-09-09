@@ -3,9 +3,10 @@
 ## Estado
 
 Fase 4 implementada na branch `codex/fundamentacao-automatico`. A rodada de
-correções da revisão independente está concluída e será registrada no commit
-`fix: bind automation API identity and retry state`; o checkout não possui
-remoto. Envio real permanece bloqueado.
+correções da revisão independente está concluída, incluindo a guarda de
+identidade da extensão para controles `AUTO_*`, no commit
+`fix: enforce extension identity for automation control`; o checkout não
+possui remoto. Envio real permanece bloqueado.
 
 ## O que foi feito
 
@@ -18,7 +19,8 @@ remoto. Envio real permanece bloqueado.
 - Schema/bridge JS v1 e mensagens automáticas fechadas; serviço antigo retorna
   fallback manual quando capabilities não existem.
 - Worker recebe contexto com cache indexado por identidade/hash/regras/revisão
-  e restringe controle automático a páginas da extensão.
+  e restringe controle automático a páginas da própria extensão, validando
+  `sender.id` e o hostname da URL contra `chrome.runtime.id`.
 - Retry de criação preserva o `event_id` inicial e o snapshot original de
   forma atômica no `AutomationStore`; payload divergente gera conflito.
 - Legal-context canonicaliza a consulta, confere presença no dataset e hash
@@ -42,8 +44,13 @@ e os testes bridge/worker correspondentes.
 ## Verificação
 
 Focais Python: 32 executados, 31 pass, 0 falhas, 1 skip ambiental. Store:
-17/17. JS focal: 38/38. `npm test`: 170/170. `py_compile` e `git diff
---check` passaram.
+17/17. Após a correção de identidade, JS focal: 40/40 e `npm test`: 172/172;
+`git diff --check` passou.
+
+TDD da correção: os dois testes de identidade falharam antes da implementação
+porque `AUTO_START` alcançava o bridge; após a guarda, os cinco `AUTO_*` de cada
+cenário retornam `UNAUTHORIZED` sem chamada ao bridge. O fallback do serviço
+antigo continua verde.
 
 A descoberta Python completa foi interrompida após ficar sem saída; o PID
 15456 foi encerrado de forma segura. Não há processo Python dessa execução

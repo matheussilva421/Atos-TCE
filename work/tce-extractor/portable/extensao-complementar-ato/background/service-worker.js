@@ -54,8 +54,20 @@ function senderIsExtension(sender, chromeApi) {
   return typeof sender?.url === "string" && sender.url.startsWith("chrome-extension://");
 }
 
-function senderIsExtensionPage(sender) {
-  return typeof sender?.url === "string" && sender.url.startsWith("chrome-extension://");
+function senderIsExtensionPage(sender, chromeApi) {
+  const extensionId = chromeApi?.runtime?.id;
+  if (typeof extensionId !== "string" || !extensionId || sender?.id !== extensionId) return false;
+  if (!senderIsExtension(sender, chromeApi) || typeof sender?.url !== "string") return false;
+  try {
+    const parsed = new URL(sender.url);
+    return parsed.protocol === "chrome-extension:"
+      && parsed.hostname === extensionId
+      && parsed.username === ""
+      && parsed.password === ""
+      && parsed.port === "";
+  } catch {
+    return false;
+  }
 }
 
 function clone(value) {
@@ -419,7 +431,7 @@ export function createServiceWorker({
   }
 
   async function handleAutomationMessage(message, sender) {
-    if (!senderIsExtensionPage(sender)) {
+    if (!senderIsExtensionPage(sender, chromeApi)) {
       return errorResponse(message.requestId, "UNAUTHORIZED", "somente páginas da extensão podem controlar a execução");
     }
     if (bridge === null) return automationUnavailable(message);
