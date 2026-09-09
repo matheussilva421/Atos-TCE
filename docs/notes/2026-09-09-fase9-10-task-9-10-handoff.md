@@ -22,6 +22,7 @@ configurado, portanto não há push.
 - `work/tce-extractor/test_package_audit.py`
 - `work/tce-extractor/test_portable_end_to_end.py`
 - `work/tce-extractor/test_panel_accessibility.py`
+- `work/tce-extractor/test_automation_api.py`
 - `work/tce-extractor/portable/extensao-complementar-ato/manifest.json`
 - `docs/notes/2026-09-08-fundamentacao-automatico-plano-fases.md`
 - `docs/notes/2026-09-09-fase9-10-task-9-10-report.md`
@@ -45,6 +46,11 @@ de texto/status/ação/foco, `lang=pt-BR`, IDs únicos, targets de labels existe
 e cópia estática de segurança. O smoke combinado de painel e automação passou
 em 5/5.
 
+Foi adicionada uma regressão de segurança na API: execução comum não pode
+consumir comando quando `real_send_enabled=false`; o serviço devolve
+`REAL_SEND_DISABLED` sem persistir `command_consumed`. O piloto opt-in ainda não
+existe/habilitado, portanto nenhum caminho de envio real foi aberto.
+
 Três auditorias Luna xhigh foram solicitadas em paralelo para separar checklists
 históricos das pendências reais, mas permaneceram sem resposta e foram
 encerradas; não produziram alterações nem evidência adicional.
@@ -53,12 +59,12 @@ encerradas; não produziram alterações nem evidência adicional.
 
 1. Repetir a suíte ampla somente se houver novas alterações; o último gate foi
    `373/373`, com 5 skips ambientais. O último focal de painel/automação foi
-   `5/5`.
+   `5/5`; a API focal passou `16/16` após o guard.
 2. Rodar `git diff --check` e `git status --short --branch`.
 3. Se houver nova alteração, revisar mudanças privadas/ignoradas e fazer stage
    explícito; não usar `git add .`.
-4. O gate formal de acessibilidade está no commit `692ed27`; não executar push
-   sem remoto.
+4. Criar commit específico para o guard de envio; o gate formal de acessibilidade
+   está em `692ed27`; não executar push sem remoto.
 5. Atualizar este handoff somente se o estado mudar.
 
 ## Pendência bloqueante

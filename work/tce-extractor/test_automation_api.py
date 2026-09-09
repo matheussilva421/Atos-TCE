@@ -781,6 +781,66 @@ class AutomationApiTests(unittest.TestCase):
             self.assertEqual(snapshot["revision"], 0)
             self.assertEqual(snapshot["items"], [])
 
+    def test_common_run_cannot_consume_a_send_command_when_real_send_is_disabled(self):
+        with running_server() as (root, server, base):
+            _dataset, digest = write_fixture(root, "Ana")
+            token = self.pair(server, base)
+            status, _headers, created = request_json(
+                f"{base}/api/v1/automation/runs",
+                method="POST",
+                token=token,
+                payload=self.run_spec(digest, event_id="start-send-gate"),
+            )
+            self.assertEqual(status, 200, created)
+            run_id = created["run_id"]
+            identity = {
+                "process_key": "103439/2023",
+                "interested_normalized": "ana",
+                "portal_act_id": None,
+            }
+            event_url = f"{base}/api/v1/automation/runs/{run_id}/events"
+            status, _headers, queued = request_json(
+                f"{base}/api/v1/automation/runs/{run_id}/queue",
+                method="POST",
+                token=token,
+                payload={"identities": [identity], "event_id": "queue-send-gate", "expected_revision": 0},
+            )
+            self.assertEqual(status, 200, queued)
+            revision = queued["revision"]
+            seeds = [
+                ("prepared-send-gate", "item_prepared", {"reason": "prepared"}),
+                ("verified-send-gate", "fields_verified", {"field_results": {}, "rereads": []}),
+                (
+                    "intent-send-gate",
+                    "send_intent",
+                    {"expected_fields_hash": "a" * 64, "command_id": "command-send-gate", "expires_at": 4102444800000},
+                ),
+            ]
+            for event_id, event_type, payload in seeds:
+                status, _headers, result = request_json(
+                    event_url,
+                    method="POST",
+                    token=token,
+                    payload={
+                        "event_id": event_id,
+                        "expected_revision": revision,
+                        "item_id": "103439/2023",
+                        "type": event_type,
+                        "payload": payload,
+                    },
+                )
+                self.assertEqual(status, 200, result)
+                revision = result["revision"]
+
+            status, _headers, body = request_json(
+                f"{base}/api/v1/automation/runs/{run_id}/commands/command-send-gate/consume",
+                method="POST",
+                token=token,
+                payload={"expected_revision": revision},
+            )
+            self.assertEqual(status, 409, body)
+            self.assertEqual(body["error"]["code"], "REAL_SEND_DISABLED")
+
     def test_report_requires_auth_accepts_only_html_or_csv_and_uses_service_root(self):
         with running_server() as (root, server, base):
             _dataset, digest = write_fixture(root, "Ana")

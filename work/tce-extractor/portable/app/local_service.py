@@ -1460,6 +1460,14 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             try:
                 payload = self._read_json()
                 expected_revision = _validate_command_consume_payload(payload)
+                run_snapshot = self.server_state.automation_store.snapshot(run_id)
+                run_mode = run_snapshot.get("spec", {}).get("mode", "batch")
+                if run_mode != "pilot" or not getattr(self.server_state, "automation_pilot", False):
+                    raise _ApiProblem(
+                        409,
+                        "REAL_SEND_DISABLED",
+                        "envio real está desabilitado; use somente o piloto explicitamente qualificado",
+                    )
                 consumed = self.server_state.automation_store.consume_command(
                     run_id, command_id, expected_revision
                 )

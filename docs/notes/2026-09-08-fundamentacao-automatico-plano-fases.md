@@ -751,6 +751,7 @@ Comandos: em E, `node --test tests/panel-view.test.mjs tests/panel.test.mjs test
 - [x] Cobrir 25 atos em duas páginas, 3 pendências documentais e um timeout de envio: após reabrir, o ordinal 11 ficou `unconfirmed`, três itens ficaram `pending` e a execução pausou para retomada explícita.
 - [x] Reiniciar o journal/serviço e navegador separadamente; a suíte cobre recuperação, watchdog, isolamento de outra aba, troca de dataset e reabertura do perfil descartável.
 - [x] Confirmar que bridge/serviço ausente impede envio e que os relatórios/HTML anteriores continuam legíveis; SQLite indisponível permanece gate de ambiente a repetir no runtime portátil final.
+- [x] Fechar o guard de segurança da API: uma execução comum não consome comando quando `real_send_enabled=false`; o endpoint devolve `REAL_SEND_DISABLED` antes de autorizar `dispatch_allowed`.
 - [x] Rodar suíte JS completa, Python focal e suíte Python ampla; a primeira ampla revelou e corrigiu a fixture que omitia `legal_context.py`, sem converter a falha em PASS.
 
 ### 14.2 Gate real, sem presumir sucesso
