@@ -6,7 +6,8 @@ Branch: `codex/fundamentacao-automatico`.
 
 As entregas locais das Fases 9 e 10 estão no checkout e foram commitadas em
 `25ca99e` (`test: qualify local automation and package release`) e `692ed27`
-(`test: add formal panel accessibility gate`). O repositório não possui remoto
+(`test: add formal panel accessibility gate`), seguidos de `9ad2a50`
+(`docs: record accessibility gate handoff`). O repositório não possui remoto
 configurado, portanto não há push.
 
 ## Arquivos principais
@@ -43,6 +44,10 @@ O gate adicional de acessibilidade passou em 3/3: contraste mínimo dos tokens
 de texto/status/ação/foco, `lang=pt-BR`, IDs únicos, targets de labels existentes
 e cópia estática de segurança. O smoke combinado de painel e automação passou
 em 5/5.
+
+Três auditorias Luna xhigh foram solicitadas em paralelo para separar checklists
+históricos das pendências reais, mas permaneceram sem resposta e foram
+encerradas; não produziram alterações nem evidência adicional.
 
 ## Retomada imediata
 
