@@ -57,6 +57,13 @@ Este bloco foi commitado em `4dd10c0` (`feat: gate real send by
 qualification`). O repositório continua sem remoto configurado; nenhum push foi
 feito.
 
+Último checkpoint sem mutação: `GET http://127.0.0.1:18744/health` respondeu
+`401`, confirmando que a ponte continua escutando e protegida; a captura real
+ainda mostra a lista autenticada, sem formulário/ato aberto. A janela não deve
+ser fechada ou reiniciada. Para retomar, o operador precisa abrir manualmente
+um formulário “Complementar Ato” nessa mesma janela e parar antes do botão de
+envio; então a captura sanitizada e os três preflights poderão continuar.
+
 Próximo passo seguro: mantendo esta janela aberta, obter a tela de formulário
 real na Área Restrita e localizar três atos representativos por navegação
 supervisionada. Só depois fazer preflight sem envio. O primeiro clique real e o
