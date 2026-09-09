@@ -5,8 +5,10 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import socket
+import time
 from tempfile import TemporaryDirectory
 import threading
 import unittest
@@ -64,6 +66,92 @@ def running_server():
 
 
 class LocalServiceTests(unittest.TestCase):
+    def test_portable_service_metadata_pairs_and_reaches_capabilities(self):
+        """Exercise the package startup boundary, not only an in-process server."""
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = root / "acervo-tce"
+            bridge = root / "dados-locais" / "bridge"
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-B",
+                    str(APP_ROOT / "local_service.py"),
+                    "--root",
+                    str(archive),
+                    "--bridge-root",
+                    str(bridge),
+                    "--port",
+                    "0",
+                ],
+                cwd=APP_ROOT,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            metadata_path = bridge / "service.json"
+            metadata = None
+            try:
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    if process.poll() is not None:
+                        self.fail("serviço portátil encerrou antes de publicar service.json")
+                    if metadata_path.is_file():
+                        try:
+                            candidate = json.loads(metadata_path.read_text(encoding="utf-8"))
+                        except json.JSONDecodeError:
+                            candidate = None
+                        if isinstance(candidate, dict) and candidate.get("pairing_code"):
+                            metadata = candidate
+                            break
+                    time.sleep(0.05)
+
+                self.assertIsNotNone(metadata)
+                assert metadata is not None
+                self.assertEqual(metadata["schema_version"], 1)
+                self.assertEqual(metadata["pid"], process.pid)
+                self.assertGreater(metadata["port"], 0)
+                self.assertRegex(metadata["pairing_code"], r"^\d{8}$")
+
+                base = f"http://127.0.0.1:{metadata['port']}"
+                status, _headers, pair_body = json_request(
+                    f"{base}/api/v1/pair",
+                    method="POST",
+                    payload={"code": metadata["pairing_code"]},
+                    origin="chrome-extension://test-extension",
+                )
+                self.assertEqual(status, 200)
+                token = json.loads(pair_body)["token"]
+                self.assertNotEqual(token, metadata["pairing_code"])
+
+                status, _headers, capabilities_body = json_request(
+                    f"{base}/api/v1/automation/capabilities",
+                    token=token,
+                    origin="chrome-extension://test-extension",
+                )
+                self.assertEqual(status, 200)
+                capabilities = json.loads(capabilities_body)
+                self.assertEqual(capabilities["api_version"], 1)
+                self.assertFalse(capabilities["real_send_enabled"])
+                self.assertNotIn(token, json.dumps(capabilities))
+
+                with self.assertRaises(HTTPError) as error:
+                    json_request(
+                        f"{base}/api/v1/pair",
+                        method="POST",
+                        payload={"code": metadata["pairing_code"]},
+                        origin="chrome-extension://test-extension",
+                    )
+                self.assertEqual(error.exception.code, 401)
+                error.exception.close()
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=5)
+
     def test_private_state_requires_auth(self):
         with running_server() as (_root, _server, base):
             with self.assertRaises(HTTPError) as error:

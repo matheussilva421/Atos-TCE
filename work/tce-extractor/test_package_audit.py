@@ -1027,6 +1027,9 @@ class PackagerContractTests(unittest.TestCase):
         ):
             with self.subTest(asset=asset):
                 self.assertIn(f"'{asset}'", packager)
+        for module in ("automation_report.py", "automation_store.py", "legal_context.py"):
+            with self.subTest(module=module):
+                self.assertIn(f"'{module}'", packager)
 
         private_packager = (ROOT / "portable" / "Empacotar-Acervo-Completo.ps1").read_text(
             encoding="utf-8-sig"
