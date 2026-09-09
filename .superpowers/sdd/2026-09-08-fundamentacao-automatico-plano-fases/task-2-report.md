@@ -165,9 +165,12 @@ Também foi executado `git diff --check` sem diagnóstico.
 - Mensagens: `createMessage` converte `pending`, `{kind: "pending"}` e status
   pending direto ou em `legalDecision` para `tie`, o fallback v1 cauteloso;
   valores desconhecidos continuam rejeitados.
-- GREEN focal: 75 testes executados, 75 passaram, 0 falharam.
+- GREEN focal: 64 testes executados, 64 passaram, 0 falharam.
 - GREEN full (`npm test`): 157 testes executados, 157 passaram, 0 falharam.
 - `git diff --check`: sem diagnóstico.
 - Escopo preservado: nenhum worker, painel, API, persistência, navegação ou
   envio real foi alterado ou executado.
-- Commit solicitado: `fix: preserve legacy matcher and combined foundation behavior`.
+- Commit final: `7ceb326c43adf9bb347712b6e3b20ed6125d4ab8`.
+- Revisão independente final: aprovada sem achados funcionais; a correção
+  posterior foi apenas documental, ajustando o focal para 64/64.
+- Próxima fase: Fase 3, diário durável e relatórios.

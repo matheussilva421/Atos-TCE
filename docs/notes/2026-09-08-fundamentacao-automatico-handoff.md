@@ -4,7 +4,7 @@
 
 - Implementação iniciada em `codex/fundamentacao-automatico`, derivada de `main` em `dc84402`.
 - O ledger vivo está em `.superpowers/sdd/2026-09-08-fundamentacao-automatico-plano-fases/progress.md` (git-ignorado) e registra tasks, conflitos e decisões.
-- Task atual: Fase 3 — diário durável e relatórios; Fases 1 e 2 aprovadas e fechadas.
+- Task atual: Fase 4 — API local e compatibilidade da extensão; Fases 1–3 aprovadas e fechadas.
 - Baseline desta execução: `npm test` 124/124 pass; Python focal 99/99 pass, 1 skip ambiental. Warnings de `fitz` depreciado e `ResourceWarning` já aparecem na baseline e não foram introduzidos nesta branch.
 - Fase 0 concluída e revisada: commits `b99fd80` e `54dcf9f`; fixtures/testes sanitizados aprovados em re-revisão Luna. A suíte JS pós-fase ficou 125/126 porque a regressão RED do matcher continua intencional para a Fase 2.
 - Fase 1 aprovada em revisão final após cinco rounds de correção: commits de código `f0a72b5`, `e84ac95`, `8b3a411`, `e85aa35`, `d305ee6`, `0876f2d` e documentação `5b1a732`, `8a64d4d`, `86837a9`, `559b089`, `6a3b63c`, `45e225e`. Último foco: 18/18 testes de contexto, 7/7 pipeline dirigido, 89/89 focal Python, 19/19 batch runner; revisão final Approved. O pacote portátil continua pendente para a Fase 10.
@@ -325,3 +325,21 @@
   posterior foi apenas documental, ajustando o focal para 64/64.
 - GitHub: checkout sem remoto configurado; nenhum push foi realizado.
 - Próxima tarefa: executar a Fase 3 conforme `task-3-brief.md`.
+
+## Registro por fase — Fase 3 — encerramento
+
+- Estado: diário SQLite e relatórios duráveis implementados nos commits
+  `d3035da`, `f0e1dc8`, `924cfef`, `b13f868` e `4046fbd`.
+- Ownership: `automation_store.py`, `automation_report.py` e seus testes;
+  nenhum serviço, API, worker, painel, empacotador ou envio real foi alterado.
+- Contratos: pragmas SQLite obrigatórios, `BEGIN IMMEDIATE`, projeção atômica,
+  idempotência/conflito, revisão obrigatória, recovery fail-closed, replay
+  legado explicitamente indisponível, allowlist/redaction, citações por IDs,
+  publicação versionada e manifesto SHA-256.
+- Validação final: `python -m unittest test_automation_store
+  test_automation_report -q` — 31/31; focais Python — 69/69, 3 skips
+  ambientais; `py_compile` e `git diff --check` verdes; revisão independente
+  final **Approved**.
+- Pendências: integração com a API/serviço e fases posteriores; eventos
+  legados sem `result_json` exigem backfill antes de replay.
+- Próxima tarefa: executar a Fase 4 conforme `task-4-brief.md`.
