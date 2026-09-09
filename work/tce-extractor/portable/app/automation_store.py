@@ -259,6 +259,7 @@ class AutomationStore:
                     updated_at TEXT NOT NULL,
                     started_at TEXT,
                     paused_at TEXT,
+                    paused_from_state TEXT,
                     stopped_at TEXT,
                     completed_at TEXT
                 );
@@ -314,6 +315,14 @@ class AutomationStore:
             }
             if "result_json" not in event_columns:
                 connection.execute("ALTER TABLE events ADD COLUMN result_json TEXT")
+            run_columns = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(runs)").fetchall()
+            }
+            if "paused_from_state" not in run_columns:
+                connection.execute(
+                    "ALTER TABLE runs ADD COLUMN paused_from_state TEXT"
+                )
             connection.commit()
         except Exception:
             connection.rollback()
@@ -606,12 +615,19 @@ class AutomationStore:
                 )
             next_state = "running"
         elif event_type in {"run_paused", "run_resumed", "run_stopped", "run_completed"}:
-            next_state = {
-                "run_paused": "paused",
-                "run_resumed": "running",
-                "run_stopped": "stopped",
-                "run_completed": "completed",
-            }[event_type]
+            if event_type == "run_resumed":
+                paused_from_state = run["paused_from_state"]
+                next_state = (
+                    str(paused_from_state)
+                    if paused_from_state in {"discovering", "running"}
+                    else "running"
+                )
+            else:
+                next_state = {
+                    "run_paused": "paused",
+                    "run_stopped": "stopped",
+                    "run_completed": "completed",
+                }[event_type]
         else:
             item = self._find_item(connection, run_id, payload)
             next_item_state = {
@@ -651,6 +667,11 @@ class AutomationStore:
         if next_state == "running" and current_state == "discovering":
             update_columns.append("started_at = ?")
             update_values.append(timestamp)
+        if event_type == "run_paused":
+            update_columns.append("paused_from_state = ?")
+            update_values.append(current_state)
+        elif event_type in {"run_resumed", "run_stopped", "run_completed"}:
+            update_columns.append("paused_from_state = NULL")
         if time_column:
             update_columns.append(f"{time_column} = ?")
             update_values.append(timestamp)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import importlib.util
 from io import StringIO
+import json
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
@@ -27,14 +28,14 @@ class AutomationReportTests(unittest.TestCase):
         )
         self.assertIsNotNone(importlib.util.find_spec("automation_store"))
 
-    def _store_with_report_data(self):
+    def _store_with_report_data(self, root=None, identities=None):
         from automation_store import AutomationStore
 
-        store = AutomationStore(self.root)
+        store = AutomationStore(self.root if root is None else root)
         store.create_run({"run_id": "run-report", "schema_version": 1})
         store.freeze_queue(
             "run-report",
-            [{"process_key": "103439/2023"}],
+            identities or [{"process_key": "103439/2023"}],
             "queue-report",
             0,
         )
@@ -235,6 +236,136 @@ class AutomationReportTests(unittest.TestCase):
             self.assertIn("page-4", content)
             self.assertIn("Acórdão", content)
 
+    def test_snapshot_recovery_sections_use_the_same_safe_projection(self) -> None:
+        from automation_report import render_run_reports
+
+        confirmed_root = self.root / "confirmed"
+        confirmed = self._store_with_report_data(confirmed_root)
+        self.addCleanup(confirmed.close)
+        confirmed.append_event(
+            "run-report",
+            {
+                "event_id": "confirmed-report",
+                "type": "send_intent",
+                "expected_revision": 3,
+                "item_id": "103439/2023",
+            },
+        )
+        confirmed.append_event(
+            "run-report",
+            {
+                "event_id": "confirmed-result",
+                "type": "send_confirmed",
+                "expected_revision": 4,
+                "item_id": "103439/2023",
+                "metadata": {
+                    "authToken": "AUTH-TOKEN-LEAK",
+                    "apiKey": "API-KEY-LEAK",
+                    "cpfValue": 1234567890,
+                    "artifact": r"C:\private\confirmed.pdf",
+                    "freeText": "CONFIRMED-FREE-PAYLOAD",
+                },
+            },
+        )
+        confirmed_result = render_run_reports(confirmed, "run-report", confirmed_root)
+        confirmed_html = Path(confirmed_result["html_path"]).read_text(encoding="utf-8")
+
+        interrupted_root = self.root / "interrupted"
+        interrupted = self._store_with_report_data(
+            interrupted_root,
+            [
+                {
+                    "process_key": "103439/2023",
+                    "metadata": {
+                        "authToken": "INTERRUPTED-AUTH-TOKEN-LEAK",
+                        "apiKey": "INTERRUPTED-API-KEY-LEAK",
+                        "cpfValue": 1234567890,
+                        "artifact": r"C:\private\interrupted.pdf",
+                        "freeText": "INTERRUPTED-FREE-PAYLOAD",
+                    },
+                }
+            ],
+        )
+        self.addCleanup(interrupted.close)
+        interrupted.append_event(
+            "run-report",
+            {
+                "event_id": "interrupted-intent",
+                "type": "send_intent",
+                "expected_revision": 3,
+                "item_id": "103439/2023",
+            },
+        )
+        interrupted_result = render_run_reports(
+            interrupted, "run-report", interrupted_root
+        )
+        interrupted_html = Path(interrupted_result["html_path"]).read_text(
+            encoding="utf-8"
+        )
+
+        for content in (confirmed_html, interrupted_html):
+            for secret in (
+                "AUTH-TOKEN-LEAK",
+                "API-KEY-LEAK",
+                "1234567890",
+                r"C:\private\confirmed.pdf",
+                "CONFIRMED-FREE-PAYLOAD",
+                "INTERRUPTED-AUTH-TOKEN-LEAK",
+                "INTERRUPTED-API-KEY-LEAK",
+                "INTERRUPTED-FREE-PAYLOAD",
+                r"C:\private\interrupted.pdf",
+            ):
+                self.assertNotIn(secret, content)
+
+    def test_malformed_citations_are_discarded_without_generic_payload_fallback(self) -> None:
+        from automation_report import render_run_reports
+
+        cases = (
+            ("dict", {"unknown": "CITATION-DICT-LEAK"}),
+            ("string", "CITATION-STRING-LEAK"),
+            (
+                "list",
+                [
+                    {
+                        "document_id": "document-8",
+                        "page_id": "page-8",
+                        "page": 8,
+                        "label": "Ato seguro",
+                    },
+                    {"unknown": "CITATION-LIST-LEAK"},
+                    "CITATION-LIST-STRING-LEAK",
+                ],
+            ),
+        )
+        for suffix, citations in cases:
+            with self.subTest(suffix=suffix):
+                root = self.root / f"citation-{suffix}"
+                store = self._store_with_report_data(root)
+                self.addCleanup(store.close)
+                store.append_event(
+                    "run-report",
+                    {
+                        "event_id": f"invalid-citation-{suffix}",
+                        "type": "item_failed",
+                        "expected_revision": 3,
+                        "item_id": "103439/2023",
+                        "citations": citations,
+                    },
+                )
+                result = render_run_reports(store, "run-report", root)
+                contents = [
+                    Path(result["html_path"]).read_text(encoding="utf-8"),
+                    Path(result["csv_path"]).read_text(encoding="utf-8"),
+                ]
+                for content in contents:
+                    self.assertNotIn("CITATION-DICT-LEAK", content)
+                    self.assertNotIn("CITATION-STRING-LEAK", content)
+                    self.assertNotIn("CITATION-LIST-LEAK", content)
+                    self.assertNotIn("CITATION-LIST-STRING-LEAK", content)
+                if suffix == "list":
+                    self.assertIn("document-8", contents[0])
+                    self.assertIn("page-8", contents[0])
+
     def test_csv_has_field_rows_and_neutralizes_formula_prefixes(self) -> None:
         from automation_report import render_run_reports
 
@@ -300,6 +431,56 @@ class AutomationReportTests(unittest.TestCase):
         self.assertEqual(Path(first["html_path"]).read_bytes(), old_html)
         self.assertEqual(Path(first["csv_path"]).read_bytes(), old_csv)
         self.assertEqual(manifest_path.read_bytes(), old_manifest)
+        self.assertEqual(list(directory.glob(".relatorio.*.tmp")), [])
+
+    def test_tampered_existing_generation_fails_closed(self) -> None:
+        from automation_report import render_run_reports
+
+        store = self._store_with_report_data()
+        self.addCleanup(store.close)
+        first = render_run_reports(store, "run-report", self.root)
+        directory = self.root / "relatorios" / "complementacao" / "run-report"
+        generation_html = (
+            directory / ".generations" / first["generation"] / "relatorio.html"
+        )
+        old_html = Path(first["html_path"]).read_bytes()
+        old_csv = Path(first["csv_path"]).read_bytes()
+        manifest_path = Path(first["manifest_path"])
+        old_manifest = manifest_path.read_bytes()
+        generation_html.write_text("CORRUPTED-GENERATION", encoding="utf-8")
+
+        with self.assertRaises(OSError):
+            render_run_reports(store, "run-report", self.root)
+
+        self.assertEqual(Path(first["html_path"]).read_bytes(), old_html)
+        self.assertEqual(Path(first["csv_path"]).read_bytes(), old_csv)
+        self.assertEqual(manifest_path.read_bytes(), old_manifest)
+        self.assertEqual(generation_html.read_text(encoding="utf-8"), "CORRUPTED-GENERATION")
+        self.assertEqual(list(directory.glob(".relatorio.*.tmp")), [])
+
+    def test_divergent_manifest_hash_fails_closed(self) -> None:
+        from automation_report import render_run_reports
+
+        store = self._store_with_report_data()
+        self.addCleanup(store.close)
+        first = render_run_reports(store, "run-report", self.root)
+        directory = self.root / "relatorios" / "complementacao" / "run-report"
+        html_path = Path(first["html_path"])
+        csv_path = Path(first["csv_path"])
+        manifest_path = Path(first["manifest_path"])
+        old_html = html_path.read_bytes()
+        old_csv = csv_path.read_bytes()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["html_sha256"] = "0" * 64
+        divergent_manifest = json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+        manifest_path.write_text(divergent_manifest, encoding="utf-8")
+
+        with self.assertRaises(OSError):
+            render_run_reports(store, "run-report", self.root)
+
+        self.assertEqual(html_path.read_bytes(), old_html)
+        self.assertEqual(csv_path.read_bytes(), old_csv)
+        self.assertEqual(manifest_path.read_text(encoding="utf-8"), divergent_manifest)
         self.assertEqual(list(directory.glob(".relatorio.*.tmp")), [])
 
     def test_report_uses_snapshot_revision_as_event_upper_bound(self) -> None:

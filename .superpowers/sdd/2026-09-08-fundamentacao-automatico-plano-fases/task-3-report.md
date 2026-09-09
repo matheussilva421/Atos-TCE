@@ -65,7 +65,7 @@ Após a implementação mínima e a correção do import necessário do renderer
 
 ```text
 python -m unittest test_automation_store test_automation_report -q
-Resultado: 22 testes executados, 22 passaram, 0 falharam.
+Resultado: 28 testes executados, 28 passaram, 0 falharam.
 ```
 
 ## Testes e validações
@@ -93,12 +93,20 @@ Resultado: sem diagnóstico.
 Data: 2026-09-09
 
 Foram corrigidos os quatro achados da revisão independente, preservando os
-seis fixes anteriores do commit `f0e1dc8`:
+fixes anteriores dos commits `f0e1dc8` e `924cfef`:
 
-- allowlist estrutural e redaction recursiva de payload/citações, cobrindo
-  tokens, cookies múltiplos, CPF numérico, URLs `www` e caminhos relativos;
+- projeção estrutural segura de `last_confirmed` e `interrupted_item`, sem
+  payload livre, com redaction endurecida para tokens/cookies, API keys, CPF
+  numérico com zero inicial, URLs com/sem esquema e caminhos;
+- descarte fechado de citações que não sejam lista de objetos permitidos com
+  `document_id`, `page_id`, `page` e `label` seguros;
+- recovery preservando a origem da pausa: `discovering` retoma como
+  `discovering` e `running` continua retomando como `running`, sem liberar o
+  slot de execução ativa;
 - leitura de eventos limitada à revisão do snapshot;
-- geração versionada, manifesto/ponteiro atômico e rollback do par HTML/CSV;
+- geração versionada validada por SHA-256 e manifesto publicado validado antes
+  de qualquer nova substituição; divergências falham fechadamente e deixam a
+  geração não publicada;
 - erro explícito `LegacyEventReplayError` para replay sem `result_json`.
 
 Os fixes anteriores preservados incluem recovery de `send_intent` em runs
@@ -109,8 +117,9 @@ pragmas/transações SQLite, concorrência e redaction inicial.
 TDD da rodada:
 
 ```text
-RED: 22 testes executados; 1 falha e 16 erros nos comportamentos novos.
-GREEN: 22 testes executados, 22 passaram, 0 falharam.
+RED por fatia: redaction (1 falha), citações (2 subcasos), recovery discovering
+(1 falha) e integridade de geração/manifesto (2 falhas).
+GREEN: 28 testes executados, 28 passaram, 0 falharam.
 Focais Python: 69 testes executados, 69 passaram, 0 falharam, 3 skips ambientais.
 py_compile: OK.
 git diff --check: sem diagnóstico.
@@ -120,7 +129,8 @@ O escopo permaneceu restrito a `automation_store.py`,
 `automation_report.py`, seus testes e este relatório. Nenhum serviço, API,
 worker, painel, empacotamento, autenticação ou envio real foi alterado ou
 executado. A nova coluna `events.result_json` é adicionada de forma compatível
-ao abrir bancos existentes; eventos legados sem esse resultado armazenado
+ao abrir bancos existentes; a coluna `runs.paused_from_state` também é
+adicionada de forma compatível. Eventos legados sem esse resultado armazenado
 falham fechadamente com `LegacyEventReplayError`, sem devolver snapshot
 posterior como resultado original.
 
@@ -143,7 +153,7 @@ posterior como resultado original.
 3. Nenhum envio real, autenticação de portal ou navegação foi iniciado.
 4. Commit funcional anterior: `d3035da`
    (`feat: persist automation events and incremental reports`).
-5. Esta rodada será consolidada em `fix: make automation reports transactional and redacted`.
+5. Esta rodada será consolidada em `fix: close automation report review findings`.
 
 Próxima retomada: revisar este relatório e consumir `AutomationStore` somente
 na fase de API, preservando o gate de envio real e executando novamente os

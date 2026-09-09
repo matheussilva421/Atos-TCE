@@ -31,10 +31,13 @@ _SENSITIVE_KEY_PARTS = frozenset(
         "cpf",
         "session",
         "sessionid",
+        "sid",
         "url",
         "path",
         "filename",
         "file",
+        "api_key",
+        "apikey",
     }
 )
 _EVENT_PAYLOAD_ALLOWLIST = frozenset(
@@ -68,10 +71,16 @@ _CITATION_KEYS = frozenset({"document_id", "page_id", "page", "label"})
 _SAFE_ID_RE = re.compile(r"[A-Za-z0-9._:/-]{1,256}")
 _URL_RE = re.compile(
     r"(?:\b(?:https?|wss?|ftp|file|mailto|javascript|data):[^\s<>'\"]+"
-    r"|(?<!\w)//[^\s<>'\"]+|\bwww\.[^\s<>'\"]+)",
+    r"|(?<!\w)//[^\s<>'\"]+|\bwww\.[^\s<>'\"]+"
+    r"|(?<![@\w])(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:/[^\s<>'\"]*)?)",
     re.IGNORECASE,
 )
-_CPF_RE = re.compile(r"(?<!\d)\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2}(?!\d)")
+_CPF_RE = re.compile(
+    r"(?:"
+    r"(?<!\d)\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2}(?!\d)"
+    r"|(?<!\d)\d{10}(?!\d)"
+    r")"
+)
 _TOKEN_RE = re.compile(
     r"(?:\bBearer\s+[A-Za-z0-9._~+/=-]+"
     r"|\b(?:access|auth|refresh|session|id|csrf)?[_-]?token\s*[:=]\s*[^\s,;]+"
@@ -83,7 +92,7 @@ _COOKIE_HEADER_RE = re.compile(
     r"\b(?:cookie|set-cookie)\s*[:=\s]*[^\r\n]+", re.IGNORECASE
 )
 _COOKIE_PAIR_RE = re.compile(
-    r"\b(?:sessionid|session_id|csrftoken|csrf_token|connect\.sid|"
+    r"\b(?:sid|session|sessionid|session_id|csrftoken|csrf_token|connect\.sid|"
     r"auth(?:entication)?[_-]?cookie)\s*[:=]\s*[^\s,;]+",
     re.IGNORECASE, )
 _JWT_RE = re.compile(
@@ -99,7 +108,8 @@ _FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r", "\n")
 
 
 def _normalized_key(key: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", key.casefold()).strip("_")
+    camel_case = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", key)
+    return re.sub(r"[^a-z0-9]+", "_", camel_case.casefold()).strip("_")
 
 
 def _is_sensitive_key(key: str) -> bool:
@@ -124,7 +134,7 @@ def _safe_identifier(value: Any) -> str:
     if isinstance(value, bool):
         return "[redacted-id]"
     if isinstance(value, int):
-        if 10**10 <= abs(value) <= 10**11 - 1:
+        if 10**9 <= abs(value) <= 10**11 - 1:
             return "[redacted-id]"
         text = str(value)
     elif isinstance(value, str):
@@ -174,6 +184,35 @@ def _safe_identity(value: Any) -> Any:
     return _safe_identifier(value)
 
 
+def _safe_snapshot_item(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, Any] = {}
+    if "identity" in value:
+        result["identity"] = _safe_identity(value["identity"])
+    for key in ("ordinal", "state", "created_at", "updated_at"):
+        if key in value:
+            result[key] = _safe_value(value[key], key)
+    return result
+
+
+def _safe_last_confirmed(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, Any] = {}
+    identity_key = value.get("identity_key")
+    if isinstance(identity_key, str):
+        try:
+            result["identity"] = _safe_identity(json.loads(identity_key))
+        except json.JSONDecodeError:
+            pass
+    if isinstance(value.get("payload"), dict):
+        result["payload"] = _safe_event_payload(value["payload"])
+    if "confirmed_at" in value:
+        result["confirmed_at"] = _safe_value(value["confirmed_at"], "timestamp")
+    return result
+
+
 def _safe_value(value: Any, key: str = "", depth: int = 0) -> Any:
     if depth > 12:
         return "[redacted-depth]"
@@ -190,9 +229,9 @@ def _safe_value(value: Any, key: str = "", depth: int = 0) -> Any:
         return [_safe_value(child, key, depth + 1) for child in value]
     if isinstance(value, str):
         return _redact_text(value)
-    if isinstance(value, int) and not isinstance(value, bool) and 10**10 <= abs(value) <= 10**11 - 1:
+    if isinstance(value, int) and not isinstance(value, bool) and 10**9 <= abs(value) <= 10**11 - 1:
         return "[redacted-cpf]"
-    if isinstance(value, float) and value.is_integer() and 10**10 <= abs(value) <= 10**11 - 1:
+    if isinstance(value, float) and value.is_integer() and 10**9 <= abs(value) <= 10**11 - 1:
         return "[redacted-cpf]"
     return value
 
@@ -205,8 +244,16 @@ def _safe_event_payload(payload: dict[str, Any]) -> dict[str, Any]:
         value = payload[key]
         if key in {"identity", "identities"}:
             safe[key] = _safe_identity(value)
-        elif key == "citations" and isinstance(value, list):
-            safe[key] = [_safe_citation_object(item) for item in value]
+        elif key == "citations":
+            if not isinstance(value, list):
+                continue
+            safe[key] = [
+                citation
+                for item in value
+                if isinstance(item, dict)
+                for citation in [_safe_citation_object(item)]
+                if citation
+            ]
         else:
             safe[key] = _safe_value(value, key)
     return safe
@@ -379,8 +426,8 @@ def _html_value(value: object) -> str:
 def _render_html(
     snapshot: dict[str, Any], events: list[dict[str, Any]], rows: list[dict[str, str]]
 ) -> str:
-    last_confirmed = snapshot.get("last_confirmed")
-    interrupted = snapshot.get("interrupted_item")
+    last_confirmed = _safe_last_confirmed(snapshot.get("last_confirmed"))
+    interrupted = _safe_snapshot_item(snapshot.get("interrupted_item"))
     parts = [
         "<!doctype html>",
         '<html lang="pt-BR"><head><meta charset="utf-8">',
@@ -519,6 +566,70 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _validate_generation_directory(
+    generation_directory: Path, html_digest: str, csv_digest: str
+) -> None:
+    html_path = generation_directory / "relatorio.html"
+    csv_path = generation_directory / "relatorio.csv"
+    if (
+        not generation_directory.is_dir()
+        or not html_path.is_file()
+        or not csv_path.is_file()
+    ):
+        raise OSError("geração de relatório ausente ou incompleta")
+    try:
+        actual_html_digest = _sha256_file(html_path)
+        actual_csv_digest = _sha256_file(csv_path)
+    except OSError as exc:
+        raise OSError("não foi possível validar a geração do relatório") from exc
+    if actual_html_digest != html_digest or actual_csv_digest != csv_digest:
+        raise OSError("hash divergente na geração do relatório")
+
+
+def _validate_published_manifest(manifest_path: Path) -> None:
+    if not manifest_path.exists():
+        return
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise OSError("manifesto de relatório inválido") from exc
+    if not isinstance(manifest, dict):
+        raise OSError("manifesto de relatório inválido")
+    generation = manifest.get("generation")
+    if not isinstance(generation, str) or not re.fullmatch(r"[0-9a-f]{64}", generation):
+        raise OSError("geração inválida no manifesto de relatório")
+    expected_html_path = f".generations/{generation}/relatorio.html"
+    expected_csv_path = f".generations/{generation}/relatorio.csv"
+    if (
+        manifest.get("html_path") != expected_html_path
+        or manifest.get("csv_path") != expected_csv_path
+        or not isinstance(manifest.get("html_sha256"), str)
+        or not isinstance(manifest.get("csv_sha256"), str)
+    ):
+        raise OSError("ponteiro ou hash inválido no manifesto de relatório")
+    generation_directory = manifest_path.parent / ".generations" / generation
+    _validate_generation_directory(
+        generation_directory,
+        manifest["html_sha256"],
+        manifest["csv_sha256"],
+    )
+    for filename, digest_key in (
+        ("relatorio.html", "html_sha256"),
+        ("relatorio.csv", "csv_sha256"),
+    ):
+        compatibility_path = manifest_path.parent / filename
+        if not compatibility_path.is_file() or _sha256_file(compatibility_path) != manifest[digest_key]:
+            raise OSError("publicação compatível divergente do manifesto")
+
+
 def _restore_replaced(
     backups: dict[Path, Path],
     replaced: list[Path],
@@ -592,7 +703,14 @@ def _stage_generation(
     generations_directory.mkdir(parents=True, exist_ok=True)
     generation_directory = generations_directory / generation_id
     if generation_directory.is_dir():
+        _validate_generation_directory(
+            generation_directory,
+            hashlib.sha256(html_content.encode("utf-8")).hexdigest(),
+            hashlib.sha256(csv_content.encode("utf-8")).hexdigest(),
+        )
         return generation_directory, False
+    if generation_directory.exists():
+        raise OSError("caminho de geração existente não é um diretório")
 
     temporary_directory = Path(
         tempfile.mkdtemp(prefix=f".{generation_id}.", dir=generations_directory)
@@ -628,6 +746,7 @@ def render_run_reports(
     csv_path = report_directory / "relatorio.csv"
     manifest_path = report_directory / "relatorio.manifest.json"
     generations_directory = report_directory / ".generations"
+    _validate_published_manifest(manifest_path)
     rows = _report_rows(snapshot["run_id"], events)
     html_content = _render_html(snapshot, events, rows)
     csv_content = _render_csv(rows)

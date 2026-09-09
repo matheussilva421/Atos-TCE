@@ -342,6 +342,69 @@ class AutomationStoreTests(unittest.TestCase):
         self.assertEqual(snapshot["state"], "paused")
         self.assertEqual(snapshot["items"][0]["state"], "unconfirmed")
 
+    def test_reopen_discovering_run_can_resume_and_freeze_queue(self) -> None:
+        store = self._store()
+        store.create_run({"run_id": "discovering-run"})
+        store.close()
+
+        reopened = self._store()
+        self.addCleanup(reopened.close)
+        paused = reopened.snapshot("discovering-run")
+        self.assertEqual(paused["state"], "paused")
+
+        resumed = reopened.append_event(
+            "discovering-run",
+            {
+                "event_id": "resume-discovering",
+                "type": "run_resumed",
+                "expected_revision": paused["revision"],
+            },
+        )
+        self.assertEqual(resumed["state"], "discovering")
+
+        with self.assertRaises(self.ActiveRunError):
+            reopened.create_run({"run_id": "concurrent-run"})
+
+        frozen = reopened.freeze_queue(
+            "discovering-run",
+            [{"process_key": "103439/2023"}],
+            "queue-after-recovery",
+            resumed["revision"],
+        )
+        self.assertEqual(frozen["state"], "running")
+        with self.assertRaises(self.ActiveRunError):
+            reopened.create_run({"run_id": "still-concurrent-run"})
+
+    def test_reopen_running_run_still_resumes_as_running(self) -> None:
+        store = self._store()
+        self._create_running_run(store)
+        store.close()
+
+        reopened = self._store()
+        self.addCleanup(reopened.close)
+        paused = reopened.snapshot("run-1")
+        self.assertEqual(paused["state"], "paused")
+
+        resumed = reopened.append_event(
+            "run-1",
+            {
+                "event_id": "resume-running",
+                "type": "run_resumed",
+                "expected_revision": paused["revision"],
+            },
+        )
+        self.assertEqual(resumed["state"], "running")
+        prepared = reopened.append_event(
+            "run-1",
+            {
+                "event_id": "prepared-after-running-recovery",
+                "type": "item_prepared",
+                "expected_revision": resumed["revision"],
+                "item_id": "103439/2023",
+            },
+        )
+        self.assertEqual(prepared["items"][0]["state"], "prepared")
+
     def test_item_events_are_rejected_after_stopped_or_completed(self) -> None:
         stopped = self._store(self.root / "stopped")
         self.addCleanup(stopped.close)
