@@ -12,8 +12,8 @@ worker`), seguidos de `453a043` (`docs: record portable runtime probe`) e
 `0ec7109` (`docs: reconcile local phase tasks`), com documentação intermediária
 em `9ad2a50`, `76e37f5`, `5e1617c` e `407ca6c`, além de `42eeeac`
 (`fix: require portable service readiness`) e `21e9a63` (`docs: record launcher
-gate boundary`). O repositório não possui remoto configurado, portanto não há
-push.
+gate boundary`), e `9d21441` (`feat: harden automation confirmation
+recovery`). O repositório não possui remoto configurado, portanto não há push.
 
 O launcher portátil agora exige `service.json` produzido pelo próprio helper;
 se o processo encerra ou não confirma a ponte, o menu não fabrica PID/porta e
@@ -70,6 +70,13 @@ de confirmação para um processo encerrado; a correção passou no teste comple
 do menu portátil, 75/75, e foi commitada em `42eeeac`. A mudança é local e
 não converte o incidente de pareamento real da seção 14.2 em PASS.
 
+O bloco seguinte fechou gates locais da Fase 7: histórico durável por identidade
+impede reenvio em outro lote, hash alterado retorna `ACT_REQUIRES_REVIEW`,
+reconciliação após `unconfirmed` exige leitura explícita, `send_confirmed`
+renderiza o relatório antes da resposta da API e o submitter aguarda observação
+por 30 s com uma releitura final. Tudo está em `9d21441`; isso não habilita
+envio real.
+
 Foi adicionada uma regressão de segurança na API: execução comum não pode
 consumir comando quando `real_send_enabled=false`; o serviço devolve
 `REAL_SEND_DISABLED` sem persistir `command_consumed`. O piloto opt-in ainda não
@@ -86,8 +93,8 @@ encerradas; não produziram alterações nem evidência adicional.
 
 1. Repetir a suíte ampla somente se houver novas alterações; o último gate amplo
    anterior foi `373/373`, com 5 skips ambientais. O gate JavaScript atual passou
-   `253/253`; API/store passou `39/39`, recuperação `4/4` e a suíte Python
-   ampla passou `380/380`, com 5 skips ambientais.
+   `255/255`; API/store/report passou `56/56`, recuperação `5/5` e a suíte
+   Python ampla passou `382/382`, com 5 skips ambientais.
 2. Manter `42eeeac` como referência da correção do launcher; depois rodar
    `git diff --check` e `git status --short --branch`.
 3. Se houver nova alteração, revisar mudanças privadas/ignoradas e fazer stage
