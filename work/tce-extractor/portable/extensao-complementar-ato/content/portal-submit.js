@@ -1,5 +1,6 @@
 const EXACT_SUBMIT_LABEL = "Complementar Ato";
 const COMMAND_TTL_MS = 15_000;
+const OUTCOME_TIMEOUT_MS = 30_000;
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -116,6 +117,77 @@ function currentMatches(command, current) {
     && sameIdentity(current.identity, command.identity);
 }
 
+function waitForPortalOutcome({
+  subscribe = null,
+  readOutcome = null,
+  timeoutMs = OUTCOME_TIMEOUT_MS,
+  setTimeoutFn = globalThis.setTimeout,
+  clearTimeoutFn = globalThis.clearTimeout,
+} = {}) {
+  const duration = Number.isFinite(timeoutMs) && timeoutMs >= 0
+    ? timeoutMs
+    : OUTCOME_TIMEOUT_MS;
+  return new Promise((resolve) => {
+    let settled = false;
+    let timerId = null;
+    let unsubscribe = null;
+
+    const cleanup = () => {
+      if (timerId !== null && typeof clearTimeoutFn === "function") {
+        clearTimeoutFn(timerId);
+      }
+      if (typeof unsubscribe === "function") unsubscribe();
+      timerId = null;
+      unsubscribe = null;
+    };
+    const finish = (observation) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(observation ?? { timeout: true });
+    };
+    const onDeadline = async () => {
+      if (settled) return;
+      let observation = null;
+      if (typeof readOutcome === "function") {
+        try {
+          observation = await readOutcome();
+        } catch {
+          observation = null;
+        }
+      }
+      finish(observation ?? { timeout: true });
+    };
+
+    timerId = typeof setTimeoutFn === "function"
+      ? setTimeoutFn(onDeadline, duration)
+      : null;
+    if (typeof subscribe === "function") {
+      try {
+        const candidate = subscribe((observation) => finish(observation));
+        if (typeof candidate === "function") {
+          if (settled) candidate();
+          else unsubscribe = candidate;
+        }
+      } catch {
+        finish({ timeout: true });
+      }
+    }
+  });
+}
+
+function defaultWaitForOutcome({ documentRef } = {}) {
+  const adapter = globalThis.TCEPortalOutcome;
+  return waitForPortalOutcome({
+    subscribe: typeof adapter?.subscribe === "function"
+      ? (notify) => adapter.subscribe(documentRef, notify)
+      : null,
+    readOutcome: typeof adapter?.read === "function"
+      ? () => adapter.read(documentRef)
+      : null,
+  });
+}
+
 function textOf(button) {
   return typeof button?.textContent === "string" ? button.textContent.replace(/\s+/gu, " ").trim() : "";
 }
@@ -213,7 +285,7 @@ function installPortalSubmit({
   documentRef = globalThis.document,
   chromeApi = globalThis.chrome,
   readCurrentState = readDefaultCurrentState,
-  waitForOutcome = async () => ({ timeout: true }),
+  waitForOutcome = defaultWaitForOutcome,
   now = () => Date.now(),
 } = {}) {
   const handleMessage = async (message) => {
@@ -268,10 +340,17 @@ function installPortalSubmit({
 
 if (typeof module === "object" && module !== null && module.exports) {
   module.exports.COMMAND_TTL_MS = COMMAND_TTL_MS;
+  module.exports.OUTCOME_TIMEOUT_MS = OUTCOME_TIMEOUT_MS;
   module.exports.classifyPortalOutcome = classifyPortalOutcome;
   module.exports.installPortalSubmit = installPortalSubmit;
   module.exports.submitVerifiedAct = submitVerifiedAct;
+  module.exports.waitForPortalOutcome = waitForPortalOutcome;
 } else {
-  globalThis.TCEPortalSubmit = Object.freeze({ classifyPortalOutcome, installPortalSubmit, submitVerifiedAct });
+  globalThis.TCEPortalSubmit = Object.freeze({
+    classifyPortalOutcome,
+    installPortalSubmit,
+    submitVerifiedAct,
+    waitForPortalOutcome,
+  });
   if (globalThis.document && globalThis.chrome?.runtime?.onMessage) installPortalSubmit();
 }

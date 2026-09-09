@@ -26,6 +26,7 @@ const EVENT_PAYLOAD_KEYS = new Set([
   "identity",
   "itemId",
   "fields",
+  "reconciliation",
   "fieldResults",
   "before",
   "after",
@@ -82,7 +83,7 @@ const EVENT_PAYLOAD_CONTRACTS = new Map([
   }],
   ["send_confirmed", {
     required: [["identity"], ["origin"], ["timestamp"], ["fields"], ["citations"]],
-    allowed: new Set(["identity", "fields", "origin", "timestamp", "citations"]),
+    allowed: new Set(["identity", "fields", "origin", "timestamp", "citations", "reconciliation"]),
   }],
   ["item_pending", {
     required: [["reason"]],
@@ -304,7 +305,7 @@ function validateEventPayload(payload, type) {
     if (!aliases.some((key) => Object.hasOwn(payload, key))) invalid("missing event payload key", "MISSING_KEY");
   }
   const stringKeys = new Set(["reason", "error", "origin", "timestamp", "expectedFieldsHash", "method"]);
-  const recordKeys = new Set(["identity", "fields", "before", "after", "fieldResults", "legalDecision", "decision", "frame", "matchKinds"]);
+  const recordKeys = new Set(["identity", "fields", "reconciliation", "before", "after", "fieldResults", "legalDecision", "decision", "frame", "matchKinds"]);
   const listKeys = new Set(["rereads", "reRead", "citations", "errors"]);
   for (const [key, value] of Object.entries(payload)) {
     if (stringKeys.has(key)) nonEmptyString(value, key);

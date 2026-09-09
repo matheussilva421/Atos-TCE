@@ -55,6 +55,137 @@ class AutomationStoreTests(unittest.TestCase):
             created["revision"],
         )
 
+    def _confirm_single_act(self, store, run_id, prefix, fields_hash):
+        identity = {"process_key": "103439/2023"}
+        created = store.create_run({"run_id": run_id, "schema_version": 1})
+        frozen = store.freeze_queue(run_id, [identity], f"{prefix}-queue", created["revision"])
+        prepared = store.append_event(
+            run_id,
+            {
+                "event_id": f"{prefix}-prepared",
+                "type": "item_prepared",
+                "expected_revision": frozen["revision"],
+                "item_id": identity["process_key"],
+            },
+        )
+        filled = store.append_event(
+            run_id,
+            {
+                "event_id": f"{prefix}-filled",
+                "type": "fields_verified",
+                "expected_revision": prepared["revision"],
+                "item_id": identity["process_key"],
+            },
+        )
+        intent = store.append_event(
+            run_id,
+            {
+                "event_id": f"{prefix}-intent",
+                "type": "send_intent",
+                "expected_revision": filled["revision"],
+                "item_id": identity["process_key"],
+                "payload": {
+                    "identity": identity,
+                    "expected_fields_hash": fields_hash,
+                    "command_id": f"{prefix}-command",
+                    "expires_at": 200_000,
+                },
+            },
+        )
+        confirmed = store.append_event(
+            run_id,
+            {
+                "event_id": f"{prefix}-confirmed",
+                "type": "send_confirmed",
+                "expected_revision": intent["revision"],
+                "item_id": identity["process_key"],
+                "payload": {
+                    "identity": identity,
+                    "fields": {"fundamento_legal": "art. 1"},
+                    "expected_fields_hash": fields_hash,
+                    "citations": ["fixture:art-1"],
+                },
+            },
+        )
+        stopped = store.append_event(
+            run_id,
+            {
+                "event_id": f"{prefix}-stopped",
+                "type": "run_stopped",
+                "expected_revision": confirmed["revision"],
+            },
+        )
+        return identity, stopped
+
+    def test_confirmation_blocks_resend_across_runs_and_changed_fields_need_review(self) -> None:
+        store = self._store()
+        self.addCleanup(store.close)
+        identity, _ = self._confirm_single_act(store, "run-1", "first", "a" * 64)
+
+        created = store.create_run({"run_id": "run-2", "schema_version": 1})
+        frozen = store.freeze_queue("run-2", [identity], "second-queue", created["revision"])
+        prepared = store.append_event(
+            "run-2",
+            {
+                "event_id": "second-prepared",
+                "type": "item_prepared",
+                "expected_revision": frozen["revision"],
+                "item_id": identity["process_key"],
+            },
+        )
+        filled = store.append_event(
+            "run-2",
+            {
+                "event_id": "second-filled",
+                "type": "fields_verified",
+                "expected_revision": prepared["revision"],
+                "item_id": identity["process_key"],
+            },
+        )
+
+        same = store.check_send_eligibility(identity, "a" * 64)
+        self.assertFalse(same["eligible"])
+        self.assertEqual(same["status"], "confirmed")
+        self.assertEqual(same["reason"], "ACT_ALREADY_CONFIRMED")
+        with self.assertRaisesRegex(self.InvalidTransition, "ACT_ALREADY_CONFIRMED"):
+            store.append_event(
+                "run-2",
+                {
+                    "event_id": "second-intent-same",
+                    "type": "send_intent",
+                    "expected_revision": filled["revision"],
+                    "item_id": identity["process_key"],
+                    "payload": {
+                        "identity": identity,
+                        "expected_fields_hash": "a" * 64,
+                        "command_id": "second-command-same",
+                        "expires_at": 200_000,
+                    },
+                },
+            )
+
+        changed = store.check_send_eligibility(identity, "b" * 64)
+        self.assertFalse(changed["eligible"])
+        self.assertEqual(changed["status"], "pending")
+        self.assertEqual(changed["reason"], "ACT_REQUIRES_REVIEW")
+        with self.assertRaisesRegex(self.InvalidTransition, "ACT_REQUIRES_REVIEW"):
+            store.append_event(
+                "run-2",
+                {
+                    "event_id": "second-intent-changed",
+                    "type": "send_intent",
+                    "expected_revision": filled["revision"],
+                    "item_id": identity["process_key"],
+                    "payload": {
+                        "identity": identity,
+                        "expected_fields_hash": "b" * 64,
+                        "command_id": "second-command-changed",
+                        "expires_at": 200_000,
+                    },
+                },
+            )
+        self.assertEqual(store.snapshot("run-2")["items"][0]["state"], "filled")
+
     def test_freeze_and_events_project_atomically(self) -> None:
         store = self._store()
         self.addCleanup(store.close)

@@ -64,6 +64,7 @@ _AUTOMATION_PAYLOAD_KEYS = frozenset(
         "item_id",
         "itemId",
         "fields",
+        "reconciliation",
         "field_results",
         "fieldResults",
         "before",
@@ -115,7 +116,7 @@ _EVENT_PAYLOAD_CONTRACTS = {
     },
     "send_confirmed": {
         "required": (("identity",), ("origin",), ("timestamp",), ("fields",), ("citations",)),
-        "allowed": frozenset({"identity", "fields", "origin", "timestamp", "citations"}),
+        "allowed": frozenset({"identity", "fields", "origin", "timestamp", "citations", "reconciliation"}),
     },
     "item_pending": {
         "required": (("reason",),),
@@ -551,6 +552,7 @@ def _validate_event_payload(payload: dict, event_type: str) -> None:
     record_keys = {
         "identity",
         "fields",
+        "reconciliation",
         "before",
         "after",
         "field_results",
@@ -740,6 +742,9 @@ def _automation_store_error(error: Exception) -> _ApiProblem:
             "COMMAND_NOT_READY",
             "COMMAND_NOT_FOUND",
             "PILOT_EXHAUSTED",
+            "ACT_ALREADY_CONFIRMED",
+            "ACT_REQUIRES_REVIEW",
+            "RECONCILIATION_REQUIRED",
         ):
             if code in message:
                 return _ApiProblem(409, code, message)
@@ -1577,6 +1582,19 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
                     if event["item_id"] is not None:
                         store_event["item_id"] = event["item_id"]
                     updated = self.server_state.automation_store.append_event(run_id, store_event)
+                    if event["type"] == "send_confirmed":
+                        try:
+                            render_run_reports(
+                                self.server_state.automation_store,
+                                run_id,
+                                self.server_state.workflow_root,
+                            )
+                        except Exception as error:
+                            raise _ApiProblem(
+                                500,
+                                "REPORT_UPDATE_FAILED",
+                                "relatório não pôde ser atualizado antes do próximo ato",
+                            ) from error
                 else:
                     action, control = _validate_control_payload(payload)
                     event_type = {

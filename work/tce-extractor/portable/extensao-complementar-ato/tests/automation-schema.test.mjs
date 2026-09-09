@@ -142,6 +142,7 @@ test("validates discriminated events and closed control requests", () => {
       timestamp: "2026-09-09T12:00:00Z",
       fields: { cargo: "servidora" },
       citations: [{ source: "portal", reference: "act-1" }],
+      reconciliation: { mode: "read_after_recovery", identityMatch: true, persisted: true },
     },
     send_intent: { expectedFieldsHash: HASH, commandId: "command-1", expiresAt: 1600000000000 },
     item_prepared: itemPreparedPayload(),

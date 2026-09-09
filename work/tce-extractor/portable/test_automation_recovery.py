@@ -85,6 +85,58 @@ class AutomationRecoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(InvalidTransition, "COMMAND_NOT_READY"):
             reopened.consume_command(self.run_id, "command-1", snapshot["revision"], now_ms=100_000)
 
+    def test_reconciliation_can_confirm_unconfirmed_only_with_explicit_read_evidence(self):
+        run = self._send_intent(3)
+        self.store.close()
+        reopened = AutomationStore(Path(self.tempdir.name))
+        self.addCleanup(reopened.close)
+        paused = reopened.snapshot(self.run_id)
+        resumed = reopened.append_event(
+            self.run_id,
+            {
+                "event_id": "resume-for-reconciliation",
+                "type": "run_resumed",
+                "expected_revision": paused["revision"],
+            },
+        )
+        confirmation = {
+            "identity": IDENTITY,
+            "fields": {"fundamento_legal": "art. 1"},
+            "origin": "portal",
+            "timestamp": "2026-09-09T12:00:00+00:00",
+            "citations": ["fixture:art-1"],
+        }
+        with self.assertRaisesRegex(InvalidTransition, "RECONCILIATION_REQUIRED"):
+            reopened.append_event(
+                self.run_id,
+                {
+                    "event_id": "reconciled-without-evidence",
+                    "type": "send_confirmed",
+                    "expected_revision": resumed["revision"],
+                    "item_id": "act-1",
+                    "payload": confirmation,
+                },
+            )
+        reconciled = reopened.append_event(
+            self.run_id,
+            {
+                "event_id": "reconciled-with-read-evidence",
+                "type": "send_confirmed",
+                "expected_revision": resumed["revision"],
+                "item_id": "act-1",
+                "payload": {
+                    **confirmation,
+                    "reconciliation": {
+                        "mode": "read_after_recovery",
+                        "identity_match": True,
+                        "persisted": True,
+                    },
+                },
+            },
+        )
+        self.assertEqual(reconciled["state"], "running")
+        self.assertEqual(reconciled["items"][0]["state"], "confirmed")
+
     def test_history_lists_run_summaries_and_events_without_private_command_payloads(self):
         runs = self.store.list_runs(limit=20)
         self.assertEqual(runs["next_cursor"], None)

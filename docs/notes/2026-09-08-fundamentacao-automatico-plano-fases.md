@@ -512,12 +512,12 @@ Retomada: paused -> running somente depois de reconciliar intenções anteriores
 - [x] Content script do frame de botões solicita consumo do comando ao worker, que o persiste no backend antes do clique. Uma falha entre consumo e clique continua incerta, sem repetição automática.
 - [x] Revalidar identidade/campos imediatamente antes do consumo e novamente antes do clique. Frame de botões deve pertencer à mesma árvore de frames do formulário e estar visível.
 - [x] Clicar apenas botão com texto exato “Complementar Ato” habilitado no papel `buttons`. Mensagem de página não pode autorizar envio. Não alterar o comportamento do sinal manual legado para que passe a enviar silenciosamente.
-- [ ] Aguardar até 30 s por resultado observado; uma leitura adicional sem clique é permitida. Timeout, diálogo desconhecido, queda de rede ou perda da página geram `unconfirmed` e pausam.
+- [x] Aguardar até 30 s por resultado observado; uma leitura adicional sem clique é permitida. Timeout, diálogo desconhecido, queda de rede ou perda da página geram `unconfirmed` e pausam.
 - [x] Confirmar somente com sinal real de aceitação e leitura posterior dos valores persistidos para a identidade esperada. Se o portal não fornecer prova suficiente, classificar como incerto.
-- [ ] Registrar confirmação durável e atualizar relatório antes de abrir o próximo ato.
-- [ ] Ao retomar, conciliar `send_intent`/`unconfirmed` por leitura. Valor persistido idêntico sem evidência suficiente de gravação não prova autoria da tentativa; registrar evidência e manter incerteza quando necessário.
-- [ ] Atos previamente confirmados não são reenviados, mesmo em outro lote. Alteração posterior no documento vira pendência de revisão, não autorização de edição automática.
-- [ ] Pausar/encerrar após clique aguarda classificação do resultado; não tentar desfazer gravação remota.
+- [x] Registrar confirmação durável e atualizar relatório antes de abrir o próximo ato.
+- [x] Ao retomar, conciliar `send_intent`/`unconfirmed` por leitura. Valor persistido idêntico sem evidência suficiente de gravação não prova autoria da tentativa; registrar evidência e manter incerteza quando necessário.
+- [x] Atos previamente confirmados não são reenviados, mesmo em outro lote. Alteração posterior no documento vira pendência de revisão, não autorização de edição automática.
+- [x] Pausar/encerrar após clique aguarda classificação do resultado; não tentar desfazer gravação remota.
 
 ```javascript
 test('comando consumido nunca gera um segundo clique', async () => {
@@ -529,6 +529,13 @@ test('comando consumido nunca gera um segundo clique', async () => {
 ```
 
 Construir harness com store falso durável e mesmo `command_id` em ambas chamadas; reiniciar controller entre chamadas em um segundo teste.
+
+**Gates locais implementados em 2026-09-09:** `waitForPortalOutcome` aguarda
+30 s, faz uma releitura final e devolve timeout sem prova; `send_confirmed`
+renderiza o relatório antes de responder à API; reconciliação de item
+`unconfirmed` exige evidência explícita; o histórico por identidade bloqueia
+reenvio entre lotes e devolve `ACT_REQUIRES_REVIEW` quando o hash muda. Esses
+gates não habilitam envio real nem substituem a observação da seção 14.2.
 
 **Matriz de crash:** antes de prepared; após prepared; após preenchimento; após fields_verified; após intenção; após consumo antes do clique; após clique antes da resposta; após resposta antes do ACK local; após confirmação antes do relatório; após relatório antes de avançar.
 

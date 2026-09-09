@@ -339,6 +339,13 @@ class AutomationStore:
                     confirmed_at TEXT NOT NULL,
                     PRIMARY KEY (run_id, identity_key)
                 );
+                CREATE TABLE IF NOT EXISTS confirmed_identity_history (
+                    identity_key TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+                    event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id),
+                    payload_json TEXT NOT NULL,
+                    confirmed_at TEXT NOT NULL
+                );
                 """
             )
             event_columns = {
@@ -362,6 +369,12 @@ class AutomationStore:
             connection.execute(
                 "INSERT OR IGNORE INTO event_id_registry(event_id, created_at) "
                 "SELECT event_id, created_at FROM events"
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO confirmed_identity_history("
+                "identity_key, run_id, event_id, payload_json, confirmed_at) "
+                "SELECT identity_key, run_id, event_id, payload_json, confirmed_at "
+                "FROM confirmed_acts ORDER BY confirmed_at, event_id"
             )
             connection.commit()
         except Exception:
@@ -528,6 +541,90 @@ class AutomationStore:
             "interrupted_item": interrupted,
         }
 
+    def _confirmation_for_identity_transaction(
+        self, connection: sqlite3.Connection, identity_key: str
+    ) -> dict[str, Any] | None:
+        row = connection.execute(
+            "SELECT run_id, event_id, payload_json, confirmed_at "
+            "FROM confirmed_identity_history WHERE identity_key = ?",
+            (identity_key,),
+        ).fetchone()
+        if row is None:
+            return None
+        payload = _decode_json(str(row["payload_json"]))
+        expected_fields_hash = None
+        if isinstance(payload, dict):
+            expected_fields_hash = payload.get(
+                "expected_fields_hash", payload.get("expectedFieldsHash")
+            )
+        return {
+            "run_id": str(row["run_id"]),
+            "event_id": str(row["event_id"]),
+            "confirmed_at": str(row["confirmed_at"]),
+            "expected_fields_hash": expected_fields_hash,
+        }
+
+    def _send_eligibility_transaction(
+        self,
+        connection: sqlite3.Connection,
+        identity_key: str,
+        expected_fields_hash: str | None,
+    ) -> dict[str, Any]:
+        prior = self._confirmation_for_identity_transaction(connection, identity_key)
+        if prior is None:
+            return {"eligible": True, "status": "new", "reason": None}
+        previous_hash = prior.get("expected_fields_hash")
+        same_fields = (
+            isinstance(expected_fields_hash, str)
+            and isinstance(previous_hash, str)
+            and expected_fields_hash == previous_hash
+        )
+        return {
+            "eligible": False,
+            "status": "confirmed" if same_fields else "pending",
+            "reason": "ACT_ALREADY_CONFIRMED" if same_fields else "ACT_REQUIRES_REVIEW",
+            "prior_confirmation": prior,
+        }
+
+    def _latest_intent_fields_hash_transaction(
+        self, connection: sqlite3.Connection, run_id: str, identity_key: str
+    ) -> str | None:
+        rows = connection.execute(
+            "SELECT payload_json FROM commands WHERE run_id = ? "
+            "ORDER BY created_at DESC, command_id DESC",
+            (run_id,),
+        ).fetchall()
+        fallback: str | None = None
+        for row in rows:
+            payload = _decode_json(str(row["payload_json"]))
+            if not isinstance(payload, dict):
+                continue
+            expected = payload.get("expected_fields_hash", payload.get("expectedFieldsHash"))
+            if not isinstance(expected, str):
+                continue
+            candidate = payload.get("identity")
+            if isinstance(candidate, dict):
+                if _identity_key(candidate) == identity_key:
+                    return expected
+            elif fallback is None:
+                fallback = expected
+        return fallback if len(rows) == 1 else None
+
+    def check_send_eligibility(
+        self, identity: dict[str, Any], expected_fields_hash: str | None = None
+    ) -> dict[str, Any]:
+        """Check the durable cross-run confirmation guard before issuing intent."""
+        if not isinstance(identity, dict) or not identity:
+            raise EventValidationError("identity deve ser um objeto não vazio")
+        identity_key = _identity_key(identity)
+        connection = self._connect()
+        try:
+            return self._send_eligibility_transaction(
+                connection, identity_key, expected_fields_hash
+            )
+        finally:
+            connection.close()
+
     def _existing_event_result(
         self,
         connection: sqlite3.Connection,
@@ -644,7 +741,7 @@ class AutomationStore:
                 "item_prepared": {"queued"},
                 "fields_verified": {"prepared"},
                 "send_intent": {"filled"},
-                "send_confirmed": {"send_intent"},
+                "send_confirmed": {"send_intent", "unconfirmed"},
                 "item_pending": {"queued", "prepared", "filled", "send_intent", "unconfirmed"},
                 "item_failed": {"queued", "prepared", "filled", "send_intent", "pending", "unconfirmed"},
                 "send_unconfirmed": {"send_intent"},
@@ -653,6 +750,18 @@ class AutomationStore:
                 raise InvalidTransition(
                     f"{event_type} inválido para item no estado {item_state}"
                 )
+            if event_type == "send_confirmed" and item_state == "unconfirmed":
+                reconciliation = payload.get("reconciliation")
+                if not isinstance(reconciliation, dict) or not reconciliation:
+                    raise InvalidTransition("RECONCILIATION_REQUIRED")
+            if event_type == "send_intent":
+                eligibility = self._send_eligibility_transaction(
+                    connection,
+                    str(item["identity_key"]),
+                    payload.get("expected_fields_hash", payload.get("expectedFieldsHash")),
+                )
+                if not eligibility["eligible"]:
+                    raise InvalidTransition(str(eligibility["reason"]))
 
         seq = actual_revision + 1
         timestamp = _now()
@@ -723,6 +832,18 @@ class AutomationStore:
             )
             next_state = str(run["state"])
             if event_type == "send_confirmed":
+                confirmation_payload = deepcopy(payload)
+                if not isinstance(
+                    confirmation_payload.get("expected_fields_hash"), str
+                ) and not isinstance(
+                    confirmation_payload.get("expectedFieldsHash"), str
+                ):
+                    intent_hash = self._latest_intent_fields_hash_transaction(
+                        connection, run_id, str(item["identity_key"])
+                    )
+                    if intent_hash is not None:
+                        confirmation_payload["expected_fields_hash"] = intent_hash
+                confirmation_payload_json = _canonical_json(confirmation_payload)
                 connection.execute(
                     "INSERT INTO confirmed_acts(run_id, identity_key, event_id, payload_json, confirmed_at) "
                     "VALUES (?, ?, ?, ?, ?)",
@@ -730,10 +851,25 @@ class AutomationStore:
                         run_id,
                         str(item["identity_key"]),
                         event_id,
-                        _canonical_json(payload),
+                        confirmation_payload_json,
                         timestamp,
                     ),
                 )
+                try:
+                    connection.execute(
+                        "INSERT INTO confirmed_identity_history("
+                        "identity_key, run_id, event_id, payload_json, confirmed_at) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (
+                            str(item["identity_key"]),
+                            run_id,
+                            event_id,
+                            confirmation_payload_json,
+                            timestamp,
+                        ),
+                    )
+                except sqlite3.IntegrityError as exc:
+                    raise InvalidTransition("ACT_ALREADY_CONFIRMED") from exc
 
         time_column = {
             "paused": "paused_at",

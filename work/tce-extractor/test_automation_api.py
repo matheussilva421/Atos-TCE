@@ -12,6 +12,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import threading
 import unittest
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -168,6 +169,79 @@ class AutomationApiTests(unittest.TestCase):
             "event_id": "start-1",
             **overrides,
         }
+
+    def test_send_confirmed_renders_report_before_returning_to_caller(self):
+        with running_server() as (root, server, base):
+            _dataset, digest = write_fixture(root, "Ana")
+            token = self.pair(server, base)
+            status, _headers, created = request_json(
+                f"{base}/api/v1/automation/runs",
+                method="POST",
+                token=token,
+                payload=self.run_spec(digest, event_id="report-before-next-start"),
+            )
+            self.assertEqual(status, 200, created)
+            run_id = created["run_id"]
+            identity = {
+                "process_key": "103439/2023",
+                "interested_normalized": "ana",
+                "portal_act_id": None,
+            }
+            status, _headers, queued = request_json(
+                f"{base}/api/v1/automation/runs/{run_id}/queue",
+                method="POST",
+                token=token,
+                payload={"identities": [identity], "event_id": "report-before-next-queue", "expected_revision": 0},
+            )
+            self.assertEqual(status, 200, queued)
+            event_url = f"{base}/api/v1/automation/runs/{run_id}/events"
+            revision = queued["revision"]
+            for event_id, event_type, payload in (
+                ("report-before-next-prepared", "item_prepared", {"reason": "ready"}),
+                ("report-before-next-filled", "fields_verified", {"field_results": {}, "rereads": []}),
+                (
+                    "report-before-next-intent",
+                    "send_intent",
+                    {"expected_fields_hash": "a" * 64, "command_id": "report-before-next-command", "expires_at": 4102444800000},
+                ),
+            ):
+                status, _headers, result = request_json(
+                    event_url,
+                    method="POST",
+                    token=token,
+                    payload={
+                        "event_id": event_id,
+                        "expected_revision": revision,
+                        "item_id": "103439/2023",
+                        "type": event_type,
+                        "payload": payload,
+                    },
+                )
+                self.assertEqual(status, 200, result)
+                revision = result["revision"]
+
+            with patch("local_service.render_run_reports") as render_reports:
+                status, _headers, confirmed = request_json(
+                    event_url,
+                    method="POST",
+                    token=token,
+                    payload={
+                        "event_id": "report-before-next-confirmed",
+                        "expected_revision": revision,
+                        "item_id": "103439/2023",
+                        "type": "send_confirmed",
+                        "payload": {
+                            "identity": identity,
+                            "fields": {"fundamento_legal": "art. 1"},
+                            "origin": "portal",
+                            "timestamp": "2026-09-09T12:00:00+00:00",
+                            "citations": ["fixture:art-1"],
+                        },
+                    },
+                )
+            self.assertEqual(status, 200, confirmed)
+            render_reports.assert_called_once()
+            self.assertEqual(render_reports.call_args.args[1], run_id)
 
     def test_capabilities_reject_missing_or_wrong_origin_and_return_closed_v1_envelope(self):
         with running_server() as (root, server, base):

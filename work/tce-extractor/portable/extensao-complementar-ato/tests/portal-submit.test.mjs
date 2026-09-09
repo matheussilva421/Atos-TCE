@@ -5,6 +5,7 @@ import {
   classifyPortalOutcome,
   installPortalSubmit,
   submitVerifiedAct,
+  waitForPortalOutcome,
 } from "../content/portal-submit.js";
 
 const IDENTITY = {
@@ -73,6 +74,42 @@ test("classifies only an accepted signal with matching post-read as confirmed", 
   assert.equal(classifyPortalOutcome({ accepted: true, persisted: true, identity: { ...IDENTITY, portalActId: "other" } }, { identity: IDENTITY }).status, "unconfirmed");
   assert.equal(classifyPortalOutcome({ rejected: true, reason: "validation" }, { identity: IDENTITY }).status, "failed");
   assert.equal(classifyPortalOutcome({ timeout: true }, { identity: IDENTITY }).status, "unconfirmed");
+});
+
+test("waits for an observed outcome and unsubscribes before the deadline", async () => {
+  let timerCallback;
+  let cleared = null;
+  let unsubscribeCount = 0;
+  const promise = waitForPortalOutcome({
+    timeoutMs: 30_000,
+    setTimeoutFn: (callback) => { timerCallback = callback; return 9; },
+    clearTimeoutFn: (handle) => { cleared = handle; },
+    subscribe: (notify) => {
+      notify({ accepted: true, persisted: true, identity: IDENTITY });
+      return () => { unsubscribeCount += 1; };
+    },
+  });
+
+  const result = await promise;
+  assert.equal(result.accepted, true);
+  assert.equal(cleared, 9);
+  assert.equal(unsubscribeCount, 1);
+  assert.equal(timerCallback !== undefined, true);
+});
+
+test("performs one final read at 30 seconds and returns timeout when it has no proof", async () => {
+  let timerCallback;
+  let readCount = 0;
+  const promise = waitForPortalOutcome({
+    timeoutMs: 30_000,
+    setTimeoutFn: (callback) => { timerCallback = callback; return 10; },
+    clearTimeoutFn: () => {},
+    readOutcome: async () => { readCount += 1; return null; },
+  });
+  await timerCallback();
+  const result = await promise;
+  assert.deepEqual(result, { timeout: true });
+  assert.equal(readCount, 1);
 });
 
 test("consumes an issued command once and clicks only the exact enabled button", async () => {
