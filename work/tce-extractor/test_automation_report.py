@@ -43,6 +43,7 @@ class AutomationReportTests(unittest.TestCase):
             {
                 "event_id": "prepare-report",
                 "type": "item_prepared",
+                "expected_revision": 1,
                 "item_id": "103439/2023",
                 "before": {"fundamento": "=old"},
                 "after": {"fundamento": "+new"},
@@ -58,6 +59,7 @@ class AutomationReportTests(unittest.TestCase):
             {
                 "event_id": "filled-report",
                 "type": "fields_verified",
+                "expected_revision": 2,
                 "item_id": "103439/2023",
                 "fields": {
                     "fundamento": {
@@ -98,6 +100,7 @@ class AutomationReportTests(unittest.TestCase):
             {
                 "event_id": "unsafe-report",
                 "type": "item_failed",
+                "expected_revision": 3,
                 "item_id": "103439/2023",
                 "error": "<script>alert('x')</script>",
                 "url": "https://session.example.invalid/?token=secret",
@@ -117,6 +120,45 @@ class AutomationReportTests(unittest.TestCase):
         self.assertNotIn("session.example.invalid", html)
         self.assertNotIn("123.456.789-00", html)
         self.assertNotIn("C:\\private\\secret.pdf", html)
+
+    def test_html_and_csv_redact_sensitive_text_in_error_and_source(self) -> None:
+        from automation_report import render_run_reports
+
+        store = self._store_with_report_data()
+        self.addCleanup(store.close)
+        store.append_event(
+            "run-report",
+            {
+                "event_id": "sensitive-text-report",
+                "type": "item_failed",
+                "expected_revision": 3,
+                "item_id": "103439/2023",
+                "error": (
+                    "token=TOKEN-SECRET cookie=COOKIE-SECRET "
+                    "cpf=987.654.321-00 "
+                    "url=https://session.example.invalid/?sid=SESSION-SECRET "
+                    r"path=C:\\private\\secret.pdf"
+                ),
+                "source": r"C:\\private\\source.pdf",
+            },
+        )
+        result = render_run_reports(store, "run-report", self.root)
+        contents = [
+            Path(result["html_path"]).read_text(encoding="utf-8"),
+            Path(result["csv_path"]).read_text(encoding="utf-8"),
+        ]
+
+        for content in contents:
+            for secret in (
+                "TOKEN-SECRET",
+                "COOKIE-SECRET",
+                "987.654.321-00",
+                "session.example.invalid",
+                "SESSION-SECRET",
+                r"C:\\private\\secret.pdf",
+                r"C:\\private\\source.pdf",
+            ):
+                self.assertNotIn(secret, content)
 
     def test_csv_has_field_rows_and_neutralizes_formula_prefixes(self) -> None:
         from automation_report import render_run_reports

@@ -23,6 +23,17 @@ _SENSITIVE_KEY_RE = re.compile(
 )
 _URL_RE = re.compile(r"https?://[^\s<>'\"]+", re.IGNORECASE)
 _CPF_RE = re.compile(r"(?<!\d)\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2}(?!\d)")
+_TOKEN_RE = re.compile(
+    r"(?:\b(?:access[_-]?token|auth[_-]?token|session[_-]?token|token)\s*[:=]\s*"
+    r"[^\s,;]+|\bBearer\s+[A-Za-z0-9._~+/=-]+)",
+    re.IGNORECASE,
+)
+_COOKIE_RE = re.compile(
+    r"\b(?:cookie|set-cookie)\s*[:=]\s*[^\s;]+", re.IGNORECASE
+)
+_ABSOLUTE_PATH_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\|/)[^<>\"'\s;,]+"
+)
 _FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r", "\n")
 
 
@@ -37,7 +48,10 @@ def _redact(value: Any, key: str = "") -> Any:
         return [_redact(child, key) for child in value]
     if isinstance(value, str):
         value = _URL_RE.sub("[redacted-url]", value)
-        return _CPF_RE.sub("[redacted-cpf]", value)
+        value = _CPF_RE.sub("[redacted-cpf]", value)
+        value = _TOKEN_RE.sub("[redacted-token]", value)
+        value = _COOKIE_RE.sub("[redacted-cookie]", value)
+        return _ABSOLUTE_PATH_RE.sub("[redacted-path]", value)
     return value
 
 

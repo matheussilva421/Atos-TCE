@@ -170,14 +170,15 @@ def _event_type(event: dict[str, Any]) -> str:
     return value
 
 
-def _event_parts(event: object) -> tuple[str, str, dict[str, Any], int | None]:
+def _event_parts(event: object) -> tuple[str, str, dict[str, Any], int]:
     if not isinstance(event, dict):
         raise EventValidationError("event deve ser um objeto")
     event_id = _validate_event_id(event.get("event_id"))
     event_type = _event_type(event)
     expected_revision = event.get("expected_revision")
-    if expected_revision is not None:
-        expected_revision = _validate_revision(expected_revision)
+    if expected_revision is None:
+        raise EventValidationError("expected_revision é obrigatório")
+    expected_revision = _validate_revision(expected_revision)
 
     raw_payload = event.get("payload", {})
     if not isinstance(raw_payload, dict):
@@ -280,6 +281,7 @@ class AutomationStore:
                     seq INTEGER NOT NULL CHECK (seq >= 1),
                     event_type TEXT NOT NULL,
                     payload_json TEXT NOT NULL,
+                    result_json TEXT,
                     created_at TEXT NOT NULL,
                     UNIQUE (run_id, seq)
                 );
@@ -302,6 +304,12 @@ class AutomationStore:
                 );
                 """
             )
+            event_columns = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(events)").fetchall()
+            }
+            if "result_json" not in event_columns:
+                connection.execute("ALTER TABLE events ADD COLUMN result_json TEXT")
             connection.commit()
         except Exception:
             connection.rollback()
@@ -328,21 +336,23 @@ class AutomationStore:
     def _recover_open_runs(self) -> None:
         def recover(connection: sqlite3.Connection) -> None:
             rows = connection.execute(
-                "SELECT run_id, revision FROM runs WHERE root_key = ? "
-                "AND state IN ('discovering', 'running') ORDER BY created_at",
+                "SELECT run_id, state, revision FROM runs WHERE root_key = ? "
+                "AND state IN ('discovering', 'running', 'paused') ORDER BY created_at",
                 (str(self.root),),
             ).fetchall()
             for row in rows:
                 run_id = str(row["run_id"])
-                revision = int(row["revision"])
-                self._append_event_transaction(
-                    connection,
-                    run_id,
-                    f"recovery:{run_id}:{revision + 1}:paused",
-                    "run_paused",
-                    {"reason": "reopen_recovery"},
-                    None,
-                )
+                current_revision = int(row["revision"])
+                if str(row["state"]) in {"discovering", "running"}:
+                    self._append_event_transaction(
+                        connection,
+                        run_id,
+                        f"recovery:{run_id}:{current_revision + 1}:paused",
+                        "run_paused",
+                        {"reason": "reopen_recovery"},
+                        None,
+                    )
+                    current_revision += 1
                 pending_items = connection.execute(
                     "SELECT identity_key, identity_json FROM items "
                     "WHERE run_id = ? AND state = 'send_intent' ORDER BY ordinal",
@@ -353,10 +363,11 @@ class AutomationStore:
                     self._append_event_transaction(
                         connection,
                         run_id,
-                        f"recovery:{run_id}:{revision + offset + 1}:unconfirmed",
+                        f"recovery:{run_id}:{current_revision + offset}:unconfirmed",
                         "send_unconfirmed",
                         {"identity": identity, "reason": "reopen_recovery"},
                         None,
+                        recovery=True,
                     )
 
         self._run_transaction(recover)
@@ -477,11 +488,17 @@ class AutomationStore:
         ).fetchone()
         if row is None:
             return None
-        existing_payload = _decode_json(str(row["payload_json"]))
-        if str(row["event_type"]) != event_type or existing_payload != payload:
+        existing_payload_json = str(row["payload_json"])
+        if (
+            str(row["event_type"]) != event_type
+            or existing_payload_json != _canonical_json(payload)
+        ):
             raise EventConflict(f"event_id já usado com payload diferente: {event_id}")
         if str(row["run_id"]) != run_id:
             raise EventConflict(f"event_id pertence a outra execução: {event_id}")
+        result_json = row["result_json"]
+        if result_json is not None:
+            return _decode_json(str(result_json))
         return self._snapshot_transaction(connection, run_id)
 
     def _append_event_transaction(
@@ -492,6 +509,7 @@ class AutomationStore:
         event_type: str,
         payload: dict[str, Any],
         expected_revision: int | None,
+        recovery: bool = False,
     ) -> dict[str, Any]:
         existing = self._existing_event_result(
             connection, run_id, event_id, event_type, payload
@@ -534,6 +552,14 @@ class AutomationStore:
                 if active_items:
                     raise InvalidTransition("não é possível concluir itens não terminais")
         else:
+            if current_state != "running" and not (
+                recovery
+                and current_state == "paused"
+                and event_type == "send_unconfirmed"
+            ):
+                raise InvalidTransition(
+                    f"evento de item inválido no estado da execução {current_state}"
+                )
             item = self._find_item(connection, run_id, payload)
             item_state = str(item["state"])
             allowed_item_states = {
@@ -627,7 +653,12 @@ class AutomationStore:
             f"UPDATE runs SET {', '.join(update_columns)} WHERE run_id = ? AND root_key = ?",
             tuple(update_values),
         )
-        return self._snapshot_transaction(connection, run_id)
+        result = self._snapshot_transaction(connection, run_id)
+        connection.execute(
+            "UPDATE events SET result_json = ? WHERE event_id = ?",
+            (_canonical_json(result), event_id),
+        )
+        return result
 
     def create_run(self, spec: dict) -> dict:
         if not isinstance(spec, dict):

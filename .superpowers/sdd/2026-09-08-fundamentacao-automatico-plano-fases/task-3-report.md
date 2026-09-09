@@ -84,6 +84,38 @@ git diff --check
 Resultado: sem diagnóstico.
 ```
 
+## Rodada de correção pós-revisão independente
+
+Data: 2026-09-09
+
+Foram corrigidos os seis achados da revisão do commit `d3035da`:
+
+- redaction de tokens, cookies, CPF, URLs de sessão e caminhos absolutos em
+  texto livre de `error`/`source`, tanto no HTML quanto no CSV;
+- recovery de `send_intent` também para runs já `paused`;
+- rejeição de eventos de item após `stopped` ou `completed`;
+- persistência do snapshot resultante por evento para replay exato;
+- comparação de payload por JSON canônico, sem coerção Python (`1` versus
+  `true`); e
+- `expected_revision` obrigatório em `append_event`, antes de abrir transação.
+
+TDD da rodada:
+
+```text
+RED: 17 testes executados, 6 falharam nos seis comportamentos novos.
+GREEN: 17 testes executados, 17 passaram, 0 falharam.
+Focais Python: 69 testes executados, 69 passaram, 0 falharam, 3 skips ambientais.
+py_compile: OK.
+git diff --check: sem diagnóstico.
+```
+
+O escopo permaneceu restrito a `automation_store.py`,
+`automation_report.py`, seus testes e este relatório. Nenhum serviço, API,
+worker, painel, empacotamento, autenticação ou envio real foi alterado ou
+executado. A nova coluna `events.result_json` é adicionada de forma compatível
+ao abrir bancos existentes; eventos legados sem esse resultado armazenado
+continuam usando o snapshot atual em replay.
+
 ## Arquivos sob alteração
 
 - Criado `work/tce-extractor/portable/app/automation_store.py`.
@@ -101,8 +133,9 @@ Resultado: sem diagnóstico.
 2. O modelo de `commands` está criado para consumo futuro; `consume_command` não
    foi implementado nesta fase.
 3. Nenhum envio real, autenticação de portal ou navegação foi iniciado.
-4. Commit funcional: `d3035da`
+4. Commit funcional anterior: `d3035da`
    (`feat: persist automation events and incremental reports`).
+5. Esta rodada será consolidada em `fix: harden automation journal invariants`.
 
 Próxima retomada: revisar este relatório e consumir `AutomationStore` somente
 na fase de API, preservando o gate de envio real e executando novamente os

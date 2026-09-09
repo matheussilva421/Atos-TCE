@@ -27,19 +27,21 @@ class AutomationStoreTests(unittest.TestCase):
         from automation_store import (
             ActiveRunError,
             EventConflict,
+            EventValidationError,
             InvalidTransition,
             RevisionConflict,
         )
 
         self.ActiveRunError = ActiveRunError
         self.EventConflict = EventConflict
+        self.EventValidationError = EventValidationError
         self.InvalidTransition = InvalidTransition
         self.RevisionConflict = RevisionConflict
 
-    def _store(self):
+    def _store(self, root=None):
         from automation_store import AutomationStore
 
-        return AutomationStore(self.root)
+        return AutomationStore(self.root if root is None else root)
 
     def _create_running_run(self, store):
         created = store.create_run({"run_id": "run-1", "schema_version": 1})
@@ -73,6 +75,7 @@ class AutomationStoreTests(unittest.TestCase):
             {
                 "event_id": "event-prepared",
                 "type": "item_prepared",
+                "expected_revision": 1,
                 "item_id": "103439/2023",
                 "before": {"name": "old"},
                 "after": {"name": "new"},
@@ -105,6 +108,7 @@ class AutomationStoreTests(unittest.TestCase):
         event = {
             "event_id": "event-prepared",
             "type": "item_prepared",
+            "expected_revision": 1,
             "item_id": "103439/2023",
             "before": {"name": "old"},
             "after": {"name": "new"},
@@ -116,8 +120,75 @@ class AutomationStoreTests(unittest.TestCase):
         self.assertEqual(store.snapshot("run-1")["revision"], 2)
 
         with self.assertRaises(self.EventConflict):
-            store.append_event("run-1", {**event, "after": {"name": "tampered"}})
+            store.append_event(
+                "run-1",
+                {**event, "expected_revision": 2, "after": {"name": "tampered"}},
+            )
         self.assertEqual(store.snapshot("run-1")["revision"], 2)
+
+    def test_repeated_event_returns_original_result_after_later_events(self) -> None:
+        store = self._store()
+        self.addCleanup(store.close)
+        self._create_running_run(store)
+        event = {
+            "event_id": "event-original-result",
+            "type": "item_prepared",
+            "expected_revision": 1,
+            "item_id": "103439/2023",
+        }
+
+        first = store.append_event("run-1", event)
+        store.append_event(
+            "run-1",
+            {
+                "event_id": "event-later",
+                "type": "fields_verified",
+                "expected_revision": 2,
+                "item_id": "103439/2023",
+            },
+        )
+
+        replay = store.append_event(
+            "run-1", {**event, "expected_revision": 0}
+        )
+        self.assertEqual(replay, first)
+
+    def test_semantically_different_json_payload_conflicts_without_python_coercion(self) -> None:
+        store = self._store()
+        self.addCleanup(store.close)
+        self._create_running_run(store)
+        event = {
+            "event_id": "event-json-types",
+            "type": "item_pending",
+            "expected_revision": 1,
+            "item_id": "103439/2023",
+            "marker": 1,
+        }
+
+        store.append_event("run-1", event)
+        with self.assertRaises(self.EventConflict):
+            store.append_event(
+                "run-1", {**event, "expected_revision": 2, "marker": True}
+            )
+        self.assertEqual(store.snapshot("run-1")["revision"], 2)
+
+    def test_append_event_requires_explicit_revision_before_mutating(self) -> None:
+        store = self._store()
+        self.addCleanup(store.close)
+        self._create_running_run(store)
+        before = store.snapshot("run-1")
+
+        with self.assertRaises(self.EventValidationError):
+            store.append_event(
+                "run-1",
+                {
+                    "event_id": "event-missing-revision",
+                    "type": "item_prepared",
+                    "item_id": "103439/2023",
+                },
+            )
+
+        self.assertEqual(store.snapshot("run-1"), before)
 
     def test_invalid_transition_leaves_event_and_projection_unchanged(self) -> None:
         store = self._store()
@@ -130,6 +201,7 @@ class AutomationStoreTests(unittest.TestCase):
                 {
                     "event_id": "event-confirmed",
                     "type": "send_confirmed",
+                    "expected_revision": 0,
                     "item_id": "missing",
                 },
             )
@@ -143,15 +215,30 @@ class AutomationStoreTests(unittest.TestCase):
         self._create_running_run(store)
         store.append_event(
             "run-1",
-            {"event_id": "event-prepared", "type": "item_prepared", "item_id": "103439/2023"},
+            {
+                "event_id": "event-prepared",
+                "type": "item_prepared",
+                "expected_revision": 1,
+                "item_id": "103439/2023",
+            },
         )
         store.append_event(
             "run-1",
-            {"event_id": "event-filled", "type": "fields_verified", "item_id": "103439/2023"},
+            {
+                "event_id": "event-filled",
+                "type": "fields_verified",
+                "expected_revision": 2,
+                "item_id": "103439/2023",
+            },
         )
         store.append_event(
             "run-1",
-            {"event_id": "event-intent", "type": "send_intent", "item_id": "103439/2023"},
+            {
+                "event_id": "event-intent",
+                "type": "send_intent",
+                "expected_revision": 3,
+                "item_id": "103439/2023",
+            },
         )
         store.close()
 
@@ -171,6 +258,132 @@ class AutomationStoreTests(unittest.TestCase):
                 "send_unconfirmed",
             ],
         )
+
+    def test_reopen_paused_run_marks_send_intent_unconfirmed(self) -> None:
+        store = self._store()
+        self._create_running_run(store)
+        store.append_event(
+            "run-1",
+            {
+                "event_id": "paused-prepared",
+                "type": "item_prepared",
+                "expected_revision": 1,
+                "item_id": "103439/2023",
+            },
+        )
+        store.append_event(
+            "run-1",
+            {
+                "event_id": "paused-filled",
+                "type": "fields_verified",
+                "expected_revision": 2,
+                "item_id": "103439/2023",
+            },
+        )
+        store.append_event(
+            "run-1",
+            {
+                "event_id": "paused-intent",
+                "type": "send_intent",
+                "expected_revision": 3,
+                "item_id": "103439/2023",
+            },
+        )
+        store.append_event(
+            "run-1",
+            {
+                "event_id": "paused-before-close",
+                "type": "run_paused",
+                "expected_revision": 4,
+            },
+        )
+        store.close()
+
+        reopened = self._store()
+        self.addCleanup(reopened.close)
+        snapshot = reopened.snapshot("run-1")
+        self.assertEqual(snapshot["state"], "paused")
+        self.assertEqual(snapshot["items"][0]["state"], "unconfirmed")
+
+    def test_item_events_are_rejected_after_stopped_or_completed(self) -> None:
+        stopped = self._store(self.root / "stopped")
+        self.addCleanup(stopped.close)
+        self._create_running_run(stopped)
+        stopped.append_event(
+            "run-1",
+            {"event_id": "stop", "type": "run_stopped", "expected_revision": 1},
+        )
+        stopped_before = stopped.snapshot("run-1")
+        with self.assertRaises(self.InvalidTransition):
+            stopped.append_event(
+                "run-1",
+                {
+                    "event_id": "after-stop",
+                    "type": "item_prepared",
+                    "expected_revision": 2,
+                    "item_id": "103439/2023",
+                },
+            )
+        self.assertEqual(stopped.snapshot("run-1"), stopped_before)
+
+        completed = self._store(self.root / "completed")
+        self.addCleanup(completed.close)
+        completed.create_run({"run_id": "run-1"})
+        completed.freeze_queue(
+            "run-1", [{"process_key": "103439/2023"}], "queue", 0
+        )
+        completed.append_event(
+            "run-1",
+            {
+                "event_id": "completed-prepared",
+                "type": "item_prepared",
+                "expected_revision": 1,
+                "item_id": "103439/2023",
+            },
+        )
+        completed.append_event(
+            "run-1",
+            {
+                "event_id": "completed-filled",
+                "type": "fields_verified",
+                "expected_revision": 2,
+                "item_id": "103439/2023",
+            },
+        )
+        completed.append_event(
+            "run-1",
+            {
+                "event_id": "completed-intent",
+                "type": "send_intent",
+                "expected_revision": 3,
+                "item_id": "103439/2023",
+            },
+        )
+        completed.append_event(
+            "run-1",
+            {
+                "event_id": "completed-unconfirmed",
+                "type": "send_unconfirmed",
+                "expected_revision": 4,
+                "item_id": "103439/2023",
+            },
+        )
+        completed.append_event(
+            "run-1",
+            {"event_id": "complete", "type": "run_completed", "expected_revision": 5},
+        )
+        completed_before = completed.snapshot("run-1")
+        with self.assertRaises(self.InvalidTransition):
+            completed.append_event(
+                "run-1",
+                {
+                    "event_id": "after-completed",
+                    "type": "item_failed",
+                    "expected_revision": 6,
+                    "item_id": "103439/2023",
+                },
+            )
+        self.assertEqual(completed.snapshot("run-1"), completed_before)
 
     def test_legacy_completed_progress_is_not_migrated_to_confirmed(self) -> None:
         (self.root / "progresso.json").write_text(
