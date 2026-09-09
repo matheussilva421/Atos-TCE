@@ -134,6 +134,37 @@ adicionada de forma compatível. Eventos legados sem esse resultado armazenado
 falham fechadamente com `LegacyEventReplayError`, sem devolver snapshot
 posterior como resultado original.
 
+## Rodada de correção final — revisão independente
+
+Data: 2026-09-09
+
+Foram corrigidos os três achados acionáveis da revisão final, preservando as
+correções anteriores:
+
+- sanitização contextual mantém `process_key`/identidades de ato permitidas,
+  incluindo `103439/2023`, legíveis no HTML e CSV; caminhos reais continuam
+  redigidos;
+- citações são descartadas quando não são lista de objetos com `document_id`
+  ou `page_id` seguro; `page`, `label` e demais campos só são aceitos como
+  derivados de uma dessas identidades;
+- `generation` é derivada por helper determinístico dos hashes SHA-256 do HTML
+  e CSV e o manifesto falha fechadamente se o identificador divergir, mesmo
+  com os arquivos individuais íntegros.
+
+TDD desta rodada:
+
+```text
+RED: as três regressões falharam antes da implementação (após corrigir um
+fixture que inicialmente não correspondia à identidade congelada).
+GREEN: python -m unittest test_automation_store test_automation_report -q
+Resultado: 31 testes executados, 31 passaram, 0 falharam.
+```
+
+Os testes novos cobrem identidades de ato versus caminhos reais, citações
+somente com página/rótulo/string/objeto arbitrário e adulteração do ID de
+geração com hashes e arquivos válidos. Nenhum serviço, API, worker, painel,
+empacotamento, autenticação ou envio real foi alterado ou executado.
+
 ## Arquivos sob alteração
 
 - Criado `work/tce-extractor/portable/app/automation_store.py`.
@@ -153,7 +184,7 @@ posterior como resultado original.
 3. Nenhum envio real, autenticação de portal ou navegação foi iniciado.
 4. Commit funcional anterior: `d3035da`
    (`feat: persist automation events and incremental reports`).
-5. Esta rodada será consolidada em `fix: close automation report review findings`.
+5. Esta rodada será consolidada em `fix: finalize automation report identity and generation validation`.
 
 Próxima retomada: revisar este relatório e consumir `AutomationStore` somente
 na fase de API, preservando o gate de envio real e executando novamente os

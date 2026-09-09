@@ -7,6 +7,7 @@ import importlib.util
 from io import StringIO
 import json
 from pathlib import Path
+import shutil
 import sys
 from tempfile import TemporaryDirectory
 import unittest
@@ -317,6 +318,72 @@ class AutomationReportTests(unittest.TestCase):
             ):
                 self.assertNotIn(secret, content)
 
+    def test_allowed_act_identities_remain_visible_but_real_paths_are_redacted(self) -> None:
+        from automation_report import render_run_reports
+
+        store = self._store_with_report_data()
+        self.addCleanup(store.close)
+        store.append_event(
+            "run-report",
+            {
+                "event_id": "identity-context-report",
+                "type": "item_pending",
+                "expected_revision": 3,
+                "item_id": "103439/2023",
+                "process_key": "103439/2023",
+                "identity": {"process_key": "103439/2023"},
+                "act_id": "ato-42",
+                "source": r"C:\private\source.pdf",
+            },
+        )
+
+        result = render_run_reports(store, "run-report", self.root)
+        contents = [
+            Path(result["html_path"]).read_text(encoding="utf-8"),
+            Path(result["csv_path"]).read_text(encoding="utf-8"),
+        ]
+
+        for content in contents:
+            self.assertIn("103439/2023", content)
+            self.assertNotIn(r"C:\private\source.pdf", content)
+        self.assertIn("ato-42", contents[0])
+
+    def test_citations_without_document_or_page_id_are_discarded(self) -> None:
+        from automation_report import render_run_reports
+
+        cases = (
+            ("page-only", [{"page": 8}]),
+            ("label-only", [{"label": "INVALID-LABEL-ONLY"}]),
+            ("string", ["INVALID-CITATION-STRING"]),
+            ("arbitrary-object", [{"document": "INVALID-LEGACY-DOCUMENT"}]),
+        )
+        for suffix, citations in cases:
+            with self.subTest(suffix=suffix):
+                root = self.root / f"citation-context-{suffix}"
+                store = self._store_with_report_data(root)
+                self.addCleanup(store.close)
+                store.append_event(
+                    "run-report",
+                    {
+                        "event_id": f"invalid-citation-context-{suffix}",
+                        "type": "item_failed",
+                        "expected_revision": 3,
+                        "item_id": "103439/2023",
+                        "citations": citations,
+                    },
+                )
+
+                result = render_run_reports(store, "run-report", root)
+                contents = [
+                    Path(result["html_path"]).read_text(encoding="utf-8"),
+                    Path(result["csv_path"]).read_text(encoding="utf-8"),
+                ]
+                for content in contents:
+                    self.assertNotIn("p.8", content)
+                    self.assertNotIn("INVALID-LABEL-ONLY", content)
+                    self.assertNotIn("INVALID-CITATION-STRING", content)
+                    self.assertNotIn("INVALID-LEGACY-DOCUMENT", content)
+
     def test_malformed_citations_are_discarded_without_generic_payload_fallback(self) -> None:
         from automation_report import render_run_reports
 
@@ -482,6 +549,47 @@ class AutomationReportTests(unittest.TestCase):
         self.assertEqual(csv_path.read_bytes(), old_csv)
         self.assertEqual(manifest_path.read_text(encoding="utf-8"), divergent_manifest)
         self.assertEqual(list(directory.glob(".relatorio.*.tmp")), [])
+
+    def test_divergent_generation_id_fails_closed_with_intact_files(self) -> None:
+        from automation_report import render_run_reports
+
+        store = self._store_with_report_data()
+        self.addCleanup(store.close)
+        first = render_run_reports(store, "run-report", self.root)
+        directory = self.root / "relatorios" / "complementacao" / "run-report"
+        manifest_path = Path(first["manifest_path"])
+        original_generation = directory / ".generations" / first["generation"]
+        fake_generation_id = "f" * 64
+        fake_generation = directory / ".generations" / fake_generation_id
+        fake_generation.mkdir()
+        shutil.copy2(
+            original_generation / "relatorio.html", fake_generation / "relatorio.html"
+        )
+        shutil.copy2(
+            original_generation / "relatorio.csv", fake_generation / "relatorio.csv"
+        )
+
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["generation"] = fake_generation_id
+        manifest["html_path"] = f".generations/{fake_generation_id}/relatorio.html"
+        manifest["csv_path"] = f".generations/{fake_generation_id}/relatorio.csv"
+        divergent_manifest = json.dumps(
+            manifest, ensure_ascii=False, sort_keys=True, indent=2
+        ) + "\n"
+        manifest_path.write_text(divergent_manifest, encoding="utf-8")
+
+        with self.assertRaises(OSError):
+            render_run_reports(store, "run-report", self.root)
+
+        self.assertEqual(manifest_path.read_text(encoding="utf-8"), divergent_manifest)
+        self.assertEqual(
+            Path(first["html_path"]).read_bytes(),
+            (original_generation / "relatorio.html").read_bytes(),
+        )
+        self.assertEqual(
+            Path(first["csv_path"]).read_bytes(),
+            (original_generation / "relatorio.csv").read_bytes(),
+        )
 
     def test_report_uses_snapshot_revision_as_event_upper_bound(self) -> None:
         from automation_report import render_run_reports

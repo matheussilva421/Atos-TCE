@@ -69,6 +69,7 @@ _EVENT_PAYLOAD_ALLOWLIST = frozenset(
 _IDENTITY_KEYS = frozenset({"item_id", "process_key", "id", "key", "act_id"})
 _CITATION_KEYS = frozenset({"document_id", "page_id", "page", "label"})
 _SAFE_ID_RE = re.compile(r"[A-Za-z0-9._:/-]{1,256}")
+_PROCESS_KEY_RE = re.compile(r"\d+/\d{4}")
 _URL_RE = re.compile(
     r"(?:\b(?:https?|wss?|ftp|file|mailto|javascript|data):[^\s<>'\"]+"
     r"|(?<!\w)//[^\s<>'\"]+|\bwww\.[^\s<>'\"]+"
@@ -130,7 +131,15 @@ def _redact_text(value: str) -> str:
     return _RELATIVE_PATH_RE.sub("[redacted-path]", value)
 
 
-def _safe_identifier(value: Any) -> str:
+def _is_allowed_process_key(value: Any, key: str) -> bool:
+    return (
+        key in {"item_id", "process_key"}
+        and isinstance(value, str)
+        and _PROCESS_KEY_RE.fullmatch(value) is not None
+    )
+
+
+def _safe_identifier(value: Any, key: str = "") -> str:
     if isinstance(value, bool):
         return "[redacted-id]"
     if isinstance(value, int):
@@ -138,7 +147,7 @@ def _safe_identifier(value: Any) -> str:
             return "[redacted-id]"
         text = str(value)
     elif isinstance(value, str):
-        text = _redact_text(value)
+        text = value if _is_allowed_process_key(value, key) else _redact_text(value)
     else:
         return "[redacted-id]"
     if _SAFE_ID_RE.fullmatch(text):
@@ -169,15 +178,17 @@ def _safe_citation_object(value: Any) -> dict[str, str | int]:
             label = _redact_text(candidate).strip()
             if label and all(character.isprintable() for character in label):
                 result[key] = label[:256]
+    if not any(key in result for key in ("document_id", "page_id")):
+        return {}
     return result
 
 
 def _safe_identity(value: Any) -> Any:
     if isinstance(value, dict):
         return {
-            key: _safe_identifier(value[key])
+            key: _safe_identifier(value[key], key)
             for key in _IDENTITY_KEYS
-            if key in value and _safe_identifier(value[key]) != "[redacted-id]"
+            if key in value and _safe_identifier(value[key], key) != "[redacted-id]"
         }
     if isinstance(value, list):
         return [_safe_identity(item) for item in value]
@@ -228,6 +239,8 @@ def _safe_value(value: Any, key: str = "", depth: int = 0) -> Any:
     if isinstance(value, tuple):
         return [_safe_value(child, key, depth + 1) for child in value]
     if isinstance(value, str):
+        if _is_allowed_process_key(value, key):
+            return value
         return _redact_text(value)
     if isinstance(value, int) and not isinstance(value, bool) and 10**9 <= abs(value) <= 10**11 - 1:
         return "[redacted-cpf]"
@@ -254,6 +267,8 @@ def _safe_event_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 for citation in [_safe_citation_object(item)]
                 if citation
             ]
+        elif key in _IDENTITY_KEYS:
+            safe[key] = _safe_identifier(value, key)
         else:
             safe[key] = _safe_value(value, key)
     return safe
@@ -298,8 +313,8 @@ def _item_label(payload: dict[str, Any]) -> str:
         if isinstance(value, dict):
             for identity_key in ("item_id", "process_key", "id", "key", "act_id"):
                 if identity_key in value:
-                    return _display(value[identity_key])
-        return _display(value)
+                    return _display(value[identity_key], identity_key)
+        return _display(value, key)
     return ""
 
 
@@ -412,15 +427,15 @@ def _report_rows(run_id: str, events: list[dict[str, Any]]) -> list[dict[str, st
     return result
 
 
-def _csv_cell(value: object) -> str:
-    text = _display(value)
+def _csv_cell(value: object, key: str = "") -> str:
+    text = _display(value, key)
     if text.startswith(_FORMULA_PREFIXES):
         return "'" + text
     return text
 
 
-def _html_value(value: object) -> str:
-    return html.escape(_display(value), quote=True)
+def _html_value(value: object, key: str = "") -> str:
+    return html.escape(_display(value, key), quote=True)
 
 
 def _render_html(
@@ -470,7 +485,7 @@ def _render_html(
         parts.append(
             "<tr>"
             + "".join(
-                f"<td>{_html_value(row[column])}</td>"
+                f"<td>{_html_value(row[column], column)}</td>"
                 for column in (
                     "item_id",
                     "field",
@@ -513,7 +528,9 @@ def _render_csv(rows: list[dict[str, str]]) -> str:
     writer = csv.DictWriter(stream, fieldnames=columns, lineterminator="\n")
     writer.writeheader()
     for row in rows:
-        writer.writerow({column: _csv_cell(row.get(column, "")) for column in columns})
+        writer.writerow(
+            {column: _csv_cell(row.get(column, ""), column) for column in columns}
+        )
     return stream.getvalue()
 
 
@@ -574,6 +591,10 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _generation_id(html_digest: str, csv_digest: str) -> str:
+    return hashlib.sha256(f"{html_digest}:{csv_digest}".encode("ascii")).hexdigest()
+
+
 def _validate_generation_directory(
     generation_directory: Path, html_digest: str, csv_digest: str
 ) -> None:
@@ -613,8 +634,12 @@ def _validate_published_manifest(manifest_path: Path) -> None:
         or manifest.get("csv_path") != expected_csv_path
         or not isinstance(manifest.get("html_sha256"), str)
         or not isinstance(manifest.get("csv_sha256"), str)
+        or not re.fullmatch(r"[0-9a-f]{64}", manifest.get("html_sha256", ""))
+        or not re.fullmatch(r"[0-9a-f]{64}", manifest.get("csv_sha256", ""))
     ):
         raise OSError("ponteiro ou hash inválido no manifesto de relatório")
+    if generation != _generation_id(manifest["html_sha256"], manifest["csv_sha256"]):
+        raise OSError("geração divergente dos hashes do manifesto")
     generation_directory = manifest_path.parent / ".generations" / generation
     _validate_generation_directory(
         generation_directory,
@@ -752,9 +777,7 @@ def render_run_reports(
     csv_content = _render_csv(rows)
     html_digest = hashlib.sha256(html_content.encode("utf-8")).hexdigest()
     csv_digest = hashlib.sha256(csv_content.encode("utf-8")).hexdigest()
-    generation_id = hashlib.sha256(
-        f"{html_digest}:{csv_digest}".encode("ascii")
-    ).hexdigest()
+    generation_id = _generation_id(html_digest, csv_digest)
     manifest_content = (
         json.dumps(
             {
