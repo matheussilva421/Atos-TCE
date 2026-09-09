@@ -16,6 +16,11 @@
 
 **Revisão de 08/09/2026:** redesign solicitado após a primeira versão. A fase 8 foi ampliada em cinco entregas de design e implementação, com wireframes, tokens, acessibilidade, testes e impactos no empacotamento. O redesign foi implementado no side panel; o gate real do portal permanece separado e pendente.
 
+**Semântica do checklist:** `[x]` nesta especificação significa gate local
+comportamental/documental comprovado nos relatórios e suítes da branch. Os
+itens que exigem sessão autenticada, observação ou efeito remoto permanecem
+separados na seção 14.2 e não são promovidos por fixtures sintéticas.
+
 ## 1. Decisões confirmadas e limites
 
 | Tema | Comportamento acordado |
@@ -200,12 +205,12 @@ Não prometer exactly-once distribuído: o portal não oferece contrato de idemp
 
 **Arquivos:** ampliar `E/tests/matcher.test.mjs`, `E/tests/normalizer.test.mjs`; criar `P/tests/fixtures/legal-foundations.json` e `P/tests/fixtures/automatic-portal/` com HTML sanitizado. Atualizar handoff deste escopo.
 
-- [ ] Registrar `git status`, HEAD, remoto e versões Node/Python disponíveis; trabalhar em `codex/fundamentacao-automatico` na implementação, preservando alterações anteriores.
-- [ ] Executar baseline JS e testes Python de extração/exportação/serviço; guardar contagens resumidas.
-- [ ] Montar catálogo sintético com as três opções, art. 6º-A, CF art. 40 § 1º II, opção militar e placeholder.
-- [ ] Reproduzir erro concreto do matcher atual com texto abreviado; assertar a opção esperada, não apenas pontuação.
-- [ ] Inspecionar amostra local de resoluções por família, sem modificar PDFs ou publicar nomes; montar fixtures sintéticas representativas. Se não houver exemplo real de uma família, documentar essa lacuna na matriz de QA.
-- [ ] Criar fixtures distintas para lista paginada, pessoas, formulário, botões e resultado no simulador. Sucesso simulado deve ser identificado como simulado.
+- [x] Registrar `git status`, HEAD, remoto e versões Node/Python disponíveis; trabalhar em `codex/fundamentacao-automatico` na implementação, preservando alterações anteriores.
+- [x] Executar baseline JS e testes Python de extração/exportação/serviço; guardar contagens resumidas.
+- [x] Montar catálogo sintético com as três opções, art. 6º-A, CF art. 40 § 1º II, opção militar e placeholder.
+- [x] Reproduzir erro concreto do matcher atual com texto abreviado; assertar a opção esperada, não apenas pontuação.
+- [x] Inspecionar amostra local de resoluções por família, sem modificar PDFs ou publicar nomes; montar fixtures sintéticas representativas. Se não houver exemplo real de uma família, documentar essa lacuna na matriz de QA.
+- [x] Criar fixtures distintas para lista paginada, pessoas, formulário, botões e resultado no simulador. Sucesso simulado deve ser identificado como simulado.
 
 Exemplo de regressão a adicionar ao teste existente:
 
@@ -230,13 +235,13 @@ Comando: em E, `node --test tests/matcher.test.mjs tests/normalizer.test.mjs`. R
 
 **Interface nova:** `build_legal_contexts(manifest: dict, checkpoint: dict, page_texts: dict, dataset_sha256: str) -> dict`; `write_legal_contexts(path: Path, contexts: dict) -> None`. Sidecar contém `schema_version`, `dataset_sha256`, `records` de `LegalContext`.
 
-- [ ] Escrever testes de resolução multipágina, trecho com “ambos”, fonte errada, duas resoluções divergentes, OCR falho e hash de PDF incompatível.
-- [ ] Confirmar RED com caso em que o trecho extraído omite § 5º presente na parte operativa.
-- [ ] Reutilizar textos/cache do pipeline; não rodar OCR no GET HTTP nem durante cada seleção do painel.
-- [ ] Separar texto completo de evidência e trecho operativo para classificação. Preservar citações por página, sem cortar silenciosamente em 512 caracteres.
-- [ ] Publicar sidecar atomicamente na mesma geração de artefatos; somente anunciar revisão após todos os arquivos estarem consistentes.
-- [ ] Dataset v1 e exportador continuam aceitando apenas os sete campos. Contexto ausente mantém modo manual, mas bloqueia envio automático do respectivo ato.
-- [ ] Atualizar versão de cache quando a lógica mudar e recomputar apenas os documentos afetados.
+- [x] Escrever testes de resolução multipágina, trecho com “ambos”, fonte errada, duas resoluções divergentes, OCR falho e hash de PDF incompatível.
+- [x] Confirmar RED com caso em que o trecho extraído omite § 5º presente na parte operativa.
+- [x] Reutilizar textos/cache do pipeline; não rodar OCR no GET HTTP nem durante cada seleção do painel.
+- [x] Separar texto completo de evidência e trecho operativo para classificação. Preservar citações por página, sem cortar silenciosamente em 512 caracteres.
+- [x] Publicar sidecar atomicamente na mesma geração de artefatos; somente anunciar revisão após todos os arquivos estarem consistentes.
+- [x] Dataset v1 e exportador continuam aceitando apenas os sete campos. Contexto ausente mantém modo manual, mas bloqueia envio automático do respectivo ato.
+- [x] Atualizar versão de cache quando a lógica mudar e recomputar apenas os documentos afetados.
 
 Exemplo de teste do contrato:
 
@@ -262,22 +267,22 @@ Comando em P: `python -m unittest test_legal_context test_tce_extractor test_ana
 
 ### 7.1 Parsing e precedência
 
-- [ ] Testar e implementar normalização de EC/ECE, CF, ordinais, algarismos romanos, “I a IV”, “parágrafo único”, “ambos”, “c/c”, “combinado com”, artigos com sufixo A e referências em ordem invertida.
-- [ ] Não colapsar constituição estadual com federal, nem EC com ECE. Ano explícito divergente é contradição; ano ausente é informação incompleta, não divergência automática.
-- [ ] Excluir placeholder e opções sem valor selecionável.
-- [ ] Aplicar equivalência estrutural completa primeiro, exceto quando conflitar com a política específica de § 5º. Depois, regras operacionais; depois, semelhança.
-- [ ] Regra EC41 aceita art. 6º ou 7º vinculado à EC 41/2003. Art. 6º-A não participa. EC47_ART3 exige art. 3º vinculado à EC 47/2005. Número solto não aciona essas regras.
-- [ ] Dentro da família EC41, CF art. 40 § 5º deve estar no trecho operativo da resolução; menção histórica ou § 5º de outra norma não ativa a variante.
-- [ ] Uma regra sem opção correspondente no catálogo resulta em pendência; não mudar silenciosamente para outra família.
+- [x] Testar e implementar normalização de EC/ECE, CF, ordinais, algarismos romanos, “I a IV”, “parágrafo único”, “ambos”, “c/c”, “combinado com”, artigos com sufixo A e referências em ordem invertida.
+- [x] Não colapsar constituição estadual com federal, nem EC com ECE. Ano explícito divergente é contradição; ano ausente é informação incompleta, não divergência automática.
+- [x] Excluir placeholder e opções sem valor selecionável.
+- [x] Aplicar equivalência estrutural completa primeiro, exceto quando conflitar com a política específica de § 5º. Depois, regras operacionais; depois, semelhança.
+- [x] Regra EC41 aceita art. 6º ou 7º vinculado à EC 41/2003. Art. 6º-A não participa. EC47_ART3 exige art. 3º vinculado à EC 47/2005. Número solto não aciona essas regras.
+- [x] Dentro da família EC41, CF art. 40 § 5º deve estar no trecho operativo da resolução; menção histórica ou § 5º de outra norma não ativa a variante.
+- [x] Uma regra sem opção correspondente no catálogo resulta em pendência; não mudar silenciosamente para outra família.
 
 ### 7.2 Ranking residual fixado
 
 Para opções restantes, comparar o trecho operativo com o rótulo normalizado: `score = 40 * referências completas coincidentes + 25 * diplomas coincidentes + 10 * artigos coincidentes + 5 * qualificadores coincidentes + Dice`, com `Dice` entre 0 e 10. Contar cada sinal único uma vez. Qualificadores: incisos, parágrafos e alíneas ligados à mesma referência. Coincidência de referência não pode ser montada juntando artigo de uma norma com diploma de outra.
 
-- [ ] Excluir contradição explícita do mesmo dispositivo: norma/ano diferente, inciso ou parágrafo incompatível quando ambos explicitam o mesmo papel. Não considerar toda referência extra uma contradição.
-- [ ] Maior score estritamente positivo e único pode ser aplicado automaticamente, sem limiar mínimo adicional, conforme preferência do usuário.
-- [ ] Zero ou empate resulta em `pending`, `option_value: null`. Não usar ordem do catálogo como desempate.
-- [ ] Guardar ranking completo e versão da regra para auditoria; painel apresenta “por semelhança”, nunca “confirmado juridicamente”.
+- [x] Excluir contradição explícita do mesmo dispositivo: norma/ano diferente, inciso ou parágrafo incompatível quando ambos explicitam o mesmo papel. Não considerar toda referência extra uma contradição.
+- [x] Maior score estritamente positivo e único pode ser aplicado automaticamente, sem limiar mínimo adicional, conforme preferência do usuário.
+- [x] Zero ou empate resulta em `pending`, `option_value: null`. Não usar ordem do catálogo como desempate.
+- [x] Guardar ranking completo e versão da regra para auditoria; painel apresenta “por semelhança”, nunca “confirmado juridicamente”.
 
 ```javascript
 test('cargo não acrescenta §5 à resolução', () => {
@@ -312,12 +317,12 @@ Na fase 7, acrescentar `consume_command(run_id: str, command_id: str, expected_r
 
 Tabelas: `runs` (spec, status, revision, timestamps), `items` (identidade, ordinal, estado), `events` (run_id, seq, event_id, tipo, payload, timestamp), `commands` (command_id único, item_id, estado de intenção e consumo), `confirmed_acts` (identidade, hash dos dados, evento confirmador). `event_id` único global; `run_id + seq` único; `run_id + ordinal` único.
 
-- [ ] Testar antes de implementar: reinício, revisão obsoleta, evento repetido, payload diferente com mesmo ID, transição inválida e duas execuções concorrentes.
-- [ ] Configurar SQLite `journal_mode=DELETE`, `synchronous=FULL`, `foreign_keys=ON`, `busy_timeout=5000`. Usar conexão por operação com transação `BEGIN IMMEDIATE`, compatível com HTTP multithread. Rollback não pode avançar estado em memória.
-- [ ] Persistir evento e projeção de estado na mesma transação. Mesmo `event_id` e payload devolve resultado anterior; payload diferente devolve conflito.
-- [ ] Uma execução ativa por raiz do acervo; impedir corrida no banco, não apenas por variável JS.
-- [ ] Ao iniciar serviço, qualquer execução `running`/`discovering` vira pausada; item com `send_intent` sem confirmação vira `unconfirmed`.
-- [ ] Não migrar `progresso.json.completed=true` para `confirmed`. Marcas antigas continuam com significado anterior.
+- [x] Testar antes de implementar: reinício, revisão obsoleta, evento repetido, payload diferente com mesmo ID, transição inválida e duas execuções concorrentes.
+- [x] Configurar SQLite `journal_mode=DELETE`, `synchronous=FULL`, `foreign_keys=ON`, `busy_timeout=5000`. Usar conexão por operação com transação `BEGIN IMMEDIATE`, compatível com HTTP multithread. Rollback não pode avançar estado em memória.
+- [x] Persistir evento e projeção de estado na mesma transação. Mesmo `event_id` e payload devolve resultado anterior; payload diferente devolve conflito.
+- [x] Uma execução ativa por raiz do acervo; impedir corrida no banco, não apenas por variável JS.
+- [x] Ao iniciar serviço, qualquer execução `running`/`discovering` vira pausada; item com `send_intent` sem confirmação vira `unconfirmed`.
+- [x] Não migrar `progresso.json.completed=true` para `confirmed`. Marcas antigas continuam com significado anterior.
 
 ```python
 def test_intent_survives_restart_as_unconfirmed(self):
@@ -336,12 +341,12 @@ Helpers do teste devem preparar transições reais `queue_frozen → item_prepar
 
 **Interface:** `render_run_reports(store: AutomationStore, run_id: str, output_root: Path) -> dict` retorna caminhos relativos e revisão renderizada.
 
-- [ ] Registrar valores antes/depois, valores realmente relidos, decisão jurídica, citações, início/fim, erros, último confirmado e item interrompido.
-- [ ] Relatório HTML com totais e detalhes por ato; CSV com uma linha por ato/campo, incluindo método e origem. Ordenação por fila, histórico por sequência.
-- [ ] Escapar HTML e neutralizar células CSV iniciadas por `=`, `+`, `-`, `@`, tabulação e retorno. Testar nomes/textos maliciosos sem alterar o original no banco.
-- [ ] Gerar arquivos temporários, flush, fsync e `os.replace`; falha na renderização preserva relatório anterior e banco atualizado.
-- [ ] Renderizar após cada transição, antes de avançar a outro ato. Falha de projeção pausa e exibe revisão do último relatório; regeneração é idempotente.
-- [ ] Excluir tokens, cookies, CPF e URLs de sessão; citações usam IDs de documentos e páginas, não caminhos arbitrários.
+- [x] Registrar valores antes/depois, valores realmente relidos, decisão jurídica, citações, início/fim, erros, último confirmado e item interrompido.
+- [x] Relatório HTML com totais e detalhes por ato; CSV com uma linha por ato/campo, incluindo método e origem. Ordenação por fila, histórico por sequência.
+- [x] Escapar HTML e neutralizar células CSV iniciadas por `=`, `+`, `-`, `@`, tabulação e retorno. Testar nomes/textos maliciosos sem alterar o original no banco.
+- [x] Gerar arquivos temporários, flush, fsync e `os.replace`; falha na renderização preserva relatório anterior e banco atualizado.
+- [x] Renderizar após cada transição, antes de avançar a outro ato. Falha de projeção pausa e exibe revisão do último relatório; regeneração é idempotente.
+- [x] Excluir tokens, cookies, CPF e URLs de sessão; citações usam IDs de documentos e páginas, não caminhos arbitrários.
 
 Comando em P: `python -m unittest test_automation_store test_automation_report -q`.
 
@@ -370,14 +375,14 @@ Métodos do bridge client: `getAutomationCapabilities()`, `getLegalContext(ident
 
 Acrescentar `consumeAutomationCommand(runId,commandId,expectedRevision)` na fase 7. O content script pede `AUTO_CONSUME_COMMAND` ao worker; o worker valida `sender.tab.id`, `sender.frameId`, papel `buttons`, geração e execução antes de chamar a API. Token local nunca é enviado ao DOM. Acrescentar o evento `command_consumed` à enumeração da seção 4.2 ao implementar o schema; payload contém apenas `command_id` e identificação da geração autorizada.
 
-- [ ] RED para chamadas sem token, origem inadequada, revisão obsoleta, dataset trocado e payload extra.
-- [ ] Backend calcula hashes e valida identidade contra dataset/contexto; não confiar no hash declarado isoladamente pelo cliente.
-- [ ] Acrescentar limite de corpo de 2 MiB e lote de no máximo 10.000 identidades; excesso devolve erro e mantém estado anterior. Contexto acima do limite gera pendência, sem truncar texto silenciosamente.
-- [ ] Proteger rotas de relatório como demais dados privados; painel baixa via requisição autenticada e Blob, sem token em query string.
-- [ ] Cliente antigo continua funcionando. Cliente novo com serviço antigo mantém manual e explica indisponibilidade do automático.
-- [ ] Integrar contexto ao `getMatch` sem alterar schema v1; cache por processo/interessado/hash/regras. Mudança de revisão invalida cache.
-- [ ] A API de `health` anuncia capacidades sem dados privados; contexto e operações exigem token. Raiz do serviço é vinculada ao acervo atual: não aceitar `workflow_root` ou caminho de relatório vindo do cliente.
-- [ ] Novas mensagens do painel: `AUTO_START`, `AUTO_PAUSE`, `AUTO_RESUME`, `AUTO_STOP`, `AUTO_STATUS`. Somente páginas da extensão podem iniciar/controlar lote.
+- [x] RED para chamadas sem token, origem inadequada, revisão obsoleta, dataset trocado e payload extra.
+- [x] Backend calcula hashes e valida identidade contra dataset/contexto; não confiar no hash declarado isoladamente pelo cliente.
+- [x] Acrescentar limite de corpo de 2 MiB e lote de no máximo 10.000 identidades; excesso devolve erro e mantém estado anterior. Contexto acima do limite gera pendência, sem truncar texto silenciosamente.
+- [x] Proteger rotas de relatório como demais dados privados; painel baixa via requisição autenticada e Blob, sem token em query string.
+- [x] Cliente antigo continua funcionando. Cliente novo com serviço antigo mantém manual e explica indisponibilidade do automático.
+- [x] Integrar contexto ao `getMatch` sem alterar schema v1; cache por processo/interessado/hash/regras. Mudança de revisão invalida cache.
+- [x] A API de `health` anuncia capacidades sem dados privados; contexto e operações exigem token. Raiz do serviço é vinculada ao acervo atual: não aceitar `workflow_root` ou caminho de relatório vindo do cliente.
+- [x] Novas mensagens do painel: `AUTO_START`, `AUTO_PAUSE`, `AUTO_RESUME`, `AUTO_STOP`, `AUTO_STATUS`. Somente páginas da extensão podem iniciar/controlar lote.
 
 Teste representativo: POST de evento idêntico duas vezes aumenta revisão uma vez; mesmo ID com dados diferentes devolve 409. GET de contexto de outro interessado não retorna o primeiro registro encontrado.
 
@@ -418,15 +423,15 @@ O novo content script deve seguir o padrão clássico/CommonJS testável do `for
 
 **Interface worker:** `createAutomationController({chromeApi, bridge, ranker, clock})` retorna `start`, `pause`, `resume`, `stop`, `status`, `handlePortalEvent`. Injetar clock e dependências para testes; nenhum loop principal pertence ao painel.
 
-- [ ] RED com 3 páginas de 2/2/1 processos, rerender de frames e números de linhas repetidos; fila deve conter cinco processos únicos.
-- [ ] Detectar lista e pessoas mesmo sem os sete sentinelas do formulário. Registrar papéis de frames em `storage.session` e invalidar geração em navegação.
-- [ ] Identificar links pelo processo na linha; nunca clicar o primeiro “Complementar Ato” globalmente.
-- [ ] Enumerar todas as páginas usando controles observados; guardar identidades, não nós DOM nem URLs autenticadas. Detectar página repetida sem progresso e pausar.
-- [ ] Abrir cada processo para descobrir interessados; vincular por processo + nome normalizado + ID do ato quando observável. Sem dados locais, registrar item pendente.
-- [ ] Congelar fila deduplicada e versão do dataset antes da primeira escrita de campo. Identidade não resolvida não some dos totais.
-- [ ] Reencontrar processo na lista após cada retorno; não depender de permanecer no mesmo índice de linha ou página.
-- [ ] Detectar mudança de setor, aba fechada e navegação manual; pausar. Trocar para outra aba sem mexer na aba vinculada pode deixar o lote funcionando.
-- [ ] Observar DOM com MutationObserver e espera por condição; timeout de navegação 30 s. Uma nova leitura é permitida; nunca repetir clique sem antes verificar o estado resultante.
+- [x] RED com 3 páginas de 2/2/1 processos, rerender de frames e números de linhas repetidos; fila deve conter cinco processos únicos.
+- [x] Detectar lista e pessoas mesmo sem os sete sentinelas do formulário. Registrar papéis de frames em `storage.session` e invalidar geração em navegação.
+- [x] Identificar links pelo processo na linha; nunca clicar o primeiro “Complementar Ato” globalmente.
+- [x] Enumerar todas as páginas usando controles observados; guardar identidades, não nós DOM nem URLs autenticadas. Detectar página repetida sem progresso e pausar.
+- [x] Abrir cada processo para descobrir interessados; vincular por processo + nome normalizado + ID do ato quando observável. Sem dados locais, registrar item pendente.
+- [x] Congelar fila deduplicada e versão do dataset antes da primeira escrita de campo. Identidade não resolvida não some dos totais.
+- [x] Reencontrar processo na lista após cada retorno; não depender de permanecer no mesmo índice de linha ou página.
+- [x] Detectar mudança de setor, aba fechada e navegação manual; pausar. Trocar para outra aba sem mexer na aba vinculada pode deixar o lote funcionando.
+- [x] Observar DOM com MutationObserver e espera por condição; timeout de navegação 30 s. Uma nova leitura é permitida; nunca repetir clique sem antes verificar o estado resultante.
 
 Exemplo de contrato a testar:
 
@@ -450,15 +455,15 @@ Helpers usam DOM falso no padrão de `form-detector.test.mjs`, atribuindo geraç
 
 **Interface:** `prepareAutomaticAct({record,context,snapshot,legalDecision}) -> {eligible:boolean, fields:object, preserved:object, reasons:string[], evidence:object}`.
 
-- [ ] Testar campos vazios, preenchidos equivalentes, divergentes, disabled/readOnly, datas inválidas e opção removida.
-- [ ] Validar identidade antes de cada escrita. Snapshot deve pertencer ao processo/interessado da fila e à geração atual do frame.
-- [ ] Comparar selects por valor da opção atual, datas por data civil e texto com normalização conservadora. Não considerar dois cargos diferentes equivalentes por semelhança.
-- [ ] Divergência em qualquer dos sete campos com valor documental proposto cancela preparação do ato inteiro antes de preencher parcialmente.
-- [ ] Campos obrigatórios sem proposta nem valor existente validável geram pendência. Campo existente sem fonte suficiente para validá-lo não torna o ato automaticamente elegível.
-- [ ] Persistir `item_prepared` com valores atuais, propostas, contexto/hash e decisão. Reutilizar `applyFields`, mantendo allowlist; não chamar `overrideField` no lote.
-- [ ] Reler todos os valores e opções após eventos `input`/`change` e estabilização do DOM. Persistir `fields_verified` somente se correspondem ao esperado.
-- [ ] Campo que mudou sozinho, identidade trocada ou catálogo atualizado exige novo preflight; não enviar com a prévia antiga.
-- [ ] Uma falha após preenchimento registra `failed`, sem envio; não apagar os dados preenchidos por tentativa de rollback não comprovada.
+- [x] Testar campos vazios, preenchidos equivalentes, divergentes, disabled/readOnly, datas inválidas e opção removida.
+- [x] Validar identidade antes de cada escrita. Snapshot deve pertencer ao processo/interessado da fila e à geração atual do frame.
+- [x] Comparar selects por valor da opção atual, datas por data civil e texto com normalização conservadora. Não considerar dois cargos diferentes equivalentes por semelhança.
+- [x] Divergência em qualquer dos sete campos com valor documental proposto cancela preparação do ato inteiro antes de preencher parcialmente.
+- [x] Campos obrigatórios sem proposta nem valor existente validável geram pendência. Campo existente sem fonte suficiente para validá-lo não torna o ato automaticamente elegível.
+- [x] Persistir `item_prepared` com valores atuais, propostas, contexto/hash e decisão. Reutilizar `applyFields`, mantendo allowlist; não chamar `overrideField` no lote.
+- [x] Reler todos os valores e opções após eventos `input`/`change` e estabilização do DOM. Persistir `fields_verified` somente se correspondem ao esperado.
+- [x] Campo que mudou sozinho, identidade trocada ou catálogo atualizado exige novo preflight; não enviar com a prévia antiga.
+- [x] Uma falha após preenchimento registra `failed`, sem envio; não apagar os dados preenchidos por tentativa de rollback não comprovada.
 
 ```javascript
 test('divergência impede todas as escritas do ato', () => {
@@ -525,16 +530,16 @@ Construir harness com store falso durável e mesmo `command_id` em ambas chamada
 
 **Alterar:** `E/sidepanel/panel.html`, `panel.js`, `panel.css`, `E/tests/panel.test.mjs`; integrar relatório no serviço sem reimplementar a mesa web inteira.
 
-- [ ] RED para controles indisponíveis sem pareamento, serviço incompatível, execução já ativa e contexto faltante.
-- [ ] Seção “Modo automático” mostra setor, total descoberto/elegível/pendente, estado, ato atual e último confirmado.
-- [ ] “Iniciar” cria execução explícita; descoberta gera relatório antes do primeiro envio. Mostrar claramente que o lote complementará os atos elegíveis.
-- [ ] “Pausar” impede novo comando; “Retomar” concilia o anterior; “Encerrar” preserva relatório e fila remanescente. Não usar rótulo “concluído” para encerramento parcial.
-- [ ] Exibir motivo legível de pendência e fundamento original/selecionado; escolhas por semelhança têm rótulo próprio, sem exigir confirmação individual.
-- [ ] Permitir abrir/baixar HTML/CSV a qualquer momento. Mostrar revisão do relatório se estiver atrasada em relação ao banco.
-- [ ] Ao reabrir painel, reconstruir da API, não de variável em memória. Refresh de status a cada 2 s apenas enquanto painel aberto; worker recebe eventos e usa alarme de 30 s para detectar estagnação, sem depender de manter painel aberto.
-- [ ] Adicionar permissão `alarms` no manifest; alarme nunca dispara envio por si só após reinício. Ele pausa/atualiza estado e reconcilia, sem reemitir comando consumido.
-- [ ] Botões manuais de preenchimento ficam indisponíveis na aba enquanto o lote está ativo; pausa permite revisão sem reativação automática.
-- [ ] Não mostrar stack traces ou tokens ao usuário; apresentar código de erro e ação possível.
+- [x] RED para controles indisponíveis sem pareamento, serviço incompatível, execução já ativa e contexto faltante.
+- [x] Seção “Modo automático” mostra setor, total descoberto/elegível/pendente, estado, ato atual e último confirmado.
+- [x] “Iniciar” cria execução explícita; descoberta gera relatório antes do primeiro envio. Mostrar claramente que o lote complementará os atos elegíveis.
+- [x] “Pausar” impede novo comando; “Retomar” concilia o anterior; “Encerrar” preserva relatório e fila remanescente. Não usar rótulo “concluído” para encerramento parcial.
+- [x] Exibir motivo legível de pendência e fundamento original/selecionado; escolhas por semelhança têm rótulo próprio, sem exigir confirmação individual.
+- [x] Permitir abrir/baixar HTML/CSV a qualquer momento. Mostrar revisão do relatório se estiver atrasada em relação ao banco.
+- [x] Ao reabrir painel, reconstruir da API, não de variável em memória. Refresh de status a cada 2 s apenas enquanto painel aberto; worker recebe eventos e usa alarme de 30 s para detectar estagnação, sem depender de manter painel aberto.
+- [x] Adicionar permissão `alarms` no manifest; alarme nunca dispara envio por si só após reinício. Ele pausa/atualiza estado e reconcilia, sem reemitir comando consumido.
+- [x] Botões manuais de preenchimento ficam indisponíveis na aba enquanto o lote está ativo; pausa permite revisão sem reativação automática.
+- [x] Não mostrar stack traces ou tokens ao usuário; apresentar código de erro e ação possível.
 
 Comando em E: `node --test tests/panel.test.mjs tests/service-worker.test.mjs tests/automation-controller.test.mjs`.
 
