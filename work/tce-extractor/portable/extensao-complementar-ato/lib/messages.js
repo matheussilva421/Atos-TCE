@@ -59,6 +59,29 @@ function validateMatchKinds(matchKinds) {
   }
 }
 
+function safeGeneratedMatchKind(value) {
+  if (value === "pending") return "tie";
+  if (!isRecord(value)) return value;
+
+  const status = value.status ?? value.legalDecision?.status;
+  if (value.kind === "pending" || status === "pending") return "tie";
+  if (MATCH_KIND_SET.has(value.kind)) return value.kind;
+  return value;
+}
+
+function normalizeGeneratedPayload(type, payload) {
+  if (type !== MESSAGE_TYPES.APPLY_FIELDS || !isRecord(payload) || !isRecord(payload.matchKinds)) {
+    return payload;
+  }
+
+  return {
+    ...payload,
+    matchKinds: Object.fromEntries(
+      Object.entries(payload.matchKinds).map(([field, value]) => [field, safeGeneratedMatchKind(value)]),
+    ),
+  };
+}
+
 function validateOptions(options) {
   if (!isRecord(options)) invalid("payload.options must be an object");
   for (const [field, candidates] of Object.entries(options)) {
@@ -147,7 +170,7 @@ export function createMessage(type, payload, requestId) {
     schemaVersion: SCHEMA_VERSION,
     type,
     requestId,
-    payload,
+    payload: normalizeGeneratedPayload(type, payload),
   };
   return validateMessage(message);
 }

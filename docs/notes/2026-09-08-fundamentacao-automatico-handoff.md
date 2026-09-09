@@ -300,3 +300,26 @@
   `tests/legal-foundation.test.mjs`, `task-2-report.md` e este handoff.
 - Próximo passo: criar o commit
   `fix: bind each legal reference to its diploma`, conferir SHA e status.
+
+## Rodada de correção — combinado EC41/CF, CE e compatibilidade legada
+
+- Estado: quatro achados da revisão independente corrigidos no checkout
+  compartilhado via TDD; mudanças alheias não foram revertidas.
+- RED: focal com 64 testes, 59 passados e 5 falhos antes da implementação.
+- Correções: `legal-foundation.js` aceita CF §5 combinado com um único art. 6º
+  ou 7º da EC41; `normalizer.js` reconhece `CE`; `matcher.js` preserva o
+  retorno legado sem `context` e reserva `pending/null` ao caminho contextual de
+  fundamento; `messages.js` converte pending para `tie` antes da validação v1.
+- Contrato preservado: `LegalDecision.status` permanece `selected|pending` e
+  `method` permanece `exact|rule|similarity|none`; valores de mensagem v1
+  desconhecidos continuam rejeitados.
+- GREEN focal: 75/75; `npm test`: 157/157; `git diff --check`: sem diagnóstico.
+- Testes alterados: `tests/legal-foundation.test.mjs`,
+  `tests/matcher.test.mjs` e `tests/schema.test.mjs`.
+- Escopo: somente resolvedor, normalizador, matcher, mensagens e testes/
+  documentação foram alterados; nenhum worker, painel, API, persistência,
+  navegação, ambiente ou envio real foi alterado ou executado.
+- GitHub: checkout sem remoto configurado; commit local pendente, sem push.
+- Retomada: conferir `git status`, criar o commit
+  `fix: preserve legacy matcher and combined foundation behavior` e validar o
+  SHA final.

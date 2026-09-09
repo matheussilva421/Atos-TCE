@@ -441,7 +441,7 @@ test("returns missing-source without selecting an option for an empty documentar
   );
 });
 
-test("does not select an option when the source has no positive legal signal", () => {
+test("preserves the legacy foundation result when no context is provided", () => {
   const result = rankPortalOptions({
     field: "fundamento_legal",
     documentaryValue: "texto sem referências",
@@ -449,14 +449,17 @@ test("does not select an option when the source has no positive legal signal", (
     options: legalFoundationFixture.options,
   });
 
-  assert.equal(result.optionValue, null);
+  assert.equal(result.kind, "probable");
+  assert.equal(result.optionIndex, 0);
+  assert.equal(result.optionValue, "synthetic-ec41-without-p5");
 });
 
-test("returns pending with a null option when foundation scoring has no positive signal", () => {
+test("uses pending and a null option only for contextual foundation matching", () => {
   const result = rankPortalOptions({
     field: "fundamento_legal",
     documentaryValue: "texto sem referências",
     hints: {},
+    context: { resolution_status: "incomplete", operative_text: "", pages: [] },
     options: legalFoundationFixture.options,
   });
 
@@ -464,6 +467,24 @@ test("returns pending with a null option when foundation scoring has no positive
   assert.equal(result.optionIndex, null);
   assert.equal(result.optionValue, null);
   assert.equal(result.optionLabel, null);
+});
+
+test("preserves the legacy zero-score modalidade result without context", () => {
+  const result = rankPortalOptions({
+    field: "modalidade",
+    documentaryValue: "sinal sem correspondência",
+    hints: {},
+    options: options(["Opção de modalidade"]),
+  });
+
+  assert.deepEqual(result, {
+    kind: "probable",
+    optionIndex: 0,
+    optionValue: "Opção de modalidade",
+    optionLabel: "Opção de modalidade",
+    score: 0,
+    reasons: ["no-positive-signal"],
+  });
 });
 
 test("carries a selected legal decision without changing the legacy matcher fields", () => {

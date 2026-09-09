@@ -256,3 +256,24 @@ test("validates optional APPLY_FIELDS matchKinds without accepting external fiel
     /unsupported field/iu,
   );
 });
+
+test("falls back pending matcher kind or legal status to a safe v1 tie", () => {
+  for (const pendingMatch of [
+    "pending",
+    { kind: "pending" },
+    { status: "pending" },
+    { kind: "pending", legalDecision: { status: "pending" } },
+  ]) {
+    const message = createMessage(
+      MESSAGE_TYPES.APPLY_FIELDS,
+      {
+        fields: { fundamento_legal: "f-pending" },
+        matchKinds: { fundamento_legal: pendingMatch },
+      },
+      "apply-pending-fallback",
+    );
+
+    assert.equal(message.payload.matchKinds.fundamento_legal, "tie");
+    assert.deepEqual(validateMessage(message), message);
+  }
+});

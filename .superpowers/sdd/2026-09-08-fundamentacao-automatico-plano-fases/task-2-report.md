@@ -148,3 +148,26 @@ Também foi executado `git diff --check` sem diagnóstico.
 - `git diff --check`: sem diagnóstico.
 - Escopo preservado: nenhum worker, painel, API, persistência ou envio real foi
   alterado ou executado.
+
+## Rodada de correção — combinado EC41/CF, CE e compatibilidade legada
+
+- RED antes da implementação: o focal executou 64 testes, com 59 passando e 5
+  falhando nos quatro cenários novos: EC41 com um único art. 6º + CF §5,
+  abreviação CE, resultado legado sem `context` e fallback de mensagem pending.
+- EC41/CF: `sourceFamilies` agora considera qualquer art. 6º ou 7º da EC41
+  como vínculo suficiente para que CF art. 40 §5 forme `EC41_COM_P5`; art. 6º
+  isolado sem CF §5 continua `EC41_SEM_P5`.
+- CE: `normalizer.js` reconhece `CE` como `Constituição Estadual`; o resolvedor
+  preserva a identidade `ce` e não casa com opções `cf`.
+- Compatibilidade: o caminho legado sem `context` voltou a retornar `probable`,
+  índice e opção mesmo em score zero; somente o caminho contextual de
+  `fundamento_legal` retorna `pending/null` por decisão fail-closed.
+- Mensagens: `createMessage` converte `pending`, `{kind: "pending"}` e status
+  pending direto ou em `legalDecision` para `tie`, o fallback v1 cauteloso;
+  valores desconhecidos continuam rejeitados.
+- GREEN focal: 75 testes executados, 75 passaram, 0 falharam.
+- GREEN full (`npm test`): 157 testes executados, 157 passaram, 0 falharam.
+- `git diff --check`: sem diagnóstico.
+- Escopo preservado: nenhum worker, painel, API, persistência, navegação ou
+  envio real foi alterado ou executado.
+- Commit solicitado: `fix: preserve legacy matcher and combined foundation behavior`.

@@ -146,6 +146,22 @@ test("selects EC41 with paragraph 5 only when CF art. 40 § 5 is operative", () 
   assert.equal(result.option_value, "with-p5");
 });
 
+test("selects EC41 with paragraph 5 when one EC41 article is combined with CF art. 40 § 5", () => {
+  const result = resolveLegalFoundation({
+    context: contextFor(
+      "RESOLVE: Art. 6º da EC nº 41/2003 e art. 40, § 5º, da CF.",
+    ),
+    options: [
+      option("EC41_SEM_P5", "without-p5", "EC41 sem art. 40, § 5º"),
+      option("EC41_COM_P5", "with-p5", "EC41 com art. 40, § 5º CF"),
+    ],
+  });
+
+  assert.equal(result.status, "selected");
+  assert.equal(result.rule_id, "EC41_COM_P5");
+  assert.equal(result.option_value, "with-p5");
+});
+
 test("ignores a historical CF paragraph 5 before the operative RESOLVE marker", () => {
   const result = resolveLegalFoundation({
     context: contextFor(
@@ -219,6 +235,27 @@ test("does not resolve a state constitution reference against a federal option",
 
   assert.equal(result.status, "pending");
   assert.equal(result.option_value, null);
+});
+
+test("recognizes CE as a state constitution and does not match a federal option", () => {
+  const text = "RESOLVE: Art. 40 da CE.";
+  const references = parseLegalReferences(text);
+
+  assert.deepEqual(references[0].diploma, { type: "ce", number: null, year: null });
+  assert.equal(references[0].complete, true);
+
+  const result = resolveLegalFoundation({
+    context: contextFor(text),
+    options: [
+      option(null, "cf", "Art. 40 da Constituição Federal"),
+      option(null, "ce", "Art. 40 da CE"),
+    ],
+  });
+
+  assert.equal(result.status, "selected");
+  assert.equal(result.option_value, "ce");
+  assert.equal(result.ranking[0].option_value, "ce");
+  assert.equal(result.ranking[1].reasons.includes("family-mismatch"), true);
 });
 
 test("leaves incompatible EC and ECE references pending", () => {

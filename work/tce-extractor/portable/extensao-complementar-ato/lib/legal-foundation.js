@@ -268,7 +268,7 @@ function sourceFamilies(references) {
   )) {
     families.push("CF40_P1_II");
   }
-  if (hasCfP5 && !hasEc41Base) {
+  if (hasCfP5 && !hasEc41Part) {
     families.push("CF40_P5");
   }
   return [...new Set(families)];

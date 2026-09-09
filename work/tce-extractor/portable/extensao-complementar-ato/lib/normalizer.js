@@ -171,6 +171,7 @@ export function normalizeLegalText(value) {
     .replace(/\bece\b/gu, " emenda constitucional estadual ")
     .replace(/\bec\b/gu, " emenda constitucional ")
     .replace(/\bcf\b/gu, " constituicao federal ")
+    .replace(/\bce\b/gu, " constituicao estadual ")
     .replace(/\bc\s*\/\s*c\b/gu, " combinado com ")
     .replace(/\blce?\b/gu, " lei complementar ")
     .replace(/\bincisos\b/gu, " incisos ")

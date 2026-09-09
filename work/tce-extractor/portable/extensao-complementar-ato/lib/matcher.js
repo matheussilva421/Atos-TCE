@@ -302,14 +302,7 @@ export function rankPortalOptions({ field, documentaryValue, hints = {}, options
 
   const best = ranked[0];
   if (best.score === 0) {
-    return {
-      kind: "pending",
-      optionIndex: null,
-      optionValue: null,
-      optionLabel: null,
-      score: 0,
-      reasons: ["no-positive-signal"],
-    };
+    return resultFor(best.option, best.index, "probable", 0, ["no-positive-signal"]);
   }
 
   const tied = ranked.filter((candidate) => candidate.score === best.score);
