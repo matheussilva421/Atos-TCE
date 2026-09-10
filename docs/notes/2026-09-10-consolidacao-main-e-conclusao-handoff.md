@@ -92,3 +92,26 @@ Especificação: `docs/notes/2026-09-10-consolidacao-main-e-conclusao-spec.md`
    transferência sem merge.
 4. Parar antes de qualquer Apply, purge, troca/exclusão de branch ou gate portal
    que exija login/autorização imediata.
+
+## Atualização — Tarefa 3.1 (2026-09-10)
+
+- Gate fallback OCR real: `not-observed`.
+- Busca local medida: acervo bruto 4.532 PDFs/15.833 páginas, `native_zero=0`;
+  outputs 1.037 PDFs/3.260 páginas, `native_zero=0`; QA v6 4.532
+  PDFs/15.833 páginas, `native_zero=0`; escopo `work` (sem runtime/vendor/
+  site-packages) 28.398 PDFs/98.515 páginas, `native_zero=0`. Todos os
+  documentos abriram sem erro.
+- A implementação de cache versionado, cache geométrico, TSV/confiança e
+  integração no pipeline já existia em `portable/app/analysis_pipeline.py`,
+  `portable/app/evidence_geometry.py`, `tce_extractor.py` e `batch_runner.py`;
+  nenhum código de produção foi alterado nesta tarefa.
+- Foram encontrados 10 arquivos `cache-ocr*.json`, todos com zero entradas;
+  não há cache hit, caixas ou confiança reais observáveis para reportar.
+- Testes focais: 66/66 aprovados, 0 falhados (`test_tce_extractor.py`,
+  `test_evidence_geometry.py`, `test_analysis_pipeline.py`). Fixtures
+  sintéticas não qualificam o gate real.
+- Relatório completo: `.superpowers/sdd/2026-09-10-plano-consolidacao-main-e-conclusao/task-3.1-report.md`.
+- Retomada: somente após disponibilizar PDF local autorizado com
+  `native_text_length=0`; hash antes do OCR; executar `run_local_pipeline` em
+  raiz de saída separada; provar primeira execução, geometria e segunda
+  execução sem novo OCR. Nenhum Git mutável, portal, Chrome ou rede foi usado.
