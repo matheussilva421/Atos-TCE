@@ -115,3 +115,28 @@ Especificação: `docs/notes/2026-09-10-consolidacao-main-e-conclusao-spec.md`
   `native_text_length=0`; hash antes do OCR; executar `run_local_pipeline` em
   raiz de saída separada; provar primeira execução, geometria e segunda
   execução sem novo OCR. Nenhum Git mutável, portal, Chrome ou rede foi usado.
+
+## Atualização — Tarefa 2.2 (2026-09-10)
+
+- Status: PASS para a reconciliação de evidências. O relatório detalhado está
+  em `.superpowers/sdd/2026-09-10-plano-consolidacao-main-e-conclusao/task-2.2-report.md`.
+- O classificador/extrator passou a reconhecer os dois layouts locais de guia
+  financeira. TDD focal: RED/GREEN para a guia de cálculo e RED/GREEN para o
+  layout longo; suítes finais: `test_tce_extractor` 31/31,
+  `test_batch_runner` 19/19, `test_analysis_pipeline` 24/24 e
+  `test_reconcile_lote1` 1/1.
+- Reexecução somente leitura: 9 processos afetados, 19 documentos
+  prioritários, 10 blocos; 8 nascimentos recuperados. A fonte
+  `resultados.json` permaneceu com SHA-256
+  `182742bac0ae070fb8b9ffcb3573f1843fe3fbaa82bf5201618ce6bed78f0d2b` antes
+  e depois. Os 41 processos íntegros não entraram no manifesto/checkpoint
+  (`intact_processes_in_target_checkpoint=0`).
+- Matriz final derivada: 49 registros elegíveis, 1 bloqueado por
+  `data_nascimento` e 1 por `modalidade` + `fundamento_legal`; apenas
+  `104956/2025` continua com bloqueio de processo. `genero` segue opcional.
+- Pendências: o registro #1 de `104956/2025` ainda não tem evidência de
+  nascimento; o registro #2 ainda não tem documento suficiente para modalidade
+  e fundamento legal. Permanecem fora de preflight.
+- Nenhum commit, stage, push, portal, Chrome ou rede foi usado nesta tarefa;
+  o controlador deve revisar e consolidar os arquivos alterados. Os arquivos
+  concorrentes de limpeza e reconciliação foram preservados.

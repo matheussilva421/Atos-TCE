@@ -157,12 +157,33 @@ def classify_document(title: str, text: str) -> str | None:
     text_starts_as_guide = re.match(
         r"\s*guia financeira\W+(?:taxacao|proventos)", folded_text[:500]
     ) is not None
+    text_has_calculation_guide = (
+        "guia financeira" in folded_text[:1500]
+        and (
+            "planilha de calculo do provento" in folded_text[:1500]
+            or "composicao da ultima remuneracao" in folded_text[:2500]
+        )
+    )
+    text_has_long_guide = (
+        "guia financeira" in folded_text[:1500]
+        and ("taxacao" in folded_text[:1500] or "proventos" in folded_text[:1500])
+        and (
+            "remuneracao do servidor no cargo efetivo" in folded_text
+            or "lista de remuneracoes" in folded_text
+        )
+    )
     text_is_guide = (
         "guia financeira" in folded_text[:1500]
         and ("taxacao" in folded_text[:1500] or "proventos" in folded_text[:1500])
         and "composicao da remuneracao" in folded_text[:2500]
     )
-    if title_is_guide or text_starts_as_guide or text_is_guide:
+    if (
+        title_is_guide
+        or text_starts_as_guide
+        or text_is_guide
+        or text_has_calculation_guide
+        or text_has_long_guide
+    ):
         return "guia_financeira_taxacao"
     return None
 
@@ -460,7 +481,13 @@ def _guide_evidence(
     """Read values whose PDF text order follows the guide's visual columns."""
 
     folded = _fold(page_text)
-    if "guia financeira" not in folded or "taxacao" not in folded:
+    has_guide_heading = "guia financeira" in folded and (
+        "taxacao" in folded
+        or "proventos" in folded
+        or "planilha de calculo do provento" in folded
+        or "composicao da ultima remuneracao" in folded
+    )
+    if not has_guide_heading:
         return None
 
     if key == "data_nascimento":

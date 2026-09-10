@@ -80,6 +80,53 @@ class DocumentClassificationTests(unittest.TestCase):
             "resolucao_administrativa",
         )
 
+    def test_classifies_and_extracts_guide_calculation_heading_variant(self):
+        pages = [
+            "GUIA FINANCEIRA (PLANILHA DE CÁLCULO DO PROVENTO)\n"
+            "Data/Hora do Documento 05/06/2024, às 10:14:12\n"
+            "Assunto: Concessão de benefício\n"
+            "X\nAssunto:\nProporcional\nIntegral\nEspecial\n"
+            "Segurado:\nCPF:\nRG:\nData de Nascimento:\nProcesso Nº:\n"
+            "1234567.1 - NOME SINTÉTICO\n"
+            "APOSENTADORIA VOLUNTÁRIA POR TEMPO DE CONTRIBUIÇÃO\n"
+            "REGRA DE TRANSIÇÃO - ART. 7º - INTEGRAL\n"
+            "00000000000\n000000 SSP/RN\n05/06/1980\n"
+            "00000000.000000/2024-00\n"
+            "Guia Financeira\n"
+            "Cargo Efetivo\n"
+            "COMPOSIÇÃO DA ÚLTIMA REMUNERAÇÃO\n"
+            "Fundamentação\nValor\nPROFESSOR\n"
+        ]
+
+        self.assertEqual(
+            classify_document("Documento_Processo_Portal_Gestor", pages[0]),
+            "guia_financeira_taxacao",
+        )
+        result = extract_fields(
+            pages,
+            process="SYNTH-PROCESS/2024",
+            event="10",
+            document="Documento_Processo_Portal_Gestor",
+            kind="guia_financeira_taxacao",
+        )
+
+        self.assertEqual(result.fields["data_nascimento"].value, "05/06/1980")
+
+    def test_classifies_long_guide_without_composition_heading(self):
+        text = (
+            "X\nAssunto:\nSegurado:\nCPF:\nRG:\nData de Nascimento:\n"
+            "Processo Nº:\n1234567.1 - NOME SINTÉTICO\n"
+            "05/06/1980\n00000000.000000/2024-00\n"
+            "Guia Financeira/Taxação de Proventos - Lista de Remunerações\n"
+            "Remuneração do Servidor no Cargo Efetivo\n"
+            "Cargo Efetivo\nFundamentação\nValor\n"
+        )
+
+        self.assertEqual(
+            classify_document("Documento_Processo_Portal_Gestor", text),
+            "guia_financeira_taxacao",
+        )
+
     def test_rejects_documents_that_only_mention_a_resolution(self):
         self.assertIsNone(
             classify_document(

@@ -273,15 +273,24 @@ prévia, escopo e reconciliação.
 - Modificar: `docs/notes/2026-09-10-lote1-campos-incompletos.md`
 - Criar script/teste sanitizado somente se necessário para reproduzir contagens.
 
-- [ ] Recalcular por chave de processo e por identidade de interessado a partir
+- [x] Recalcular por chave de processo e por identidade de interessado a partir
   da revisão 120, sem publicar nomes/CPF além do já autorizado.
-- [ ] Explicar a diferença entre os 40 “somente gênero”, os 9 sem nascimento e
+  (medido: 50 processos, 51 registros/identidades; 41 prontos; 10 bloqueados em
+  9 processos; em `work/tce-extractor/reconcile_lote1.py` +
+  `test_reconcile_lote1.py`, teste 1/1 verde.)
+- [x] Explicar a diferença entre os 40 “somente gênero”, os 9 sem nascimento e
   o total de 50 processos; listar a categoria do processo restante ou corrigir
   a contagem incorreta.
-- [ ] Confirmar que `104956/2025` possui dois interessados e registrar qual
+  (corrigido de 40 para 41 “somente gênero”; o processo restante é
+  `104611/2025`; matriz `data_nascimento=9`,
+  `modalidade+fundamento_legal=1`.)
+- [x] Confirmar que `104956/2025` possui dois interessados e registrar qual
   combinação de campos falta em cada identidade sem confundi-los.
-- [ ] Produzir matriz agregada `ready_for_preflight` versus `blocked_fields`.
-- [ ] Commit `docs: reconcile first real batch field readiness`.
+  (confirmado: registro #1 sem nascimento; registro #2 sem
+  modalidade/fundamento legal.)
+- [x] Produzir matriz agregada `ready_for_preflight` versus `blocked_fields`.
+- [x] Commit `docs: reconcile first real batch field readiness` (publicado na
+  `main` em `21054a4`).
 
 ### Tarefa 2.2 — resolver evidência dos campos obrigatórios ausentes
 
