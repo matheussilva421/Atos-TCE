@@ -64,6 +64,38 @@ workflow`) criado após `git diff --cached --check`. O working tree foi
 confirmado sem alterações após o commit. `git remote -v` não retorna remoto
 configurado neste checkout; nenhum push foi feito ou afirmado.
 
+## Atualização de implementação — frames reais do Complementar Ato — 09/09/2026
+
+As capturas e a fundamentação identificam `botoesNovo.asp` como frame separado
+do formulário `ComplementarAto.asp`. A extensão agora registra o frame de
+botões quando encontra exatamente um controle habilitado com texto **Complementar
+Ato**, mantendo o frame do formulário como a única fonte para releitura da
+identidade e dos sete campos. O comando de envio carrega `frame_id` do botão e
+`form_frame_id` do formulário; o worker aceita o comando somente do frame de
+botões autorizado e encaminha duas verificações de estado ao frame do
+formulário, antes do consumo e antes do clique.
+
+O registro é persistido em `storage.session`, invalidado junto com a navegação
+da aba e rejeitado quando há mais de um frame de botão elegível. O observador
+de resultado continua obrigatório no caminho de produção; ausência dele não
+consome comando nem clica. Foram adicionados os contratos tipados
+`SUBMIT_FRAME_READY` e `AUTO_VERIFY_SUBMIT_STATE`, com autorização de origem,
+aba, frame, geração, identidade e hash dos campos.
+
+TDD do bloco: o RED inicial teve 2 falhas esperadas (método de registro ausente
+e verificação cruzada inexistente); o GREEN passou depois da implementação.
+Suíte JavaScript completa: **272 testes, 272 aprovados, 0 falhas**. A suíte
+Python ampla teve uma falha transitória de `test_prepare_transfer` causada
+por disputa de arquivo temporário no Windows; a reprodução isolada passou
+**1/1**. A suíte Python será repetida antes do commit final. O ZIP final12
+será gerado somente após essa repetição e terá auditoria e smoke do pacote
+extraído.
+
+Este bloco não altera o estado real do portal: não fecha o Chrome autenticado,
+não reinicia o runner existente, não preenche ato real e não clica em envio.
+DOM live da Área Restrita, observação/reabertura e qualificação real continuam
+gates separados da seção 14.2.
+
 ## Atualização de implementação — lote automatizado por marcador — 09/09/2026
 
 Foi implementada a busca e descoberta de lote por marcador na extensão:

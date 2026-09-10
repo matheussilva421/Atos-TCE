@@ -354,6 +354,7 @@ test("automation messages are typed and reject payload extras", () => {
       "AUTO_STATUS",
       "AUTO_CONSUME_COMMAND",
       "AUTO_SUBMIT_COMMAND",
+      "AUTO_VERIFY_SUBMIT_STATE",
     ],
   );
   assert.throws(
@@ -388,6 +389,26 @@ test("automation messages are typed and reject payload extras", () => {
       expected_fields_hash: HASH,
     },
   }, "submit-1"));
+  assert.doesNotThrow(() => createMessage(MESSAGE_TYPES.AUTO_VERIFY_SUBMIT_STATE, {
+    runId: "run-1",
+    expectedRevision: 4,
+    phase: "before_click",
+    command: {
+      command_id: "command-1",
+      state: "issued",
+      issued_at: 2_000,
+      expires_at: 17_000,
+      frame_id: 14,
+      form_frame_id: 12,
+      generation: 3,
+      identity: identity(),
+      expected_fields_hash: HASH,
+    },
+  }, "verify-submit-1"));
+  assert.doesNotThrow(() => createMessage(MESSAGE_TYPES.SUBMIT_FRAME_READY, {
+    url: "https://novaarearestrita.tce.rn.gov.br/botoesNovo.asp",
+    button_id: "btnComplementarAto",
+  }, "submit-frame-1"));
   assert.throws(
     () => createMessage(MESSAGE_TYPES.AUTO_SUBMIT_COMMAND, {
       runId: "run-1",

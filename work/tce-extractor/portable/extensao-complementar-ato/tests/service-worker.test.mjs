@@ -861,6 +861,72 @@ test("portal events preserve unresolved row identities as pending without backen
   assert.deepEqual(message.payload.event.snapshot.identities, pendingSnapshot.identities);
 });
 
+test("routes button-frame registration and sibling-form verification only from the authenticated portal frame", async () => {
+  const calls = [];
+  const controller = {
+    async handleSubmitFrameReady(input) {
+      calls.push(["ready", input]);
+      return { registered: true };
+    },
+    async verifySubmitState(input) {
+      calls.push(["verify", input]);
+      return { ok: true, visible: true, paused: false, frame_id: 12 };
+    },
+  };
+  const worker = createServiceWorker({
+    chromeApi: chromeMock(storageMock()),
+    automationController: controller,
+  });
+  const portalSender = { ...sender(7, 14), id: "test-extension" };
+  const command = {
+    command_id: "command-1",
+    state: "issued",
+    issued_at: 2_000,
+    expires_at: 17_000,
+    frame_id: 14,
+    form_frame_id: 12,
+    generation: 3,
+    identity: {
+      processKey: PROCESS_KEY,
+      interestedNormalized: "joao da silva",
+      portalActId: null,
+    },
+    expected_fields_hash: "a".repeat(64),
+  };
+
+  const ready = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.SUBMIT_FRAME_READY, {
+      url: PORTAL_URL,
+      button_id: "btnComplementarAto",
+    }, "submit-frame-ready"),
+    portalSender,
+  );
+  assert.equal(ready.ok, true);
+  assert.deepEqual(calls[0], ["ready", { tabId: 7, frameId: 14, buttonId: "btnComplementarAto" }]);
+
+  const verify = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_VERIFY_SUBMIT_STATE, {
+      runId: "run-1",
+      expectedRevision: 4,
+      command,
+      phase: "before_click",
+    }, "submit-state-verify"),
+    portalSender,
+  );
+  assert.equal(verify.ok, true);
+  assert.equal(calls[1][0], "verify");
+  assert.equal(calls[1][1].tabId, 7);
+  assert.equal(calls[1][1].frameId, 14);
+  assert.equal(calls[1][1].command.form_frame_id, 12);
+
+  const denied = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.SUBMIT_FRAME_READY, { url: PORTAL_URL }, "submit-frame-denied"),
+    { ...portalSender, id: "other-extension" },
+  );
+  assert.equal(denied.ok, false);
+  assert.equal(denied.error.code, "UNAUTHORIZED");
+});
+
 test("automation control rejects a content script even when its sender id is the extension", async () => {
   const bridge = {
     async createAutomationRun() {

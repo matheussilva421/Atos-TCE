@@ -63,6 +63,10 @@ function commandFrame(command) {
   return command?.frame_id ?? command?.frameId ?? null;
 }
 
+function commandFormFrame(command) {
+  return command?.form_frame_id ?? command?.formFrameId ?? commandFrame(command);
+}
+
 function commandGeneration(command) {
   return command?.generation ?? command?.expected_generation ?? null;
 }
@@ -104,7 +108,7 @@ async function readDefaultCurrentState(documentRef, command) {
     ok: true,
     visible: true,
     paused: false,
-    frame_id: commandFrame(command),
+    frame_id: commandFormFrame(command),
     generation: portalSnapshot.generation,
     identity: { processKey, interestedNormalized, portalActId: command.identity?.portalActId ?? null },
     fields_hash: await hashFields(formSnapshot),
@@ -116,7 +120,7 @@ function currentMatches(command, current) {
     && current.ok === true
     && current.visible === true
     && current.paused !== true
-    && current.frame_id === commandFrame(command)
+    && current.frame_id === commandFormFrame(command)
     && current.generation === commandGeneration(command)
     && current.fields_hash === commandFieldsHash(command)
     && sameIdentity(current.identity, command.identity);
@@ -227,6 +231,7 @@ function validateCommand(command, now) {
     throw error("SUBMIT_BLOCKED", "comando de envio expirado ou fora do prazo");
   }
   if (!Number.isSafeInteger(commandFrame(command)) || commandFrame(command) < 0
+    || !Number.isSafeInteger(commandFormFrame(command)) || commandFormFrame(command) < 0
     || !Number.isSafeInteger(commandGeneration(command)) || commandGeneration(command) < 1
     || typeof commandFieldsHash(command) !== "string"
     || !/^[0-9a-f]{64}$/u.test(commandFieldsHash(command))) {
@@ -279,6 +284,24 @@ function requestId() {
     : `portal-submit-${Date.now()}`;
 }
 
+function notifySubmitFrameReady(documentRef, chromeApi) {
+  if (typeof chromeApi?.runtime?.sendMessage !== "function") return;
+  const buttons = submitButtons(documentRef);
+  const url = typeof documentRef?.location?.href === "string"
+    ? documentRef.location.href
+    : typeof globalThis.location?.href === "string" ? globalThis.location.href : "";
+  if (buttons.length !== 1 || !url) return;
+  const buttonId = typeof buttons[0].id === "string" && buttons[0].id
+    ? { button_id: buttons[0].id }
+    : {};
+  void Promise.resolve(chromeApi.runtime.sendMessage({
+    schemaVersion: 1,
+    type: "SUBMIT_FRAME_READY",
+    requestId: requestId(),
+    payload: { url, ...buttonId },
+  })).catch(() => undefined);
+}
+
 function submitErrorResponse(message, errorValue) {
   return {
     ok: false,
@@ -297,6 +320,30 @@ function installPortalSubmit({
   waitForOutcome = defaultWaitForOutcome,
   now = () => Date.now(),
 } = {}) {
+  const resolvedReadCurrentState = (currentDocument, currentCommand, phase) => {
+    const formFrameId = commandFormFrame(currentCommand);
+    const submitFrameId = commandFrame(currentCommand);
+    if (formFrameId !== submitFrameId) {
+      if (typeof chromeApi?.runtime?.sendMessage !== "function") {
+        return Promise.resolve({ ok: false, visible: false, paused: true, reason: "worker de automação indisponível" });
+      }
+      return Promise.resolve(chromeApi.runtime.sendMessage({
+        schemaVersion: 1,
+        type: "AUTO_VERIFY_SUBMIT_STATE",
+        requestId: requestId(),
+        payload: {
+          runId: currentCommand?.runId,
+          expectedRevision: currentCommand?.expectedRevision,
+          command: clone(currentCommand),
+          phase,
+        },
+      })).then((response) => response?.ok === true
+        ? response.payload
+        : { ok: false, visible: false, paused: true, reason: response?.error?.message ?? "estado do formulário não verificado" });
+    }
+    return readCurrentState(currentDocument, currentCommand, phase);
+  };
+
   const handleMessage = async (message) => {
     if (!isRecord(message) || message.type !== "AUTO_SUBMIT_COMMAND" || !isRecord(message.payload)) {
       throw error("SUBMIT_BLOCKED", "comando de envio não reconhecido");
@@ -328,7 +375,11 @@ function installPortalSubmit({
     const result = await submitVerifiedAct({
       documentRef,
       command,
-      verifyCurrentState: (phase) => readCurrentState(documentRef, command, phase),
+      verifyCurrentState: (phase) => resolvedReadCurrentState(documentRef, {
+        ...command,
+        runId,
+        expectedRevision,
+      }, phase),
       consumeCommand,
       waitForOutcome: (context) => waitForOutcome({ ...context, command, documentRef }),
       requireOutcomeObserver: waitForOutcome === defaultWaitForOutcome,
@@ -338,6 +389,7 @@ function installPortalSubmit({
   };
 
   if (!chromeApi?.runtime?.onMessage?.addListener) return { handleMessage, registered: false };
+  notifySubmitFrameReady(documentRef, chromeApi);
   chromeApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type !== "AUTO_SUBMIT_COMMAND") return false;
     Promise.resolve(handleMessage(message))

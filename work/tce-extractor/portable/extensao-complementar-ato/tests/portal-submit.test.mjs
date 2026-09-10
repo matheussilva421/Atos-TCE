@@ -229,6 +229,46 @@ test("installs a typed button-frame listener that consumes before the single cli
   assert.equal(sent[0].payload.expectedRevision, 4);
 });
 
+test("verifies the form in its sibling frame before consuming and clicking the buttons frame", async () => {
+  const target = button();
+  let listener;
+  const sent = [];
+  const runtime = {
+    onMessage: { addListener(handler) { listener = handler; } },
+    async sendMessage(message) {
+      sent.push(message);
+      if (message.type === "AUTO_VERIFY_SUBMIT_STATE") return { ok: true, payload: state({ frame_id: 3 }) };
+      if (message.type === "AUTO_CONSUME_COMMAND") return { ok: true, payload: { dispatch_allowed: true, command_id: "command-1" } };
+      return { ok: true, payload: {} };
+    },
+  };
+  const result = installPortalSubmit({
+    documentRef: documentWith(target),
+    chromeApi: { runtime },
+    waitForOutcome: async () => ({ accepted: true, persisted: true, identity: IDENTITY }),
+    now: () => 2_000,
+  });
+
+  assert.equal(result.registered, true);
+  const crossFrameCommand = { ...command(), frame_id: 4, form_frame_id: 3 };
+  const response = await new Promise((resolve) => {
+    listener({
+      schemaVersion: 1,
+      type: "AUTO_SUBMIT_COMMAND",
+      requestId: "submit-cross-frame-1",
+      payload: { runId: "run-1", expectedRevision: 4, command: crossFrameCommand },
+    }, {}, resolve);
+  });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.payload.status, "confirmed");
+  const verification = sent.find((message) => message.type === "AUTO_VERIFY_SUBMIT_STATE");
+  const consumption = sent.find((message) => message.type === "AUTO_CONSUME_COMMAND");
+  assert.equal(verification.payload.command.form_frame_id, 3);
+  assert.equal(consumption.type, "AUTO_CONSUME_COMMAND");
+  assert.equal(target.clickCount, 1);
+});
+
 test("blocks the production listener before consuming or clicking when no outcome observer exists", async () => {
   const target = button();
   let listener;

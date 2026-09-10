@@ -835,6 +835,7 @@ Comandos: em E, `node --test tests/panel-view.test.mjs tests/panel.test.mjs test
 - [x] Fechar o guard de segurança da API: uma execução comum não consome comando quando `real_send_enabled=false`; o endpoint devolve `REAL_SEND_DISABLED` antes de autorizar `dispatch_allowed`.
 - [x] Cobrir o lote por marcador: filtro textual fechado, propagação bridge/API, descoberta multipágina e exclusão pendente de linhas sem ação `Complementar Ato` observável.
 - [x] Implementar o opt-in de conclusão automática para o lote por marcador: checkbox explícito, validação de capacidade/qualificação, intenção persistida antes do comando, validade curta, confirmação por resultado observado e pausa sem reenvio quando a prova faltar.
+- [x] Modelar o envio com o frame separado de botões observado no plano: registrar `botoesNovo.asp`, manter `ComplementarAto.asp` como frame de leitura dos sete campos, verificar o formulário antes do consumo e antes do clique, e rejeitar frame de botão ambíguo.
 - [x] Implementar o gate local versionado da qualificação: o arquivo estrito em `automacao/qualificacao.json` valida versões, hashes de fixtures e evento real; a ativação do lote exige `--enable-real-send` explícito e falha fechada em qualquer divergência. Isso não substitui a qualificação real da seção seguinte.
 - [x] Rodar suíte JS completa, Python focal e suíte Python ampla; a primeira ampla revelou e corrigiu a fixture que omitia `legal_context.py`, sem converter a falha em PASS.
 

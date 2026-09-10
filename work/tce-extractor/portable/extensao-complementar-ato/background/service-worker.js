@@ -565,19 +565,26 @@ export function createServiceWorker({
     return errorResponse(message.requestId, "AUTOMATION_UNAVAILABLE", "o serviço local não expõe a API de automação; o modo manual permanece disponível");
   }
 
-  async function handleConsumeCommandMessage(message, sender) {
-    if (senderIsExtensionPage(sender, chromeApi)) {
-      return errorResponse(message.requestId, "UNAUTHORIZED", "consumo deve vir do frame de botões do portal");
-    }
+  function authorizedPortalFrame(sender) {
+    if (senderIsExtensionPage(sender, chromeApi)) return null;
     const tabId = tabIdFromSender(sender);
     const frameId = frameIdFromSender(sender);
     const senderUrl = typeof sender?.url === "string" ? sender.url : sender?.tab?.url;
+    const tabUrl = sender?.tab?.url;
     if (
       tabId === null
       || frameId === null
-      || sender?.id !== chromeApi.runtime?.id
+      || typeof chromeApi?.runtime?.id !== "string"
+      || sender?.id !== chromeApi.runtime.id
       || !validatePortalUrl(senderUrl)
-    ) {
+      || (tabUrl !== undefined && !validatePortalUrl(tabUrl))
+    ) return null;
+    return { tabId, frameId, senderUrl };
+  }
+
+  async function handleConsumeCommandMessage(message, sender) {
+    const frame = authorizedPortalFrame(sender);
+    if (frame === null) {
       return errorResponse(message.requestId, "UNAUTHORIZED", "consumo deve vir do frame de botões autorizado");
     }
     const currentBridge = await loadBridge();
@@ -588,12 +595,66 @@ export function createServiceWorker({
     try {
       const result = await currentController.consumeCommand({
         ...message.payload,
-        tabId,
-        frameId,
+        tabId: frame.tabId,
+        frameId: frame.frameId,
       });
       return successResponse(message, result);
     } catch (error) {
       return errorResponse(message.requestId, error?.code || "COMMAND_ERROR", error instanceof Error ? error.message : "command consumption failed");
+    }
+  }
+
+  async function handleVerifySubmitStateMessage(message, sender) {
+    if (senderIsExtensionPage(sender, chromeApi)
+      || typeof chromeApi?.runtime?.id !== "string"
+      || sender?.id !== chromeApi.runtime.id) {
+      return errorResponse(message.requestId, "UNAUTHORIZED", "a verificação deve vir do frame de botões autorizado");
+    }
+    const frame = authorizedPortalFrame(sender);
+    if (frame === null || message.payload.command.frame_id !== frame.frameId) {
+      return errorResponse(message.requestId, "UNAUTHORIZED", "a verificação deve vir do frame de botões autorizado");
+    }
+    const currentBridge = await loadBridge();
+    const currentController = controllerFor(currentBridge);
+    if (currentController === null || typeof currentController.verifySubmitState !== "function") {
+      return automationUnavailable(message);
+    }
+    try {
+      const result = await currentController.verifySubmitState({
+        ...message.payload,
+        tabId: frame.tabId,
+        frameId: frame.frameId,
+      });
+      return successResponse(message, result);
+    } catch (error) {
+      return errorResponse(message.requestId, error?.code || "COMMAND_ERROR", error instanceof Error ? error.message : "submit state verification failed");
+    }
+  }
+
+  async function handleSubmitFrameReadyMessage(message, sender) {
+    if (senderIsExtensionPage(sender, chromeApi)
+      || typeof chromeApi?.runtime?.id !== "string"
+      || sender?.id !== chromeApi.runtime.id) {
+      return errorResponse(message.requestId, "UNAUTHORIZED", "o registro deve vir do frame de botões autorizado");
+    }
+    const frame = authorizedPortalFrame(sender);
+    if (frame === null || message.payload.url !== frame.senderUrl) {
+      return errorResponse(message.requestId, "INVALID_ORIGIN", "SUBMIT_FRAME_READY must come from the allowed portal frame");
+    }
+    const currentBridge = await loadBridge();
+    const currentController = controllerFor(currentBridge);
+    if (currentController === null || typeof currentController.handleSubmitFrameReady !== "function") {
+      return automationUnavailable(message);
+    }
+    try {
+      const result = await currentController.handleSubmitFrameReady({
+        tabId: frame.tabId,
+        frameId: frame.frameId,
+        buttonId: message.payload.button_id ?? null,
+      });
+      return successResponse(message, result);
+    } catch (error) {
+      return errorResponse(message.requestId, error?.code || "COMMAND_ERROR", error instanceof Error ? error.message : "submit frame registration failed");
     }
   }
 
@@ -707,6 +768,10 @@ export function createServiceWorker({
           return await handleAutomationMessage(validated, sender);
         case MESSAGE_TYPES.AUTO_CONSUME_COMMAND:
           return await handleConsumeCommandMessage(validated, sender);
+        case MESSAGE_TYPES.AUTO_VERIFY_SUBMIT_STATE:
+          return await handleVerifySubmitStateMessage(validated, sender);
+        case MESSAGE_TYPES.SUBMIT_FRAME_READY:
+          return await handleSubmitFrameReadyMessage(validated, sender);
         case MESSAGE_TYPES.PORTAL_EVENT:
           return await handlePortalEventMessage(validated, sender);
         case MESSAGE_TYPES.FORM_READY: {

@@ -6,6 +6,7 @@ import {
 import { AUTOMATION_FIELDS, prepareAutomaticAct } from "../lib/automation-preflight.js";
 
 export const PORTAL_FRAME_REGISTRATIONS_STORAGE_KEY = "portal-frame-registrations:v1";
+export const SUBMIT_FRAME_REGISTRATIONS_STORAGE_KEY = "portal-submit-frame-registrations:v1";
 const ACTIVE_STATUSES = new Set(["discovering", "running", "paused"]);
 const PROCESS_KEY_RE = /^\d+\/\d{4}$/u;
 const AUTO_SUBMIT_TTL_MS = 15_000;
@@ -55,6 +56,7 @@ function statusToPublic(state) {
     pausedReason: state.pausedReason,
     totals: state.totals,
     frame: state.frame,
+    submitFrame: state.submitFrame,
     items: state.queue.map((identity, index) => ({
       item_id: itemId(identity),
       ordinal: index + 1,
@@ -134,6 +136,12 @@ function formSnapshotFromResponse(response) {
     || !isRecord(candidate.options)
     || !isRecord(candidate.fields)) return null;
   return candidate;
+}
+
+function commandFormFrame(command) {
+  return Number.isSafeInteger(command?.form_frame_id)
+    ? command.form_frame_id
+    : command?.frame_id ?? null;
 }
 
 function formIdentity(snapshot) {
@@ -297,6 +305,7 @@ export function createAutomationController({
   const now = typeof clock === "function" ? clock : clock.now ?? (() => Date.now());
   const session = chromeApi.storage?.session;
   const frames = new Map();
+  const submitFrames = new Map();
   let frameLoadPromise = null;
   let framePersistPromise = Promise.resolve();
   let inFlight = null;
@@ -318,6 +327,7 @@ export function createAutomationController({
     currentIdentity: null,
     pausedReason: null,
     frame: null,
+    submitFrame: null,
     queue: [],
     seenIdentities: new Set(),
     completedIdentities: new Set(),
@@ -329,12 +339,25 @@ export function createAutomationController({
     if (!frameLoadPromise) {
       frameLoadPromise = (async () => {
         if (typeof session?.get !== "function") return;
-        const stored = await session.get([PORTAL_FRAME_REGISTRATIONS_STORAGE_KEY]);
+        const stored = await session.get([
+          PORTAL_FRAME_REGISTRATIONS_STORAGE_KEY,
+          SUBMIT_FRAME_REGISTRATIONS_STORAGE_KEY,
+        ]);
         const entries = stored?.[PORTAL_FRAME_REGISTRATIONS_STORAGE_KEY];
-        if (!Array.isArray(entries)) return;
-        for (const entry of entries) {
-          if (!isRecord(entry) || !Number.isSafeInteger(entry.tabId) || !Number.isSafeInteger(entry.frameId)) continue;
-          frames.set(`${entry.tabId}:${entry.frameId}`, clone(entry));
+        if (Array.isArray(entries)) {
+          for (const entry of entries) {
+            if (!isRecord(entry) || !Number.isSafeInteger(entry.tabId) || !Number.isSafeInteger(entry.frameId)) continue;
+            frames.set(`${entry.tabId}:${entry.frameId}`, clone(entry));
+          }
+        }
+        const submitEntries = stored?.[SUBMIT_FRAME_REGISTRATIONS_STORAGE_KEY];
+        if (Array.isArray(submitEntries)) {
+          for (const entry of submitEntries) {
+            if (!isRecord(entry)
+              || !Number.isSafeInteger(entry.tabId) || entry.tabId < 0
+              || !Number.isSafeInteger(entry.frameId) || entry.frameId < 0) continue;
+            submitFrames.set(`${entry.tabId}:${entry.frameId}`, clone(entry));
+          }
         }
       })();
     }
@@ -344,10 +367,42 @@ export function createAutomationController({
   function persistFrames() {
     if (typeof session?.set !== "function") return Promise.resolve();
     const entries = [...frames.values()].sort((left, right) => left.tabId - right.tabId || left.frameId - right.frameId);
+    const submitEntries = [...submitFrames.values()].sort((left, right) => left.tabId - right.tabId || left.frameId - right.frameId);
     framePersistPromise = framePersistPromise.catch(() => undefined).then(() => session.set({
       [PORTAL_FRAME_REGISTRATIONS_STORAGE_KEY]: entries,
+      [SUBMIT_FRAME_REGISTRATIONS_STORAGE_KEY]: submitEntries,
     }));
     return framePersistPromise;
+  }
+
+  function refreshSubmitFrame(tabId = state.tabId) {
+    const candidates = [...submitFrames.values()].filter((entry) => entry.tabId === tabId);
+    state.submitFrame = candidates.length === 1
+      ? {
+        tabId: candidates[0].tabId,
+        frameId: candidates[0].frameId,
+        buttonId: candidates[0].buttonId ?? null,
+      }
+      : null;
+    return candidates;
+  }
+
+  async function handleSubmitFrameReady(input = {}) {
+    if (!isRecord(input)
+      || !Number.isSafeInteger(input.tabId) || input.tabId < 0
+      || !Number.isSafeInteger(input.frameId) || input.frameId < 0
+      || (input.buttonId !== null && input.buttonId !== undefined && typeof input.buttonId !== "string")) {
+      return statusToPublic(state);
+    }
+    submitFrames.set(`${input.tabId}:${input.frameId}`, {
+      tabId: input.tabId,
+      frameId: input.frameId,
+      buttonId: input.buttonId ?? null,
+    });
+    await loadFrames();
+    if (state.tabId === input.tabId) refreshSubmitFrame(input.tabId);
+    await persistFrames();
+    return statusToPublic(state);
   }
 
   function registerFrame(tabId, frameId, snapshot) {
@@ -370,6 +425,10 @@ export function createAutomationController({
       if (key.startsWith(`${tabId}:`)) frames.delete(key);
     }
     if (state.tabId === tabId) state.frame = null;
+    for (const key of [...submitFrames.keys()]) {
+      if (key.startsWith(`${tabId}:`)) submitFrames.delete(key);
+    }
+    if (state.tabId === tabId) refreshSubmitFrame(tabId);
     void persistFrames().catch(() => undefined);
   }
 
@@ -554,16 +613,30 @@ export function createAutomationController({
       return { stop: !persisted };
     }
 
+    const submitCandidates = refreshSubmitFrame(tabId);
+    if (submitCandidates.length > 1) {
+      const persisted = await recordItemFailure(identity, "mais de um frame de botões do portal está disponível", {
+        reason: "ambiguous submit frame",
+      });
+      return { stop: !persisted };
+    }
+    const submitTarget = state.submitFrame ?? {
+      tabId,
+      frameId,
+      buttonId: null,
+    };
     const issuedAt = epochMilliseconds(now());
     const command = {
       command_id: `${eventPrefix(state.eventPrefix)}:command:${String(++eventSequence)}`,
       state: "issued",
       issued_at: issuedAt,
       expires_at: issuedAt + AUTO_SUBMIT_TTL_MS,
-      frame_id: frameId,
+      frame_id: submitTarget.frameId,
+      form_frame_id: frameId,
       generation: after.generation,
       identity: clone(identity),
       expected_fields_hash: expectedFieldsHash,
+      ...(submitTarget.buttonId ? { button_id: submitTarget.buttonId } : {}),
     };
     const intent = await appendAutomationEvent(identity, "send_intent", {
       expected_fields_hash: expectedFieldsHash,
@@ -583,7 +656,7 @@ export function createAutomationController({
         runId: state.runId,
         expectedRevision: state.revision,
         command,
-      }, frameId, `${state.eventPrefix}-submit-${String(++messageSequence)}`);
+      }, submitTarget.frameId, `${state.eventPrefix}-submit-${String(++messageSequence)}`);
     } catch (error) {
       const persisted = await recordUnconfirmedSubmission(identity, after, error instanceof Error ? error.message : "automatic submit command failed");
       return { stop: !persisted, paused: true };
@@ -743,6 +816,66 @@ export function createAutomationController({
     } catch (error) {
       setPaused(error?.code === "TAB_CLOSED" ? "tab closed" : "portal frame unavailable");
       return null;
+    }
+  }
+
+  async function verifySubmitState(input = {}) {
+    const command = input.command;
+    const formFrameId = commandFormFrame(command);
+    if (state.status !== "running" || input.runId !== state.runId) {
+      return { ok: false, visible: false, paused: true, reason: "automation command is not active" };
+    }
+    if (input.tabId !== state.tabId
+      || !Number.isSafeInteger(formFrameId)
+      || formFrameId < 0
+      || !Number.isSafeInteger(input.frameId)
+      || input.frameId < 0
+      || (input.frameId !== command.frame_id)
+      || (state.submitFrame && input.frameId !== state.submitFrame.frameId)
+      || (state.frame && formFrameId !== state.frame.frameId)) {
+      return { ok: false, visible: false, paused: true, reason: "automation command frame is not authorized" };
+    }
+    if (!sameCanonicalIdentity(command.identity, state.currentIdentity)) {
+      return { ok: false, visible: false, paused: true, reason: "automation command identity changed" };
+    }
+    try {
+      const form = await readFormSnapshot(input.tabId, formFrameId);
+      const portal = await readPortalSnapshot(input.tabId, formFrameId);
+      if (!portal || portal.snapshot.role !== "form") {
+        return { ok: false, visible: false, paused: true, reason: "form frame is unavailable" };
+      }
+      const decorated = decorateFormSnapshot(form.snapshot, portal.snapshot, formFrameId);
+      const currentIdentity = {
+        processKey: decorated.process.key,
+        interestedNormalized: decorated.interested.normalized,
+        portalActId: command.identity.portalActId ?? null,
+      };
+      const currentFields = Object.fromEntries(AUTOMATION_FIELDS.map((field) => [
+        field,
+        String(decorated.fields[field]?.value ?? ""),
+      ]));
+      const fieldsHash = await sha256Hex(currentFields);
+      if (portal.snapshot.generation !== command.generation
+        || !sameCanonicalIdentity(currentIdentity, command.identity)
+        || fieldsHash !== command.expected_fields_hash) {
+        return { ok: false, visible: false, paused: true, reason: "form state changed before submission" };
+      }
+      return {
+        ok: true,
+        visible: true,
+        paused: false,
+        frame_id: formFrameId,
+        generation: portal.snapshot.generation,
+        identity: currentIdentity,
+        fields_hash: fieldsHash,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        visible: false,
+        paused: true,
+        reason: error instanceof Error ? error.message : "form state could not be verified",
+      };
     }
   }
 
@@ -908,6 +1041,7 @@ export function createAutomationController({
       currentIdentity: null,
       pausedReason: null,
       frame: null,
+      submitFrame: null,
       queue: [],
       seenIdentities: new Set(),
       completedIdentities: new Set(),
@@ -920,6 +1054,7 @@ export function createAutomationController({
       const stored = storedFrames[0];
       state.frame = { frameId: stored.frameId, role: stored.role, generation: stored.generation, sector: stored.sector ?? null };
     }
+    refreshSubmitFrame(spec.tabId);
     const run = await bridge.createAutomationRun(spec, startEventId);
     snapshotStatus(state, run);
     state.status = "discovering";
@@ -1135,7 +1270,7 @@ export function createAutomationController({
       return statusToPublic(state);
     }
     if (event.tabId !== state.tabId) return statusToPublic(state);
-    if (state.frame && event.frameId !== state.frame.frameId) return statusToPublic(state);
+    if (state.frame && event.frameId !== state.frame.frameId && snapshot?.role !== "form") return statusToPublic(state);
     if (eventType === "navigation") invalidateFrames(event.tabId);
     if (eventType === "frame_unavailable" || eventType === "tab_closed") {
       setPaused(eventType === "tab_closed" ? "tab closed" : "portal frame unavailable");
@@ -1163,7 +1298,8 @@ export function createAutomationController({
     if (state.status !== "running" || input.runId !== state.runId) {
       throw Object.assign(new Error("automation command is not active"), { code: "COMMAND_NOT_READY" });
     }
-    if (input.tabId !== state.tabId || input.frameId !== state.frame?.frameId
+    const expectedFrameId = state.submitFrame?.frameId ?? state.frame?.frameId;
+    if (input.tabId !== state.tabId || input.frameId !== expectedFrameId
       || !["form", "buttons"].includes(state.frame?.role) || input.generation !== state.frame?.generation) {
       throw Object.assign(new Error("automation command frame is not authorized"), { code: "COMMAND_FRAME_MISMATCH" });
     }
@@ -1223,6 +1359,8 @@ export function createAutomationController({
     resume: (input) => control("resume", input),
     stop: (input) => control("stop", input),
     consumeCommand,
+    verifySubmitState,
+    handleSubmitFrameReady,
     status,
     handlePortalEvent,
     ranker,

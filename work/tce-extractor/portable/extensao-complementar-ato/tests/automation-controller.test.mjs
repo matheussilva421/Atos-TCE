@@ -947,6 +947,41 @@ test("auto-submit is explicit, issues one command after verification, and persis
   assert.equal(confirmed.payload.citations.length > 0, true);
 });
 
+test("auto-submit targets a separately registered buttons frame and keeps the form frame in the command", async () => {
+  const bridge = preparationBridge();
+  bridge.getAutomationCapabilities = async () => ({
+    api_version: 1,
+    automation_schema: 1,
+    legal_context_schema: 1,
+    rules_version: "legal-foundation-v1",
+    real_send_enabled: true,
+    pilot_enabled: false,
+    pilot_consumes_remaining: false,
+  });
+  const chromeApi = preparationChromeMock({
+    submitResponse: {
+      ok: true,
+      payload: { status: "confirmed", evidence: { signal: "fixture-accepted" } },
+    },
+  });
+  const controller = createAutomationController({
+    chromeApi,
+    bridge,
+    resolveAutomaticAct: preparationResolverCalls([]),
+    clock: { now: () => 2_000 },
+  });
+
+  await controller.handleSubmitFrameReady({ tabId: 7, frameId: 4, buttonId: null });
+  const result = await controller.start({ spec: { ...runSpec(), autoSubmit: true }, eventId: "start-cross-frame-submit" });
+
+  assert.equal(result.status, "completed");
+  const commandCall = chromeApi.calls.find(([, message]) => message.type === MESSAGE_TYPES.AUTO_SUBMIT_COMMAND);
+  assert.ok(commandCall);
+  assert.equal(commandCall[2].frameId, 4);
+  assert.equal(commandCall[1].payload.command.frame_id, 4);
+  assert.equal(commandCall[1].payload.command.form_frame_id, 0);
+});
+
 test("auto-submit pauses and records an unconfirmed outcome without issuing another command", async () => {
   const bridge = preparationBridge();
   bridge.getAutomationCapabilities = async () => ({

@@ -29,6 +29,8 @@ export const MESSAGE_TYPES = Object.freeze({
   AUTO_STATUS: "AUTO_STATUS",
   AUTO_CONSUME_COMMAND: "AUTO_CONSUME_COMMAND",
   AUTO_SUBMIT_COMMAND: "AUTO_SUBMIT_COMMAND",
+  AUTO_VERIFY_SUBMIT_STATE: "AUTO_VERIFY_SUBMIT_STATE",
+  SUBMIT_FRAME_READY: "SUBMIT_FRAME_READY",
   PORTAL_GET_SNAPSHOT: "PORTAL_GET_SNAPSHOT",
   PORTAL_NAVIGATE: "PORTAL_NAVIGATE",
   PORTAL_EVENT: "PORTAL_EVENT",
@@ -125,6 +127,39 @@ function validateOptions(options) {
       }
     });
   }
+}
+
+function validateSubmitCommand(command, label = "AUTO_SUBMIT_COMMAND command") {
+  if (!isRecord(command)) invalid(`${label} is invalid`);
+  exactKeysFrom(
+    command,
+    ["command_id", "state", "issued_at", "expires_at", "frame_id", "generation", "identity", "expected_fields_hash"],
+    ["button_id", "form_frame_id"],
+    label,
+  );
+  nonEmptyString(command.command_id, `${label}.command_id`, 256);
+  if (command.state !== "issued") invalid(`${label}.state is invalid`);
+  for (const key of ["issued_at", "expires_at"]) {
+    if (!Number.isSafeInteger(command[key]) || command[key] <= 0) invalid(`${label}.${key} is invalid`);
+  }
+  if (command.expires_at <= command.issued_at || command.expires_at - command.issued_at > 15_000) {
+    invalid(`${label} lifetime is invalid`);
+  }
+  if (!Number.isSafeInteger(command.frame_id) || command.frame_id < 0) invalid(`${label}.frame_id is invalid`);
+  if (Object.hasOwn(command, "form_frame_id")
+    && (!Number.isSafeInteger(command.form_frame_id) || command.form_frame_id < 0)) {
+    invalid(`${label}.form_frame_id is invalid`);
+  }
+  if (!Number.isSafeInteger(command.generation) || command.generation < 1) invalid(`${label}.generation is invalid`);
+  if (typeof command.expected_fields_hash !== "string" || !/^[0-9a-f]{64}$/u.test(command.expected_fields_hash)) {
+    invalid(`${label}.expected_fields_hash is invalid`);
+  }
+  try {
+    validateAutomationIdentity(command.identity);
+  } catch (error) {
+    invalid(error instanceof Error ? error.message : `${label}.identity is invalid`);
+  }
+  if (Object.hasOwn(command, "button_id")) nonEmptyString(command.button_id, `${label}.button_id`, 256);
 }
 
 function validatePortalIdentity(value, label = "portal identity") {
@@ -315,28 +350,22 @@ function validatePayload(type, payload) {
       exactKeys(payload, ["runId", "expectedRevision", "command"], "AUTO_SUBMIT_COMMAND payload");
       nonEmptyString(payload.runId, "AUTO_SUBMIT_COMMAND runId", 128);
       if (!Number.isSafeInteger(payload.expectedRevision) || payload.expectedRevision < 0) invalid("AUTO_SUBMIT_COMMAND expectedRevision is invalid");
-      if (!isRecord(payload.command)) invalid("AUTO_SUBMIT_COMMAND command is invalid");
-      exactKeysFrom(
-        payload.command,
-        ["command_id", "state", "issued_at", "expires_at", "frame_id", "generation", "identity", "expected_fields_hash"],
-        ["button_id"],
-        "AUTO_SUBMIT_COMMAND command",
-      );
-      nonEmptyString(payload.command.command_id, "AUTO_SUBMIT_COMMAND command_id", 256);
-      if (payload.command.state !== "issued") invalid("AUTO_SUBMIT_COMMAND command state is invalid");
-      for (const key of ["issued_at", "expires_at"]) {
-        if (!Number.isSafeInteger(payload.command[key]) || payload.command[key] <= 0) invalid(`AUTO_SUBMIT_COMMAND ${key} is invalid`);
-      }
-      if (payload.command.expires_at <= payload.command.issued_at || payload.command.expires_at - payload.command.issued_at > 15_000) {
-        invalid("AUTO_SUBMIT_COMMAND command lifetime is invalid");
-      }
-      if (!Number.isSafeInteger(payload.command.frame_id) || payload.command.frame_id < 0) invalid("AUTO_SUBMIT_COMMAND frame_id is invalid");
-      if (!Number.isSafeInteger(payload.command.generation) || payload.command.generation < 1) invalid("AUTO_SUBMIT_COMMAND generation is invalid");
-      if (typeof payload.command.expected_fields_hash !== "string" || !/^[0-9a-f]{64}$/u.test(payload.command.expected_fields_hash)) invalid("AUTO_SUBMIT_COMMAND expected_fields_hash is invalid");
-      validateAutomationIdentity(payload.command.identity);
-      if (Object.hasOwn(payload.command, "button_id")) nonEmptyString(payload.command.button_id, "AUTO_SUBMIT_COMMAND button_id", 256);
+      validateSubmitCommand(payload.command);
       break;
     }
+    case MESSAGE_TYPES.AUTO_VERIFY_SUBMIT_STATE: {
+      exactKeys(payload, ["runId", "expectedRevision", "command", "phase"], "AUTO_VERIFY_SUBMIT_STATE payload");
+      nonEmptyString(payload.runId, "AUTO_VERIFY_SUBMIT_STATE runId", 128);
+      if (!Number.isSafeInteger(payload.expectedRevision) || payload.expectedRevision < 0) invalid("AUTO_VERIFY_SUBMIT_STATE expectedRevision is invalid");
+      if (!["before_consume", "before_click"].includes(payload.phase)) invalid("AUTO_VERIFY_SUBMIT_STATE phase is invalid");
+      validateSubmitCommand(payload.command, "AUTO_VERIFY_SUBMIT_STATE command");
+      break;
+    }
+    case MESSAGE_TYPES.SUBMIT_FRAME_READY:
+      exactKeysFrom(payload, ["url"], ["button_id"], "SUBMIT_FRAME_READY payload");
+      if (!validatePortalUrl(payload.url)) invalid(`SUBMIT_FRAME_READY origin must be ${ALLOWED_ORIGIN}`);
+      if (Object.hasOwn(payload, "button_id")) nonEmptyString(payload.button_id, "SUBMIT_FRAME_READY button_id", 256);
+      break;
     case MESSAGE_TYPES.PORTAL_GET_SNAPSHOT:
       exactKeys(payload, [], "PORTAL_GET_SNAPSHOT payload");
       break;
