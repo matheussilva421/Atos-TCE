@@ -31,6 +31,11 @@ A suíte Python ampla posterior passou 398/398 testes, com 7 skips ambientais;
 os avisos observados foram apenas de limpeza de `HTTPError` e não alteraram o
 exit code.
 
+Uma nova tentativa pelo navegador nomeado `chrome` não pôde prosseguir porque
+essa superfície não está disponível nesta sessão; somente o navegador interno
+do Codex, sem abas, foi exposto. Nenhum gate live foi promovido por essa
+tentativa.
+
 > Para agentes executores: usar `superpowers:executing-plans` ou `superpowers:subagent-driven-development` para executar tarefa por tarefa, com revisão de integração. As caixas abaixo rastreiam implementação futura; a criação deste documento não significa que a funcionalidade foi implementada.
 
 **Objetivo:** corrigir a seleção do fundamento legal, redesenhar a extensão para conferência e acompanhamento claros e executar a complementação sequencial dos atos disponíveis, com relatório incremental durável e retomada sem repetição cega de envios.

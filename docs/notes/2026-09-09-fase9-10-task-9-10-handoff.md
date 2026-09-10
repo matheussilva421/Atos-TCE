@@ -1,5 +1,17 @@
 # Handoff — Fases 9 e 10 locais
 
+## Rechecagem do canal Chrome — 09/09/2026
+
+Foi tentada a superfície oficial de navegador nomeado `chrome`, abrindo a URL
+da Área Restrita em uma nova aba sem tocar na janela autenticada existente. O
+conector respondeu `Browser is not available: chrome`; o único navegador
+disponível continua sendo o Codex In-app Browser, sem abas. Não houve
+fechamento, reinício, navegação real, preenchimento ou envio.
+
+Esse resultado confirma que o bloqueio é de exposição do navegador externo,
+não de autenticação ou de um seletor novo. O gate live permanece pendente e
+`real_send_enabled=false` continua inalterado.
+
 ## Atualização do pacote final13 — 09/09/2026
 
 Foi criado `portable/INICIAR.bat` como alias fino para `INICIAR.cmd`,
