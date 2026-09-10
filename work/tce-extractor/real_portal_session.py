@@ -16,8 +16,24 @@ from pathlib import Path
 import sys
 import tempfile
 import time
+from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright
+
+AREA_RESTRITA_URL = 'https://novaarearestrita.tce.rn.gov.br/telaPrincipalMenu.asp'
+AREA_RESTRITA_HOST = 'novaarearestrita.tce.rn.gov.br'
+
+
+def _normalize_portal_url(value: str | None) -> str:
+    """Return a safe Area Restrita entrypoint for this qualification runner."""
+    candidate = AREA_RESTRITA_URL if value is None or not str(value).strip() else str(value).strip()
+    parsed = urlparse(candidate)
+    if parsed.scheme.lower() != 'https' or parsed.hostname != AREA_RESTRITA_HOST:
+        raise ValueError(
+            'A qualificação de Complementar Ato exige a Área Restrita '
+            f'({AREA_RESTRITA_HOST}); a origem pública não é aceita.'
+        )
+    return candidate
 
 
 def _sanitize_page(page):
@@ -143,13 +159,14 @@ def _read_pairing_code(package: Path) -> tuple[str, int]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('--package-root', type=Path, required=True)
-    parser.add_argument('--portal-url', required=True)
+    parser.add_argument('--portal-url', default=AREA_RESTRITA_URL)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--profile', type=Path)
     parser.add_argument('--executable', type=Path)
     parser.add_argument('--poll-seconds', type=float, default=5.0)
     parser.add_argument('--stay-open', action='store_true')
     args = parser.parse_args()
+    portal_url = _normalize_portal_url(args.portal_url)
 
     package = args.package_root.resolve()
     extension = package / 'extensao-complementar-ato'
@@ -205,7 +222,7 @@ def main() -> int:
         portal = context.new_page()
         navigation_error = ''
         try:
-            portal.goto(args.portal_url, wait_until='domcontentloaded', timeout=45_000)
+            portal.goto(portal_url, wait_until='domcontentloaded', timeout=45_000)
         except Exception as error:  # navigation can remain usable after a timeout
             navigation_error = type(error).__name__
         portal.wait_for_timeout(5_000)

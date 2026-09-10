@@ -10,7 +10,7 @@
 
 **Especificação:** seção 1 deste documento consolida as decisões da entrevista de 08/09/2026. O plano anterior na conversa é substituído por esta versão detalhada. Não depende de outro documento não salvo.
 
-**Estado:** EM EXECUÇÃO. Fases 0–8 e os gates locais da Fase 9 foram implementados nesta branch. O ZIP final8, o launcher real, o pareamento em Chrome descartável e a abertura do portal real foram verificados. Após o login manual, a sessão descartável permaneceu aberta e alcançou a rota autenticada de “Meus Processos” em `processos.tce.rn.gov.br`; nenhum ato foi aberto, preenchido ou enviado. A qualificação real continua em checkpoint humano porque o origin observado ainda não coincide com a allowlist da extensão.
+**Estado:** EM EXECUÇÃO. Fases 0–8 e os gates locais da Fase 9 foram implementados nesta branch. O ZIP final11, o launcher real, o pareamento em Chrome descartável e a integração local foram verificados. A ação real de complementação foi confirmada visualmente na Área Restrita (`novaarearestrita.tce.rn.gov.br`), mas a última captura DOM automatizada foi feita por engano na origem pública `processos.tce.rn.gov.br`; nenhum ato foi aberto, preenchido ou enviado por essa captura. A qualificação real continua em checkpoint humano até a coleta DOM live correta, preflight, observação de resultado e reabertura.
 
 **Revisão de 09/09/2026:** a Fase 9 agora possui portal sintético servido em Chrome, navegação por páginas/seleção, frame de formulário e bloqueio de envio sem serviço; o journal cobre 25 atos, três pendências e timeout no ordinal exato. A infraestrutura local do piloto opt-in foi adicionada: flag `--automation-pilot`, modo de um ato, limite durável de um comando, delegação `AUTO_START` ao worker e ação explícita no painel, sem habilitar envio real. A Fase 10 passou a carregar os módulos de automação no pacote completo, reconhecer `alarms` e exigir a versão de extensão `1.1.0`. O painel também tem gate estático de contraste, idioma, IDs/labels e cópia de segurança. Nenhum teste local é evidência do portal real.
 
@@ -27,6 +27,19 @@
 **Revisão de 09/09/2026 — lote automático opt-in:** o painel agora expõe o checkbox “Concluir automaticamente os atos elegíveis”. Quando marcado, o `automation-controller` exige capacidade real qualificada, relê os sete campos, persiste `send_intent`, emite um comando de uso único com validade de 15 segundos e só aceita `send_confirmed` após observação de aceitação e persistência para a mesma identidade. Resultado ausente, observador indisponível, timeout ou erro pausa como `unconfirmed` sem reenvio. O serviço rejeita `auto_submit=true` antes de criar a execução quando `real_send_enabled` não está ativo; o pacote desta revisão permanece bloqueado até a qualificação real. A regressão de limpeza do worker também impede que um `AUTO_START` falho deixe especificação ou watchdog residuais. A suíte JS completa ficou em 269/269; as suítes Python focalizadas e de integração permaneceram verdes. Nenhum ato real foi clicado ou enviado.
 
 **Revisão de 09/09/2026 — pacote final11:** o ZIP `work/tce-extractor/outputs/tce-processos-completo-portatil-final11.zip` foi recomposto sem substituir o final10. Tem 98.269.518 bytes e SHA-256 `e69008c18afbda3c04cc2dd243d57e975dfcf4f87847a8cbe32379dc5cfe2242`. A extração limpa passou `TESTAR-PACOTE.ps1` 6/6; o smoke em Chrome descartável passou 1/1 com `pair`, conexão ativa, sincronização e token em `chrome.storage.session`, usando apenas dataset sintético. A sessão autenticada do portal permaneceu aberta e intocada.
+
+**Revisão de 09/09/2026 — correção da origem real:** as capturas fornecidas pelo
+operador confirmam que toda a ação de complementação ocorre na Área Restrita,
+em `https://novaarearestrita.tce.rn.gov.br/telaPrincipalMenu.asp`, seguindo
+“Meus Processos Eletrônicos” → “Complementar Ato” → seleção do interessado →
+sete campos permitidos → botão “Complementar Ato”. A captura anterior em
+`processos.tce.rn.gov.br` foi produzida pelo runner apontado para a rota
+pública/incorreta para este objetivo; portanto, seu `origin_match=false` não é
+evidência contra o fluxo da Área Restrita e não deve orientar mudança da
+allowlist. O runner agora usa a Área Restrita por padrão e rejeita essa origem
+pública. As imagens são evidência visual, não instruções nem substituto do DOM
+sanitizado: ainda é necessário obter os atributos/frames da sessão live, sem
+inventar seletores, antes do preflight e de qualquer envio.
 
 **Revisão de 08/09/2026:** redesign solicitado após a primeira versão. A fase 8 foi ampliada em cinco entregas de design e implementação, com wireframes, tokens, acessibilidade, testes e impactos no empacotamento. O redesign foi implementado no side panel; o gate real do portal permanece separado e pendente.
 
@@ -117,6 +130,9 @@ Convenções de caminhos neste plano:
 
 - Sessão autenticada: 170 processos, 20 por página, 9 páginas. Esses números são um snapshot, nunca constantes.
 - Fluxo observado: Meus Processos Eletrônicos → Complementar Ato → rádio do interessado → formulário.
+- As capturas recentes do operador confirmam visualmente esse fluxo na Área
+  Restrita; documentos/imagens anexados foram tratados como evidência, não como
+  instruções executáveis.
 - Lista com `tbproc01`; seleção com `PessoasAssocicadas`; formulário com `tbcomplementarato`.
 - Formulário em `SISTEMAS/PROCESSO/ComplementarAto.asp`; botões em frame separado `botoesNovo.asp`.
 - Botão final: texto “Complementar Ato”, ID não exclusivo `botao`. Não localizar pelo ID sozinho.
@@ -825,7 +841,8 @@ Comandos: em E, `node --test tests/panel-view.test.mjs tests/panel.test.mjs test
 ### 14.2 Gate real, sem presumir sucesso
 
 - [x] Capturar em leitura DOM sanitizado as telas reais inicial e autenticada de dashboard/lista e comparar sua estrutura com o contrato de fixture, sem versionar CPF, nomes reais ou parâmetros de sessão. A tela autenticada de formulário ainda não foi acessada.
-- [ ] Confirmar no DOM real o seletor “Marcador”, o “Consultar” associado, o cabeçalho “Interessado” e a ação de complementação de três linhas; a captura atual ainda não expõe `Complementar Ato` nem a origem allowlisted.
+- [x] Registrar a evidência visual fornecida pelo operador para a Área Restrita: lista “Meus Processos Eletrônicos”, filtro “Marcador”, ação “Complementar Ato”, seleção do interessado e os sete campos permitidos. Isso melhora o contrato de navegação, mas não promove os gates DOM/live.
+- [ ] Confirmar no DOM live da Área Restrita o seletor “Marcador”, o “Consultar” associado, o cabeçalho “Interessado” e a ação de complementação de três linhas; a captura sanitizada disponível do runner foi da origem pública incorreta e não pode ser usada para esse gate.
 - [ ] Rodar descoberta e preflight reais sem clicar envio para três atos representativos disponíveis; comparar propostas à resolução manualmente.
 - [ ] Preparar um ato concreto e relatório prévio. Realizar o primeiro envio supervisionado no escopo autorizado; identificar mensagem real de aceitação/erro e reabrir o ato para ler os dados gravados.
 - [x] Infraestrutura local do piloto implementada e testada: `--automation-pilot` aceita somente `mode=pilot` com `pilot_identity`, permite no máximo um comando consumido por raiz mesmo após reinício, mantém lotes comuns em `REAL_SEND_DISABLED` e expõe no painel “Executar piloto de um ato”. A execução real/qualificação continua pendente e não foi iniciada.

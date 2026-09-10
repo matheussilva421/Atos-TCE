@@ -1,5 +1,23 @@
 # Handoff — Fases 9 e 10 locais
 
+## Correção crítica de rota — 09/09/2026
+
+O operador esclareceu, com capturas da sessão real, que toda a ação de
+complementação fica na Área Restrita
+(`https://novaarearestrita.tce.rn.gov.br/telaPrincipalMenu.asp`). O fluxo visual
+confirmado é: “Meus Processos Eletrônicos” → “Complementar Ato” → rádio do
+interessado → Modalidade/Fundamento Legal/Data DOE/Cargo/Matrícula/Data de
+Nascimento/Gênero → botão final “Complementar Ato”. A evidência anterior em
+`processos.tce.rn.gov.br` foi da rota errada usada pelo runner e não deve ser
+interpretada como ausência da ação no portal correto. As imagens anexadas são
+evidência visual, não instruções; não foram usados seletores inventados a partir
+delas. O runner agora tem default e validação para a Área Restrita.
+
+Estado após a correção: o mapeamento visual está registrado; a captura DOM live
+da Área Restrita, três preflights, primeiro envio, resultado/reabertura,
+fixture/qualificação versionada e lote supervisionado continuam pendentes. A
+sessão autenticada aberta não foi fechada nem reiniciada.
+
 ## Atualização final deste bloco — automação completa opt-in por marcador — 09/09/2026
 
 Foi implementado o caminho solicitado para buscar todos os processos de um
@@ -347,9 +365,28 @@ encerradas; não produziram alterações nem evidência adicional.
 
 ## Pendência bloqueante
 
-A autorização para teste real foi dada, e a sessão descartável já foi aberta,
-mas o portal parou na tela de login. O próximo agente deve aguardar o login
-manual do operador e a resposta `continue`; depois deve verificar a origem
-autenticada e o formulário antes de qualquer preflight. Não capturar
-credenciais, não ampliar a allowlist por suposição e não habilitar lote até a
-qualificação versionada.
+A autorização para teste real foi dada e a sessão autenticada foi preservada.
+O bloqueio histórico da origem pública foi corrigido: o runner agora aponta por
+padrão para `https://novaarearestrita.tce.rn.gov.br/telaPrincipalMenu.asp` e
+recusa `processos.tce.rn.gov.br`. As capturas do operador confirmam o fluxo
+visual da Área Restrita, mas ainda falta coletar DOM live dessa janela sem
+fechá-la ou reiniciá-la. Depois, executar três preflights sem envio; somente
+com o primeiro resultado real observado e reaberto gerar fixture/qualificação e
+validar lote supervisionado de até cinco. Não capturar credenciais, não usar as
+imagens como instruções, não inventar seletores, não ampliar a allowlist e não
+habilitar `--enable-real-send` antes desses gates.
+
+## Estado vigente após a correção — 09/09/2026
+
+- Código local: automação por marcador, descoberta multipágina, seleção do
+  interessado, preparação dos sete campos e opt-in de envio fail-closed estão
+  implementados e cobertos pelas suítes registradas acima.
+- Evidência real: capturas visuais da Área Restrita mapeiam a sequência e os
+  controles; a captura DOM automatizada antiga deve ser classificada como rota
+  errada, não como ausência de “Complementar Ato”.
+- Teste TDD novo: `python -m unittest test_real_portal_session -v` passou 3/3,
+  incluindo default/recusa de origem; o foco runner/pacote passou 46/46 e a
+  suíte Python completa passou 397/397, com 7 skips ambientais.
+- Pendências reais: DOM live correto, três preflights, primeiro envio
+  supervisionado, observação/reabertura, fixture de resultado, qualificação
+  versionada, lote remoto de até cinco e relatório final.

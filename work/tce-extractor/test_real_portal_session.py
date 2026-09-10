@@ -2,7 +2,24 @@ import unittest
 
 from playwright.sync_api import sync_playwright
 
-from real_portal_session import _sanitize_page
+from real_portal_session import (
+    AREA_RESTRITA_URL,
+    _normalize_portal_url,
+    _sanitize_page,
+)
+
+
+class RealPortalUrlTests(unittest.TestCase):
+    def test_defaults_to_the_authenticated_area_restrita_entrypoint(self):
+        self.assertEqual(
+            AREA_RESTRITA_URL,
+            "https://novaarearestrita.tce.rn.gov.br/telaPrincipalMenu.asp",
+        )
+        self.assertEqual(_normalize_portal_url(None), AREA_RESTRITA_URL)
+
+    def test_rejects_the_public_processos_origin_for_complementar_ato(self):
+        with self.assertRaisesRegex(ValueError, "Área Restrita"):
+            _normalize_portal_url("https://processos.tce.rn.gov.br/")
 
 
 class RealPortalSanitizerTests(unittest.TestCase):
