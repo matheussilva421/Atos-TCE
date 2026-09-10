@@ -841,6 +841,10 @@ fail-closed. Sem DOM real do formulário, observador de resultado e
 `automacao/qualificacao.json` produzido a partir de um evento real, não é
 seguro nem válido declarar o lote real “funcionando”.
 
+**Checkpoint Git:** a implementação desta revisão foi commitada em `e7564c1`
+(`feat: automate marker batch workflow`). O checkout não possui remoto
+configurado; nenhum push foi realizado.
+
 **Critério final:** zero seleção errada nos casos rotulados de regressão; 100% dos envios tentados têm intenção persistida anterior; confirmados têm evidência posterior; quedas não repetem envio; pendências documentais permitem avanço. Não prometer acurácia universal para escolhas por semelhança.
 
 ## 15. Fase 10 — pacote, transferência, documentação e Git

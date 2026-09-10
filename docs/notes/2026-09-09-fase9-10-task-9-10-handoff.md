@@ -41,6 +41,11 @@ Artefato final deste bloco: [tce-processos-completo-portatil-final11.zip](C:/Use
 extração passou `TESTAR-PACOTE.ps1` 6/6 e o smoke de Chrome descartável passou
 1/1. O ZIP final10 foi preservado.
 
+Checkpoint Git final: commit `e7564c1` (`feat: automate marker batch
+workflow`) criado após `git diff --cached --check`. O working tree foi
+confirmado sem alterações após o commit. `git remote -v` não retorna remoto
+configurado neste checkout; nenhum push foi feito ou afirmado.
+
 ## Atualização de implementação — lote automatizado por marcador — 09/09/2026
 
 Foi implementada a busca e descoberta de lote por marcador na extensão:
