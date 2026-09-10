@@ -1,7 +1,7 @@
 # Especificação — análise híbrida e lotes de Complementar Ato
 
-**Data:** 10/09/2026  
-**Status:** aprovada para implementação por fases  
+**Data:** 10/09/2026
+**Status:** aprovada para implementação por fases
 **Escopo:** complementar a automação existente sem substituir os gates de segurança do portal real.
 
 ## 1. Objetivo

@@ -1,7 +1,7 @@
 # Handoff — consolidação na main e conclusão do fluxo automático
 
-Data: 2026-09-10  
-Plano: `docs/notes/2026-09-10-plano-consolidacao-main-e-conclusao.md`  
+Data: 2026-09-10
+Plano: `docs/notes/2026-09-10-plano-consolidacao-main-e-conclusao.md`
 Especificação: `docs/notes/2026-09-10-consolidacao-main-e-conclusao-spec.md`
 
 ## Estado atual

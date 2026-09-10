@@ -1,7 +1,7 @@
 # Especificação — consolidação na main e conclusão do fluxo automático
 
-**Data:** 10/09/2026  
-**Status:** aprovada para planejamento e execução faseada  
+**Data:** 10/09/2026
+**Status:** aprovada para planejamento e execução faseada
 **Escopo:** organização local, consolidação Git, limpeza segura, estabilização,
 qualificação portal-real, rollout supervisionado e release final.
 
@@ -107,4 +107,3 @@ O fluxo final deve provar, em ordem:
 - O pacote final é extraído em pasta limpa e passa auditoria/smokes.
 - README, plano mestre, handoff e release apontam para o mesmo ZIP/hash.
 - Qualquer pendência remanescente tem causa, impacto e retomada documentados.
-
