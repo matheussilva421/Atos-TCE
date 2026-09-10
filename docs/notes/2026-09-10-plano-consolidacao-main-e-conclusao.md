@@ -137,32 +137,32 @@ arquivos não rastreados e hashes dos artefatos essenciais.
 **Escopo:** 32 arquivos modificados e módulos novos de fila, aquisição,
 prévia, escopo e reconciliação.
 
-- [ ] Revisar cada hunk contra a especificação híbrida e o handoff; rejeitar
+- [x] Revisar cada hunk contra a especificação híbrida e o handoff; rejeitar
   mudança sem teste, documentação ou vínculo com requisito aprovado.
-- [ ] Confirmar que novos módulos constam na allowlist do empacotador e no teste
+- [x] Confirmar que novos módulos constam na allowlist do empacotador e no teste
   de inventário do ZIP.
-- [ ] Confirmar ausência de token, cookie, URL autenticada, CPF bruto e caminho
+- [x] Confirmar ausência de token, cookie, URL autenticada, CPF bruto e caminho
   privado com buscas estruturais e revisão manual dos resultados.
-- [ ] Executar os gates focais: `npm test`, Python portátil 34+, menu 83+ e
+- [x] Executar os gates focais: `npm test`, Python portátil 34+, menu 83+ e
   `git diff --check`.
-- [ ] Fazer stage nominal do primeiro conjunto: contratos Python, respectivos
+- [x] Fazer stage nominal do primeiro conjunto: contratos Python, respectivos
   testes e documentação de origem/lotes; revisar `git diff --cached` e commit
   `feat: add deterministic hybrid batch analysis`.
-- [ ] Fazer stage nominal do segundo conjunto: integração de aquisição,
+- [x] Fazer stage nominal do segundo conjunto: integração de aquisição,
   launcher, bridge/painel e testes; commit
   `feat: integrate frozen batch acquisition`.
-- [ ] Fazer stage nominal do terceiro conjunto: correções portal-reais,
+- [x] Fazer stage nominal do terceiro conjunto: correções portal-reais,
   preflight de gênero opcional, guias e handoffs; commit
   `fix: qualify real batch preparation boundaries`.
-- [ ] STOP se algum gate falhar; não consolidar `main` com worktree parcial.
+- [x] STOP se algum gate falhar; não consolidar `main` com worktree parcial.
 
 ### Tarefa 0.6 — reconciliar a branch de transferência
 
-- [ ] Comparar `git diff 6c88d2a ef7d44b --` e confirmar diff vazio.
-- [ ] Confirmar que `main` futura conterá `6c88d2a` ou árvore equivalente.
-- [ ] Registrar no handoff que `codex/transfer-quiescence` é duplicata de
+- [x] Comparar `git diff 6c88d2a ef7d44b --` e confirmar diff vazio.
+- [x] Confirmar que `main` futura conterá `6c88d2a` ou árvore equivalente.
+- [x] Registrar no handoff que `codex/transfer-quiescence` é duplicata de
   patch, não trabalho exclusivo.
-- [ ] Não fazer merge dessa branch; reservar sua exclusão para a Tarefa 0.10.
+- [x] Não fazer merge dessa branch; reservar sua exclusão para a Tarefa 0.10.
 
 ### Tarefa 0.7 — avançar main por fast-forward
 

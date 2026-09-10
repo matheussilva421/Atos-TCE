@@ -37,4 +37,3 @@ preservado e não há remoto configurado.
 
 Revisar o plano com o usuário. Após autorização explícita de execução, iniciar
 somente a Tarefa 0.1 e parar nos checkpoints destrutivos definidos no plano.
-

@@ -257,7 +257,7 @@ function buildRestrictedInitialActDocument({ selected = false, withTopClose = fa
     attrs: { type: "radio", name: "escolha" },
   });
   radio.checked = selected;
-  row.append(radio, cell("Núzia Maria Barbosa"), cell("42119154449"), cell("Interessado"));
+  row.append(radio, cell("Núzia Maria Barbosa"), cell("CPF-SANITIZADO-01"), cell("Interessado"));
   interestedTable.append(row);
   form.append(interestedTable);
   documentRef.documentElement.setAttribute("data-process-key", "101675/2026");

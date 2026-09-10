@@ -7,7 +7,7 @@ Especificação: `docs/notes/2026-09-10-consolidacao-main-e-conclusao-spec.md`
 ## Estado atual
 
 - Execução SDD ativa no checkout existente `codex/fundamentacao-automatico`.
-- `HEAD=17185fc` (`fix: harden workspace manifest analysis`).
+- `HEAD=f508cac` (`fix: qualify real batch preparation boundaries`).
 - Worktree continua sujo por desenho: alterações locais anteriores preservadas,
   além dos novos documentos de execução; nenhum arquivo funcional foi revertido.
 - Não há remoto Git configurado; nenhum push foi executado.
@@ -25,8 +25,9 @@ Especificação: `docs/notes/2026-09-10-consolidacao-main-e-conclusao-spec.md`
 - [ ] Tarefa 0.3 — classificação do workspace e aprovação do manifesto.
 - [x] Tarefa 0.4 — reconciliação documental; 19/19 testes verdes em Windows
   PowerShell 5.1 e PowerShell 7.
-- [ ] Tarefa 0.5 — revisão e divisão do bloco local em commits.
-- [ ] Tarefa 0.6 — reconciliação da branch de transferência.
+- [x] Tarefa 0.5 — bloco local revisado, testado e dividido em commits nominais.
+- [x] Tarefa 0.6 — branch de transferência comprovada como duplicata de patch;
+  nenhum merge foi feito.
 - [ ] Tarefa 0.7 — fast-forward de `main` (checkpoint humano).
 - [ ] Tarefa 0.8 — limpador por manifesto (checkpoint humano antes de Apply).
 - [ ] Tarefa 0.9 — quarentena e validação.
@@ -51,6 +52,13 @@ Especificação: `docs/notes/2026-09-10-consolidacao-main-e-conclusao-spec.md`
 - `Test-WorkspaceCleanup.ps1`: 174 executados, 174 passaram, 0 falharam.
 - `Test-DocumentationTracking.ps1`: 19 executados, 19 passaram, 0 falharam.
 - Gates do bloco local: extensão 287/287, Python portátil 34/34 e menu 83/83.
+- Commits nominais: `416bbfe` (contratos determinísticos), `11342f3`
+  (aquisição congelada) e `f508cac` (limites portal-reais).
+- Busca estrutural: nenhum Bearer/API key/caminho privado; o único CPF bruto
+  detectado estava em fixture novo, foi sanitizado sem registrar seu valor e a
+  suíte da extensão permaneceu 287/287.
+- `git diff 6c88d2a ef7d44b --` vazio; a transferência é patch-equivalente e
+  fica reservada apenas para exclusão após consolidação em `main`.
 - `git diff --check`: status 0; somente o aviso EOL conhecido de `INICIAR.cmd`.
 - A análise real foi iniciada em `tmp/fase0/workspace-manifest-r2.json`; não
   avançar para limpeza física antes de validar o manifesto e obter aprovação.
