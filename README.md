@@ -4,9 +4,20 @@ Ferramentas locais para coletar eventos do e-Contas, identificar Resolução Adm
 
 ## Usar o pacote pronto
 
-O ZIP atual está em `outputs/TCE-Acervo-Atualizado-227-2026-09-05.zip`. Extraia-o inteiro em uma pasta nova e abra `GUIA-RAPIDO.html`. O HTML fica em `acervo-tce/complementar-ato.html`; importe `acervo-tce/dados-complementar-ato.json` uma vez na extensão.
+O pacote de runtime mais novo desta rodada é o `fase11k`, preservado em
+`outputs/tce-processos-completo-portatil-fase11k.zip` e auditado em extração
+limpa. Extraia-o inteiro em uma pasta nova e abra `GUIA-RAPIDO.html`; não
+versione nem compartilhe esse ZIP.
 
-O lote contém 227 processos, 5.236 eventos e 4.532 PDFs. Um Termo de Apensamento do processo100093/2022 não foi disponibilizado pelo portal. Capas indisponíveis foram dispensadas. Valores ausentes e conflitantes exigem revisão humana.
+O acervo privado de 05/09 é uma entrega diferente: contém 227 processos, 5.236
+eventos e 4.532 PDFs e permanece fora do Git. O runtime `fase11k` é o pacote de
+ferramentas, extensão e serviço para operar sobre dados autorizados; ele não é
+uma publicação do acervo privado. Valores ausentes e conflitantes exigem
+revisão humana.
+
+O lote real 1/50 foi baixado e fechado com 50 processos e 1.037 PDFs completos;
+essa evidência permanece privada. Um Termo de Apensamento não foi disponibilizado
+pelo portal; capas indisponíveis foram dispensadas.
 
 ## Estrutura
 
@@ -37,7 +48,9 @@ Os testes Python ficam em `work/tce-extractor/test_*.py` e os testes PowerShell 
 
 - Repositório local: nenhum upload ao GitHub é feito automaticamente.
 - `.gitignore` usa lista de permissão; dados pessoais, PDFs, ZIPs, backups, caches e perfis de navegador não são versionados.
-- O coletor não envia atos. A extensão somente auxilia o preenchimento autorizado; conclusão e envio são manuais.
+- O envio automático ainda não está qualificado: `real_send_enabled=false` e
+  `pilot_enabled=false`. Nenhum ato foi enviado; conclusão, confirmação e envio
+  permanecem manuais e sujeitos aos gates portal-real.
 - A regra operacional solicitada para DOE usa a data da Resolução Administrativa; não equivale a comprovação independente da publicação no Diário Oficial.
 - Preserve backups até conferir o novo lote. Nunca publique `outputs`, `tmp` ou perfis autenticados.
 

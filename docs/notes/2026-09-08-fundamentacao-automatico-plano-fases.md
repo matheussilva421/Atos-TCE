@@ -42,6 +42,21 @@ autenticada nem altera a decisão fail-closed.
 
 > Para agentes executores: usar `superpowers:executing-plans` ou `superpowers:subagent-driven-development` para executar tarefa por tarefa, com revisão de integração. As caixas abaixo rastreiam implementação futura; a criação deste documento não significa que a funcionalidade foi implementada.
 
+**Atualização de 10/09/2026 — análise prévia, lotes e coleta por fila:** a
+extensão agora permite escolher `sector_finalistic` ou `my_processes`, fazer
+uma análise somente leitura pela Área Restrita, visualizar contagens e criar
+lotes determinísticos. A fila congelada pode ser entregue ao coletor local
+com `-FilaCongelada` e `-NumeroLote`; o coletor reconcilia a lista atual do
+e-Contas sem substituição, baixa somente as chaves congeladas e dispara a
+preparação/OCR incremental existente. O pacote fase11b passou auditoria 6/6 e
+smoke Chrome descartável 1/1; ZIP:
+`work/tce-extractor/outputs/tce-processos-completo-portatil-fase11b.zip`,
+98.292.377 bytes, SHA-256
+`ca4e29b8922793ee22fa85fbe7e7139fb7bd7cfa467449cb9db9066186ccebee`.
+Isso não é prova de download/OCR real nem de envio no portal. Ainda falta
+disparar a coleta pelo painel, rodar preflight real, primeiro envio autorizado,
+observação/reabertura, qualificação versionada e lote supervisionado.
+
 **Objetivo:** corrigir a seleção do fundamento legal, redesenhar a extensão para conferência e acompanhamento claros e executar a complementação sequencial dos atos disponíveis, com relatório incremental durável e retomada sem repetição cega de envios.
 
 **Arquitetura:** reaproveitar a extensão Manifest V3 para operar o DOM do portal e o serviço Python local autenticado para dados, fila, eventos e relatórios. Separar interpretação documental, classificação jurídica operacional, navegação e envio. O banco local será a fonte do histórico de execução; HTML, CSV e painel serão projeções recuperáveis desse histórico.
@@ -896,7 +911,7 @@ Comandos: em E, `node --test tests/panel-view.test.mjs tests/panel.test.mjs test
 
 - [x] Capturar em leitura DOM sanitizado as telas reais inicial e autenticada de dashboard/lista e comparar sua estrutura com o contrato de fixture, sem versionar CPF, nomes reais ou parâmetros de sessão. A tela autenticada de formulário ainda não foi acessada.
 - [x] Registrar a evidência visual fornecida pelo operador para a Área Restrita: lista “Meus Processos Eletrônicos”, filtro “Marcador”, ação “Complementar Ato”, seleção do interessado e os sete campos permitidos. Isso melhora o contrato de navegação, mas não promove os gates DOM/live.
-- [ ] Confirmar no DOM live da Área Restrita o seletor “Marcador”, o “Consultar” associado, o cabeçalho “Interessado” e a ação de complementação de três linhas; a captura sanitizada disponível do runner foi da origem pública incorreta e não pode ser usada para esse gate.
+- [x] Confirmar no DOM live correto da Área Restrita o seletor `#cmbMarcadorFiltro`/`cmbMarcadorFiltro`, o “Consultar” no frame irmão `botoesNOVO.asp?pagina=ProcessonoSetor`, o cabeçalho `Interessado`/coluna `Nome`, a ação de linha `Complementar Ato` e a navegação `addtabsinformacao(...)`. A inspeção autenticada em 10/09/2026 confirmou também o formulário em `SISTEMAS/PROCESSO/ComplementarAto.asp`, o rádio `input[name=escolha]`, os sete IDs permitidos, o botão final no frame `botoesNovo.asp?pagina=ComplementarAto` e o fechamento da aba para retorno. A contagem live do marcador `PROFESSOR - IPERN - 2 RUBRICAS (549)` foi 549 processos, 290 pendentes e 259 já complementados; nenhum envio foi executado.
 - [ ] Rodar descoberta e preflight reais sem clicar envio para três atos representativos disponíveis; comparar propostas à resolução manualmente.
 - [ ] Preparar um ato concreto e relatório prévio. Realizar o primeiro envio supervisionado no escopo autorizado; identificar mensagem real de aceitação/erro e reabrir o ato para ler os dados gravados.
 - [x] Infraestrutura local do piloto implementada e testada: `--automation-pilot` aceita somente `mode=pilot` com `pilot_identity`, permite no máximo um comando consumido por raiz mesmo após reinício, mantém lotes comuns em `REAL_SEND_DISABLED` e expõe no painel “Executar piloto de um ato”. A execução real/qualificação continua pendente e não foi iniciada.
@@ -906,11 +921,12 @@ Comandos: em E, `node --test tests/panel-view.test.mjs tests/panel.test.mjs test
 - [ ] Validar lote supervisionado de até cinco atos elegíveis, incluindo retorno e relatório após cada um. Ausência de determinada família no lote não é cobertura real dessa família.
 - [ ] Concluir conferência do relatório: dados usados, decisões por semelhança, fontes, resultado, timestamps e ausência de segredos.
 
-**Estado operacional da revisão:** o código já oferece a automação completa de
-descoberta/preparação e o caminho de envio opt-in, mas a release atual é
-fail-closed. Sem DOM real do formulário, observador de resultado e
-`automacao/qualificacao.json` produzido a partir de um evento real, não é
-seguro nem válido declarar o lote real “funcionando”.
+**Estado operacional da revisão:** o código oferece a automação de
+descoberta/preparação e o caminho de envio opt-in, e os seletores/frames da
+Área Restrita agora estão confirmados no DOM live. A release continua
+fail-closed: sem três preflights reais, observador de resultado,
+`automacao/qualificacao.json` produzido a partir de um evento real e lote
+supervisionado, não é seguro nem válido declarar o envio real “funcionando”.
 
 **Checkpoint Git:** a implementação desta revisão foi commitada em `e7564c1`
 (`feat: automate marker batch workflow`). O checkout não possui remoto
@@ -1008,3 +1024,97 @@ Limitação / próxima ação:
 ## 18. Primeiro passo de execução
 
 Começar pela fase 0, reproduzindo o matcher contra catálogo sintético baseado no observado. Em seguida construir contexto completo da resolução antes de alterar a seleção. A sequência evita corrigir apenas pontuação enquanto a fonte continua truncada. O modo de envio deve permanecer inativo até completar persistência, preflight, recuperação e qualificação real.
+
+## Atualização de execução — 10/09/2026
+
+- [x] `INICIAR.bat`/`INICIAR.cmd` atualizado com ponte local, verificação
+  `ponte`, opções 9/10 e drenagem de lote congelado.
+- [x] Serviço autenticado inicia aquisição/OCR local de um lote persistido e
+  expõe status do job; envio real permanece desligado.
+- [x] Coletor reutiliza, por detecção somente leitura, uma porta DevTools local
+  com aba TCE/RN antes de abrir outro navegador.
+- [x] ZIP `tce-processos-completo-portatil-fase11g.zip` extraído, auditado e
+  testado em caminho Unicode; bridge pareada e capabilities verificadas.
+- [x] Download real de lote do portal: o lote real 1/50 foi concluído com 50
+  processos e 1.037/1.037 PDFs completos no transporte; a preparação local
+  real também foi executada, e a evidência detalhada permanece privada
+  conforme o handoff de 10/09.
+- [ ] Três preflights reais, primeiro envio autorizado, observação/reabertura,
+  fixture de resultado, qualificação versionada e lote supervisionado de até
+  cinco atos.
+
+Verificação complementar do launcher em 10/09/2026: o ZIP foi extraído em
+pasta limpa, `TESTAR-PACOTE.ps1` passou em modo público, e os dois smoke tests
+do `INICIAR.bat ponte`/`INICIAR.cmd` passaram em caminho Unicode. A sessão
+Chrome live continua exposta no CDP `9222` com Área Restrita e e-Contas. A
+suíte Python completa foi interrompida após ficar sem progresso por mais de
+dois minutos; não foi apresentada como verde. As suítes focadas do bloco
+permanecem verdes e os gates remotos acima continuam pendentes.
+
+Prévia live adicional do escopo `sector_finalistic` em 10/09/2026: marcador
+`6189`, rótulo `PROFESSOR - IPERN - 2 RUBRICAS (549)`, 549 processos únicos em
+19 páginas, todos expondo a ação `Complementar Ato`; a divisão determinística
+resulta em 11 lotes de 50 ou 6 lotes de 100. O coletor passou a respeitar o
+escopo congelado por `-EscopoPortal`. O pacote atualizado é `fase11h`, com
+SHA-256 `f484579b433d4b300cc06667499fcdda48d0e9b4d13730124e131982eb16a185`;
+pareamento/capabilities HTTP do pacote passaram, sem habilitar envio real.
+
+Os gates remotos acima permanecem explicitamente pendentes; esta atualização
+não transforma testes sintéticos, bridge local ou health check em prova de
+efeito no portal.
+
+### Atualização live — marcador, lote congelado e primeiro PDF — 10/09/2026
+
+- [x] O marcador real `PROFESSOR - IPERN - 2 RUBRICAS (549)` é aplicado no
+  e-Contas antes da enumeração; o lote 1/50 foi reconciliado 50/50, sem
+  substituição e sem download fora da fila.
+- [x] A enumeração foi corrigida para esperar a paginação após o reload do
+  filtro e não alterar o page-size durante a caminhada de lote congelado.
+- [x] Transporte real protegido comprovado no processo `102390/2026`: 18/18
+  PDFs gravados através do Chrome autenticado; preparação progressiva real
+  encontrou interessado, modalidade, fundamento legal, DOE, cargo, matrícula
+  e nascimento. O OCR permanece fallback quando há texto nativo.
+- [x] Fechar e auditar o resultado final dos 50 processos do lote em execução:
+  50/50 processos, 1.037 PDFs baixados e 1.037/1.037 documentos `complete`,
+  sem falhas de processo/documento no checkpoint.
+- [x] Reconstruir/auditar o ZIP depois da correção PowerShell do downloader:
+  ZIP `work/tce-extractor/outputs/tce-processos-completo-portatil-fase11k.zip`
+  reconstruído e auditado em extração limpa, com 95.877.835 bytes e SHA-256
+  `85BAD2192F6F3C7289F574D4EF126F4700565843AFB5793E61E49CD47DE05FBB`.
+- [ ] Três preflights reais, primeiro envio autorizado, observação/reabertura,
+  fixture, qualificação versionada e lote supervisionado de até cinco atos.
+
+Evidência privada: `work/tce-extractor/outputs/live-real-fase11h-sector-lot50`.
+O botão final e `real_send_enabled=false` permanecem inalterados.
+
+### Atualização de encerramento do lote 1 e release local — 10/09/2026
+
+- [x] O lote real 1/50 foi encerrado: 50/50 processos, 1.037 PDFs
+  baixados, 1.037/1.037 documentos com status `complete` e zero falhas de
+  processo/documento no checkpoint. O marcador foi aplicado no e-Contas antes
+  da enumeração e nenhuma chave fora da fila congelada foi baixada.
+- [x] A separação por fonte permanece operacional: o snapshot congela
+  `sector_finalistic` ou `my_processes`, e o coletor navega para a rota
+  correspondente; o launcher mantém as opções de análise, criação de lote,
+  aquisição e drenagem em `INICIAR.bat`/`INICIAR.cmd`.
+- [x] O snapshot real schema 2 com `preview=null` passou a ser aceito pelo
+  store sem quebrar compatibilidade com schema 1; o artefato live carregado
+  contém 549 processos e 11 lotes de 50.
+- [x] Tesseract empacotado executou com sucesso em uma página real baixada,
+  mas os 1.037 PDFs do lote tinham texto nativo; portanto ainda não há prova
+  de fallback OCR sobre PDF originalmente escaneado.
+- [x] ZIP fase11j reconstruído e auditado em pasta limpa:
+  `work/tce-extractor/outputs/tce-processos-completo-portatil-fase11j.zip`,
+  SHA-256
+  `7555A9FD4D35E71129B0561CF816098161D34EEA79C5D26D87676C9E11E3E54F`.
+- [ ] Qualificar os 50 processos `partial` antes de qualquer preenchimento
+  real; executar preflight, primeiro envio, observação/reabertura, fixture,
+  qualificação versionada e lote supervisionado somente com as travas de
+  autorização mantidas.
+
+Relatório detalhado dos campos ausentes no lote real: `docs/notes/2026-09-10-lote1-campos-incompletos.md`. A preparação encontrou `genero` ausente nos 51 registros de interessado, `data_nascimento` ausente em 9, e `modalidade`/`fundamento_legal` ausentes no segundo interessado de `104956/2025`; DOE, cargo e matrícula foram encontrados.
+
+Estado de segurança: aquisição/OCR/preparação locais estão comprovados;
+preenchimento/submissão e envio remoto continuam separados e
+`real_send_enabled=false`. Não declarar o fluxo remoto completo como validado
+até concluir esses gates com evidência portal-real.
