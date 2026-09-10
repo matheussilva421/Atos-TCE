@@ -36,6 +36,10 @@ essa superfície não está disponível nesta sessão; somente o navegador inter
 do Codex, sem abas, foi exposto. Nenhum gate live foi promovido por essa
 tentativa.
 
+A tentativa read-only no Codex In-app Browser também foi bloqueada pelo
+navegador com `net::ERR_BLOCKED_BY_CLIENT`; ela não substitui uma sessão Chrome
+autenticada nem altera a decisão fail-closed.
+
 > Para agentes executores: usar `superpowers:executing-plans` ou `superpowers:subagent-driven-development` para executar tarefa por tarefa, com revisão de integração. As caixas abaixo rastreiam implementação futura; a criação deste documento não significa que a funcionalidade foi implementada.
 
 **Objetivo:** corrigir a seleção do fundamento legal, redesenhar a extensão para conferência e acompanhamento claros e executar a complementação sequencial dos atos disponíveis, com relatório incremental durável e retomada sem repetição cega de envios.

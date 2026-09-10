@@ -12,6 +12,10 @@ Esse resultado confirma que o bloqueio é de exposição do navegador externo,
 não de autenticação ou de um seletor novo. O gate live permanece pendente e
 `real_send_enabled=false` continua inalterado.
 
+Também foi tentada a mesma URL no Codex In-app Browser, somente em leitura; o
+navegador respondeu `net::ERR_BLOCKED_BY_CLIENT`. Essa tentativa não acessou a
+Área Restrita, não solicitou credenciais e não alterou o Chrome externo.
+
 ## Atualização do pacote final13 — 09/09/2026
 
 Foi criado `portable/INICIAR.bat` como alias fino para `INICIAR.cmd`,
