@@ -136,39 +136,55 @@ function Get-PathClassification {
     return [pscustomobject]@{ Classification = 'unknown_artifact'; Reason = 'artefato sem classificação segura'; Action = 'investigate' }
 }
 
-function Get-ReferenceLocations {
+function Get-ReferenceMap {
     param(
         [Parameter(Mandatory = $true)][string]$RootPath,
-        [Parameter(Mandatory = $true)][string]$RelativePath
+        [Parameter(Mandatory = $true)][object[]]$Items
     )
 
     $rgCommand = @(Get-Command rg -All -ErrorAction SilentlyContinue | Select-Object -First 1)
-    if ($rgCommand.Count -eq 0) { return @() }
+    if ($rgCommand.Count -eq 0) { return @{} }
     $rgPath = [string]$rgCommand[0].Source
 
-    $patterns = @($RelativePath, ($RelativePath -replace '\\', '/')) | Select-Object -Unique
-    $locations = New-Object System.Collections.Generic.List[string]
-    foreach ($pattern in $patterns) {
-        $output = @(& $rgPath -n --fixed-strings --no-heading --color never `
-            --glob '!*.pdf' --glob '!*.zip' --glob '!*.7z' --glob '!*.tar' --glob '!*.gz' `
-            --glob '!profile/**' --glob '!.chrome-work*/**' --glob '!.git/**' --glob '!.codex*/**' `
-            -- $pattern $RootPath 2>$null)
-        foreach ($line in $output) {
-            $text = [string]$line
-            if ($text -match '^(.*?):(\d+):') {
-                try {
-                    $hitPath = ConvertTo-FullPath $matches[1]
-                    if (-not (Test-PathWithinRoot -Candidate $hitPath -Base $RootPath)) { continue }
-                    $hitRelative = Get-RelativePath -Path $hitPath -Base $RootPath
-                    $location = ($hitRelative + ':' + $matches[2])
-                } catch {
-                    continue
-                }
-                if (-not $locations.Contains($location)) { [void]$locations.Add($location) }
-            }
+    $literalToPath = @{}
+    foreach ($item in @($Items | Where-Object { $_.Kind -eq 'file' -and $_.Classification -in @('source', 'versioned_documentation') })) {
+        foreach ($literal in @($item.Path, ($item.Path -replace '\\', '/'))) {
+            if (-not [string]::IsNullOrWhiteSpace($literal)) { $literalToPath[$literal] = $item.Path }
         }
     }
-    return @($locations | Sort-Object)
+    if ($literalToPath.Count -eq 0) { return @{} }
+
+    $patterns = @($literalToPath.Keys | Sort-Object)
+    $patternInput = ($patterns -join [Environment]::NewLine)
+    $rgArguments = @(
+        '-n', '--fixed-strings', '--no-heading', '--color', 'never',
+        '--glob', '!*.pdf', '--glob', '!*.zip', '--glob', '!*.7z', '--glob', '!*.tar', '--glob', '!*.gz',
+        '--glob', '!profile/**', '--glob', '!.chrome-work*/**', '--glob', '!.git/**', '--glob', '!.codex*/**',
+        '--file', '-', '--', $RootPath
+    )
+    $output = @($patternInput | & $rgPath @rgArguments 2>$null)
+    $referenceMap = @{}
+    foreach ($line in $output) {
+        $text = [string]$line
+        if ($text -notmatch '^(.*?):(\d+):(.*)$') { continue }
+        try {
+            $hitPath = ConvertTo-FullPath $matches[1]
+            if (-not (Test-PathWithinRoot -Candidate $hitPath -Base $RootPath)) { continue }
+            $hitRelative = Get-RelativePath -Path $hitPath -Base $RootPath
+            $location = ($hitRelative + ':' + $matches[2])
+            $content = $matches[3]
+            foreach ($literal in $patterns) {
+                if ($content.IndexOf($literal, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                    $targetPath = $literalToPath[$literal]
+                    if (-not $referenceMap.ContainsKey($targetPath)) { $referenceMap[$targetPath] = New-Object System.Collections.Generic.List[string] }
+                    if (-not $referenceMap[$targetPath].Contains($location)) { [void]$referenceMap[$targetPath].Add($location) }
+                }
+            }
+        } catch {
+            continue
+        }
+    }
+    return $referenceMap
 }
 
 $projectRoot = ConvertTo-FullPath (Join-Path $PSScriptRoot '..\..')
@@ -262,8 +278,13 @@ foreach ($group in $fileGroups) {
     }
 }
 
+ $referenceMap = Get-ReferenceMap -RootPath $rootFull -Items $itemArray
 foreach ($entry in $itemArray) {
-    $entry.ReferencedBy = @(Get-ReferenceLocations -RootPath $rootFull -RelativePath $entry.Path)
+    if ($referenceMap.ContainsKey($entry.Path)) {
+        $entry.ReferencedBy = @($referenceMap[$entry.Path] | Sort-Object)
+    } else {
+        $entry.ReferencedBy = @()
+    }
 }
 
 $manifestEntries = New-Object System.Collections.Generic.List[object]
