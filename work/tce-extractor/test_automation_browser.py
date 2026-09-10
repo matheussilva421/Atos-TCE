@@ -138,7 +138,7 @@ class AutomationBrowserTests(unittest.TestCase):
                                 "browser-simulated-return-1",
                             )
                         )
-                        self.assertTrue(back["ok"])
+                        self.assertTrue(back["ok"], back)
                         self.assertEqual(back["snapshot"]["role"], "list")
 
                         form_frame_id = None

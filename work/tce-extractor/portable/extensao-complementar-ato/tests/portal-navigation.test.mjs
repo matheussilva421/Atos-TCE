@@ -288,6 +288,16 @@ function buildButtonsDocument() {
   return documentRef;
 }
 
+// The browser's window.frames is array-like and exposes no Symbol.iterator;
+// regression fixtures must exercise that exact shape instead of a real array.
+function arrayLikeFrames(...windows) {
+  const frames = { length: windows.length };
+  windows.forEach((windowRef, index) => {
+    frames[index] = windowRef;
+  });
+  return frames;
+}
+
 test("detects portal screens without requiring the seven form sentinels", () => {
   assert.equal(detectPortalScreen(buildListDocument("1", [])), "list");
   const interestedDocument = new FakeDocument({ screen: "interested" });
@@ -337,6 +347,38 @@ test("returns from the restricted portal form by closing its tab and snapshots t
   assert.equal(result.ok, true);
   assert.equal(result.snapshot.role, "list");
   assert.equal(close.clickCount, 1);
+});
+
+test("closes the restricted tab when the top frames collection is array-like without an iterator", async () => {
+  const { documentRef, close } = buildRestrictedInitialActDocument({ selected: true, withTopClose: true });
+  const top = documentRef.defaultView.top;
+  top.frames = arrayLikeFrames(...top.frames);
+  const before = snapshotPortalScreen(documentRef);
+  const result = await executeNavigation(documentRef, {
+    action: "return_list",
+    expected_generation: before.generation,
+    timeoutMs: 50,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.snapshot.role, "list");
+  assert.equal(close.clickCount, 1);
+});
+
+test("returns to the list through a local Voltar control when the document is its own top window", async () => {
+  const documentRef = new FakeDocument({ screen: "interested" });
+  documentRef.defaultView.top = { document: documentRef, frames: arrayLikeFrames() };
+  documentRef.setSurface(buildInterestedSurface(documentRef, { processKey: "103401/2023", interested: "Ana da Silva" }));
+
+  const before = snapshotPortalScreen(documentRef);
+  const result = await executeNavigation(documentRef, {
+    action: "return_list",
+    expected_generation: before.generation,
+    timeoutMs: 50,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.snapshot.role, "list");
 });
 
 test("snapshots identities and observed actions without retaining nodes or URLs", () => {
@@ -417,6 +459,43 @@ test("finds the Area Restrita Consultar control in the sibling botoesNOVO frame"
   const consult = new FakeElement("input", { value: "Consultar", attrs: { type: "button", onclick: "parametros('1695','C','','');" } });
   buttonFrame.body.append(consult);
   documentRef.defaultView.top = { document: topDocument, frames: [{ document: documentRef }, { document: buttonFrame }] };
+
+  consult.onClick = () => {
+    target.selected = true;
+    all.selected = false;
+    select.value = "marker-2";
+  };
+  const before = snapshotPortalScreen(documentRef);
+  const result = await executeNavigation(documentRef, {
+    action: "filter_marker",
+    marker: "PROFESSOR - IPERN - 2 RUBRICAS",
+    expected_generation: before.generation,
+    timeoutMs: 50,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(consult.clickCount, 1);
+  assert.equal(result.snapshot.marker.value, "marker-2");
+});
+
+test("finds the sibling Consultar control when the top frames collection is array-like", async () => {
+  const documentRef = buildListDocument("1", [{ processKey: "103401/2023", interested: "Ana da Silva" }]);
+  const form = new FakeElement("form");
+  const select = new FakeElement("select", { id: "cmbMarcadorFiltro" });
+  const all = new FakeElement("option", { text: "Todos os marcadores", value: "" });
+  const target = new FakeElement("option", { text: "PROFESSOR - IPERN - 2 RUBRICAS", value: "marker-2" });
+  all.selected = true;
+  select.value = "";
+  select.append(all, target);
+  form.append(select);
+  documentRef.body.append(form);
+
+  const topDocument = new FakeDocument({ screen: "shell" });
+  const buttonFrame = new FakeDocument({ screen: "buttons" });
+  buttonFrame.defaultView.location.href = "https://portal.test/botoesNOVO.asp?pagina=ProcessonoSetor";
+  const consult = new FakeElement("input", { value: "Consultar", attrs: { type: "button", onclick: "parametros('1695','C','','');" } });
+  buttonFrame.body.append(consult);
+  documentRef.defaultView.top = { document: topDocument, frames: arrayLikeFrames({ document: documentRef }, { document: buttonFrame }) };
 
   consult.onClick = () => {
     target.selected = true;

@@ -133,9 +133,11 @@ function markerFilterControls(documentRef) {
   // Area Restrita keeps the filter in the process-list frame but renders its
   // action bar in a sibling botoesNOVO.asp frame.
   const topWindow = topWindowFor(documentRef);
-  for (const frameWindow of topWindow?.frames ?? []) {
+  // window.frames is array-like and has no Symbol.iterator; iterate by index.
+  const frameList = topWindow?.frames;
+  for (let index = 0; index < (frameList?.length ?? 0); index += 1) {
     try {
-      const sibling = frameWindow.document;
+      const sibling = frameList[index]?.document;
       if (!sibling || sibling === documentRef) continue;
       const siblingUrl = String(sibling.defaultView?.location?.href ?? "").toLowerCase();
       if (!siblingUrl.includes("botoesnovo.asp") || !siblingUrl.includes("processonosetor")) continue;
@@ -472,9 +474,11 @@ function topHasComplementarTab(topDocument) {
 function listDocumentFromTop(documentRef) {
   const topWindow = topWindowFor(documentRef);
   const listDocuments = [];
-  for (const frameWindow of topWindow?.frames ?? []) {
+  // window.frames is array-like and has no Symbol.iterator; iterate by index.
+  const frameList = topWindow?.frames;
+  for (let index = 0; index < (frameList?.length ?? 0); index += 1) {
     try {
-      const candidate = frameWindow.document;
+      const candidate = frameList[index]?.document;
       if (candidate && isListScreen(candidate)) listDocuments.push(candidate);
     } catch {
       // Ignore inaccessible or already-detached sibling frames.
@@ -487,6 +491,9 @@ async function closeRestrictedActTab(documentRef, control, timeoutMs) {
   const topWindow = topWindowFor(documentRef);
   const topDocument = topWindow?.document ?? null;
   if (!topDocument || !topContainsControl(topDocument, control)) return null;
+  // A local Voltar control belongs to the generic wait path; closing the
+  // restricted tab only applies when the top shell owns the control.
+  if (topDocument === documentRef) return null;
   const timerFactory = documentRef?.defaultView?.setTimeout ?? globalThis.setTimeout;
   const clearTimer = documentRef?.defaultView?.clearTimeout ?? globalThis.clearTimeout;
   const timeout = Math.min(timeoutMs, NAVIGATION_TIMEOUT_MS);
