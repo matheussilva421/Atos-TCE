@@ -203,7 +203,10 @@ class AutomationBrowserTests(unittest.TestCase):
                             form_frame_id,
                         )
                         self.assertFalse(blocked["ok"])
-                        self.assertIn(blocked["error"]["code"], {"SUBMIT_BLOCKED", "COMMAND_ALREADY_CONSUMED"})
+                        self.assertIn(
+                            blocked["error"]["code"],
+                            {"SUBMIT_BLOCKED", "COMMAND_ALREADY_CONSUMED", "OUTCOME_OBSERVER_UNAVAILABLE"},
+                        )
                         self.assertEqual(
                             portal.frame(url=lambda url: url.endswith("/form.html")).locator("#btnComplementar").get_attribute("data-click-count"),
                             "0",

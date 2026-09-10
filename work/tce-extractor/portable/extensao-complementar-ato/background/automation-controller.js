@@ -8,6 +8,7 @@ import { AUTOMATION_FIELDS, prepareAutomaticAct } from "../lib/automation-prefli
 export const PORTAL_FRAME_REGISTRATIONS_STORAGE_KEY = "portal-frame-registrations:v1";
 const ACTIVE_STATUSES = new Set(["discovering", "running", "paused"]);
 const PROCESS_KEY_RE = /^\d+\/\d{4}$/u;
+const AUTO_SUBMIT_TTL_MS = 15_000;
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -31,6 +32,12 @@ function eventId(prefix = "event") {
   return `${prefix}-${Date.now()}`;
 }
 
+function epochMilliseconds(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
+  const parsed = Date.parse(String(value ?? ""));
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
 function statusToPublic(state) {
   return clone({
     runId: state.runId,
@@ -40,6 +47,8 @@ function statusToPublic(state) {
     tabId: state.tabId,
     sector: state.sector,
     mode: state.mode,
+    marker: state.marker,
+    autoSubmit: state.autoSubmit,
     pilotIdentity: state.pilotIdentity,
     queueFrozen: state.queueFrozen,
     currentIdentity: state.currentIdentity,
@@ -53,9 +62,11 @@ function statusToPublic(state) {
       state: index === 0 && state.currentIdentity ? "active" : "queued",
     })),
     simulation: {
-      is_simulated: true,
-      real_send_enabled: false,
-      notice: "Navegação sintética/controlada; não comprova envio no portal real.",
+      is_simulated: state.autoSubmit !== true,
+      real_send_enabled: state.autoSubmit === true,
+      notice: state.autoSubmit === true
+        ? "Envio externo opt-in; cada comando exige qualificação local e resultado observado."
+        : "Navegação sintética/controlada; não comprova envio no portal real.",
     },
   });
 }
@@ -162,7 +173,7 @@ function sortKeys(value) {
   return Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortKeys(value[key])]));
 }
 
-async function sha256Hex(value) {
+  async function sha256Hex(value) {
   const subtle = globalThis.crypto?.subtle;
   if (!subtle) throw new Error("SHA-256 indisponível para evidência de automação");
   const bytes = new TextEncoder().encode(JSON.stringify(sortKeys(value)));
@@ -180,6 +191,30 @@ function safeLegalDecision(value) {
 function safeMatchKinds(value) {
   if (!isRecord(value)) return {};
   return Object.fromEntries(AUTOMATION_FIELDS.map((field) => [field, value[field]]));
+}
+
+function safeCitation(value) {
+  if (typeof value === "string" && value.trim()) return value.trim().slice(0, 512);
+  if (!isRecord(value)) return null;
+  const allowed = ["process", "event", "page", "document", "source", "dataset_sha256", "context_hash", "signal", "read", "status", "reason"];
+  const result = Object.fromEntries(Object.entries(value)
+    .filter(([key, child]) => allowed.includes(key)
+      && (typeof child === "string" || typeof child === "number" || typeof child === "boolean"))
+    .map(([key, child]) => [key, typeof child === "string" ? child.slice(0, 512) : child]));
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+function confirmationCitations(record, identity, datasetSha256, contextHash, outcomeEvidence) {
+  const citations = [];
+  for (const field of Object.values(record?.fields ?? {})) {
+    const citation = safeCitation(field?.citation);
+    if (citation !== null) citations.push(citation);
+  }
+  citations.push({ source: "dataset", process: identity.processKey, dataset_sha256: datasetSha256 });
+  if (contextHash) citations.push({ source: "legal-context", process: identity.processKey, context_hash: contextHash });
+  const outcome = safeCitation(outcomeEvidence);
+  if (outcome !== null) citations.push({ source: "portal-outcome", ...outcome });
+  return citations.slice(0, 20);
 }
 
 function fieldStatus(field) {
@@ -276,6 +311,8 @@ export function createAutomationController({
     tabId: null,
     sector: null,
     mode: "batch",
+    marker: null,
+    autoSubmit: false,
     pilotIdentity: null,
     queueFrozen: false,
     currentIdentity: null,
@@ -354,8 +391,18 @@ export function createAutomationController({
         state.totals.pending += 1;
         continue;
       }
+      if (state.marker && candidate.needsComplement !== true) {
+        state.totals.pending += 1;
+        continue;
+      }
       state.queue.push(identity);
     }
+  }
+
+  function markerMatches(snapshot, expectedMarker) {
+    return typeof expectedMarker === "string"
+      && expectedMarker.trim() !== ""
+      && normalizeInterested(snapshot?.marker?.label) === normalizeInterested(expectedMarker);
   }
 
   async function sendPortalMessage(tabId, type, payload, frameId = null, requestId = null) {
@@ -366,6 +413,22 @@ export function createAutomationController({
       ? await chromeApi.tabs.sendMessage(tabId, message)
       : await chromeApi.tabs.sendMessage(tabId, message, options);
     return response;
+  }
+
+  async function assertAutoSubmitCapability(spec) {
+    if (spec.autoSubmit !== true) return;
+    let capabilities = null;
+    if (typeof bridge.getAutomationCapabilities === "function") {
+      capabilities = await bridge.getAutomationCapabilities();
+    }
+    const allowed = spec.mode === "pilot"
+      ? capabilities?.pilot_enabled === true && capabilities?.pilot_consumes_remaining === true
+      : capabilities?.real_send_enabled === true;
+    if (!allowed) {
+      const error = new Error("envio automático exige uma qualificação local ativa");
+      error.code = "REAL_SEND_DISABLED";
+      throw error;
+    }
   }
 
   async function appendAutomationEvent(identity, type, payload) {
@@ -452,6 +515,110 @@ export function createAutomationController({
       ...details,
     };
     return appendAutomationEvent(identity, "item_failed", payload);
+  }
+
+  async function recordUnconfirmedSubmission(identity, after, reason) {
+    const pauseReason = "portal outcome unconfirmed; reconcile before resuming";
+    try {
+      if (state.status === "running") {
+        await control("pause", { eventId: eventId("pause-send"), reason: pauseReason });
+      } else {
+        setPaused(pauseReason);
+      }
+    } catch {
+      setPaused(pauseReason);
+      return false;
+    }
+    const persisted = await appendAutomationEvent(identity, "send_unconfirmed", {
+      reason: typeof reason === "string" && reason ? reason : pauseReason,
+      rereads: [{ identity: clone(identity), frame: after?.frameId ?? null, generation: after?.generation ?? null }],
+      origin: "portal",
+      timestamp: new Date(epochMilliseconds(now())).toISOString(),
+    });
+    setPaused(pauseReason);
+    return persisted;
+  }
+
+  async function submitPreparedForm(tabId, frameId, before, after, preparation, resolved, identity) {
+    let expected;
+    let expectedFieldsHash;
+    let verifiedFields;
+    let contextHash;
+    try {
+      expected = expectedFieldValues(before, preparation);
+      expectedFieldsHash = await sha256Hex(expected);
+      verifiedFields = await fieldEvidence(after, expected);
+      contextHash = await sha256Hex(contextEvidence(resolved?.context));
+    } catch (error) {
+      const persisted = await recordItemFailure(identity, error instanceof Error ? error.message : "automatic send evidence unavailable");
+      return { stop: !persisted };
+    }
+
+    const issuedAt = epochMilliseconds(now());
+    const command = {
+      command_id: `${eventPrefix(state.eventPrefix)}:command:${String(++eventSequence)}`,
+      state: "issued",
+      issued_at: issuedAt,
+      expires_at: issuedAt + AUTO_SUBMIT_TTL_MS,
+      frame_id: frameId,
+      generation: after.generation,
+      identity: clone(identity),
+      expected_fields_hash: expectedFieldsHash,
+    };
+    const intent = await appendAutomationEvent(identity, "send_intent", {
+      expected_fields_hash: expectedFieldsHash,
+      command_id: command.command_id,
+      expires_at: command.expires_at,
+      identity: clone(identity),
+      fields: verifiedFields,
+      method: "portal-submit-click",
+      origin: "portal",
+      timestamp: new Date(issuedAt).toISOString(),
+    });
+    if (!intent) return { stop: true };
+
+    let response;
+    try {
+      response = await sendPortalMessage(tabId, MESSAGE_TYPES.AUTO_SUBMIT_COMMAND, {
+        runId: state.runId,
+        expectedRevision: state.revision,
+        command,
+      }, frameId, `${state.eventPrefix}-submit-${String(++messageSequence)}`);
+    } catch (error) {
+      const persisted = await recordUnconfirmedSubmission(identity, after, error instanceof Error ? error.message : "automatic submit command failed");
+      return { stop: !persisted, paused: true };
+    }
+
+    const outcome = response?.ok === true && isRecord(response.payload) ? response.payload : null;
+    if (outcome?.status === "confirmed") {
+      const citations = confirmationCitations(
+        resolved?.record,
+        identity,
+        resolved?.context?.dataset_sha256 ?? resolved?.record?.dataset_sha256,
+        contextHash,
+        outcome.evidence,
+      );
+      const confirmed = await appendAutomationEvent(identity, "send_confirmed", {
+        identity: clone(identity),
+        origin: "portal",
+        timestamp: new Date(epochMilliseconds(now())).toISOString(),
+        fields: verifiedFields,
+        citations,
+      });
+      return { stop: !confirmed, submitted: confirmed };
+    }
+    if (outcome?.status === "failed") {
+      const evidenceReason = safeCitation(outcome.evidence)?.reason;
+      const persisted = await recordItemFailure(identity, evidenceReason || "portal rejected the Complementar Ato submission", {
+        reason: "portal rejected the Complementar Ato submission",
+      });
+      return { stop: !persisted };
+    }
+    const responseReason = safeCitation(outcome?.evidence)?.reason
+      || response?.error?.message
+      || "portal outcome was not confirmed";
+    const persisted = await recordUnconfirmedSubmission(identity, after, responseReason);
+    return { stop: !persisted, paused: true };
   }
 
   async function prepareAndVerifyForm(tabId, frameId, portalSnapshot, identity) {
@@ -543,7 +710,9 @@ export function createAutomationController({
       fieldResults: await fieldResults(before, after, preparation),
       rereads: [{ identity: after.identity, frame: frameId, generation: after.generation }],
     });
-    return { stop: !verified };
+    if (!verified) return { stop: true };
+    if (state.autoSubmit !== true) return { stop: false };
+    return submitPreparedForm(tabId, frameId, before, after, preparation, resolved, identity);
   }
 
   async function readPortalSnapshot(tabId, frameId = state.frame?.frameId ?? null) {
@@ -577,7 +746,7 @@ export function createAutomationController({
     }
   }
 
-  async function navigate(tabId, frameId, action, identity, generation) {
+  async function navigate(tabId, frameId, action, identity, generation, options = {}) {
     const navigation = {
       token: `${state.eventPrefix}-navigation-${String(++navigationToken)}`,
       tabId,
@@ -588,11 +757,13 @@ export function createAutomationController({
     };
     expectedNavigation = navigation;
     try {
-      const response = await sendPortalMessage(tabId, MESSAGE_TYPES.PORTAL_NAVIGATE, {
+      const payload = {
         action,
         identity: identity ?? null,
         expected_generation: generation,
-      }, frameId, navigation.token);
+      };
+      if (typeof options.marker === "string") payload.marker = options.marker;
+      const response = await sendPortalMessage(tabId, MESSAGE_TYPES.PORTAL_NAVIGATE, payload, frameId, navigation.token);
       if (response?.ok !== true) {
         setPaused(response?.error?.code === "TAB_CLOSED" ? "tab closed" : "portal frame unavailable");
         return { ok: false, response };
@@ -617,10 +788,38 @@ export function createAutomationController({
     }
   }
 
-  async function discoverList(tabId, initial) {
-    let current = initial;
+  async function ensureMarkerFilter(tabId, initial, expectedMarker) {
+    if (!expectedMarker) return initial;
+    if (markerMatches(initial, expectedMarker)) return initial;
+    const filter = actionFor(initial, "filter_marker");
+    if (!filter) {
+      setPaused("marcador não confirmado e filtro automático indisponível; intervenção manual necessária");
+      return null;
+    }
+    const frameId = state.frame?.frameId ?? 0;
+    const moved = await navigate(tabId, frameId, "filter_marker", null, initial.generation, { marker: expectedMarker });
+    if (!moved.ok) {
+      if (state.status !== "paused") setPaused("filtro de marcador exige intervenção manual");
+      return null;
+    }
+    let filtered = moved.snapshot;
+    if (!filtered) filtered = (await readPortalSnapshot(tabId, frameId))?.snapshot ?? null;
+    if (!filtered || filtered.role !== "list" || !markerMatches(filtered, expectedMarker)) {
+      setPaused("resultado não confirmou o marcador solicitado");
+      return null;
+    }
+    return filtered;
+  }
+
+  async function discoverList(tabId, initial, spec = {}) {
+    let current = await ensureMarkerFilter(tabId, initial, spec.marker);
+    if (!current) return null;
     const pageSignatures = new Set();
     for (let index = 0; index < 100; index += 1) {
+      if (spec.marker && !markerMatches(current, spec.marker)) {
+        setPaused("o resultado da paginação perdeu o marcador solicitado");
+        return current;
+      }
       const signature = (current.identities ?? []).map(identityKey).join("|");
       if (pageSignatures.has(signature)) {
         setPaused("page repeated without progress");
@@ -640,6 +839,10 @@ export function createAutomationController({
       if (!nextSnapshot) nextSnapshot = (await readPortalSnapshot(tabId, frameId))?.snapshot ?? null;
       if (!nextSnapshot || nextSnapshot.role !== "list") {
         setPaused("list navigation did not produce a list screen");
+        return current;
+      }
+      if (spec.marker && !markerMatches(nextSnapshot, spec.marker)) {
+        setPaused("a próxima página não confirmou o marcador solicitado");
         return current;
       }
       const nextSignature = (nextSnapshot.identities ?? []).map(identityKey).join("|");
@@ -689,6 +892,7 @@ export function createAutomationController({
       error.code = "ACTIVE_RUN";
       throw error;
     }
+    await assertAutoSubmitCapability(spec);
     await loadFrames();
     state = {
       runId: null,
@@ -697,6 +901,8 @@ export function createAutomationController({
       tabId: spec.tabId,
       sector: spec.sector,
       mode: spec.mode ?? "batch",
+      marker: spec.marker ?? null,
+      autoSubmit: spec.autoSubmit === true,
       pilotIdentity: spec.pilotIdentity ?? null,
       queueFrozen: false,
       currentIdentity: null,
@@ -727,7 +933,8 @@ export function createAutomationController({
       setPaused("manual navigation required: process list not visible");
       return statusToPublic(state);
     }
-    const discovered = await discoverList(spec.tabId, first.snapshot);
+    const discovered = await discoverList(spec.tabId, first.snapshot, spec);
+    if (!discovered) return statusToPublic(state);
     if (state.mode === "pilot") {
       const targetKey = identityKey(state.pilotIdentity);
       const target = state.queue.find((candidate) => identityKey(candidate) === targetKey);
@@ -806,6 +1013,10 @@ export function createAutomationController({
     for (let step = 0; step < 100 && state.status === "running"; step += 1) {
       if (snapshot.sector && snapshot.sector !== state.sector) {
         setPaused("setor mudou durante a navegação");
+        return;
+      }
+      if (state.marker && snapshot.role === "list" && !markerMatches(snapshot, state.marker)) {
+        setPaused("a tela atual não confirma o marcador da execução");
         return;
       }
       collectSnapshot(snapshot);
@@ -888,7 +1099,7 @@ export function createAutomationController({
       if (snapshot.role === "form" || snapshot.role === "buttons") {
         if (resolveAutomaticAct) {
           const preparation = await prepareAndVerifyForm(tabId, frameId, snapshot, identity);
-          if (preparation.stop) return;
+          if (preparation.stop || preparation.paused) return;
         }
         const back = actionFor(snapshot, "return_list", identity);
         if (!back) return;
@@ -953,7 +1164,7 @@ export function createAutomationController({
       throw Object.assign(new Error("automation command is not active"), { code: "COMMAND_NOT_READY" });
     }
     if (input.tabId !== state.tabId || input.frameId !== state.frame?.frameId
-      || state.frame?.role !== "buttons" || input.generation !== state.frame?.generation) {
+      || !["form", "buttons"].includes(state.frame?.role) || input.generation !== state.frame?.generation) {
       throw Object.assign(new Error("automation command frame is not authorized"), { code: "COMMAND_FRAME_MISMATCH" });
     }
     if (!sameCanonicalIdentity(input.identity, state.currentIdentity)) {

@@ -142,7 +142,7 @@
   </header>
   <div class="safety" role="note">
     <span aria-hidden="true">⚠</span>
-    <div><strong>Controle humano obrigatório.</strong> O pacote não envia, não assina, não tramita e não conclui atos. Confira os documentos e o formulário.</div>
+    <div><strong>Controle humano obrigatório.</strong> O modo padrão não envia, não assina, não tramita e não conclui atos. A conclusão automática é um opt-in separado, condicionado a qualificação real e observação do resultado do portal; esta versão mantém o envio real bloqueado.</div>
   </div>
 
   <div class="layout">
@@ -241,8 +241,8 @@ buscar magnolia   pesquisa antes da seleção</pre>
         <div class="callout ok"><strong>Uma importação por lote:</strong> o mesmo JSON atende todos os processos e interessados. A extensão identifica automaticamente o registro aberto na tela.</div>
         <h3>Ato atual, Execução e Histórico</h3>
         <p>O painel separa a conferência em <strong>Ato atual</strong>, o acompanhamento de uma execução persistida em <strong>Execução</strong> e a consulta de relatórios em <strong>Histórico</strong>. Consultar o histórico não muda a aba do portal nem retoma uma execução.</p>
-        <div class="callout danger"><strong>Automação ainda qualificada somente localmente:</strong> <code>real_send_enabled=false</code>. O início é explícito, fechar o painel não retoma o lote e resultado incerto exige conciliação; não existe reenvio direto.</div>
-        <p>Esta rodada entrega a extensão compatível <strong>1.1.0</strong>; o serviço informa schema automático 1 e regras <code>legal-foundation-v1</code>, mantendo o envio real bloqueado até o gate autorizado.</p>
+        <div class="callout danger"><strong>Automação por marcador, com envio opt-in:</strong> informe no painel o texto exato de um marcador da Área Restrita e clique em <strong>Iniciar</strong>. O worker seleciona o marcador, confirma o resultado, pagina até o fim, abre cada processo elegível, seleciona o interessado e faz preflight dos sete campos. Linhas sem identidade ou sem ação observável <strong>Complementar Ato</strong> ficam pendentes; a fila congela antes da primeira escrita. <code>real_send_enabled=false</code> nesta versão.</div>
+        <p>O checkbox <strong>Concluir automaticamente os atos elegíveis</strong> só fica habilitado com serviço, qualificação versionada e observador de resultado do portal. Quando autorizado, cada ato registra intenção, usa um comando único, relê os campos e aguarda prova de aceitação e persistência. Timeout, erro de rede, diálogo desconhecido ou ausência de observador pausam como <code>unconfirmed</code>; não há reenvio automático. Esta rodada entrega a extensão compatível <strong>1.1.0</strong>; o serviço informa schema automático 1 e regras <code>legal-foundation-v1</code>.</p>
         <p>O botão <strong>Executar piloto de um ato</strong> só aparece com o serviço iniciado explicitamente em <code>--automation-pilot</code>. O piloto exige um ato atual, permite um único comando por raiz mesmo após reinício e não habilita lotes comuns; não o use no portal real antes da autorização e dos gates da Fase 9.</p>
         <h3>Como interpretar a prévia</h3>
         <div class="status-grid">
@@ -253,7 +253,7 @@ buscar magnolia   pesquisa antes da seleção</pre>
         </div>
         <h3>Os únicos campos permitidos</h3>
         <p>Modalidade · Fundamento legal · Data de publicação no DOE · Cargo · Matrícula · Data de nascimento · Gênero.</p>
-        <div class="callout danger"><strong>O que permanece manual:</strong> valores financeiros, conclusão da análise, assinatura, tramitação e envio. A data do DOE é a data expressa na Resolução Administrativa, no formato <code>DD/MM/AAAA</code>.</div>
+        <div class="callout danger"><strong>O que permanece manual no modo padrão:</strong> valores financeiros, conclusão da análise, assinatura, tramitação e envio. A data do DOE é a data expressa na Resolução Administrativa, no formato <code>DD/MM/AAAA</code>.</div>
       </section>
 
       <section id="novo-lote">

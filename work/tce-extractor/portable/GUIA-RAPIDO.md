@@ -4,9 +4,12 @@ Este pacote baixa os eventos e arquivos dos processos selecionados, analisa os
 documentos localmente, monta o HTML de conferência e fornece uma Extensão do
 Chrome para auxiliar no preenchimento de sete campos do **Complementar Ato**.
 
-> Segurança: o pacote consulta e organiza documentos, mas **não envia**, não
-> assina, não tramita e não conclui atos. Confira tudo antes de usar os dados no
-> portal. O ZIP privado contém dados pessoais e não deve ser publicado.
+> Segurança: o modo padrão consulta, organiza e preenche para revisão, mas
+> **não envia**, não assina, não tramita e não conclui atos. A conclusão
+> automática é um opt-in separado, condicionado a qualificação real e
+> observação do resultado do portal; esta versão mantém o envio real bloqueado.
+> Confira tudo antes de usar os dados no portal. O ZIP privado contém dados
+> pessoais e não deve ser publicado.
 
 ## Comece aqui
 
@@ -131,9 +134,24 @@ O painel lateral organiza a conferência em três abas:
 Até a qualificação ponta a ponta, a capacidade de envio real permanece
 desabilitada (`real_send_enabled=false`). O modo manual continua sendo o caminho
 disponível: **Preencher campos disponíveis** só prepara valores para revisão e
-nenhuma ação do painel clica em **Complementar Ato**, limpa ou conclui o ato.
-Se o resultado ficar incerto, confira o portal e o relatório; não use um
+nenhuma ação do modo manual clica em **Complementar Ato**, limpa ou conclui o
+ato. Se o resultado ficar incerto, confira o portal e o relatório; não use um
 reenvio direto como recuperação.
+
+Para preparar um lote por marcador, inicie a mesa local, importe o JSON do lote,
+informe no painel o texto exato do marcador exibido pela Área Restrita e clique
+em **Iniciar**. O worker seleciona o marcador, confirma a filtragem, pagina até
+o fim, abre os processos, seleciona o interessado e prepara somente os atos com
+ação observável **Complementar Ato**. O painel mostra totais descobertos,
+elegíveis e pendentes; a fila é congelada antes da primeira escrita.
+
+O checkbox **Concluir automaticamente os atos elegíveis** só pode ser marcado
+com capacidade de envio qualificada. Quando habilitado, o fluxo registra
+`send_intent` antes de cada ação, emite um comando de uso único, relê o ato e
+aguarda prova de aceitação e persistência. Um timeout, erro de rede, diálogo
+desconhecido ou ausência de observador pausa o lote como `unconfirmed`; não há
+reenvio automático. A qualificação é específica para as versões instaladas e
+não é transportada pelo ZIP.
 
 O botão **Executar piloto de um ato** só aparece quando o serviço foi iniciado
 explicitamente com `--automation-pilot` e há um ato atual identificado. Ele

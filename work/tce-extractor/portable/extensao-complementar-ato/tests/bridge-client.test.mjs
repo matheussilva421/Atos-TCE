@@ -254,6 +254,8 @@ test('bridge exposes authenticated automation methods with closed wire payloads'
     sector: 'aposentadorias',
     datasetSha256: 'a'.repeat(64),
     rulesVersion: 'legal-foundation-v1',
+    marker: 'PROFESSOR - IPERN - 2 RUBRICAS',
+    autoSubmit: true,
   }, 'start-1');
   await bridge.freezeAutomationQueue('run-1', {
     identities: [{ processKey: '103439/2023', interestedNormalized: 'ana', portalActId: null }],
@@ -292,6 +294,8 @@ test('bridge exposes authenticated automation methods with closed wire payloads'
     sector: 'aposentadorias',
     dataset_sha256: 'a'.repeat(64),
     rules_version: 'legal-foundation-v1',
+    marker: 'PROFESSOR - IPERN - 2 RUBRICAS',
+    auto_submit: true,
     event_id: 'start-1',
   });
   assert.deepEqual(JSON.parse(calls[3].options.body), {

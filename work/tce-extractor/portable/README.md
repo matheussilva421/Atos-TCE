@@ -77,7 +77,8 @@ atualizar somente `acervo-tce\dados-complementar-ato.json` → importar esse
 não um arquivo por processo.
 
 Na Área Restrita, abra **Complementar Ato**, confira processo e interessado,
-preencha os sete campos permitidos, revise e conclua manualmente:
+preencha os sete campos permitidos, revise e conclua manualmente. Esse é o
+modo padrão e seguro:
 
 ```text
 modalidade
@@ -89,13 +90,22 @@ data_nascimento
 genero
 ```
 
-Aproximações e empates ficam amarelos. **Divergências** não são sobrescritas sem override individual. A extensão não submete, não limpa, não assina, não tramita e não conclui o ato.
+Aproximações e empates ficam amarelos. **Divergências** não são sobrescritas sem override individual. No modo manual, a extensão não submete, não limpa, não assina, não tramita e não conclui o ato.
 
 O painel possui as abas **Ato atual**, **Execução** e **Histórico** para separar
-conferência, acompanhamento e consulta. A execução automática exige serviço
-local compatível e início explícito, mas continua bloqueada para envio real até
-o gate de qualificação; `real_send_enabled=false`. Fechar o painel não retoma a
-execução, e um resultado incerto exige conciliação, sem botão de reenvio direto.
+conferência, acompanhamento e consulta. A execução automática aceita um
+**Marcador do lote**: o worker seleciona o marcador exato no portal, confirma o
+resultado, percorre todas as páginas, abre cada processo elegível, seleciona o
+interessado e faz preflight dos sete campos antes de congelar a fila. Linhas
+sem identidade ou sem ação observável **Complementar Ato** ficam pendentes.
+
+O checkbox **Concluir automaticamente os atos elegíveis** é um opt-in separado
+e só fica habilitado quando há serviço, qualificação versionada e observador de
+resultado do portal. Nesse modo, cada ato exige intenção persistida, comando
+único, releitura e confirmação; timeout ou resultado incerto pausa o lote e não
+faz reenvio automático. A versão atual do pacote mantém
+`real_send_enabled=false` até a qualificação real, portanto a execução real
+continua bloqueada neste checkout. Fechar o painel não retoma a execução.
 
 ## HTML, revisão e diagnóstico
 

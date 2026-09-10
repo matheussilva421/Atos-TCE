@@ -337,7 +337,7 @@ class AutomationApiTests(unittest.TestCase):
                     f"{base}/api/v1/automation/runs",
                     method="POST",
                     token=token,
-                    payload=self.run_spec(digest, event_id="qualified-batch-start"),
+                    payload=self.run_spec(digest, auto_submit=True, event_id="qualified-batch-start"),
                 )
                 self.assertEqual(status, 200, created)
                 run_id = created["run_id"]
@@ -603,6 +603,46 @@ class AutomationApiTests(unittest.TestCase):
             )
             self.assertEqual(status, 400, body)
             self.assertEqual(body["error"]["code"], "INVALID_MODE")
+
+    def test_run_accepts_and_persists_a_marker_criterion(self):
+        with running_server() as (root, server, base):
+            _dataset, digest = write_fixture(root, "Ana")
+            token = self.pair(server, base)
+            marker = "PROFESSOR - IPERN - 2 RUBRICAS"
+            status, _headers, created = request_json(
+                f"{base}/api/v1/automation/runs",
+                method="POST",
+                token=token,
+                payload=self.run_spec(digest, marker=marker, event_id="marker-run-start"),
+            )
+            self.assertEqual(status, 200, created)
+            db = sqlite3.connect(root / "automacao" / "execucoes.sqlite3")
+            try:
+                spec_json = db.execute(
+                    "SELECT spec_json FROM runs WHERE run_id = ?",
+                    (created["run_id"],),
+                ).fetchone()[0]
+            finally:
+                db.close()
+            self.assertEqual(json.loads(spec_json)["marker"], marker)
+
+    def test_auto_submit_requires_real_send_capability_before_run_creation(self):
+        with running_server() as (root, server, base):
+            _dataset, digest = write_fixture(root, "Ana")
+            token = self.pair(server, base)
+            status, _headers, body = request_json(
+                f"{base}/api/v1/automation/runs",
+                method="POST",
+                token=token,
+                payload=self.run_spec(digest, auto_submit=True, event_id="auto-submit-blocked"),
+            )
+            self.assertEqual(status, 409, body)
+            self.assertEqual(body["error"]["code"], "REAL_SEND_DISABLED")
+            connection = server.automation_store._connect()
+            try:
+                self.assertEqual(connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0], 0)
+            finally:
+                connection.close()
 
     def test_run_creation_retries_are_idempotent_and_conflicting_payloads_rejected(self):
         with running_server() as (root, server, base):

@@ -181,7 +181,7 @@ export function validateAutomationIdentity(value) {
 
 export function validateAutomationRunSpec(value) {
   if (!isRecord(value)) invalid("RunSpec must be an object", "INVALID_RUN_SPEC");
-  exactKeysWithOptional(value, ["tabId", "sector", "datasetSha256", "rulesVersion"], ["mode", "pilotIdentity"]);
+  exactKeysWithOptional(value, ["tabId", "sector", "datasetSha256", "rulesVersion"], ["mode", "pilotIdentity", "marker", "autoSubmit"]);
   if (!Number.isSafeInteger(value.tabId) || value.tabId < 0) invalid("tabId is invalid", "INVALID_TAB_ID");
   nonEmptyString(value.sector, "sector");
   if (typeof value.datasetSha256 !== "string" || !SHA256_RE.test(value.datasetSha256)) {
@@ -190,6 +190,13 @@ export function validateAutomationRunSpec(value) {
   nonEmptyString(value.rulesVersion, "rulesVersion");
   if (Object.hasOwn(value, "mode") && !new Set(["batch", "pilot"]).has(value.mode)) {
     invalid("mode is invalid", "INVALID_MODE");
+  }
+  if (Object.hasOwn(value, "marker")) {
+    nonEmptyString(value.marker, "marker");
+    if (!value.marker.trim()) invalid("marker must not be blank", "INVALID_VALUE");
+  }
+  if (Object.hasOwn(value, "autoSubmit") && typeof value.autoSubmit !== "boolean") {
+    invalid("autoSubmit must be boolean", "INVALID_VALUE");
   }
   if (Object.hasOwn(value, "pilotIdentity")) {
     if (value.pilotIdentity === null) invalid("pilotIdentity is required when present", "INVALID_IDENTITY");

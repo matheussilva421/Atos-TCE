@@ -1,5 +1,80 @@
 # Handoff — Fases 9 e 10 locais
 
+## Atualização final deste bloco — automação completa opt-in por marcador — 09/09/2026
+
+Foi implementado o caminho solicitado para buscar todos os processos de um
+marcador e percorrer o lote: seleção textual exata, confirmação do marcador,
+paginação, abertura por linha, seleção do interessado, preflight dos sete
+campos, releitura e congelamento da fila. O painel agora permite informar o
+marcador e oferece o checkbox separado **Concluir automaticamente os atos
+elegíveis**.
+
+O opt-in de envio é fail-closed: exige `real_send_enabled`, qualificação
+versionada e observador de resultado; persiste `send_intent` antes de cada
+comando de 15 segundos, usa consumo único e só registra `send_confirmed` com
+prova de aceitação/persistência para a identidade esperada. Ausência de prova,
+timeout ou erro pausa como `unconfirmed` e não reenvia. Falha de `AUTO_START`
+limpa especificação ativa, run e watchdog.
+
+Arquivos adicionais neste bloco: `background/service-worker.js`,
+`tests/service-worker.test.mjs`, `portable/README.md`, `portable/GUIA-RAPIDO.md`
+e `portable/GUIA-RAPIDO.html`; os arquivos de marcador/opt-in listados abaixo
+continuam sendo a implementação principal.
+
+Validação TDD da correção do worker: o teste `failed AUTO_START clears` falhou
+antes da correção porque o watchdog não era limpo e passou depois. A suíte JS
+completa passou **269/269**. A suíte Python focal passou **70/70**, com 2 skips;
+a descoberta Python completa passou **395/395**, com 7 skips. As suítes Python de
+qualificação/API/pacote, integração/recuperação e `py_compile` passaram; os testes Python emitiram apenas
+`ResourceWarning` de limpeza de `HTTPError` do Python 3.14, sem falhas.
+
+O portal real continua deliberadamente sem clique de envio. A sessão Chrome
+autenticada não foi fechada/reiniciada; a captura disponível não expõe o
+formulário/ação `Complementar Ato` na origem atualmente observada. Portanto
+continuam pendentes DOM real sanitizado do formulário, três preflights, primeiro
+envio supervisionado, fixture real de resultado, `automacao/qualificacao.json`
+e lote real de até cinco atos. Não ampliar a allowlist nem habilitar
+`--enable-real-send` por suposição.
+
+Artefato final deste bloco: [tce-processos-completo-portatil-final11.zip](C:/Users/slvma/Downloads/Github/Complementação%20de%20Atos/work/tce-extractor/outputs/tce-processos-completo-portatil-final11.zip), com 98.269.518 bytes e SHA-256
+`e69008c18afbda3c04cc2dd243d57e975dfcf4f87847a8cbe32379dc5cfe2242`. A
+extração passou `TESTAR-PACOTE.ps1` 6/6 e o smoke de Chrome descartável passou
+1/1. O ZIP final10 foi preservado.
+
+## Atualização de implementação — lote automatizado por marcador — 09/09/2026
+
+Foi implementada a busca e descoberta de lote por marcador na extensão:
+
+- `RunSpec`/bridge/API aceitam `marker` textual fechado e o persistem sem
+  permitir payload arbitrário.
+- `portal-navigation.js` identifica o select ligado a “Marcador”, seleciona a
+  opção exata, clica somente no “Consultar” do escopo correspondente e inclui
+  o marcador observado no snapshot.
+- A tabela usa o cabeçalho “Interessado” para não confundir o nome com os
+  ícones anteriores mostrados nas capturas. A fila por marcador só aceita uma
+  linha quando a ação semântica “Complementar Ato” é observável; identidade
+  canônica sem essa ação fica pendente.
+- `automation-controller.js` confirma o marcador antes da primeira coleta, em
+  cada página e em cada retorno; pagina até o fim e congela apenas a fila
+  filtrada. O painel tem o campo “Marcador do lote (opcional)” e mostra o
+  marcador da execução.
+
+Testes do bloco: 99 testes JS focais passaram; o contrato Python de criação de
+execução por marcador passou 1/1; `git diff --check` passou. A execução real
+continua sem envio: o Chrome autenticado não foi fechado/reiniciado e a rota
+observada ainda não expôs o formulário/ação necessários.
+
+Arquivos alterados neste bloco: `content/portal-navigation.js`,
+`background/automation-controller.js`, `lib/messages.js`,
+`lib/automation-schema.js`, `lib/bridge-client.js`, `sidepanel/panel.html`,
+`sidepanel/panel.js`, `sidepanel/panel-view.js`, `portable/app/local_service.py`
+e os testes correspondentes.
+
+Próxima retomada segura: na mesma janela autenticada, abrir manualmente a
+Área Restrita correta, selecionar um marcador e parar antes do clique final;
+então capturar o DOM sanitizado das linhas e do formulário. Não ampliar a
+allowlist nem habilitar `--enable-real-send` por suposição.
+
 ## Atualização de retomada autenticada — 09/09/2026
 
 O operador informou que a Área Restrita também está autenticada e pediu

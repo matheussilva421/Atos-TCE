@@ -96,6 +96,28 @@ test("validates the closed automation RunSpec and rejects a swapped hash or extr
   );
 });
 
+test("accepts an optional exact marker criterion and rejects unsafe marker values", () => {
+  const withMarker = runSpec({ marker: "PROFESSOR - IPERN - 2 RUBRICAS" });
+  assert.deepEqual(validateAutomationRunSpec(withMarker), withMarker);
+  assert.throws(
+    () => validateAutomationRunSpec(runSpec({ marker: "" })),
+    (error) => error instanceof AutomationSchemaError && error.code === "INVALID_VALUE",
+  );
+  assert.throws(
+    () => validateAutomationRunSpec(runSpec({ marker: { label: "PROFESSOR" } })),
+    (error) => error instanceof AutomationSchemaError && error.code === "INVALID_VALUE",
+  );
+});
+
+test("accepts explicit automatic submission only as a boolean opt-in", () => {
+  const autoSubmit = runSpec({ autoSubmit: true });
+  assert.deepEqual(validateAutomationRunSpec(autoSubmit), autoSubmit);
+  assert.throws(
+    () => validateAutomationRunSpec(runSpec({ autoSubmit: "yes" })),
+    (error) => error instanceof AutomationSchemaError && error.code === "INVALID_VALUE",
+  );
+});
+
 test("validates the explicit one-act pilot mode and optional pilot capabilities", () => {
   const pilot = runSpec({ mode: "pilot", pilotIdentity: identity() });
   assert.deepEqual(validateAutomationRunSpec(pilot), pilot);
@@ -331,10 +353,56 @@ test("automation messages are typed and reject payload extras", () => {
       "AUTO_STOP",
       "AUTO_STATUS",
       "AUTO_CONSUME_COMMAND",
+      "AUTO_SUBMIT_COMMAND",
     ],
   );
   assert.throws(
     () => createMessage(MESSAGE_TYPES.AUTO_STATUS, { runId: "run-1", extra: true }, "status-1"),
     /unexpected keys/i,
+  );
+  assert.doesNotThrow(() => createMessage(MESSAGE_TYPES.PORTAL_NAVIGATE, {
+    action: "filter_marker",
+    marker: "PROFESSOR - IPERN - 2 RUBRICAS",
+    expected_generation: 3,
+  }, "marker-1"));
+  assert.throws(
+    () => createMessage(MESSAGE_TYPES.PORTAL_NAVIGATE, {
+      action: "open_act",
+      marker: "PROFESSOR",
+      expected_generation: 3,
+      identity: identity(),
+    }, "marker-2"),
+    /only valid for filter_marker/i,
+  );
+  assert.doesNotThrow(() => createMessage(MESSAGE_TYPES.AUTO_SUBMIT_COMMAND, {
+    runId: "run-1",
+    expectedRevision: 4,
+    command: {
+      command_id: "command-1",
+      state: "issued",
+      issued_at: 2_000,
+      expires_at: 17_000,
+      frame_id: 12,
+      generation: 3,
+      identity: identity(),
+      expected_fields_hash: HASH,
+    },
+  }, "submit-1"));
+  assert.throws(
+    () => createMessage(MESSAGE_TYPES.AUTO_SUBMIT_COMMAND, {
+      runId: "run-1",
+      expectedRevision: 4,
+      command: {
+        command_id: "command-1",
+        state: "issued",
+        issued_at: 2_000,
+        expires_at: 20_000,
+        frame_id: 12,
+        generation: 3,
+        identity: identity(),
+        expected_fields_hash: HASH,
+      },
+    }, "submit-2"),
+    /lifetime/i,
   );
 });

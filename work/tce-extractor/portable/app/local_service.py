@@ -64,6 +64,9 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _AUTOMATION_PAYLOAD_KEYS = frozenset(
     {
         "identity",
+        "frame",
+        "dataset_sha256",
+        "context_hash",
         "item_id",
         "itemId",
         "fields",
@@ -79,6 +82,7 @@ _AUTOMATION_PAYLOAD_KEYS = frozenset(
         "reRead",
         "legal_decision",
         "legalDecision",
+        "matchKinds",
         "decision",
         "citations",
         "timestamp",
@@ -93,11 +97,31 @@ _AUTOMATION_PAYLOAD_KEYS = frozenset(
 _EVENT_PAYLOAD_CONTRACTS = {
     "item_prepared": {
         "required": (("reason",),),
-        "allowed": frozenset({"reason", "before", "after"}),
+        "allowed": frozenset(
+            {
+                "reason",
+                "identity",
+                "frame",
+                "dataset_sha256",
+                "context_hash",
+                "legalDecision",
+                "matchKinds",
+                "before",
+                "after",
+            }
+        ),
     },
     "fields_verified": {
         "required": (("field_results", "fieldResults"), ("rereads", "re_read", "reRead")),
-        "allowed": frozenset({"field_results", "fieldResults", "rereads", "re_read", "reRead"}),
+        "allowed": frozenset(
+            {
+                "field_results",
+                "fieldResults",
+                "rereads",
+                "re_read",
+                "reRead",
+            }
+        ),
     },
     "send_intent": {
         "required": (("expected_fields_hash", "expectedFieldsHash"), ("command_id", "commandId"), ("expires_at", "expiresAt")),
@@ -476,7 +500,7 @@ def _validate_run_payload(payload: dict, *, pilot_enabled: bool = False) -> tupl
     _require_exact_keys(
         payload,
         {"tab_id", "sector", "dataset_sha256", "rules_version", "event_id"},
-        {"mode", "pilot_identity"},
+        {"mode", "pilot_identity", "marker", "auto_submit"},
     )
     tab_id = payload.get("tab_id")
     if isinstance(tab_id, bool) or not isinstance(tab_id, int) or tab_id < 0:
@@ -500,22 +524,31 @@ def _validate_run_payload(payload: dict, *, pilot_enabled: bool = False) -> tupl
         pilot_identity = _validate_identity(pilot_identity)
     elif pilot_identity is not None:
         raise _ApiProblem(400, "INVALID_MODE", "pilot_identity só é aceita no modo piloto")
+    marker = payload.get("marker")
+    if marker is not None:
+        marker = _require_text(marker, "marker")
+        if not marker.strip():
+            raise _ApiProblem(400, "INVALID_PAYLOAD", "marker inválido")
+    auto_submit = payload.get("auto_submit", False)
+    if not isinstance(auto_submit, bool):
+        raise _ApiProblem(400, "INVALID_PAYLOAD", "auto_submit deve ser booleano")
     event_id = _require_text(payload.get("event_id"), "event_id")
     if not AUTOMATION_ID_RE.fullmatch(event_id):
         raise _ApiProblem(400, "INVALID_EVENT_ID", "event_id inválido")
     _reject_private_payload(payload)
-    return (
-        {
-            "tab_id": tab_id,
-            "sector": sector,
-            "dataset_sha256": dataset_sha256,
-            "rules_version": rules_version,
-            "event_id": event_id,
-            "mode": mode,
-            "pilot_identity": pilot_identity,
-        },
-        event_id,
-    )
+    normalized = {
+        "tab_id": tab_id,
+        "sector": sector,
+        "dataset_sha256": dataset_sha256,
+        "rules_version": rules_version,
+        "event_id": event_id,
+        "mode": mode,
+        "pilot_identity": pilot_identity,
+        "auto_submit": auto_submit,
+    }
+    if marker is not None:
+        normalized["marker"] = marker
+    return normalized, event_id
 
 
 def _validate_queue_payload(payload: dict) -> tuple[list[dict], str, int]:
@@ -720,6 +753,13 @@ def _project_automation_snapshot(snapshot: dict, run_id: str, *, include_reports
         "items": items,
         "last_confirmed_item_id": last_confirmed_item_id,
     }
+    stored_spec = snapshot.get("spec")
+    if isinstance(stored_spec, dict):
+        result["spec"] = {
+            key: copy.deepcopy(stored_spec[key])
+            for key in ("mode", "sector", "marker", "auto_submit")
+            if key in stored_spec
+        }
     if include_reports:
         result["reports"] = {
             "html": f"/api/v1/automation/runs/{quote(run_id, safe='')}/report?format=html",
@@ -1483,6 +1523,15 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
                 )
                 created = self.server_state.automation_store.replay_run_creation(spec, event_id)
                 if created is None:
+                    auto_send_allowed = self.server_state.real_send_enabled or (
+                        spec.get("mode", "batch") == "pilot" and self.server_state.automation_pilot
+                    )
+                    if spec.get("auto_submit") is True and not auto_send_allowed:
+                        raise _ApiProblem(
+                            409,
+                            "REAL_SEND_DISABLED",
+                            "auto_submit exige uma qualificação local válida e ativação explícita",
+                        )
                     _revision, _dataset, computed = _load_current_dataset(self.server_state.workflow_root)
                     if spec["dataset_sha256"] != computed:
                         raise _ApiProblem(409, "DATASET_MISMATCH", "dataset_sha256 não corresponde ao dataset atual")

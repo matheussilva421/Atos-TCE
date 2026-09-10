@@ -28,6 +28,7 @@ export const MESSAGE_TYPES = Object.freeze({
   AUTO_STOP: "AUTO_STOP",
   AUTO_STATUS: "AUTO_STATUS",
   AUTO_CONSUME_COMMAND: "AUTO_CONSUME_COMMAND",
+  AUTO_SUBMIT_COMMAND: "AUTO_SUBMIT_COMMAND",
   PORTAL_GET_SNAPSHOT: "PORTAL_GET_SNAPSHOT",
   PORTAL_NAVIGATE: "PORTAL_NAVIGATE",
   PORTAL_EVENT: "PORTAL_EVENT",
@@ -36,10 +37,10 @@ export const MESSAGE_TYPES = Object.freeze({
 const MESSAGE_TYPE_SET = new Set(Object.values(MESSAGE_TYPES));
 const MESSAGE_KEYS = ["schemaVersion", "type", "requestId", "payload"];
 const MATCH_KIND_SET = new Set(["exact", "probable", "tie"]);
-const PORTAL_ACTION_SET = new Set(["next_page", "open_act", "select_interested", "return_list"]);
+const PORTAL_ACTION_SET = new Set(["next_page", "open_act", "select_interested", "return_list", "filter_marker"]);
 const PORTAL_ROLE_SET = new Set(["list", "interested", "form", "buttons", "unknown"]);
 const PORTAL_EVENT_SET = new Set(["snapshot", "navigation", "manual_navigation", "sector_changed", "frame_unavailable"]);
-const PORTAL_IDENTITY_KEYS = ["processKey", "interestedOriginal", "interestedNormalized", "portalActId", "pending", "selected"];
+const PORTAL_IDENTITY_KEYS = ["processKey", "interestedOriginal", "interestedNormalized", "portalActId", "pending", "selected", "needsComplement"];
 
 function invalid(message) {
   throw new SchemaValidationError(`message ${message}`);
@@ -143,6 +144,7 @@ function validatePortalIdentity(value, label = "portal identity") {
   }
   if (Object.hasOwn(value, "pending") && typeof value.pending !== "boolean") invalid(`${label}.pending must be a boolean`);
   if (Object.hasOwn(value, "selected") && typeof value.selected !== "boolean") invalid(`${label}.selected must be a boolean`);
+  if (Object.hasOwn(value, "needsComplement") && typeof value.needsComplement !== "boolean") invalid(`${label}.needsComplement must be a boolean`);
   const canonical = typeof value.processKey === "string"
     && value.processKey.length > 0
     && typeof value.interestedNormalized === "string"
@@ -162,12 +164,22 @@ function isCanonicalPortalIdentity(value) {
 
 function validatePortalSnapshot(value) {
   if (!isRecord(value)) invalid("PORTAL snapshot must be an object");
-  exactKeys(value, ["role", "generation", "sector", "identities", "actions"], "PORTAL snapshot");
+  exactKeysFrom(value, ["role", "generation", "sector", "identities", "actions"], ["marker"], "PORTAL snapshot");
   if (!PORTAL_ROLE_SET.has(value.role)) invalid("PORTAL snapshot role is invalid");
   if (!Number.isSafeInteger(value.generation) || value.generation < 1) invalid("PORTAL snapshot generation is invalid");
   if (value.sector !== null && typeof value.sector !== "string") invalid("PORTAL snapshot sector is invalid");
   if (!Array.isArray(value.identities) || !Array.isArray(value.actions)) invalid("PORTAL snapshot collections are invalid");
   value.identities.forEach((identity, index) => validatePortalIdentity(identity, `PORTAL snapshot identity ${index}`));
+  if (Object.hasOwn(value, "marker")) {
+    if (value.marker !== null) {
+      if (!isRecord(value.marker)) invalid("PORTAL snapshot marker is invalid");
+      exactKeys(value.marker, ["label", "value"], "PORTAL snapshot marker");
+      nonEmptyString(value.marker.label, "PORTAL snapshot marker.label");
+      if (value.marker.value !== null && (typeof value.marker.value !== "string" || value.marker.value.length > 256)) {
+        invalid("PORTAL snapshot marker.value is invalid");
+      }
+    }
+  }
   value.actions.forEach((action, index) => {
     if (!isRecord(action)) invalid(`PORTAL snapshot action ${index} is invalid`);
     exactKeysFrom(action, ["action", "enabled"], ["identity", "direction"], `PORTAL snapshot action ${index}`);
@@ -299,16 +311,48 @@ function validatePayload(type, payload) {
         invalid(error instanceof Error ? error.message : "AUTO_CONSUME_COMMAND identity is invalid");
       }
       break;
+    case MESSAGE_TYPES.AUTO_SUBMIT_COMMAND: {
+      exactKeys(payload, ["runId", "expectedRevision", "command"], "AUTO_SUBMIT_COMMAND payload");
+      nonEmptyString(payload.runId, "AUTO_SUBMIT_COMMAND runId", 128);
+      if (!Number.isSafeInteger(payload.expectedRevision) || payload.expectedRevision < 0) invalid("AUTO_SUBMIT_COMMAND expectedRevision is invalid");
+      if (!isRecord(payload.command)) invalid("AUTO_SUBMIT_COMMAND command is invalid");
+      exactKeysFrom(
+        payload.command,
+        ["command_id", "state", "issued_at", "expires_at", "frame_id", "generation", "identity", "expected_fields_hash"],
+        ["button_id"],
+        "AUTO_SUBMIT_COMMAND command",
+      );
+      nonEmptyString(payload.command.command_id, "AUTO_SUBMIT_COMMAND command_id", 256);
+      if (payload.command.state !== "issued") invalid("AUTO_SUBMIT_COMMAND command state is invalid");
+      for (const key of ["issued_at", "expires_at"]) {
+        if (!Number.isSafeInteger(payload.command[key]) || payload.command[key] <= 0) invalid(`AUTO_SUBMIT_COMMAND ${key} is invalid`);
+      }
+      if (payload.command.expires_at <= payload.command.issued_at || payload.command.expires_at - payload.command.issued_at > 15_000) {
+        invalid("AUTO_SUBMIT_COMMAND command lifetime is invalid");
+      }
+      if (!Number.isSafeInteger(payload.command.frame_id) || payload.command.frame_id < 0) invalid("AUTO_SUBMIT_COMMAND frame_id is invalid");
+      if (!Number.isSafeInteger(payload.command.generation) || payload.command.generation < 1) invalid("AUTO_SUBMIT_COMMAND generation is invalid");
+      if (typeof payload.command.expected_fields_hash !== "string" || !/^[0-9a-f]{64}$/u.test(payload.command.expected_fields_hash)) invalid("AUTO_SUBMIT_COMMAND expected_fields_hash is invalid");
+      validateAutomationIdentity(payload.command.identity);
+      if (Object.hasOwn(payload.command, "button_id")) nonEmptyString(payload.command.button_id, "AUTO_SUBMIT_COMMAND button_id", 256);
+      break;
+    }
     case MESSAGE_TYPES.PORTAL_GET_SNAPSHOT:
       exactKeys(payload, [], "PORTAL_GET_SNAPSHOT payload");
       break;
     case MESSAGE_TYPES.PORTAL_NAVIGATE:
-      exactKeysFrom(payload, ["action", "expected_generation"], ["identity", "timeoutMs"], "PORTAL_NAVIGATE payload");
+      exactKeysFrom(payload, ["action", "expected_generation"], ["identity", "timeoutMs", "marker"], "PORTAL_NAVIGATE payload");
       if (typeof payload.action !== "string" || !PORTAL_ACTION_SET.has(payload.action)) invalid("PORTAL_NAVIGATE action is unsupported");
       if (!Number.isSafeInteger(payload.expected_generation) || payload.expected_generation < 1) invalid("PORTAL_NAVIGATE expected_generation is invalid");
       if (Object.hasOwn(payload, "identity") && payload.identity !== null) validatePortalIdentity(payload.identity, "PORTAL_NAVIGATE identity");
       if (["open_act", "select_interested"].includes(payload.action) && !isCanonicalPortalIdentity(payload.identity)) {
         invalid("PORTAL_NAVIGATE identity must be canonical");
+      }
+      if (payload.action === "filter_marker") {
+        nonEmptyString(payload.marker, "PORTAL_NAVIGATE marker");
+        if (!payload.marker.trim()) invalid("PORTAL_NAVIGATE marker must not be blank");
+      } else if (Object.hasOwn(payload, "marker")) {
+        invalid("PORTAL_NAVIGATE marker is only valid for filter_marker");
       }
       if (Object.hasOwn(payload, "timeoutMs") && (!Number.isSafeInteger(payload.timeoutMs) || payload.timeoutMs <= 0 || payload.timeoutMs > 30000)) invalid("PORTAL_NAVIGATE timeoutMs is invalid");
       break;

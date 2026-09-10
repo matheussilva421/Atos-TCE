@@ -58,6 +58,11 @@
         <p class="manual-mode-note">Modo manual: o preenchimento permanece para revisão.</p>
         <button id="complement-button" type="button" disabled>Sinalizar Complementar Ato</button>
         <p id="result-summary" aria-live="polite"></p>
+        <label for="automation-marker">Marcador do lote (opcional)</label>
+        <input id="automation-marker" type="text" maxlength="256" placeholder="Ex.: PROFESSOR - IPERN - 2 RUBRICAS" autocomplete="off">
+        <p class="manual-mode-note">Se preenchido, o worker seleciona esse marcador, confirma o resultado e percorre todas as páginas antes de congelar a fila.</p>
+        <label><input id="automation-auto-submit" type="checkbox"> Concluir automaticamente os atos elegíveis</label>
+        <p class="manual-mode-note">Disponível somente com qualificação de envio ativa. Ao marcar, o portal será preenchido e o botão Complementar Ato será clicado após a confirmação acima.</p>
         <div id="preview-body" class="panel-view-root"></div>
       </section>
 

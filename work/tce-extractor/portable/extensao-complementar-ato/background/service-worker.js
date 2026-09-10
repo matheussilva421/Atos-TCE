@@ -630,6 +630,11 @@ export function createServiceWorker({
       }
       return successResponse(message, result);
     } catch (error) {
+      if (message.type === MESSAGE_TYPES.AUTO_START) {
+        activeAutomationSpec = null;
+        activeAutomationRunId = null;
+        clearAutomationWatchdog();
+      }
       if (error?.code === "NOT_FOUND" || error?.code === "AUTOMATION_UNAVAILABLE") {
         return automationUnavailable(message);
       }

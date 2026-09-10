@@ -24,6 +24,11 @@ function error(code, message) {
   return result;
 }
 
+function hasPortalOutcomeObserver() {
+  const adapter = globalThis.TCEPortalOutcome;
+  return typeof adapter?.subscribe === "function" || typeof adapter?.read === "function";
+}
+
 function sanitizeEvidence(value) {
   if (!isRecord(value)) return {};
   return Object.fromEntries(Object.entries(value)
@@ -236,6 +241,7 @@ async function submitVerifiedAct({
   verifyCurrentState,
   consumeCommand,
   waitForOutcome = null,
+  requireOutcomeObserver = false,
   click = null,
   now = () => Date.now(),
 } = {}) {
@@ -245,6 +251,9 @@ async function submitVerifiedAct({
   const currentTime = now();
   const id = validateCommand(command, currentTime);
   const button = selectSubmitButton(documentRef, command);
+  if (requireOutcomeObserver && !hasPortalOutcomeObserver()) {
+    throw error("OUTCOME_OBSERVER_UNAVAILABLE", "observador de resultado do portal não está disponível; nenhum clique foi executado");
+  }
   const beforeConsume = await verifyCurrentState("before_consume");
   if (!currentMatches(command, beforeConsume)) throw error("SUBMIT_BLOCKED", "estado mudou antes do consumo");
 
@@ -322,6 +331,7 @@ function installPortalSubmit({
       verifyCurrentState: (phase) => readCurrentState(documentRef, command, phase),
       consumeCommand,
       waitForOutcome: (context) => waitForOutcome({ ...context, command, documentRef }),
+      requireOutcomeObserver: waitForOutcome === defaultWaitForOutcome,
       now,
     });
     return { ok: true, requestId: message.requestId, payload: result };

@@ -61,6 +61,8 @@ const ELEMENT_IDS = Object.freeze([
   "refresh-button",
   "fill-button",
   "complement-button",
+  "automation-auto-submit",
+  "automation-marker",
   "search-process",
   "search-interested",
   "search-results",
@@ -333,6 +335,8 @@ export function createPanelApp({
       && (state.kind === PANEL_STATES.PREVIEW_READY || state.kind === PANEL_STATES.EXISTING_DIVERGENCE));
     elements["fill-button"].disabled = !canFill;
     elements["complement-button"].disabled = !canFill;
+    elements["automation-auto-submit"].disabled = state.automationCapabilities?.real_send_enabled !== true
+      && state.automationCapabilities?.pilot_enabled !== true;
     elements["refresh-button"].disabled = !state.dataset;
     elements["search-process"].disabled = !state.dataset;
     elements["search-interested"].disabled = !state.dataset;
@@ -903,6 +907,27 @@ export function createPanelApp({
         datasetSha256: state.dataset.batch.logical_sha256,
         rulesVersion: state.automationCapabilities.rules_version,
       };
+      const marker = text(elements["automation-marker"]?.value).trim();
+      if (marker) spec.marker = marker;
+      const autoSubmit = elements["automation-auto-submit"]?.checked === true;
+      const autoSubmitAllowed = mode === "pilot"
+        ? state.automationCapabilities.pilot_enabled === true
+          && state.automationCapabilities.pilot_consumes_remaining === true
+        : state.automationCapabilities.real_send_enabled === true;
+      if (autoSubmit && !autoSubmitAllowed) {
+        setMessage("Envio automático indisponível: a mesa local não está qualificada para este modo.", true);
+        render();
+        return false;
+      }
+      if (autoSubmit) {
+        const target = marker ? `o marcador "${marker}"` : "todos os atos elegíveis";
+        if (!confirmFn(`ATENÇÃO: concluir automaticamente ${target} executará ações externas no portal, clicará em Complementar Ato e exigirá conciliação em caso de resultado incerto. Continuar?`)) {
+          setMessage("Execução automática cancelada antes de qualquer ação externa.");
+          render();
+          return false;
+        }
+        spec.autoSubmit = true;
+      }
       if (mode === "pilot") {
         spec.mode = "pilot";
         spec.pilotIdentity = { ...state.previewIdentity, portalActId: state.previewIdentity.portalActId ?? null };

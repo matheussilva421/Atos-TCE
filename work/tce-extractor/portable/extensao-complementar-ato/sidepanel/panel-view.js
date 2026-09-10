@@ -143,7 +143,12 @@ export function buildPanelViewModel({
     legalDecision,
     fields: buildFields(record, snapshot, matches),
     runSummary: summary,
-    run: run ? { status: run.status, runId: run.run_id ?? run.runId ?? null, sector: run.spec?.sector ?? run.sector ?? null } : null,
+    run: run ? {
+      status: run.status,
+      runId: run.run_id ?? run.runId ?? null,
+      sector: run.spec?.sector ?? run.sector ?? null,
+      marker: run.marker ?? run.spec?.marker ?? null,
+    } : null,
     history: Array.isArray(history) ? history : [],
     historyNextCursor: typeof historyNextCursor === "string" && historyNextCursor ? historyNextCursor : null,
     actions,
@@ -203,6 +208,7 @@ function renderExecution(documentRef, root, model, handlers) {
   section.append(element(documentRef, "p", model.run?.status ? `Estado: ${model.run.status}` : "Nenhuma execução iniciada."));
   section.append(element(documentRef, "p", `${summary.analyzed} analisados de ${summary.total} · ${summary.confirmed} confirmados · ${summary.pending} pendentes · ${summary.unconfirmed} incertos`));
   section.append(element(documentRef, "p", model.run?.sector ? `Setor: ${model.run.sector}` : "Setor ainda não informado."));
+  if (model.run?.marker) section.append(element(documentRef, "p", `Marcador: ${model.run.marker}`));
   if (summary.current) section.append(element(documentRef, "p", `Agora: ${text(summary.current.identity?.processKey)}`));
   if (summary.lastConfirmed) section.append(element(documentRef, "p", `Último confirmado: ${summary.lastConfirmed}`));
   const actions = element(documentRef, "div", "", { class: "execution-actions" });

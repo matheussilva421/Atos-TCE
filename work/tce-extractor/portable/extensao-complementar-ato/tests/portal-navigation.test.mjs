@@ -182,6 +182,22 @@ function buildListDocument(page, rows, { hasNext = true } = {}) {
   return documentRef;
 }
 
+function addMarkerFilter(documentRef, selectedLabel = "Todos os marcadores") {
+  const form = new FakeElement("form", { id: "process-filter" });
+  const label = new FakeElement("label", { text: "Marcador:" });
+  const select = new FakeElement("select", { id: "marcador" });
+  const all = new FakeElement("option", { text: "Todos os marcadores", value: "" });
+  const target = new FakeElement("option", { text: "PROFESSOR - IPERN - 2 RUBRICAS", value: "marker-2" });
+  all.selected = selectedLabel === all.textContent;
+  target.selected = selectedLabel === target.textContent;
+  select.value = target.selected ? target.value : all.value;
+  select.append(all, target);
+  const consult = new FakeElement("button", { text: "Consultar", attrs: { "data-action": "consultar" } });
+  form.append(label, select, consult);
+  documentRef.body.append(form);
+  return { form, select, consult };
+}
+
 function buildListSurface(documentRef, page) {
   const pages = {
     1: [
@@ -270,6 +286,40 @@ test("snapshots identities and observed actions without retaining nodes or URLs"
   assert.ok(snapshot.actions.every((action) => !Object.hasOwn(action, "url") && !Object.hasOwn(action, "node")));
 });
 
+test("observes the selected marker and exposes a guarded marker-filter action", () => {
+  const documentRef = buildListDocument("1", [{ processKey: "103401/2023", interested: "Ana da Silva" }]);
+  const { select } = addMarkerFilter(documentRef, "PROFESSOR - IPERN - 2 RUBRICAS");
+  const snapshot = snapshotPortalScreen(documentRef);
+  assert.deepEqual(snapshot.marker, {
+    label: "PROFESSOR - IPERN - 2 RUBRICAS",
+    value: "marker-2",
+  });
+  assert.equal(snapshot.identities[0].needsComplement, true);
+  assert.ok(snapshot.actions.some((action) => action.action === "filter_marker"));
+  assert.equal(select.value, "marker-2");
+});
+
+test("selects the requested marker and clicks only the scoped Consultar control", async () => {
+  const documentRef = buildListDocument("1", [{ processKey: "103401/2023", interested: "Ana da Silva" }]);
+  const { select, consult } = addMarkerFilter(documentRef);
+  consult.onClick = () => {
+    select.value = "marker-2";
+    select.querySelectorAll("option")[0].selected = false;
+    select.querySelectorAll("option")[1].selected = true;
+  };
+  const before = snapshotPortalScreen(documentRef);
+  const result = await executeNavigation(documentRef, {
+    action: "filter_marker",
+    marker: "PROFESSOR - IPERN - 2 RUBRICAS",
+    expected_generation: before.generation,
+    timeoutMs: 50,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(select.value, "marker-2");
+  assert.equal(consult.clickCount, 1);
+  assert.equal(result.snapshot.marker.label, "PROFESSOR - IPERN - 2 RUBRICAS");
+});
+
 test("keeps a row without a canonical identity as pending without exposing it as an action", () => {
   const documentRef = buildListDocument("1", [{ processKey: "", interested: "" }], { hasNext: false });
   const snapshot = snapshotPortalScreen(documentRef);
@@ -301,6 +351,75 @@ test("opens the action link belonging to the requested process row", async () =>
   assert.equal(result.ok, true);
   assert.equal(detectPortalScreen(documentRef), "interested");
   assert.equal(targetLink.clickCount, 1);
+});
+
+test("chooses the semantic Complementar Ato icon when a process row has multiple actions", async () => {
+  const documentRef = new FakeDocument({ screen: "list", page: "1" });
+  const table = new FakeElement("table", { id: "tbproc01" });
+  const tbody = new FakeElement("tbody");
+  const row = new FakeElement("tr", { attrs: { "data-process-key": "103401/2023" } });
+  row.append(cell("103401/2023"), cell("Ana da Silva"));
+  row.children[1].setAttribute("data-interested-name", "Ana da Silva");
+  const details = new FakeElement("a", { text: "Detalhes", attrs: { href: "/processo/103401" } });
+  const complement = new FakeElement("a", { attrs: { href: "/SISTEMAS/PROCESSO/ComplementarAto.asp" } });
+  complement.append(new FakeElement("img", { attrs: { alt: "Complementar Ato" } }));
+  complement.onClick = () => documentRef.setSurface(buildInterestedSurface(documentRef, { processKey: "103401/2023", interested: "Ana da Silva" }));
+  row.append(details, complement);
+  tbody.append(row);
+  table.append(tbody);
+  documentRef.body.append(table);
+  const result = await executeNavigation(documentRef, {
+    action: "open_act",
+    identity: identity("103401/2023", "Ana da Silva"),
+    expected_generation: snapshotPortalScreen(documentRef).generation,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(details.clickCount, 0);
+  assert.equal(complement.clickCount, 1);
+});
+
+test("reads Interessado from its headed column when legacy action icons precede it", () => {
+  const documentRef = new FakeDocument({ screen: "list", page: "1" });
+  const table = new FakeElement("table", { id: "tbproc01" });
+  const head = new FakeElement("thead");
+  const headerRow = new FakeElement("tr");
+  headerRow.append(...["", "", "", "Processo", "Ação", "Origem", "Relator", "Interessado", "Câmara"].map((value) => new FakeElement("th", { text: value })));
+  head.append(headerRow);
+  const body = new FakeElement("tbody");
+  const row = new FakeElement("tr", { attrs: { "data-process-key": "103401/2023" } });
+  row.append(...["", "★", "P", "103401/2023", "", "IPERN", "Relator", "Ana da Silva", "PLENO"].map((value) => cell(value)));
+  const action = new FakeElement("a", { attrs: { href: "/SISTEMAS/PROCESSO/ComplementarAto.asp" } });
+  action.append(new FakeElement("img", { attrs: { alt: "Complementar Ato" } }));
+  row.append(action);
+  body.append(row);
+  table.append(head, body);
+  documentRef.body.append(table);
+  const snapshot = snapshotPortalScreen(documentRef);
+  const process = snapshot.identities.find((candidate) => candidate.processKey === "103401/2023");
+  assert.equal(process.interestedNormalized, "ana da silva");
+  assert.equal(process.needsComplement, true);
+});
+
+test("reads Interessado from a legacy td header row used by the restricted portal", () => {
+  const documentRef = new FakeDocument({ screen: "list", page: "1" });
+  const table = new FakeElement("table", { id: "tbproc01" });
+  const head = new FakeElement("thead");
+  const headerRow = new FakeElement("tr");
+  headerRow.append(...["", "", "", "Processo", "Ação", "Origem", "Relator", "Interessado", "Câmara"].map((value) => cell(value)));
+  head.append(headerRow);
+  const body = new FakeElement("tbody");
+  const row = new FakeElement("tr", { attrs: { "data-process-key": "103401/2023" } });
+  row.append(...["", "↻", "P", "103401/2023", "", "IPERN", "Relator", "Ana da Silva", "PLENO"].map((value) => cell(value)));
+  const action = new FakeElement("a", { attrs: { href: "/SISTEMAS/PROCESSO/ComplementarAto.asp" } });
+  action.append(new FakeElement("img", { attrs: { alt: "Complementar Ato" } }));
+  row.append(action);
+  body.append(row);
+  table.append(head, body);
+  documentRef.body.append(table);
+
+  const process = snapshotPortalScreen(documentRef).identities.find((candidate) => candidate.processKey === "103401/2023");
+  assert.equal(process.interestedNormalized, "ana da silva");
+  assert.equal(process.needsComplement, true);
 });
 
 test("selects one interested person and supports return to the list", async () => {

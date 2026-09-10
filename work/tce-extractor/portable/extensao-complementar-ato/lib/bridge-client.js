@@ -111,6 +111,8 @@ function wireRunSpec(spec, eventId) {
   };
   if (spec.mode !== undefined) wire.mode = spec.mode;
   if (spec.pilotIdentity !== undefined) wire.pilot_identity = wireIdentity(spec.pilotIdentity);
+  if (spec.marker !== undefined) wire.marker = spec.marker;
+  if (spec.autoSubmit !== undefined) wire.auto_submit = spec.autoSubmit;
   return wire;
 }
 

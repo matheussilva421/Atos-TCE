@@ -22,6 +22,12 @@
 
 **Revisão de 09/09/2026 — guard de qualificação e pacote final10:** foi implementado e testado o validador fail-closed de `<workflow_root>/automacao/qualificacao.json`, com schema 1, versões exatas de extensão `1.1.0`, serviço/schema jurídico/regras e classificador de resultado, hashes SHA-256 de fixtures e ID de evento real. O serviço só expõe `real_send_enabled=true` quando `--enable-real-send` é passado explicitamente e o arquivo local coincide; sem isso, lotes comuns continuam em `REAL_SEND_DISABLED`. `qualification.py` foi incluído na allowlist do pacote e no diagnóstico operacional. O ZIP final10 (95.839.875 bytes, SHA-256 `06fc7a5fc005f698b35f332239bafb26979b0f95569f0c9cdd97d81149d23920`) passou a auditoria extraída e o smoke Chrome descartável 1/1; o painel também preserva o prefixo “Mesa local conectada.” após sincronizar o dataset. Isso fecha apenas a infraestrutura local: não existe ainda arquivo de qualificação baseado em evento real, nem envio real ou lote supervisionado.
 
+**Revisão de 09/09/2026 — lote por marcador:** o `RunSpec` passou a aceitar um critério de marcador textual fechado. Na lista, a extensão identifica o seletor associado ao rótulo “Marcador”, seleciona a opção exata, aciona somente o “Consultar” do mesmo formulário e exige que o resultado devolva o marcador observado antes de paginar e congelar a fila. As linhas agora usam o cabeçalho “Interessado” quando disponível e só entram como atos a complementar quando há ação semântica observável (`Complementar Ato` em texto, `alt`, `title`, `data-action` ou URL); linhas canônicas sem essa ação permanecem pendentes. O painel ganhou o campo “Marcador do lote (opcional)” e o worker expõe o marcador no status. A cobertura local do contrato passou; a confirmação desses seletores na Área Restrita e qualquer envio real continuam gates da seção 14.2.
+
+**Revisão de 09/09/2026 — lote automático opt-in:** o painel agora expõe o checkbox “Concluir automaticamente os atos elegíveis”. Quando marcado, o `automation-controller` exige capacidade real qualificada, relê os sete campos, persiste `send_intent`, emite um comando de uso único com validade de 15 segundos e só aceita `send_confirmed` após observação de aceitação e persistência para a mesma identidade. Resultado ausente, observador indisponível, timeout ou erro pausa como `unconfirmed` sem reenvio. O serviço rejeita `auto_submit=true` antes de criar a execução quando `real_send_enabled` não está ativo; o pacote desta revisão permanece bloqueado até a qualificação real. A regressão de limpeza do worker também impede que um `AUTO_START` falho deixe especificação ou watchdog residuais. A suíte JS completa ficou em 269/269; as suítes Python focalizadas e de integração permaneceram verdes. Nenhum ato real foi clicado ou enviado.
+
+**Revisão de 09/09/2026 — pacote final11:** o ZIP `work/tce-extractor/outputs/tce-processos-completo-portatil-final11.zip` foi recomposto sem substituir o final10. Tem 98.269.518 bytes e SHA-256 `e69008c18afbda3c04cc2dd243d57e975dfcf4f87847a8cbe32379dc5cfe2242`. A extração limpa passou `TESTAR-PACOTE.ps1` 6/6; o smoke em Chrome descartável passou 1/1 com `pair`, conexão ativa, sincronização e token em `chrome.storage.session`, usando apenas dataset sintético. A sessão autenticada do portal permaneceu aberta e intocada.
+
 **Revisão de 08/09/2026:** redesign solicitado após a primeira versão. A fase 8 foi ampliada em cinco entregas de design e implementação, com wireframes, tokens, acessibilidade, testes e impactos no empacotamento. O redesign foi implementado no side panel; o gate real do portal permanece separado e pendente.
 
 **Semântica do checklist:** `[x]` nesta especificação significa gate local
@@ -188,7 +194,7 @@ type RunStatus = 'discovering' | 'running' | 'paused' | 'stopped' | 'completed';
 type ItemState = 'queued' | 'prepared' | 'filled' | 'send_intent'
   | 'confirmed' | 'pending' | 'failed' | 'unconfirmed';
 type Identity = { process_key: string; interested_normalized: string; portal_act_id: string | null };
-type RunSpec = { tab_id: number; sector: string; dataset_sha256: string; rules_version: string };
+type RunSpec = { tab_id: number; sector: string; dataset_sha256: string; rules_version: string; marker?: string };
 type RunItem = { item_id: string; ordinal: number; identity: Identity; state: ItemState };
 type EventInput = {
   event_id: string; expected_revision: number; item_id: string | null;
@@ -464,13 +470,15 @@ exige login manual e nova leitura antes do preflight.
 
 O novo content script deve seguir o padrão clássico/CommonJS testável do `form-detector.js`; não inserir `import` estático em script declarado no manifest. Comunicação entre módulos via mensagens validadas, sem globals compartilhados desnecessários.
 
-**Interface DOM:** `detectPortalScreen(documentRef)` retorna `list | interested | form | buttons | unknown`; `snapshotPortalScreen(documentRef)` retorna papel, geração, setor, identidades e ações observadas. `executeNavigation(documentRef,{action,identity,expected_generation})` aceita apenas `next_page`, `open_act`, `select_interested`, `return_list`.
+**Interface DOM:** `detectPortalScreen(documentRef)` retorna `list | interested | form | buttons | unknown`; `snapshotPortalScreen(documentRef)` retorna papel, geração, setor, marcador observado, identidades e ações observadas. `executeNavigation(documentRef,{action,identity,marker,expected_generation})` aceita `next_page`, `open_act`, `select_interested`, `return_list` e `filter_marker`.
 
 **Interface worker:** `createAutomationController({chromeApi, bridge, ranker, clock})` retorna `start`, `pause`, `resume`, `stop`, `status`, `handlePortalEvent`. Injetar clock e dependências para testes; nenhum loop principal pertence ao painel.
 
 - [x] RED com 3 páginas de 2/2/1 processos, rerender de frames e números de linhas repetidos; fila deve conter cinco processos únicos.
 - [x] Detectar lista e pessoas mesmo sem os sete sentinelas do formulário. Registrar papéis de frames em `storage.session` e invalidar geração em navegação.
 - [x] Identificar links pelo processo na linha; nunca clicar o primeiro “Complementar Ato” globalmente.
+- [x] Reconhecer o filtro “Marcador” e seu “Consultar” associado, selecionar a opção exata e exigir confirmação do marcador no resultado antes da paginação.
+- [x] Ler “Interessado” pela coluna encabeçada quando a tabela contém ícones anteriores; expor `needsComplement` somente quando a ação semântica da linha for observável.
 - [x] Enumerar todas as páginas usando controles observados; guardar identidades, não nós DOM nem URLs autenticadas. Detectar página repetida sem progresso e pausar.
 - [x] Abrir cada processo para descobrir interessados; vincular por processo + nome normalizado + ID do ato quando observável. Sem dados locais, registrar item pendente.
 - [x] Congelar fila deduplicada e versão do dataset antes da primeira escrita de campo. Identidade não resolvida não some dos totais.
@@ -809,12 +817,15 @@ Comandos: em E, `node --test tests/panel-view.test.mjs tests/panel.test.mjs test
 - [x] Reiniciar o journal/serviço e navegador separadamente; a suíte cobre recuperação, watchdog, isolamento de outra aba, troca de dataset e reabertura do perfil descartável.
 - [x] Confirmar que bridge/serviço ausente impede envio e que os relatórios/HTML anteriores continuam legíveis; SQLite indisponível permanece gate de ambiente a repetir no runtime portátil final.
 - [x] Fechar o guard de segurança da API: uma execução comum não consome comando quando `real_send_enabled=false`; o endpoint devolve `REAL_SEND_DISABLED` antes de autorizar `dispatch_allowed`.
+- [x] Cobrir o lote por marcador: filtro textual fechado, propagação bridge/API, descoberta multipágina e exclusão pendente de linhas sem ação `Complementar Ato` observável.
+- [x] Implementar o opt-in de conclusão automática para o lote por marcador: checkbox explícito, validação de capacidade/qualificação, intenção persistida antes do comando, validade curta, confirmação por resultado observado e pausa sem reenvio quando a prova faltar.
 - [x] Implementar o gate local versionado da qualificação: o arquivo estrito em `automacao/qualificacao.json` valida versões, hashes de fixtures e evento real; a ativação do lote exige `--enable-real-send` explícito e falha fechada em qualquer divergência. Isso não substitui a qualificação real da seção seguinte.
 - [x] Rodar suíte JS completa, Python focal e suíte Python ampla; a primeira ampla revelou e corrigiu a fixture que omitia `legal_context.py`, sem converter a falha em PASS.
 
 ### 14.2 Gate real, sem presumir sucesso
 
 - [x] Capturar em leitura DOM sanitizado as telas reais inicial e autenticada de dashboard/lista e comparar sua estrutura com o contrato de fixture, sem versionar CPF, nomes reais ou parâmetros de sessão. A tela autenticada de formulário ainda não foi acessada.
+- [ ] Confirmar no DOM real o seletor “Marcador”, o “Consultar” associado, o cabeçalho “Interessado” e a ação de complementação de três linhas; a captura atual ainda não expõe `Complementar Ato` nem a origem allowlisted.
 - [ ] Rodar descoberta e preflight reais sem clicar envio para três atos representativos disponíveis; comparar propostas à resolução manualmente.
 - [ ] Preparar um ato concreto e relatório prévio. Realizar o primeiro envio supervisionado no escopo autorizado; identificar mensagem real de aceitação/erro e reabrir o ato para ler os dados gravados.
 - [x] Infraestrutura local do piloto implementada e testada: `--automation-pilot` aceita somente `mode=pilot` com `pilot_identity`, permite no máximo um comando consumido por raiz mesmo após reinício, mantém lotes comuns em `REAL_SEND_DISABLED` e expõe no painel “Executar piloto de um ato”. A execução real/qualificação continua pendente e não foi iniciada.
@@ -823,6 +834,12 @@ Comandos: em E, `node --test tests/panel-view.test.mjs tests/panel.test.mjs test
 - [ ] Registrar qualificação em `<workflow_root>/automacao/qualificacao.json`, com versões de extensão/serviço/regras, hash das fixtures sanitizadas e ID do evento real confirmado. O serviço habilita lote somente para versões iguais às qualificadas. Atualização que altera envio ou classificação exige renovar o gate; o arquivo não transporta autorização automática para outro computador.
 - [ ] Validar lote supervisionado de até cinco atos elegíveis, incluindo retorno e relatório após cada um. Ausência de determinada família no lote não é cobertura real dessa família.
 - [ ] Concluir conferência do relatório: dados usados, decisões por semelhança, fontes, resultado, timestamps e ausência de segredos.
+
+**Estado operacional da revisão:** o código já oferece a automação completa de
+descoberta/preparação e o caminho de envio opt-in, mas a release atual é
+fail-closed. Sem DOM real do formulário, observador de resultado e
+`automacao/qualificacao.json` produzido a partir de um evento real, não é
+seguro nem válido declarar o lote real “funcionando”.
 
 **Critério final:** zero seleção errada nos casos rotulados de regressão; 100% dos envios tentados têm intenção persistida anterior; confirmados têm evidência posterior; quedas não repetem envio; pendências documentais permitem avanço. Não prometer acurácia universal para escolhas por semelhança.
 

@@ -10,8 +10,11 @@ function identity(processKey, interestedNormalized, portalActId = null) {
   return { processKey, interestedNormalized, portalActId };
 }
 
-function snapshot(role, generation, identities = [], actions = [], sector = "aposentadorias") {
-  return { role, generation, sector, identities, actions };
+function snapshot(role, generation, identities = [], actions = [], sector = "aposentadorias", marker = undefined) {
+  return {
+    role, generation, sector, identities, actions,
+    ...(marker === undefined ? {} : { marker }),
+  };
 }
 
 function runSpec() {
@@ -21,6 +24,10 @@ function runSpec() {
     datasetSha256: HASH,
     rulesVersion: "legal-foundation-v1",
   };
+}
+
+function markerSnapshot(role, generation, identities = [], actions = [], marker = "PROFESSOR - IPERN - 2 RUBRICAS") {
+  return snapshot(role, generation, identities, actions, "aposentadorias", { label: marker, value: "marker-2" });
 }
 
 function bridgeMock() {
@@ -167,6 +174,32 @@ test("starts a run, discovers 2/2/1 pages, deduplicates rerenders, and freezes b
   await controller.handlePortalEvent({ tabId: 7, frameId: 0, type: "snapshot", snapshot: PAGE_2 });
   assert.equal(controller.status().totals.unique, 5);
   assert.equal(chromeApi.storage.session.state["portal-frame-registrations:v1"][0].role, "list");
+});
+
+test("applies the requested marker before discovering every page and freezes only the filtered queue", async () => {
+  const target = { ...identity("103401/2023", "ana da silva", "act-1"), needsComplement: true };
+  const filteredPage = markerSnapshot("list", 2, [target], [{ action: "next_page", enabled: true }]);
+  const lastPage = markerSnapshot("list", 3, [
+    { ...identity("103402/2023", "bruno de souza", "act-2"), needsComplement: true },
+    { ...identity("103403/2023", "carla de lima", "act-3"), needsComplement: false },
+  ], []);
+  const bridge = bridgeMock();
+  const chromeApi = chromeMock([
+    snapshot("list", 1, [target], [{ action: "filter_marker", enabled: true }]),
+    filteredPage,
+    lastPage,
+  ]);
+  const controller = createAutomationController({ chromeApi, bridge });
+  const result = await controller.start({
+    spec: { ...runSpec(), marker: "PROFESSOR - IPERN - 2 RUBRICAS" },
+    eventId: "start-marker",
+  });
+  assert.equal(result.marker, "PROFESSOR - IPERN - 2 RUBRICAS");
+  assert.equal(result.totals.unique, 3);
+  assert.equal(result.totals.pending, 1);
+  assert.equal(bridge.calls.find(([name]) => name === "freeze")[2].identities.length, 2);
+  const markerCall = chromeApi.calls.find(([, message]) => message.type === MESSAGE_TYPES.PORTAL_NAVIGATE && message.payload.action === "filter_marker");
+  assert.equal(markerCall[1].payload.marker, "PROFESSOR - IPERN - 2 RUBRICAS");
 });
 
 test("pilot mode freezes only the explicitly selected identity", async () => {
@@ -631,7 +664,7 @@ function preparationPortalSnapshots() {
   };
 }
 
-function preparationChromeMock({ initialFields = {}, afterApplyFields = null } = {}) {
+function preparationChromeMock({ initialFields = {}, afterApplyFields = null, submitResponse = null } = {}) {
   const calls = [];
   const removedListeners = [];
   const updatedListeners = [];
@@ -675,6 +708,9 @@ function preparationChromeMock({ initialFields = {}, afterApplyFields = null } =
               errors: [],
             },
           };
+        }
+        if (message.type === MESSAGE_TYPES.AUTO_SUBMIT_COMMAND) {
+          return submitResponse ?? { ok: true, payload: { status: "confirmed", evidence: { signal: "fixture-accepted" } } };
         }
         return { ok: true, frameId, payload: {} };
       },
@@ -861,4 +897,85 @@ test("fails closed before any field write when item_prepared persistence fails",
   assert.equal(result.status, "paused");
   assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.APPLY_FIELDS), false);
   assert.equal(bridge.calls.filter(([name]) => name === "event").length, 1);
+});
+
+test("auto-submit is explicit, issues one command after verification, and persists the confirmed outcome", async () => {
+  const bridge = preparationBridge();
+  bridge.getAutomationCapabilities = async () => ({
+    api_version: 1,
+    automation_schema: 1,
+    legal_context_schema: 1,
+    rules_version: "legal-foundation-v1",
+    real_send_enabled: true,
+    pilot_enabled: false,
+    pilot_consumes_remaining: false,
+  });
+  const chromeApi = preparationChromeMock({
+    submitResponse: {
+      ok: true,
+      payload: {
+        status: "confirmed",
+        evidence: { signal: "fixture-accepted", read: "post-read" },
+      },
+    },
+  });
+  const controller = createAutomationController({
+    chromeApi,
+    bridge,
+    resolveAutomaticAct: preparationResolverCalls([]),
+    clock: { now: () => 2_000 },
+  });
+
+  const result = await controller.start({ spec: { ...runSpec(), autoSubmit: true }, eventId: "start-auto-submit" });
+
+  assert.equal(result.status, "completed");
+  assert.deepEqual(bridge.calls.filter(([name]) => name === "event").map(([, , event]) => event.type), [
+    "item_prepared",
+    "fields_verified",
+    "send_intent",
+    "send_confirmed",
+  ]);
+  const commandCall = chromeApi.calls.find(([, message]) => message.type === MESSAGE_TYPES.AUTO_SUBMIT_COMMAND);
+  assert.ok(commandCall);
+  assert.equal(commandCall[1].payload.runId, "run-1");
+  assert.equal(commandCall[1].payload.command.identity.processKey, PREP_IDENTITY.processKey);
+  assert.match(commandCall[1].payload.command.expected_fields_hash, /^[0-9a-f]{64}$/u);
+  assert.equal(commandCall[1].payload.command.expires_at - commandCall[1].payload.command.issued_at, 15_000);
+  const confirmed = bridge.calls.find(([name, , event]) => name === "event" && event.type === "send_confirmed")[2];
+  assert.equal(confirmed.payload.origin, "portal");
+  assert.equal(confirmed.payload.evidence, undefined);
+  assert.equal(confirmed.payload.citations.length > 0, true);
+});
+
+test("auto-submit pauses and records an unconfirmed outcome without issuing another command", async () => {
+  const bridge = preparationBridge();
+  bridge.getAutomationCapabilities = async () => ({
+    api_version: 1,
+    automation_schema: 1,
+    legal_context_schema: 1,
+    rules_version: "legal-foundation-v1",
+    real_send_enabled: true,
+  });
+  const chromeApi = preparationChromeMock({
+    submitResponse: { ok: true, payload: { status: "unconfirmed", evidence: { reason: "timeout" } } },
+  });
+  const controller = createAutomationController({
+    chromeApi,
+    bridge,
+    resolveAutomaticAct: preparationResolverCalls([]),
+    clock: { now: () => 2_000 },
+  });
+
+  const result = await controller.start({ spec: { ...runSpec(), autoSubmit: true }, eventId: "start-auto-timeout" });
+
+  assert.equal(result.status, "paused");
+  assert.match(result.pausedReason, /confirm|incerto|resultado/iu);
+  assert.equal(bridge.calls.some(([name]) => name === "pause"), true);
+  assert.deepEqual(bridge.calls.filter(([name]) => name === "event").map(([, , event]) => event.type), [
+    "item_prepared",
+    "fields_verified",
+    "send_intent",
+    "send_unconfirmed",
+  ]);
+  assert.equal(chromeApi.calls.filter(([, message]) => message.type === MESSAGE_TYPES.AUTO_SUBMIT_COMMAND).length, 1);
 });

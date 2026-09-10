@@ -152,6 +152,8 @@ function buildPanelDocument() {
   addElement(documentRef, "p", "bridge-status");
   addElement(documentRef, "button", "fill-button");
   addElement(documentRef, "button", "complement-button");
+  addElement(documentRef, "input", "automation-auto-submit", { type: "checkbox" });
+  addElement(documentRef, "input", "automation-marker", { type: "text" });
   addElement(documentRef, "input", "search-process", { type: "search" });
   addElement(documentRef, "input", "search-interested", { type: "search" });
   addElement(documentRef, "div", "search-results");
@@ -570,7 +572,9 @@ test("automation view requires a compatible bridge, starts explicitly, and keeps
   for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setImmediate(resolve));
   assert.ok(app.getState().automationCapabilities, documentRef.getElementById("bridge-status").textContent);
   assert.equal(app.getState().automationCapabilities.real_send_enabled, false);
+  documentRef.getElementById("automation-marker").value = "PROFESSOR - IPERN - 2 RUBRICAS";
   assert.equal(await app.startAutomation(), true);
+  assert.equal(workerCalls.find((message) => message.type === MESSAGE_TYPES.AUTO_START).payload.spec.marker, "PROFESSOR - IPERN - 2 RUBRICAS");
   assert.equal(app.getState().selectedView, "execution");
   assert.equal(documentRef.getElementById("fill-button").disabled, true);
   assert.equal(await app.controlAutomation("pause"), true);
@@ -582,6 +586,70 @@ test("automation view requires a compatible bridge, starts explicitly, and keeps
   assert.equal(workerCalls.some((message) => message.type === MESSAGE_TYPES.AUTO_PAUSE), true);
   assert.equal(calls.some(([name]) => name === "pause"), false);
   assert.equal(calls.some(([name, runId]) => name === "events" && runId === "run-panel-1"), true);
+});
+
+test("automatic submission requires capability and an action-time confirmation", async () => {
+  const dataset = await makeDataset();
+  const run = {
+    api_version: 1,
+    run_id: "run-auto-panel-1",
+    revision: 0,
+    status: "discovering",
+    items: [],
+    last_confirmed_item_id: null,
+  };
+  const client = {
+    async getDataset() { return { api_version: 1, revision: 1, dataset }; },
+    async publishSelection() { return { accepted: true, revision: 1 }; },
+    async getState() { return { revision: 1 }; },
+    async getAutomationCapabilities() {
+      return {
+        api_version: 1,
+        automation_schema: 1,
+        legal_context_schema: 1,
+        rules_version: "legal-foundation-v1",
+        real_send_enabled: true,
+        pilot_enabled: false,
+        pilot_consumes_remaining: false,
+      };
+    },
+    async listAutomationRuns() { return { runs: [], next_cursor: null }; },
+  };
+  const runtime = makeRuntime({
+    dataset,
+    snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })],
+    matches: [{ record: dataset.records[0], matches: fullMatches(), reviewed: false }],
+  });
+  const workerCalls = [];
+  const originalSendMessage = runtime.runtime.sendMessage;
+  runtime.runtime.sendMessage = async (message) => {
+    workerCalls.push(message);
+    if (message.type === MESSAGE_TYPES.AUTO_START) {
+      return { ok: true, payload: { ...run, spec: message.payload.spec } };
+    }
+    return originalSendMessage(message);
+  };
+  let confirmation = "";
+  const { app, documentRef } = await startApp({
+    chromeApi: runtime,
+    dataset,
+    snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })],
+    matches: [{ record: dataset.records[0], matches: fullMatches(), reviewed: false }],
+    pairingFactory: async () => "token",
+    bridgeClientFactory: () => client,
+    confirmFn(message) { confirmation = message; return true; },
+  });
+  documentRef.getElementById("bridge-pairing-code").value = "12345678";
+  documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
+  for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  documentRef.getElementById("automation-marker").value = "PROFESSOR - IPERN - 2 RUBRICAS";
+  documentRef.getElementById("automation-auto-submit").checked = true;
+
+  assert.equal(await app.startAutomation(), true);
+  assert.match(confirmation, /envio automático|ações externas|Complementar Ato/iu);
+  const started = workerCalls.find((message) => message.type === MESSAGE_TYPES.AUTO_START);
+  assert.equal(started.payload.spec.autoSubmit, true);
+  assert.equal(started.payload.spec.marker, "PROFESSOR - IPERN - 2 RUBRICAS");
 });
 
 test("pilot action is explicit, targets the current identity, and preserves the one-act mode", async () => {
@@ -1372,7 +1440,7 @@ test("has structurally associated labels, keyboard focus styles, and disabled in
   const labelTargets = [...html.matchAll(/<label\b[^>]*\bfor="([^"]+)"[^>]*>/giu)].map((match) => match[1]);
   const buttonLabels = [...html.matchAll(/<button\b[^>]*>([^<]+)<\/button>/giu)].map((match) => match[1].trim());
 
-  assert.deepEqual(labelTargets, ["bridge-base-url", "bridge-pairing-code", "search-process", "search-interested", "reviewed-checkbox"]);
+  assert.deepEqual(labelTargets, ["bridge-base-url", "bridge-pairing-code", "search-process", "search-interested", "automation-marker", "reviewed-checkbox"]);
   assert.equal(labelTargets.every((target) => inputIds.has(target)), true);
   assert.match(inputTags.find((tag) => /\bid="dataset-file"/iu.test(tag)), /\baria-label="[^"]+"/iu);
   assert.equal(buttonLabels.length, 5);

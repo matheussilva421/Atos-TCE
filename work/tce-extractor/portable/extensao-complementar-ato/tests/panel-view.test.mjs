@@ -39,7 +39,7 @@ test("view model keeps similarity separate from portal confirmation", () => {
     record: record(),
     snapshot: snapshot(),
     matches: { fundamento_legal: { kind: "probable", legalDecision: { status: "selected", method: "similarity", reasons: ["sem correspondência exata"] } } },
-    run: { status: "running", items: [{ identity: IDENTITY, state: "filled" }] },
+    run: { status: "running", marker: "PROFESSOR - IPERN - 2 RUBRICAS", items: [{ identity: IDENTITY, state: "filled" }] },
     connection: { connected: true, automationAvailable: true },
     selectedView: "execution",
     mode: "automatic",
@@ -47,6 +47,7 @@ test("view model keeps similarity separate from portal confirmation", () => {
 
   assert.equal(model.legalDecision.method, "similarity");
   assert.equal(model.runSummary.confirmed, 0);
+  assert.equal(model.run.marker, "PROFESSOR - IPERN - 2 RUBRICAS");
   assert.equal(model.actions.some((action) => action.id === "resend"), false);
   assert.match(model.banner.message, /lote complementa/u);
 });

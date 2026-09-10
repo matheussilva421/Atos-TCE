@@ -960,6 +960,50 @@ test("automation messages preserve manual fallback when the old service has no b
   assert.equal(response.error.code, "AUTOMATION_UNAVAILABLE");
 });
 
+test("failed AUTO_START clears the active run and watchdog state", async () => {
+  const storage = storageMock();
+  const alarms = { created: [], cleared: [], listeners: [] };
+  const chromeApi = chromeMock(storage);
+  chromeApi.alarms = {
+    onAlarm: { addListener(listener) { alarms.listeners.push(listener); } },
+    create(name, info) { alarms.created.push({ name, info }); },
+    clear(name) { alarms.cleared.push(name); },
+  };
+  let starts = 0;
+  const controller = {
+    async start() {
+      starts += 1;
+      if (starts === 2) throw new Error("start failed");
+      return { run_id: "run-cleanup", revision: 0, status: "running" };
+    },
+  };
+  const worker = createServiceWorker({
+    chromeApi,
+    bridge: { createAutomationRun() {}, controlAutomationRun() {} },
+    automationController: controller,
+  });
+  const spec = {
+    tabId: 7,
+    sector: "aposentadorias",
+    datasetSha256: "a".repeat(64),
+    rulesVersion: "legal-foundation-v1",
+  };
+
+  const started = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_START, { spec, eventId: "cleanup-start" }, "cleanup-start"),
+    extensionSender(),
+  );
+  assert.equal(started.ok, true);
+  const failed = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_START, { spec, eventId: "cleanup-retry" }, "cleanup-retry"),
+    extensionSender(),
+  );
+  assert.equal(failed.ok, false);
+  assert.equal(failed.error.code, "AUTOMATION_ERROR");
+  assert.equal(alarms.created.length, 1);
+  assert.deepEqual(alarms.cleared, ["automation-watchdog-v1"]);
+});
+
 test("AUTO_START resolves the authenticated worker bridge without exposing its token", async () => {
   const storage = storageMock();
   const token = "opaque-worker-token";

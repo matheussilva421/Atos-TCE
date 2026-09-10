@@ -1,4 +1,4 @@
-const ALLOWED_ACTIONS = new Set(["next_page", "open_act", "select_interested", "return_list"]);
+const ALLOWED_ACTIONS = new Set(["next_page", "open_act", "select_interested", "return_list", "filter_marker"]);
 const NAVIGATION_TIMEOUT_MS = 30_000;
 const DOCUMENT_STATE = new WeakMap();
 
@@ -52,6 +52,95 @@ function byId(documentRef, id) {
   return typeof documentRef?.getElementById === "function" ? documentRef.getElementById(id) : null;
 }
 
+function controlLabel(control) {
+  return [
+    textOf(control),
+    getAttribute(control, "aria-label"),
+    getAttribute(control, "title"),
+    getAttribute(control, "value"),
+    typeof control?.value === "string" ? control.value : "",
+    ...queryAll(control, "img").flatMap((image) => [getAttribute(image, "alt"), getAttribute(image, "title")]),
+  ].filter(Boolean).join(" ");
+}
+
+function markerSelect(documentRef) {
+  return queryAll(documentRef, "select").find((select) => {
+    const metadata = [
+      getAttribute(select, "id"),
+      getAttribute(select, "name"),
+      getAttribute(select, "aria-label"),
+      getAttribute(select, "data-field"),
+    ].join(" ");
+    if (normalizeInterested(metadata).includes("marcador")) return true;
+    const label = getAttribute(select, "id");
+    if (label && queryAll(documentRef, "label").some((candidate) => (
+      getAttribute(candidate, "for") === label && normalizeInterested(textOf(candidate)).includes("marcador")
+    ))) return true;
+    const row = select.closest?.("tr") ?? null;
+    return normalizeInterested(textOf(row)).includes("marcador");
+  }) ?? null;
+}
+
+function selectedOption(select) {
+  const options = select?.options
+    ? [...select.options]
+    : queryAll(select, "option");
+  return options.find((option) => option.selected === true)
+    || options.find((option) => getAttribute(option, "selected") !== "")
+    || options.find((option) => String(option.value ?? "") === String(select?.value ?? ""))
+    || null;
+}
+
+function observedMarker(documentRef) {
+  const select = markerSelect(documentRef);
+  const option = selectedOption(select);
+  if (!select || !option) return null;
+  const label = textOf(option);
+  const normalized = normalizeInterested(label);
+  if (!label || ["todos", "todos os marcadores", "selecione", "selecione um marcador"].includes(normalized)) return null;
+  return {
+    label,
+    value: typeof option.value === "string" && option.value ? option.value : null,
+  };
+}
+
+function markerFilterControls(documentRef) {
+  const select = markerSelect(documentRef);
+  if (!select) return null;
+  const scopes = [select.closest?.("form"), select.closest?.("tr"), select.parentElement, documentRef].filter(Boolean);
+  for (const scope of scopes) {
+    const submit = queryAll(scope, "button, input, a").find((control) => {
+      const label = normalizeInterested(controlLabel(control));
+      return label === "consultar" || label.startsWith("consultar ");
+    });
+    if (submit) return { select, submit };
+  }
+  return { select, submit: null };
+}
+
+function isComplementActControl(control) {
+  const label = normalizeInterested(controlLabel(control));
+  if (label.includes("complementar ato")) return true;
+  const action = getAttribute(control, "data-action");
+  if (action === "open-act" || action === "open_act") return true;
+  return getAttribute(control, "href").toLowerCase().includes("complementarato");
+}
+
+function markerOption(select, requestedMarker) {
+  const expected = normalizeInterested(requestedMarker);
+  const options = select?.options
+    ? [...select.options]
+    : queryAll(select, "option");
+  return options.find((option) => normalizeInterested(textOf(option)) === expected) ?? null;
+}
+
+function dispatchControlEvents(documentRef, control) {
+  if (typeof control?.dispatchEvent !== "function") return;
+  const EventConstructor = documentRef?.defaultView?.Event ?? globalThis.Event;
+  if (typeof EventConstructor !== "function") return;
+  for (const type of ["input", "change"]) control.dispatchEvent(new EventConstructor(type, { bubbles: true }));
+}
+
 function uniqueByIdentity(identities) {
   const seen = new Set();
   return identities.filter((identity) => {
@@ -84,6 +173,21 @@ function rowCells(row) {
   return queryAll(row, "td").length > 0 ? queryAll(row, "td") : queryAll(row, "th");
 }
 
+function interestedColumnIndex(row) {
+  const table = row?.closest?.("table") ?? null;
+  if (!table) return -1;
+  const headerRows = queryAll(table, "thead tr");
+  const candidates = headerRows.length > 0
+    ? headerRows
+    : queryAll(table, "tr").filter((candidate) => normalizeInterested(textOf(candidate)).includes("interessado"));
+  for (const headerRow of candidates) {
+    const headers = rowCells(headerRow);
+    const index = headers.findIndex((header) => normalizeInterested(textOf(header)) === "interessado");
+    if (index >= 0) return index;
+  }
+  return -1;
+}
+
 function interestedTextFromRow(row, radio = null) {
   for (const candidate of [
     getAttribute(radio, "data-interested-name"),
@@ -95,6 +199,13 @@ function interestedTextFromRow(row, radio = null) {
     if (candidate) return candidate;
   }
   const cells = rowCells(row);
+  const headedIndex = interestedColumnIndex(row);
+  if (headedIndex >= 0 && cells[headedIndex]) return textOf(cells[headedIndex]);
+  const dataIndex = cells.findIndex((cell) => (
+    [getAttribute(cell, "data-field"), getAttribute(cell, "data-column")]
+      .some((value) => normalizeInterested(value) === "interessado")
+  ));
+  if (dataIndex >= 0) return textOf(cells[dataIndex]);
   if (cells.length >= 2) return textOf(cells[1]);
   return "";
 }
@@ -177,14 +288,21 @@ function detectPortalScreen(documentRef = globalThis.document) {
 
 function listIdentityEntries(documentRef) {
   return listRows(documentRef).map((row) => {
-    const control = queryAll(row, "a").find((link) => {
-      const action = getAttribute(link, "data-action");
-      return action !== "signal-only" && action !== "submit";
-    }) ?? null;
+    const controls = queryAll(row, "a, button");
+    const control = controls.find((candidate) => isComplementActControl(candidate)) ?? null;
+    /*
+     * A single unlabelled control is retained for the minimal legacy portal
+     * fixture. Real rows with multiple icons must expose the semantic action.
+     */
+    const candidates = controls.filter((candidate) => !["signal-only", "submit"].includes(getAttribute(candidate, "data-action")));
+    const fallback = control ?? (candidates.length === 1 ? candidates[0] : null);
+    const selectedControl = fallback && (candidates.length === 1 || isComplementActControl(fallback)) ? fallback : null;
+    const identity = identityFromRow(row, { processKey: processKeyFromText(textOf(row)) });
+    if (hasCanonicalIdentity(identity)) identity.needsComplement = Boolean(selectedControl);
     return {
-      identity: identityFromRow(row, { processKey: processKeyFromText(textOf(row)) }),
+      identity,
       row,
-      control,
+      control: selectedControl,
     };
   });
 }
@@ -238,6 +356,7 @@ function actionSnapshot(documentRef, role) {
     }
     const next = findNextNavigation(documentRef);
     if (next) actions.push({ action: "next_page", enabled: true, direction: next.direction });
+    if (markerFilterControls(documentRef)?.submit) actions.push({ action: "filter_marker", enabled: true });
   }
   if (role === "interested") {
     for (const entry of interestedIdentityEntries(documentRef)) {
@@ -265,9 +384,10 @@ function actionSnapshot(documentRef, role) {
 
 function rawFingerprint(documentRef, role) {
   const marker = getDatasetValue(documentRef, "page") || getDatasetValue(documentRef, "screen");
+  const selectedMarker = observedMarker(documentRef);
   const list = listIdentityEntries(documentRef).map(({ identity }) => `${identity.processKey ?? ""}:${identity.interestedNormalized ?? ""}:${identity.portalActId ?? ""}`);
   const interested = interestedIdentityEntries(documentRef).map(({ identity }) => `${identity.processKey ?? ""}:${identity.interestedNormalized ?? ""}:${identity.selected}`);
-  return JSON.stringify([role, marker, processKeyFromDocument(documentRef), list, interested, textOf(documentRef?.body)]);
+  return JSON.stringify([role, marker, selectedMarker, processKeyFromDocument(documentRef), list, interested, textOf(documentRef?.body)]);
 }
 
 function currentGeneration(documentRef, role = detectPortalScreen(documentRef)) {
@@ -295,6 +415,7 @@ function snapshotPortalScreen(documentRef = globalThis.document) {
     role,
     generation: currentGeneration(documentRef, role),
     sector: getDatasetValue(documentRef, "sector") || null,
+    marker: observedMarker(documentRef),
     identities: uniqueByIdentity(identities),
     actions: actionSnapshot(documentRef, role),
   };
@@ -320,7 +441,7 @@ function actionIdentity(identity) {
   };
 }
 
-function isProgress(documentRef, before, after, action, identity) {
+function isProgress(documentRef, before, after, action, identity, requestedMarker = "") {
   if (after.role === "unknown") return false;
   if (action === "next_page") {
     const beforeKeys = new Set(before.identities.map(({ processKey, interestedNormalized }) => `${processKey}\u0000${interestedNormalized}`));
@@ -331,6 +452,9 @@ function isProgress(documentRef, before, after, action, identity) {
   if (action === "open_act") return before.role === "list" && after.role !== "list";
   if (action === "select_interested") return after.role === "interested" && sameIdentity(selectedIdentity(documentRef), identity);
   if (action === "return_list") return after.role === "list" && before.role !== "list";
+  if (action === "filter_marker") return after.role === "list"
+    && after.generation !== before.generation
+    && normalizeInterested(after.marker?.label) === normalizeInterested(requestedMarker);
   return false;
 }
 
@@ -347,10 +471,11 @@ function resolveControl(documentRef, action, identity) {
   if (action === "select_interested") {
     return interestedIdentityEntries(documentRef).find((entry) => sameIdentity(entry.identity, identity))?.radio ?? null;
   }
+  if (action === "filter_marker") return markerFilterControls(documentRef)?.select ?? null;
   return null;
 }
 
-async function waitForNavigation(documentRef, before, action, identity, timeoutMs, performClick) {
+async function waitForNavigation(documentRef, before, action, identity, timeoutMs, performClick, requestedMarker = "") {
   const timerFactory = documentRef?.defaultView?.setTimeout ?? globalThis.setTimeout;
   const clearTimer = documentRef?.defaultView?.clearTimeout ?? globalThis.clearTimeout;
   let rereads = 0;
@@ -361,7 +486,7 @@ async function waitForNavigation(documentRef, before, action, identity, timeoutM
     if (rereads >= 1) return null;
     rereads += 1;
     const after = snapshotPortalScreen(documentRef);
-    return isProgress(documentRef, before, after, action, identity) ? after : null;
+    return isProgress(documentRef, before, after, action, identity, requestedMarker) ? after : null;
   };
 
   return new Promise((resolve) => {
@@ -411,6 +536,26 @@ async function executeNavigation(documentRef = globalThis.document, request = {}
   }
   const control = resolveControl(documentRef, action, request.identity);
   if (!control) return navigationError(action === "open_act" ? "ROW_ACTION_NOT_FOUND" : "ACTION_NOT_FOUND", "the requested observed portal action is unavailable");
+  if (action === "filter_marker") {
+    const controls = markerFilterControls(documentRef);
+    const option = markerOption(control, request.marker);
+    if (!controls?.submit) return navigationError("MARKER_FILTER_NOT_FOUND", "the marker filter Consultar control is unavailable");
+    if (!option) return navigationError("MARKER_OPTION_NOT_FOUND", "the requested marker is not present in the current catalog");
+    return waitForNavigation(
+      documentRef,
+      before,
+      action,
+      null,
+      Number.isInteger(request.timeoutMs) && request.timeoutMs > 0 ? Math.min(request.timeoutMs, NAVIGATION_TIMEOUT_MS) : NAVIGATION_TIMEOUT_MS,
+      () => {
+        for (const candidate of control?.options ?? queryAll(control, "option")) candidate.selected = candidate === option;
+        control.value = option.value;
+        dispatchControlEvents(documentRef, control);
+        controls.submit.click?.();
+      },
+      request.marker,
+    );
+  }
   if (getAttribute(control, "data-action") === "signal-only" || getAttribute(control, "data-action") === "submit") {
     return navigationError("ACTION_NOT_ALLOWED", "signal and submit controls are outside the navigation allowlist");
   }

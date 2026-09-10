@@ -228,3 +228,35 @@ test("installs a typed button-frame listener that consumes before the single cli
   assert.equal(sent[0].payload.commandId, "command-1");
   assert.equal(sent[0].payload.expectedRevision, 4);
 });
+
+test("blocks the production listener before consuming or clicking when no outcome observer exists", async () => {
+  const target = button();
+  let listener;
+  let consumed = 0;
+  const result = installPortalSubmit({
+    documentRef: documentWith(target),
+    chromeApi: {
+      runtime: {
+        onMessage: { addListener(handler) { listener = handler; } },
+        async sendMessage() { consumed += 1; return { ok: true, payload: { dispatch_allowed: true } }; },
+      },
+    },
+    readCurrentState: async () => state(),
+    now: () => 2_000,
+  });
+
+  assert.equal(result.registered, true);
+  const response = await new Promise((resolve) => {
+    listener({
+      schemaVersion: 1,
+      type: "AUTO_SUBMIT_COMMAND",
+      requestId: "submit-no-observer",
+      payload: { runId: "run-1", expectedRevision: 4, command: command() },
+    }, {}, resolve);
+  });
+
+  assert.equal(response.ok, false);
+  assert.equal(response.error.code, "OUTCOME_OBSERVER_UNAVAILABLE");
+  assert.equal(consumed, 0);
+  assert.equal(target.clickCount, 0);
+});
