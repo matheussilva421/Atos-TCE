@@ -109,7 +109,7 @@ function Get-PathClassification {
     $extension = [IO.Path]::GetExtension($leaf).ToLowerInvariant()
 
     if ($lowerParts -contains '.git' -or ($lowerParts | Where-Object { $_ -like '.codex*' }).Count -gt 0 -or
-        ($lowerParts | Where-Object { $_ -in @('dados-locais', 'acervo-tce', 'backups-acervo') }).Count -gt 0) {
+        ($lowerParts | Where-Object { $_ -in @('dados-locais', 'acervo-tce', 'backups-acervo') -or $_ -like 'tce-acervo-*' -or $_ -like 'acervo-tce*' }).Count -gt 0) {
         return [pscustomobject]@{ Classification = 'private_operational_data'; Reason = 'metadado privado ou operacional'; Action = 'preserve' }
     }
 
@@ -215,11 +215,13 @@ if (-not (Test-PathWithinRoot -Candidate $manifestParentResolved -Base $rootFull
 }
 
 $queue = New-Object System.Collections.Generic.Queue[IO.DirectoryInfo]
+$protectedDirectories = New-Object System.Collections.Generic.HashSet[string]
 $queue.Enqueue((Get-Item -LiteralPath $rootFull -Force))
 $items = New-Object System.Collections.Generic.List[object]
 
 while ($queue.Count -gt 0) {
     $directory = $queue.Dequeue()
+    $protectedParent = $protectedDirectories.Contains($directory.FullName)
     foreach ($item in @(Get-ChildItem -LiteralPath $directory.FullName -Force -ErrorAction Stop)) {
         $itemFull = ConvertTo-FullPath $item.FullName
         if (-not (Test-PathWithinRoot -Candidate $itemFull -Base $rootFull)) {
@@ -242,9 +244,13 @@ while ($queue.Count -gt 0) {
         $kind = if ($isReparse) { 'reparse_point' } elseif ($item.PSIsContainer) { 'directory' } else { 'file' }
         $bytes = [int64]0
         $sha256 = $null
-        if (-not $item.PSIsContainer -and -not $isReparse) {
+        $isProtected = $classification.Classification -in @('private_operational_data', 'active_profile_or_session')
+        $isLargeOpaque = ([IO.Path]::GetExtension($item.Name).ToLowerInvariant() -in @('.pdf', '.zip', '.7z', '.tar', '.gz')) -and ([int64]$item.Length -gt 16777216)
+        if (-not $item.PSIsContainer -and -not $isReparse -and -not $isProtected -and -not $isLargeOpaque) {
             $bytes = [int64]$item.Length
             $sha256 = Get-FileSha256 $itemFull
+        } elseif (-not $item.PSIsContainer -and -not $isReparse) {
+            $bytes = [int64]$item.Length
         }
 
         $items.Add([pscustomobject]@{
@@ -261,7 +267,10 @@ while ($queue.Count -gt 0) {
         })
 
         if ($item.PSIsContainer -and -not $isReparse) {
-            $queue.Enqueue((Get-Item -LiteralPath $itemFull -Force))
+            if ($isProtected) { [void]$protectedDirectories.Add($itemFull) }
+            if (-not $protectedParent) {
+                $queue.Enqueue((Get-Item -LiteralPath $itemFull -Force))
+            }
         }
     }
 }

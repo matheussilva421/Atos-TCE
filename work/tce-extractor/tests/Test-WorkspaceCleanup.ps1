@@ -76,6 +76,7 @@ try {
     New-TestFile (Join-Path $fixtureRoot 'staging\prepared.tmp') 'staging fixture'
     New-TestFile (Join-Path $fixtureRoot 'cache\derived.cache') 'cache fixture'
     New-TestFile (Join-Path $fixtureRoot 'profile\session.json') '{"token":"PROFILE-SECRET"}'
+    New-TestFile (Join-Path $fixtureRoot 'profile\nested\hidden.txt') 'PROFILE-NESTED-SECRET'
     New-TestFile (Join-Path $fixtureRoot '.codex-private\state.json') '{"cookie":"PRIVATE-SECRET"}'
     New-TestFile (Join-Path $fixtureRoot '.git\config') 'PRIVATE-GIT-METADATA'
     New-TestFile (Join-Path $fixtureRoot 'unknown.bin') 'UNKNOWN-SECRET'
@@ -150,8 +151,11 @@ try {
     Assert-Equal ([string]$gitEntry.classification) 'private_operational_data' '.git recebe classificação privada'
     Assert-Equal ([string]$unknownEntry.classification) 'unknown_artifact' 'desconhecido recebe classificação unknown_artifact'
     Assert-Equal ([string]$profileEntry.recommended_action) 'preserve' 'perfil recomenda preservação'
+    Assert-Equal (@($entries | Where-Object { $_.path -like 'profile\nested\*' }).Count) 0 'conteúdo de perfil protegido não é enumerado'
+    Assert-True ($null -eq $profileEntry.sha256) 'perfil protegido não tem hash de conteúdo'
     Assert-Equal ([string]$codexEntry.recommended_action) 'preserve' '.codex recomenda preservação'
     Assert-Equal ([string]$gitEntry.recommended_action) 'preserve' '.git recomenda preservação'
+    Assert-True ($null -eq $gitEntry.sha256) '.git protegido não tem hash de conteúdo'
     Assert-Equal ([string]$unknownEntry.recommended_action) 'investigate' 'desconhecido recomenda investigação'
 
     $reparseEntry = $entries | Where-Object { $_.path -eq 'junction-inside' } | Select-Object -First 1
