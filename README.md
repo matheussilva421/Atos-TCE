@@ -44,6 +44,21 @@ npm test
 
 Os testes Python ficam em `work/tce-extractor/test_*.py` e os testes PowerShell em `work/tce-extractor/tests/`. A suíte completa requer Python com PyMuPDF, Playwright e dependências de QA; o usuário do ZIP não precisa instalar esse ambiente de desenvolvimento. Alguns helpers de QA históricos contêm caminhos do workspace original: consulte o handoff antes de reutilizá-los.
 
+### Verificação única offline
+
+Para executar os gates locais em um checkout limpo, rode:
+
+```powershell
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1
+```
+
+O comando executa os testes da extensão e da web, a suíte Python de `portable`,
+os testes PowerShell, os testes de empacotamento/auditoria e `git diff --check`.
+`-TimeoutSeconds N` define o limite de cada etapa; o resumo final informa o
+comando, executados, aprovados, falhos e skips. Logs brutos ficam em uma pasta
+temporária fora do repositório. O verificador é somente offline: não abre
+Chrome autenticado, não coleta dados e não envia atos.
+
 ## Segurança
 
 - Repositório local: nenhum upload ao GitHub é feito automaticamente.
