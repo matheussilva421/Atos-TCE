@@ -28,6 +28,19 @@
 
 **Revisão de 09/09/2026 — pacote final11:** o ZIP `work/tce-extractor/outputs/tce-processos-completo-portatil-final11.zip` foi recomposto sem substituir o final10. Tem 98.269.518 bytes e SHA-256 `e69008c18afbda3c04cc2dd243d57e975dfcf4f87847a8cbe32379dc5cfe2242`. A extração limpa passou `TESTAR-PACOTE.ps1` 6/6; o smoke em Chrome descartável passou 1/1 com `pair`, conexão ativa, sincronização e token em `chrome.storage.session`, usando apenas dataset sintético. A sessão autenticada do portal permaneceu aberta e intocada.
 
+**Revisão de 09/09/2026 — frame separado e pacote final12:** o caminho local
+de envio agora registra `botoesNovo.asp` como frame de botões, mantém
+`ComplementarAto.asp` como frame do formulário e verifica identidade, geração
+e hash dos sete campos antes do consumo e antes do clique. A suíte JavaScript
+passou 272/272 e a suíte Python ampla passou 397/397, com 7 skips. O ZIP
+`work/tce-extractor/outputs/tce-processos-completo-portatil-final12.zip` tem
+95.847.876 bytes e SHA-256
+`878D34DA0CD1451B624B1BED6E13B9BDF1637EB7A68A41DB19B0474586A7AD37`; a
+extração passou a auditoria 6/6 e o smoke Chrome descartável passou 1/1.
+Isso qualifica o pacote e a integração local, não o portal real: a captura
+DOM live correta, os três preflights, primeiro envio, observação/reabertura,
+qualificação versionada e lote remoto continuam pendentes.
+
 **Revisão de 09/09/2026 — correção da origem real:** as capturas fornecidas pelo
 operador confirmam que toda a ação de complementação ocorre na Área Restrita,
 em `https://novaarearestrita.tce.rn.gov.br/telaPrincipalMenu.asp`, seguindo

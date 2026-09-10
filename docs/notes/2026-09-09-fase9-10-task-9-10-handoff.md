@@ -84,12 +84,19 @@ aba, frame, geração, identidade e hash dos campos.
 
 TDD do bloco: o RED inicial teve 2 falhas esperadas (método de registro ausente
 e verificação cruzada inexistente); o GREEN passou depois da implementação.
-Suíte JavaScript completa: **272 testes, 272 aprovados, 0 falhas**. A suíte
-Python ampla teve uma falha transitória de `test_prepare_transfer` causada
-por disputa de arquivo temporário no Windows; a reprodução isolada passou
-**1/1**. A suíte Python será repetida antes do commit final. O ZIP final12
-será gerado somente após essa repetição e terá auditoria e smoke do pacote
-extraído.
+Suíte JavaScript completa: **272 testes, 272 aprovados, 0 falhas**. A segunda
+execução Python ampla passou **397/397**, com 7 skips. `compileall` e
+`git diff --check` passaram. A primeira execução ampla teve uma falha
+transitória de `test_prepare_transfer` causada por disputa de arquivo
+temporário no Windows; a reprodução isolada e a segunda execução passaram.
+
+O ZIP final12 foi gerado em
+`work/tce-extractor/outputs/tce-processos-completo-portatil-final12.zip`, com
+95.847.876 bytes e SHA-256
+`878D34DA0CD1451B624B1BED6E13B9BDF1637EB7A68A41DB19B0474586A7AD37`. A
+extração limpa passou `TESTAR-PACOTE.ps1` 6/6 e o smoke de Chrome descartável
+passou 1/1 (`pair`, conexão ativa, sincronização e token de sessão). O final11
+foi preservado.
 
 Este bloco não altera o estado real do portal: não fecha o Chrome autenticado,
 não reinicia o runner existente, não preenche ato real e não clica em envio.
