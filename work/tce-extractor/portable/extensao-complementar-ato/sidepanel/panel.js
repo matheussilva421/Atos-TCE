@@ -63,6 +63,14 @@ const ELEMENT_IDS = Object.freeze([
   "complement-button",
   "automation-auto-submit",
   "automation-marker",
+  "automation-source-scope",
+  "automation-lot-size",
+  "analysis-preview-button",
+  "analysis-lots-button",
+  "analysis-lot-number",
+  "analysis-acquisition-button",
+  "analysis-acquisition-status",
+  "analysis-status",
   "search-process",
   "search-interested",
   "search-results",
@@ -119,6 +127,28 @@ function availableNames(dataset, processKey) {
     ?.filter((record) => record.process.key === processKey)
     .map((record) => record.interested.original)
     .join(", ") || "nenhum";
+}
+
+function econtasRowsForAnalysis(rows, dataset) {
+  return rows.map((row) => {
+    const record = dataset?.records?.find((candidate) => (
+      candidate?.process?.key === row.process_key
+      && candidate?.interested?.normalized === row.interested_key
+    ));
+    const documents = [...new Set((record?.fields ? Object.values(record.fields) : [])
+      .map((field) => field?.citation?.document)
+      .filter((document) => typeof document === "string" && document.length > 0))]
+      .map((document) => ({ label: document }));
+    return {
+      ...row,
+      econtas: {
+        match: record ? "exact" : "missing",
+        documents,
+        snapshot_hash: null,
+        ocr_status: documents.length > 0 ? "ready" : "not_run",
+      },
+    };
+  });
 }
 
 function fieldKind(field) {
@@ -211,6 +241,8 @@ export function createPanelApp({
     automationCapabilities: null,
     automationHistory: [],
     automationHistoryCursor: null,
+    analysis: null,
+    acquisitionJob: null,
     automationMode: "manual",
     refreshGeneration: 0,
     message: "",
@@ -338,6 +370,37 @@ export function createPanelApp({
     elements["complement-button"].disabled = !canFill;
     elements["automation-auto-submit"].disabled = state.automationCapabilities?.real_send_enabled !== true
       && state.automationCapabilities?.pilot_enabled !== true;
+    elements["analysis-preview-button"].disabled = !state.bridgeClient || !state.dataset;
+    elements["analysis-lots-button"].disabled = !state.analysis?.analysis_id;
+    const lots = Array.isArray(state.analysis?.lots) ? state.analysis.lots : [];
+    const lotSelect = elements["analysis-lot-number"];
+    const previousLot = lotSelect.value;
+    lotSelect.replaceChildren();
+    for (const [index, lot] of lots.entries()) {
+      const option = documentRef.createElement("option");
+      const lotNumber = Number.isSafeInteger(lot?.lot_number) ? lot.lot_number : index + 1;
+      option.value = String(lotNumber);
+      option.textContent = `Lote ${lotNumber} · ${Array.isArray(lot?.items) ? lot.items.length : 0} processo(s)`;
+      lotSelect.append(option);
+    }
+    if (lots.some((lot, index) => String(Number.isSafeInteger(lot?.lot_number) ? lot.lot_number : index + 1) === previousLot)) {
+      lotSelect.value = previousLot;
+    } else if (lots.length > 0) {
+      lotSelect.value = String(Number.isSafeInteger(lots[0]?.lot_number) ? lots[0].lot_number : 1);
+    }
+    lotSelect.disabled = !state.bridgeClient || lots.length === 0;
+    const acquisitionRunning = ["started", "running"].includes(state.acquisitionJob?.status);
+    elements["analysis-acquisition-button"].disabled = !state.bridgeClient
+      || !state.analysis?.analysis_id
+      || lots.length === 0
+      || acquisitionRunning;
+    elements["analysis-status"].textContent = state.analysis?.preview
+      ? `Análise ${state.analysis.preview.needs_complement} processo(s) precisam complementar o ato · ${state.analysis.preview.eligible} pronto(s) para preflight · ${state.analysis.preview.acquisition_eligible ?? state.analysis.preview.eligible} no escopo de aquisição · ${state.analysis.preview.blocked} bloqueado(s) · ${state.analysis.preview.lot_count} lote(s).`
+      : "Nenhuma análise da lista autenticada foi criada.";
+    const acquisitionStatus = state.acquisitionJob;
+    elements["analysis-acquisition-status"].textContent = acquisitionStatus
+      ? `Aquisição do lote ${acquisitionStatus.lot_number}: ${acquisitionStatus.status}. Job ${acquisitionStatus.job_id}.`
+      : "Nenhuma aquisição de lote iniciada.";
     elements["refresh-button"].disabled = !state.dataset;
     elements["search-process"].disabled = !state.dataset;
     elements["search-interested"].disabled = !state.dataset;
@@ -855,6 +918,17 @@ export function createPanelApp({
         render();
         return false;
       }
+      if (state.acquisitionJob && typeof bridgeClient.getAnalysisAcquisition === "function") {
+        try {
+          state.acquisitionJob = await bridgeClient.getAnalysisAcquisition(
+            state.acquisitionJob.analysis_id,
+            state.acquisitionJob.job_id,
+          );
+        } catch {
+          // Preserve the last local status; a transient bridge failure must not
+          // turn a running acquisition into a false failure.
+        }
+      }
       if (loadHistory && typeof bridgeClient.listAutomationRuns === "function") {
         const history = await bridgeClient.listAutomationRuns({ limit: 20 });
         state.automationHistory = Array.isArray(history?.runs) ? history.runs : [];
@@ -920,6 +994,11 @@ export function createPanelApp({
       };
       const marker = text(elements["automation-marker"]?.value).trim();
       if (marker) spec.marker = marker;
+      const sourceScope = text(elements["automation-source-scope"]?.value).trim();
+      if (sourceScope) spec.sourceScope = sourceScope;
+      const lotSize = Number.parseInt(text(elements["automation-lot-size"]?.value).trim(), 10);
+      if (Number.isSafeInteger(lotSize) && lotSize > 0) spec.lotSize = lotSize;
+      spec.acquisitionSource = "econtas";
       const autoSubmit = elements["automation-auto-submit"]?.checked === true;
       const autoSubmitAllowed = mode === "pilot"
         ? state.automationCapabilities.pilot_enabled === true
@@ -962,6 +1041,104 @@ export function createPanelApp({
       return true;
     } catch (error) {
       setMessage(`Execução não iniciada: ${error instanceof Error ? error.message : String(error)}`, true);
+      render();
+      return false;
+    }
+  }
+
+  async function startAnalysis() {
+    if (state.bridgeConnectionPromise) await state.bridgeConnectionPromise;
+    if (!state.bridgeClient || !state.dataset) {
+      setMessage("Conecte a mesa local e importe um dataset antes de analisar.", true);
+      render();
+      return false;
+    }
+    const marker = text(elements["automation-marker"]?.value).trim();
+    if (!marker) {
+      setMessage("Informe o marcador antes de iniciar a análise.", true);
+      render();
+      return false;
+    }
+    const sourceScope = text(elements["automation-source-scope"]?.value).trim();
+    const lotSize = Number.parseInt(text(elements["automation-lot-size"]?.value).trim(), 10);
+    const context = state.snapshot?.bridgeContext;
+    const spec = {
+      sector: context?.sector ?? "*",
+      datasetSha256: state.dataset.batch.logical_sha256,
+      rulesVersion: state.automationCapabilities?.rules_version ?? "legal-foundation-v1",
+      marker,
+      sourceScope,
+      lotSize,
+      acquisitionSource: "econtas",
+    };
+    if (Number.isSafeInteger(context?.tab_id)) spec.tabId = context.tab_id;
+    try {
+      const response = await send(MESSAGE_TYPES.AUTO_ANALYZE, {
+        spec,
+        eventId: `panel-analysis-${Date.now()}`,
+      });
+      const forwarded = unwrapResponse(response);
+      if (!forwarded.ok || !isRecord(forwarded.payload) || !Array.isArray(forwarded.payload.rows)) {
+        throw new Error(responseFailure(forwarded, "a análise da Área Restrita não foi concluída"));
+      }
+      if (!isRecord(forwarded.payload.marker)) throw new Error("o marcador não foi confirmado na lista autenticada");
+      const analysisSpec = {
+        schema_version: 2,
+        source_scope: forwarded.payload.source_scope,
+        marker: forwarded.payload.marker,
+        acquisition_source: "econtas",
+        lot_size: lotSize,
+        analysis_only: true,
+        auto_prepare: false,
+        auto_submit: false,
+        dataset_sha256: state.dataset.batch.logical_sha256,
+      };
+      const snapshot = await state.bridgeClient.createAnalysisPreview({
+        spec: analysisSpec,
+        rows: econtasRowsForAnalysis(forwarded.payload.rows, state.dataset),
+        observedAt: new Date().toISOString(),
+      });
+      state.analysis = snapshot;
+      state.acquisitionJob = null;
+      setMessage("Análise concluída sem alterar o portal. Revise a contagem antes de criar os lotes.");
+      render();
+      return true;
+    } catch (error) {
+      setMessage(`Análise não concluída: ${error instanceof Error ? error.message : String(error)}`, true);
+      render();
+      return false;
+    }
+  }
+
+  async function createAnalysisLots() {
+    if (!state.analysis?.analysis_id || !state.bridgeClient?.createAnalysisLots) return false;
+    try {
+      state.analysis = await state.bridgeClient.createAnalysisLots(state.analysis.analysis_id);
+      setMessage("Lotes criados a partir da fotografia imutável; nenhum envio foi iniciado.");
+      render();
+      return true;
+    } catch (error) {
+      setMessage(`Lotes não criados: ${error instanceof Error ? error.message : String(error)}`, true);
+      render();
+      return false;
+    }
+  }
+
+  async function startAnalysisAcquisition() {
+    if (!state.bridgeClient?.startAnalysisAcquisition || !state.analysis?.analysis_id) return false;
+    const lotNumber = Number.parseInt(text(elements["analysis-lot-number"]?.value).trim(), 10);
+    if (!Number.isSafeInteger(lotNumber) || lotNumber < 1) {
+      setMessage("Selecione um lote congelado antes de iniciar a aquisição.", true);
+      render();
+      return false;
+    }
+    try {
+      state.acquisitionJob = await state.bridgeClient.startAnalysisAcquisition(state.analysis.analysis_id, lotNumber);
+      setMessage(`Aquisição/OCR do lote ${lotNumber} iniciada; nenhum ato foi enviado.`);
+      render();
+      return true;
+    } catch (error) {
+      setMessage(`Aquisição não iniciada: ${error instanceof Error ? error.message : String(error)}`, true);
       render();
       return false;
     }
@@ -1068,6 +1245,9 @@ export function createPanelApp({
       elements["refresh-button"].addEventListener("click", () => { void refresh(); });
       elements["fill-button"].addEventListener("click", () => { void fillAvailableFields(); });
       elements["complement-button"].addEventListener("click", () => { void requestComplementarAto(); });
+      elements["analysis-preview-button"].addEventListener("click", () => { void startAnalysis(); });
+      elements["analysis-lots-button"].addEventListener("click", () => { void createAnalysisLots(); });
+      elements["analysis-acquisition-button"].addEventListener("click", () => { void startAnalysisAcquisition(); });
       elements["search-process"].addEventListener("input", () => { render(); });
       elements["search-interested"].addEventListener("input", () => { render(); });
       elements["reviewed-checkbox"].addEventListener("change", () => { void setReviewed(elements["reviewed-checkbox"].checked); });
@@ -1115,6 +1295,8 @@ export function createPanelApp({
       automationHistory: state.automationHistory,
       automationHistoryCursor: state.automationHistoryCursor,
       automationMode: state.automationMode,
+      analysis: state.analysis,
+      acquisitionJob: state.acquisitionJob,
     };
   }
 
@@ -1130,6 +1312,9 @@ export function createPanelApp({
     syncBridgeDataset,
       stopBridgePolling,
     startAutomation,
+    startAnalysis,
+    createAnalysisLots,
+    startAnalysisAcquisition,
     controlAutomation,
     openAutomationHistory,
     loadMoreAutomationHistory,

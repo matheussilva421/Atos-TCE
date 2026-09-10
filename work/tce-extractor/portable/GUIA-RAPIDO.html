@@ -184,7 +184,7 @@
 
       <section id="uso-diario">
         <h2><span class="number">02</span> Uso diário pelo menu</h2>
-        <p>Abra <code>INICIAR.cmd</code> ou <code>INICIAR.bat</code>. O menu oferece oito ações:</p>
+        <p>Abra <code>INICIAR.cmd</code> ou <code>INICIAR.bat</code>. O menu oferece dez ações. Use <code>INICIAR.bat ponte</code> para iniciar e verificar a ponte local sem abrir o menu:</p>
         <table class="menu-table">
           <thead><tr><th>Opção</th><th>O que faz</th><th>Quando usar</th></tr></thead>
           <tbody>
@@ -196,6 +196,8 @@
             <tr><td>6</td><td>Fluxo completo</td><td>Coletar, analisar e abrir o HTML.</td></tr>
             <tr><td>7</td><td>Diagnóstico do runtime</td><td>Testar Python e idiomas do OCR. Não substitui TESTAR-PACOTE.ps1.</td></tr>
             <tr><td>8</td><td>Zerar acervo e iniciar novo lote</td><td>Guardar o lote anterior e gerar coleta, análise, HTML e JSON novos.</td></tr>
+            <tr><td>9</td><td>Verificar ponte local</td><td>Confirmar que o serviço loopback está respondendo.</td></tr>
+            <tr><td>10</td><td>Baixar e preparar OCR de lote congelado</td><td>Drenar um snapshot criado pelo painel, sem substituir a ordem.</td></tr>
           </tbody>
         </table>
         <h3>Como selecionar processos</h3>
@@ -241,7 +243,7 @@ buscar magnolia   pesquisa antes da seleção</pre>
         <div class="callout ok"><strong>Uma importação por lote:</strong> o mesmo JSON atende todos os processos e interessados. A extensão identifica automaticamente o registro aberto na tela.</div>
         <h3>Ato atual, Execução e Histórico</h3>
         <p>O painel separa a conferência em <strong>Ato atual</strong>, o acompanhamento de uma execução persistida em <strong>Execução</strong> e a consulta de relatórios em <strong>Histórico</strong>. Consultar o histórico não muda a aba do portal nem retoma uma execução.</p>
-        <div class="callout danger"><strong>Automação por marcador, com envio opt-in:</strong> informe no painel o texto exato de um marcador da Área Restrita e clique em <strong>Iniciar</strong>. O worker seleciona o marcador, confirma o resultado, pagina até o fim, abre cada processo elegível, seleciona o interessado e faz preflight dos sete campos. Linhas sem identidade ou sem ação observável <strong>Complementar Ato</strong> ficam pendentes; a fila congela antes da primeira escrita. <code>real_send_enabled=false</code> nesta versão.</div>
+        <div class="callout danger"><strong>Automação por marcador, com envio opt-in:</strong> informe no painel o texto exato de um marcador da Área Restrita e clique em <strong>Analisar pendências no portal</strong>. Escolha a origem, revise a contagem, crie lotes e use <strong>Baixar e preparar OCR do lote</strong> para a aquisição local pelo e-Contas. O preflight e o envio continuam separados; <code>real_send_enabled=false</code> nesta versão.</div>
         <p>O checkbox <strong>Concluir automaticamente os atos elegíveis</strong> só fica habilitado com serviço, qualificação versionada e observador de resultado do portal. Quando autorizado, cada ato registra intenção, usa um comando único, relê os campos e aguarda prova de aceitação e persistência. Timeout, erro de rede, diálogo desconhecido ou ausência de observador pausam como <code>unconfirmed</code>; não há reenvio automático. Esta rodada entrega a extensão compatível <strong>1.1.0</strong>; o serviço informa schema automático 1 e regras <code>legal-foundation-v1</code>.</p>
         <p>O botão <strong>Executar piloto de um ato</strong> só aparece com o serviço iniciado explicitamente em <code>--automation-pilot</code>. O piloto exige um ato atual, permite um único comando por raiz mesmo após reinício e não habilita lotes comuns; não o use no portal real antes da autorização e dos gates da Fase 9.</p>
         <h3>Como interpretar a prévia</h3>
@@ -261,6 +263,7 @@ buscar magnolia   pesquisa antes da seleção</pre>
         <h3>Já terminou todo o acervo?</h3>
         <p>Escolha <strong>8</strong> no menu e confira a pasta antes de confirmar. O acervo antigo sai da pasta ativa e fica em <code>backups-acervo</code>. Scripts, runtime, extensão e login ficam preservados.</p>
         <p>Selecione os processos atuais e aguarde coleta e análise. O novo HTML terá checks separados. Importe o novo <code>dados-complementar-ato.json</code> no painel: ele substitui o lote anterior e zera as marcas Revisado.</p>
+        <p>Na aquisição híbrida, o escopo congelado mantém a origem escolhida: <code>sector_finalistic</code> usa a lista de processos no setor/finalísticos do e-Contas; <code>my_processes</code> usa Meus Processos.</p>
         <div class="callout"><strong>Se der erro após reiniciar:</strong> o backup permanece. Retome pela opção 6, sem zerar novamente. Backups não entram no próximo ZIP e ocupam espaço até você decidir removê-los.</div>
         <h3>Atualizar sem zerar</h3>
         <p>Na mesma pasta, escolha a opção 1 e digite <code>novos</code>. Depois use 2, 3 ou 6 para atualizar análise, HTML e dados da extensão.</p>

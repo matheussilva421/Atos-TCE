@@ -176,6 +176,44 @@ test("starts a run, discovers 2/2/1 pages, deduplicates rerenders, and freezes b
   assert.equal(chromeApi.storage.session.state["portal-frame-registrations:v1"][0].role, "list");
 });
 
+test("requires the live Area Restrita list to match the selected source scope", async () => {
+  const bridge = bridgeMock();
+  const page = { ...PAGE_1, source_scope: "sector_finalistic" };
+  const controller = createAutomationController({ chromeApi: chromeMock([page]), bridge });
+  const started = await controller.start({
+    spec: { ...runSpec(), sourceScope: "my_processes", lotSize: 50, acquisitionSource: "econtas" },
+    eventId: "start-source-mismatch",
+  });
+  assert.equal(started.status, "paused");
+  assert.match(started.pausedReason, /origem selecionada.*lista aberta/iu);
+  assert.equal(started.sourceScope, "my_processes");
+  assert.equal(bridge.calls.some(([name]) => name === "freeze"), false);
+});
+
+test("analyzes every observed page into sanitized Area Restrita rows without freezing or opening an act", async () => {
+  const bridge = bridgeMock();
+  const page = {
+    ...markerSnapshot("list", 1, [
+      { ...identity("103401/2023", "ana da silva", "act-1"), needsComplement: true },
+      { ...identity("103402/2023", "bruno de souza", "act-2"), needsComplement: false },
+    ], []),
+    source_scope: "sector_finalistic",
+  };
+  const controller = createAutomationController({ chromeApi: chromeMock([page]), bridge });
+  const result = await controller.analyze({
+    spec: { ...runSpec(), marker: "PROFESSOR - IPERN - 2 RUBRICAS", sourceScope: "sector_finalistic", lotSize: 50, acquisitionSource: "econtas" },
+    eventId: "analysis-1",
+  });
+  assert.equal(result.source_scope, "sector_finalistic");
+  assert.deepEqual(result.marker, { label: "PROFESSOR - IPERN - 2 RUBRICAS", value: "marker-2" });
+  assert.equal(result.rows.length, 2);
+  assert.equal(result.rows[0].area_restrita.needs_complement, true);
+  assert.match(result.rows[0].area_restrita.action_observed, /Complementar Ato/u);
+  assert.equal(result.rows[0].area_restrita.snapshot_hash.length, 64);
+  assert.equal(bridge.calls.some(([name]) => name === "freeze"), false);
+  assert.equal(controller.status().status, "stopped");
+});
+
 test("applies the requested marker before discovering every page and freezes only the filtered queue", async () => {
   const target = { ...identity("103401/2023", "ana da silva", "act-1"), needsComplement: true };
   const filteredPage = markerSnapshot("list", 2, [target], [{ action: "next_page", enabled: true }]);
@@ -567,6 +605,27 @@ test("does not replace a bound frame when another frame reports a snapshot", asy
   await controller.handlePortalEvent({ tabId: 7, frameId: 9, type: "snapshot", snapshot: { ...activePage, generation: 2 } });
   assert.equal(controller.status().frame.frameId, 0);
   assert.equal(controller.status().status, "running");
+});
+
+test("accepts the restricted portal's newly created interested/form frame after opening an act", async () => {
+  const target = identity("103401/2023", "ana da silva", "act-1");
+  const chromeApi = activeChromeMock(snapshot("list", 1, [target], [
+    { action: "open_act", enabled: true, identity: target },
+  ]));
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+  await controller.start({ spec: runSpec(), eventId: "start-new-form-frame" });
+
+  await controller.handlePortalEvent({
+    tabId: 7,
+    frameId: 5,
+    type: "snapshot",
+    snapshot: snapshot("interested", 2, [{ ...target, selected: false }], [
+      { action: "select_interested", enabled: true, identity: { ...target, selected: false } },
+    ]),
+  });
+
+  assert.equal(controller.status().frame.frameId, 5);
+  assert.equal(controller.status().frame.role, "interested");
 });
 
 test("controller owns navigation loop and exposes pause/resume/stop/status without panel participation", async () => {

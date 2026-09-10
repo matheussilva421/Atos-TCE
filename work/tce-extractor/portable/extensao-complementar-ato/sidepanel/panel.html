@@ -61,6 +61,26 @@
         <label for="automation-marker">Marcador do lote (opcional)</label>
         <input id="automation-marker" type="text" maxlength="256" placeholder="Ex.: PROFESSOR - IPERN - 2 RUBRICAS" autocomplete="off">
         <p class="manual-mode-note">Se preenchido, o worker seleciona esse marcador, confirma o resultado e percorre todas as páginas antes de congelar a fila.</p>
+        <label for="automation-source-scope">Origem dos processos</label>
+        <select id="automation-source-scope">
+          <option value="sector_finalistic" selected>Processos no setor / finalísticos / Proc./Doc. Eletrônicos</option>
+          <option value="my_processes">Meus Processos Eletrônicos</option>
+        </select>
+        <p class="manual-mode-note">A origem deve estar aberta na Área Restrita; a execução pausa se a rota autenticada não corresponder à opção.</p>
+        <label for="automation-lot-size">Tamanho do lote</label>
+        <select id="automation-lot-size">
+          <option value="50" selected>50 processos</option>
+          <option value="100">100 processos</option>
+          <option value="1">1 processo (piloto)</option>
+        </select>
+        <p class="manual-mode-note">O tamanho fica registrado no contrato do lote; a fila ainda é congelada antes de qualquer preenchimento.</p>
+        <button id="analysis-preview-button" type="button" disabled>Analisar pendências no portal</button>
+        <button id="analysis-lots-button" type="button" disabled>Criar lotes da análise</button>
+        <p id="analysis-status" role="status" aria-live="polite">Nenhuma análise da lista autenticada foi criada.</p>
+        <label for="analysis-lot-number">Lote para baixar e preparar OCR</label>
+        <select id="analysis-lot-number" disabled aria-label="Lote para baixar e preparar OCR"></select>
+        <button id="analysis-acquisition-button" type="button" disabled>Baixar e preparar OCR do lote</button>
+        <p id="analysis-acquisition-status" role="status" aria-live="polite">Nenhuma aquisição de lote iniciada.</p>
         <label><input id="automation-auto-submit" type="checkbox"> Concluir automaticamente os atos elegíveis</label>
         <p class="manual-mode-note">Disponível somente com qualificação de envio ativa. Ao marcar, o portal será preenchido e o botão Complementar Ato será clicado após a confirmação acima.</p>
         <div id="preview-body" class="panel-view-root"></div>

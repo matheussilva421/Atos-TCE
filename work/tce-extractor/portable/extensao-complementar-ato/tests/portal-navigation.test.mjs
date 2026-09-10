@@ -248,6 +248,37 @@ function buildFormDocument() {
   return documentRef;
 }
 
+function buildRestrictedInitialActDocument({ selected = false, withTopClose = false } = {}) {
+  const documentRef = buildFormDocument();
+  const form = documentRef.getElementById("complementarAtoForm");
+  const interestedTable = new FakeElement("table", { id: "PessoasAssocicadas" });
+  const row = new FakeElement("tr");
+  const radio = new FakeElement("input", {
+    attrs: { type: "radio", name: "escolha" },
+  });
+  radio.checked = selected;
+  row.append(radio, cell("Núzia Maria Barbosa"), cell("42119154449"), cell("Interessado"));
+  interestedTable.append(row);
+  form.append(interestedTable);
+  documentRef.documentElement.setAttribute("data-process-key", "101675/2026");
+  let close = null;
+  if (withTopClose) {
+    const topDocument = new FakeDocument({ screen: "shell" });
+    const tab = new FakeElement("li");
+    close = new FakeElement("a", { attrs: { class: "tabs-close" } });
+    close.onClick = () => { topDocument.body.children = []; };
+    tab.append(
+      new FakeElement("a", { text: "Complementar Ato", attrs: { class: "tabs-inner" } }),
+      close,
+    );
+    topDocument.body.append(tab);
+    const listDocument = buildListDocument("1", [{ processKey: "103401/2023", interested: "Ana da Silva" }], { hasNext: false });
+    topDocument.defaultView.frames = [{ document: listDocument }];
+    documentRef.defaultView.top = { document: topDocument, frames: topDocument.defaultView.frames };
+  }
+  return { documentRef, radio, close };
+}
+
 function buildButtonsDocument() {
   const documentRef = new FakeDocument({ screen: "buttons" });
   documentRef.body.append(
@@ -268,6 +299,44 @@ test("detects portal screens without requiring the seven form sentinels", () => 
   assert.equal(detectPortalScreen(buildFormDocument()), "form");
   assert.equal(detectPortalScreen(buildButtonsDocument()), "buttons");
   assert.equal(detectPortalScreen(new FakeDocument({ screen: "unknown" })), "unknown");
+});
+
+test("detects the restricted portal's initial Complementar Ato screen as interested selection", () => {
+  const { documentRef } = buildRestrictedInitialActDocument();
+  const snapshot = snapshotPortalScreen(documentRef);
+
+  assert.equal(snapshot.role, "interested");
+  assert.deepEqual(snapshot.identities[0], {
+    processKey: "101675/2026",
+    interestedOriginal: "Núzia Maria Barbosa",
+    interestedNormalized: "nuzia maria barbosa",
+    portalActId: null,
+    pending: false,
+    selected: false,
+  });
+  assert.ok(snapshot.actions.some((action) => action.action === "select_interested"));
+});
+
+test("exposes the restricted portal tab close as the automatic return action after selection", () => {
+  const { documentRef } = buildRestrictedInitialActDocument({ selected: true, withTopClose: true });
+  const snapshot = snapshotPortalScreen(documentRef);
+
+  assert.equal(snapshot.role, "form");
+  assert.ok(snapshot.actions.some((action) => action.action === "return_list" && action.enabled === true));
+});
+
+test("returns from the restricted portal form by closing its tab and snapshots the live list", async () => {
+  const { documentRef, close } = buildRestrictedInitialActDocument({ selected: true, withTopClose: true });
+  const before = snapshotPortalScreen(documentRef);
+  const result = await executeNavigation(documentRef, {
+    action: "return_list",
+    expected_generation: before.generation,
+    timeoutMs: 50,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.snapshot.role, "list");
+  assert.equal(close.clickCount, 1);
 });
 
 test("snapshots identities and observed actions without retaining nodes or URLs", () => {
@@ -299,6 +368,16 @@ test("observes the selected marker and exposes a guarded marker-filter action", 
   assert.equal(select.value, "marker-2");
 });
 
+test("identifies the selected Area Restrita process source from its legacy route", () => {
+  const sector = buildListDocument(1, [{ processKey: "103401/2023", interested: "Ana da Silva" }], { hasNext: false });
+  sector.defaultView.location.href = "https://novaarearestrita.tce.rn.gov.br/SISTEMAS/PROCESSO/ProcessonoSetor.asp";
+  assert.equal(snapshotPortalScreen(sector).source_scope, "sector_finalistic");
+
+  const mine = buildListDocument(1, [{ processKey: "103401/2023", interested: "Ana da Silva" }], { hasNext: false });
+  mine.defaultView.location.href = "https://novaarearestrita.tce.rn.gov.br/SISTEMAS/PROCESSO/MeusProcessos.asp";
+  assert.equal(snapshotPortalScreen(mine).source_scope, "my_processes");
+});
+
 test("selects the requested marker and clicks only the scoped Consultar control", async () => {
   const documentRef = buildListDocument("1", [{ processKey: "103401/2023", interested: "Ana da Silva" }]);
   const { select, consult } = addMarkerFilter(documentRef);
@@ -318,6 +397,66 @@ test("selects the requested marker and clicks only the scoped Consultar control"
   assert.equal(select.value, "marker-2");
   assert.equal(consult.clickCount, 1);
   assert.equal(result.snapshot.marker.label, "PROFESSOR - IPERN - 2 RUBRICAS");
+});
+
+test("finds the Area Restrita Consultar control in the sibling botoesNOVO frame", async () => {
+  const documentRef = buildListDocument("1", [{ processKey: "103401/2023", interested: "Ana da Silva" }]);
+  const form = new FakeElement("form");
+  const select = new FakeElement("select", { id: "cmbMarcadorFiltro" });
+  const all = new FakeElement("option", { text: "Todos os marcadores", value: "" });
+  const target = new FakeElement("option", { text: "PROFESSOR - IPERN - 2 RUBRICAS", value: "marker-2" });
+  all.selected = true;
+  select.value = "";
+  select.append(all, target);
+  form.append(select);
+  documentRef.body.append(form);
+
+  const topDocument = new FakeDocument({ screen: "shell" });
+  const buttonFrame = new FakeDocument({ screen: "buttons" });
+  buttonFrame.defaultView.location.href = "https://portal.test/botoesNOVO.asp?pagina=ProcessonoSetor";
+  const consult = new FakeElement("input", { value: "Consultar", attrs: { type: "button", onclick: "parametros('1695','C','','');" } });
+  buttonFrame.body.append(consult);
+  documentRef.defaultView.top = { document: topDocument, frames: [{ document: documentRef }, { document: buttonFrame }] };
+
+  consult.onClick = () => {
+    target.selected = true;
+    all.selected = false;
+    select.value = "marker-2";
+  };
+  const before = snapshotPortalScreen(documentRef);
+  const result = await executeNavigation(documentRef, {
+    action: "filter_marker",
+    marker: "PROFESSOR - IPERN - 2 RUBRICAS",
+    expected_generation: before.generation,
+    timeoutMs: 50,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(consult.clickCount, 1);
+  assert.equal(result.snapshot.marker.value, "marker-2");
+});
+
+test("recognizes the legacy Area Restrita pagination link with NumeroPagina.value", async () => {
+  const documentRef = buildListDocument("3", [{ processKey: "103401/2023", interested: "Ana da Silva" }], { hasNext: false });
+  const currentPage = new FakeElement("input", { id: "NumeroPagina", value: "3", attrs: { type: "hidden" } });
+  const next = new FakeElement("a", {
+    text: "Pr�xima >",
+    attrs: { href: "javascript: form1.NumeroPagina.value=4; document.form1.Paginacao.value='S'; form1.submit();" },
+  });
+  next.onClick = () => documentRef.setSurface(buildListSurface(documentRef, 2));
+  documentRef.body.append(currentPage, next);
+
+  const before = snapshotPortalScreen(documentRef);
+  assert.ok(before.actions.some((action) => action.action === "next_page" && action.direction === "next"));
+  const result = await executeNavigation(documentRef, {
+    action: "next_page",
+    expected_generation: before.generation,
+    timeoutMs: 50,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.snapshot.role, "list");
+  assert.equal(next.clickCount, 1);
 });
 
 test("keeps a row without a canonical identity as pending without exposing it as an action", () => {
@@ -351,6 +490,37 @@ test("opens the action link belonging to the requested process row", async () =>
   assert.equal(result.ok, true);
   assert.equal(detectPortalScreen(documentRef), "interested");
   assert.equal(targetLink.clickCount, 1);
+});
+
+test("does not wait on the list frame when Area Restrita opens Complementar Ato in a sibling frame", async () => {
+  const documentRef = new FakeDocument({ screen: "list", page: "1" });
+  const table = new FakeElement("table", { id: "tbproc01" });
+  const tbody = new FakeElement("tbody");
+  const row = new FakeElement("tr", { attrs: { "data-process-key": "101675/2026" } });
+  row.append(cell("101675/2026"), cell("Núzia Maria Barbosa"));
+  const action = new FakeElement("a", {
+    attrs: {
+      href: "/SISTEMAS/PROCESSO/ComplementarAto.asp",
+      onclick: "window.parent.parent.addtabsinformacao('Complementar Ato', '../SISTEMAS/PROCESSO/ComplementarAto.asp');",
+    },
+  });
+  action.append(new FakeElement("img", { attrs: { alt: "Complementar Ato" } }));
+  row.append(action);
+  tbody.append(row);
+  table.append(tbody);
+  documentRef.body.append(table);
+
+  const before = snapshotPortalScreen(documentRef);
+  const result = await executeNavigation(documentRef, {
+    action: "open_act",
+    identity: identity("101675/2026", "Núzia Maria Barbosa"),
+    expected_generation: before.generation,
+    timeoutMs: 50,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.snapshot, null);
+  assert.equal(action.clickCount, 1);
 });
 
 test("chooses the semantic Complementar Ato icon when a process row has multiple actions", async () => {

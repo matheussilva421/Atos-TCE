@@ -673,6 +673,22 @@ export function createServiceWorker({
         scheduleAutomationWatchdog();
         return successResponse(message, started);
       }
+      if (message.type === MESSAGE_TYPES.AUTO_ANALYZE) {
+        let spec = clone(message.payload.spec);
+        if (!Number.isSafeInteger(spec.tabId)) {
+          if (typeof chromeApi.tabs?.query !== "function") {
+            return errorResponse(message.requestId, "TAB_REQUIRED", "não foi possível identificar a aba autenticada da Área Restrita");
+          }
+          const activeTabs = await chromeApi.tabs.query({ active: true, currentWindow: true });
+          const activePortal = (activeTabs ?? []).find((tab) => validatePortalUrl(tab?.url));
+          if (!Number.isSafeInteger(activePortal?.id) || activePortal.id < 0) {
+            return errorResponse(message.requestId, "TAB_REQUIRED", "abra a Área Restrita autenticada antes de analisar");
+          }
+          spec = { ...spec, tabId: activePortal.id };
+        }
+        const analyzed = await currentController.analyze({ spec, eventId: message.payload.eventId });
+        return successResponse(message, analyzed);
+      }
       if (message.type === MESSAGE_TYPES.AUTO_STATUS) {
         return successResponse(message, await currentController.status({ refresh: true, runId: message.payload.runId }));
       }
@@ -761,6 +777,7 @@ export function createServiceWorker({
     try {
       switch (validated.type) {
         case MESSAGE_TYPES.AUTO_START:
+        case MESSAGE_TYPES.AUTO_ANALYZE:
         case MESSAGE_TYPES.AUTO_PAUSE:
         case MESSAGE_TYPES.AUTO_RESUME:
         case MESSAGE_TYPES.AUTO_STOP:

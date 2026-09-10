@@ -154,6 +154,14 @@ function buildPanelDocument() {
   addElement(documentRef, "button", "complement-button");
   addElement(documentRef, "input", "automation-auto-submit", { type: "checkbox" });
   addElement(documentRef, "input", "automation-marker", { type: "text" });
+  addElement(documentRef, "select", "automation-source-scope");
+  addElement(documentRef, "select", "automation-lot-size");
+  addElement(documentRef, "button", "analysis-preview-button");
+  addElement(documentRef, "button", "analysis-lots-button");
+  addElement(documentRef, "select", "analysis-lot-number");
+  addElement(documentRef, "button", "analysis-acquisition-button");
+  addElement(documentRef, "p", "analysis-acquisition-status");
+  addElement(documentRef, "p", "analysis-status");
   addElement(documentRef, "input", "search-process", { type: "search" });
   addElement(documentRef, "input", "search-interested", { type: "search" });
   addElement(documentRef, "div", "search-results");
@@ -573,8 +581,14 @@ test("automation view requires a compatible bridge, starts explicitly, and keeps
   assert.ok(app.getState().automationCapabilities, documentRef.getElementById("bridge-status").textContent);
   assert.equal(app.getState().automationCapabilities.real_send_enabled, false);
   documentRef.getElementById("automation-marker").value = "PROFESSOR - IPERN - 2 RUBRICAS";
+  documentRef.getElementById("automation-source-scope").value = "my_processes";
+  documentRef.getElementById("automation-lot-size").value = "100";
   assert.equal(await app.startAutomation(), true);
-  assert.equal(workerCalls.find((message) => message.type === MESSAGE_TYPES.AUTO_START).payload.spec.marker, "PROFESSOR - IPERN - 2 RUBRICAS");
+  const startedSpec = workerCalls.find((message) => message.type === MESSAGE_TYPES.AUTO_START).payload.spec;
+  assert.equal(startedSpec.marker, "PROFESSOR - IPERN - 2 RUBRICAS");
+  assert.equal(startedSpec.sourceScope, "my_processes");
+  assert.equal(startedSpec.lotSize, 100);
+  assert.equal(startedSpec.acquisitionSource, "econtas");
   assert.equal(app.getState().selectedView, "execution");
   assert.equal(documentRef.getElementById("fill-button").disabled, true);
   assert.equal(await app.controlAutomation("pause"), true);
@@ -586,6 +600,82 @@ test("automation view requires a compatible bridge, starts explicitly, and keeps
   assert.equal(workerCalls.some((message) => message.type === MESSAGE_TYPES.AUTO_PAUSE), true);
   assert.equal(calls.some(([name]) => name === "pause"), false);
   assert.equal(calls.some(([name, runId]) => name === "events" && runId === "run-panel-1"), true);
+});
+
+test("runs a read-only Area Restrita analysis, shows the count, and creates deterministic lots only after review", async () => {
+  const dataset = await makeDataset();
+  const bridgeCalls = [];
+  const analysisId = `analysis-${"a".repeat(24)}`;
+  const client = {
+    async getDataset() { return { api_version: 1, revision: 1, dataset }; },
+    async getState() { return { revision: 1 }; },
+    async publishSelection() { return { accepted: true, revision: 1 }; },
+    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v1" }; },
+    async listAutomationRuns() { return { runs: [], next_cursor: null }; },
+    async createAnalysisPreview(input) {
+      bridgeCalls.push(["preview", input]);
+      return { analysis_id: analysisId, preview: { needs_complement: 1, eligible: 1, blocked: 0, lot_count: 1 }, queue: [{}], blocked: [] };
+    },
+    async createAnalysisLots(id) {
+      bridgeCalls.push(["lots", id]);
+      return { analysis_id: id, lots: [{ lot_id: "lot-1", items: [{}] }] };
+    },
+    async startAnalysisAcquisition(id, lotNumber) {
+      bridgeCalls.push(["acquire", id, lotNumber]);
+      return { api_version: 1, analysis_id: id, job_id: "acq-" + "b".repeat(24), lot_number: lotNumber, status: "started", pid: 4321 };
+    },
+  };
+  const analysisResult = {
+    source_scope: "my_processes",
+    marker: { label: "PROFESSOR - IPERN - 2 RUBRICAS", value: "marker-2" },
+    rows: [{
+      process_key: "103439/2023",
+      interested_key: "maria de souza",
+      area_restrita: {
+        scope: "my_processes",
+        marker_label: "PROFESSOR - IPERN - 2 RUBRICAS",
+        marker_value: "marker-2",
+        needs_complement: true,
+        action_observed: "Complementar Ato",
+        snapshot_hash: "b".repeat(64),
+      },
+    }],
+  };
+  const chromeApi = makeRuntime({ dataset, snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })] });
+  const sendMessage = chromeApi.runtime.sendMessage;
+  chromeApi.runtime.sendMessage = async (message) => {
+    if (message.type === MESSAGE_TYPES.AUTO_ANALYZE) return { ok: true, payload: analysisResult };
+    return sendMessage(message);
+  };
+  const { app, documentRef } = await startApp({
+    chromeApi,
+    dataset,
+    snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })],
+    pairingFactory: async () => "token",
+    bridgeClientFactory: () => client,
+  });
+  documentRef.getElementById("bridge-pairing-code").value = "12345678";
+  documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
+  for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  documentRef.getElementById("automation-marker").value = "PROFESSOR - IPERN - 2 RUBRICAS";
+  documentRef.getElementById("automation-source-scope").value = "my_processes";
+  documentRef.getElementById("automation-lot-size").value = "50";
+  documentRef.getElementById("analysis-preview-button").dispatchEvent(new FakeEvent("click"));
+  for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.match(documentRef.getElementById("analysis-status").textContent, /1.*complement/iu);
+  assert.equal(bridgeCalls[0][0], "preview");
+  assert.equal(bridgeCalls[0][1].spec.source_scope, "my_processes");
+  assert.equal(bridgeCalls[0][1].spec.lot_size, 50);
+  assert.equal(documentRef.getElementById("analysis-lots-button").disabled, false);
+  documentRef.getElementById("analysis-lots-button").dispatchEvent(new FakeEvent("click"));
+  for (let index = 0; index < 3; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(bridgeCalls[1], ["lots", analysisId]);
+  assert.equal(documentRef.getElementById("analysis-acquisition-button").disabled, false);
+  documentRef.getElementById("analysis-lot-number").value = "1";
+  documentRef.getElementById("analysis-acquisition-button").dispatchEvent(new FakeEvent("click"));
+  for (let index = 0; index < 3; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(bridgeCalls[2], ["acquire", analysisId, 1]);
+  assert.match(documentRef.getElementById("analysis-acquisition-status").textContent, /iniciada|started/iu);
 });
 
 test("automatic submission requires capability and an action-time confirmation", async () => {
@@ -1435,14 +1525,15 @@ test("has structurally associated labels, keyboard focus styles, and disabled in
   const css = readFileSync(resolve(ROOT, "sidepanel/panel.css"), "utf8");
   const js = readFileSync(resolve(ROOT, "sidepanel/panel.js"), "utf8");
   const inputTags = [...html.matchAll(/<input\b[^>]*>/giu)].map(([tag]) => tag);
-  const inputIds = new Set(inputTags.map((tag) => /\bid="([^"]+)"/iu.exec(tag)?.[1]).filter(Boolean));
+  const controlTags = [...html.matchAll(/<(?:input|select)\b[^>]*>/giu)].map(([tag]) => tag);
+  const inputIds = new Set(controlTags.map((tag) => /\bid="([^"]+)"/iu.exec(tag)?.[1]).filter(Boolean));
   const labelTargets = [...html.matchAll(/<label\b[^>]*\bfor="([^"]+)"[^>]*>/giu)].map((match) => match[1]);
   const buttonLabels = [...html.matchAll(/<button\b[^>]*>([^<]+)<\/button>/giu)].map((match) => match[1].trim());
 
-  assert.deepEqual(labelTargets, ["bridge-base-url", "bridge-pairing-code", "search-process", "search-interested", "automation-marker", "reviewed-checkbox"]);
+  assert.deepEqual(labelTargets, ["bridge-base-url", "bridge-pairing-code", "search-process", "search-interested", "automation-marker", "automation-source-scope", "automation-lot-size", "analysis-lot-number", "reviewed-checkbox"]);
   assert.equal(labelTargets.every((target) => inputIds.has(target)), true);
   assert.match(inputTags.find((tag) => /\bid="dataset-file"/iu.test(tag)), /\baria-label="[^"]+"/iu);
-  assert.equal(buttonLabels.length, 5);
+  assert.equal(buttonLabels.length, 8);
   assert.equal(buttonLabels.every(Boolean), true);
   assert.match(inputTags.find((tag) => /\bid="reviewed-checkbox"/iu.test(tag)), /\bdisabled\b/iu);
   assert.match(html, /<button\b[^>]*\bid="fill-button"[^>]*\bdisabled\b/iu);

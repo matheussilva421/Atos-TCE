@@ -53,18 +53,121 @@
     });
   }
 
-  async function enumerateProcesses() {
+  function normalizeMarker(value) {
+    return String(value || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ").trim().toUpperCase();
+  }
+
+  async function applyMarkerFilter(marker) {
+    if (!marker || !marker.label) return;
+    const host = document.querySelector("tce-select-field[formcontrolname=idMarcador]");
+    const input = host?.querySelector("input[role=combobox]");
+    if (!host || !input) throw new Error("Filtro de marcador do e-Contas não foi encontrado.");
+    const rawLabel = String(marker.label).trim();
+    const countMatch = rawLabel.match(/\((\d+)\)\s*$/u);
+    const expectedCount = countMatch ? countMatch[1] : null;
+    const label = rawLabel.replace(/\s*\(\d+\)\s*$/u, "").trim();
+    const expected = normalizeMarker(label);
+    input.click();
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    if (!setter) throw new Error("Campo de marcador do e-Contas não é editável.");
+    setter.call(input, label);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    let option = null;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      option = [...document.querySelectorAll(".ng-option")].find(candidate => {
+        const text = normalizeMarker(candidate.textContent);
+        return text === expected || text.startsWith(`${expected} `);
+      }) || null;
+      if (option) break;
+      await sleep(200);
+    }
+    if (!option) throw new Error(`Marcador não encontrado no e-Contas: ${label}`);
+    let selectedValue = false;
+    for (let attempt = 0; attempt < 5 && !selectedValue; attempt++) {
+      await sleep(100);
+      option = [...document.querySelectorAll(".ng-option")].find(candidate => {
+        const text = normalizeMarker(candidate.textContent);
+        return text === expected || text.startsWith(`${expected} `);
+      }) || null;
+      if (!option) continue;
+      for (const type of ["mousedown", "mouseup", "click"]) {
+        option.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      }
+      await sleep(250);
+      selectedValue = [...host.querySelectorAll(".ng-value")].some(value =>
+        normalizeMarker(value.textContent).includes(expected),
+      );
+    }
+    if (!selectedValue) throw new Error(`O marcador não foi selecionado no e-Contas: ${label}`);
+    const search = [...document.querySelectorAll("button")].find(button =>
+      (button.textContent || "").trim().toUpperCase() === "BUSCAR",
+    );
+    if (!search) throw new Error("Botão BUSCAR do filtro do e-Contas não foi encontrado.");
+    search.click();
+    for (let attempt = 0; attempt < 30; attempt++) {
+      await sleep(200);
+      const text = document.body.innerText || "";
+      if (!expectedCount || text.includes(`de ${expectedCount} no total`)) return;
+    }
+    if (expectedCount) throw new Error(`O e-Contas não confirmou a contagem do marcador ${label}: esperado ${expectedCount}`);
+  }
+
+  async function selectLargestPageSize() {
+    const select = [...document.querySelectorAll("select")].find(element =>
+      [...element.options].some(option => option.textContent.trim() === "100"),
+    );
+    if (!select || String(select.value) === "100") return;
+    const option = [...select.options].find(candidate => candidate.textContent.trim() === "100");
+    if (!option) return;
+    select.value = option.value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    await sleep(1500);
+  }
+
+  async function goToFirstPage(wanted = []) {
+    const expectedFirst = wanted[0] ? String(wanted[0]) : null;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      if (expectedFirst && processRows().some(row => row.key === expectedFirst)) return;
+      const first = [...document.querySelectorAll("button, a, [role=button]")].find(control => {
+        const label = (control.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
+        return label === "page 1" || label === "1";
+      });
+      if (!first) {
+        await sleep(300);
+        continue;
+      }
+      first.click();
+      await sleep(800);
+    }
+  }
+
+  async function enumerateProcesses(targetKeys = [], marker = null) {
+    const wanted = new Set((Array.isArray(targetKeys) ? targetKeys : []).map(String));
+    await applyMarkerFilter(marker);
+    await goToFirstPage([...wanted]);
+    // A frozen lot is already bounded. Changing page size here triggers an
+    // asynchronous Angular reload that can move the grid away from page 1;
+    // keep the marker-filtered default page size for the bounded walk.
+    if (!wanted.size) {
+      await selectLargestPageSize();
+      await goToFirstPage([]);
+    }
     const all = new Map();
     let unchanged = 0;
-    for (let page = 0; page < 200; page++) {
+    const seenSignatures = new Set();
+    for (let page = 0; page < 100; page++) {
       await sleep(page ? 700 : 300);
       const rows = processRows();
       const before = all.size;
       for (const row of rows) all.set(row.key, row);
+      if (wanted.size && [...wanted].every(key => all.has(key))) break;
       unchanged = all.size === before ? unchanged + 1 : 0;
       const next = nextButton();
       if (!next || unchanged >= 2) break;
       const signature = rows.map(item => item.key).join('|');
+      if (seenSignatures.has(signature)) break;
+      seenSignatures.add(signature);
       next.click();
       for (let attempt = 0; attempt < 30; attempt++) {
         await sleep(200);
@@ -143,7 +246,7 @@
     case 'session':
       return { authenticated: !!(currentUser && currentUser.token), token: currentUser && currentUser.token || '', sector: currentUser && currentUser.setorSelecionado && currentUser.setorSelecionado.codigoSetor || '' };
     case 'enumerateProcesses':
-      return enumerateProcesses();
+      return enumerateProcesses(payload.targetKeys, payload.marker);
     case 'manifest':
       return buildManifest(payload.number, payload.year);
     default:

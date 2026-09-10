@@ -118,6 +118,31 @@ test("accepts explicit automatic submission only as a boolean opt-in", () => {
   );
 });
 
+test("validates the selected portal scope, e-Contas acquisition and frozen lot", () => {
+  const batch = runSpec({
+    marker: "Marcador de teste",
+    markerValue: "marker-1",
+    sourceScope: "my_processes",
+    acquisitionSource: "econtas",
+    lotSize: 100,
+    analysisId: `analysis-${"a".repeat(24)}`,
+    previewHash: HASH,
+  });
+  assert.deepEqual(validateAutomationRunSpec(batch), batch);
+  assert.throws(
+    () => validateAutomationRunSpec(runSpec({ sourceScope: "public_portal" })),
+    (error) => error instanceof AutomationSchemaError && error.code === "INVALID_VALUE",
+  );
+  assert.throws(
+    () => validateAutomationRunSpec(runSpec({ lotSize: 0 })),
+    (error) => error instanceof AutomationSchemaError && error.code === "INVALID_VALUE",
+  );
+  assert.throws(
+    () => validateAutomationRunSpec(runSpec({ acquisitionSource: "area_restrita" })),
+    (error) => error instanceof AutomationSchemaError && error.code === "INVALID_VALUE",
+  );
+});
+
 test("validates the explicit one-act pilot mode and optional pilot capabilities", () => {
   const pilot = runSpec({ mode: "pilot", pilotIdentity: identity() });
   assert.deepEqual(validateAutomationRunSpec(pilot), pilot);
@@ -348,6 +373,7 @@ test("automation messages are typed and reject payload extras", () => {
     Object.values(MESSAGE_TYPES).filter((type) => type.startsWith("AUTO_")),
     [
       "AUTO_START",
+      "AUTO_ANALYZE",
       "AUTO_PAUSE",
       "AUTO_RESUME",
       "AUTO_STOP",
@@ -361,6 +387,18 @@ test("automation messages are typed and reject payload extras", () => {
     () => createMessage(MESSAGE_TYPES.AUTO_STATUS, { runId: "run-1", extra: true }, "status-1"),
     /unexpected keys/i,
   );
+  assert.doesNotThrow(() => createMessage(MESSAGE_TYPES.AUTO_ANALYZE, {
+    spec: {
+      sector: "*",
+      datasetSha256: HASH,
+      rulesVersion: "legal-foundation-v1",
+      marker: "PROFESSOR - IPERN - 2 RUBRICAS",
+      sourceScope: "sector_finalistic",
+      lotSize: 50,
+      acquisitionSource: "econtas",
+    },
+    eventId: "analysis-1",
+  }, "analysis-message-1"));
   assert.doesNotThrow(() => createMessage(MESSAGE_TYPES.PORTAL_NAVIGATE, {
     action: "filter_marker",
     marker: "PROFESSOR - IPERN - 2 RUBRICAS",

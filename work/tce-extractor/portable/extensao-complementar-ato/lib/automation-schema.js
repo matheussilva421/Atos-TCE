@@ -8,7 +8,30 @@ const PROCESS_KEY_RE = /^\d+\/\d{4}$/u;
 const EVENT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/u;
 const ACTIONS = new Set(["pause", "resume", "stop"]);
 const RUN_STATUSES = new Set(["discovering", "running", "paused", "stopped", "completed"]);
-const ITEM_STATES = new Set(["queued", "prepared", "filled", "send_intent", "confirmed", "pending", "failed", "unconfirmed"]);
+const ITEM_STATES = new Set([
+  "queued",
+  "discovered",
+  "eligibility_confirmed",
+  "acquisition_pending",
+  "downloaded",
+  "ocr_pending",
+  "ocr_ready",
+  "ready_for_preflight",
+  "prepared",
+  "filled",
+  "awaiting_send_confirmation",
+  "send_intent",
+  "send_issued",
+  "outcome_observed",
+  "confirmed",
+  "pending",
+  "failed",
+  "unconfirmed",
+  "blocked",
+]);
+const SOURCE_SCOPES = new Set(["sector_finalistic", "my_processes"]);
+const ACQUISITION_SOURCES = new Set(["econtas"]);
+const ANALYSIS_ID_RE = /^analysis-[0-9a-f]{24}$/u;
 const EVENT_TYPES = new Set([
   "item_prepared",
   "fields_verified",
@@ -181,7 +204,18 @@ export function validateAutomationIdentity(value) {
 
 export function validateAutomationRunSpec(value) {
   if (!isRecord(value)) invalid("RunSpec must be an object", "INVALID_RUN_SPEC");
-  exactKeysWithOptional(value, ["tabId", "sector", "datasetSha256", "rulesVersion"], ["mode", "pilotIdentity", "marker", "autoSubmit"]);
+  exactKeysWithOptional(value, ["tabId", "sector", "datasetSha256", "rulesVersion"], [
+    "mode",
+    "pilotIdentity",
+    "marker",
+    "markerValue",
+    "autoSubmit",
+    "sourceScope",
+    "acquisitionSource",
+    "lotSize",
+    "analysisId",
+    "previewHash",
+  ]);
   if (!Number.isSafeInteger(value.tabId) || value.tabId < 0) invalid("tabId is invalid", "INVALID_TAB_ID");
   nonEmptyString(value.sector, "sector");
   if (typeof value.datasetSha256 !== "string" || !SHA256_RE.test(value.datasetSha256)) {
@@ -194,6 +228,25 @@ export function validateAutomationRunSpec(value) {
   if (Object.hasOwn(value, "marker")) {
     nonEmptyString(value.marker, "marker");
     if (!value.marker.trim()) invalid("marker must not be blank", "INVALID_VALUE");
+  }
+  if (Object.hasOwn(value, "markerValue")) nonEmptyString(value.markerValue, "markerValue", 256);
+  if (Object.hasOwn(value, "sourceScope") && !SOURCE_SCOPES.has(value.sourceScope)) {
+    invalid("sourceScope is invalid", "INVALID_VALUE");
+  }
+  if (Object.hasOwn(value, "acquisitionSource") && !ACQUISITION_SOURCES.has(value.acquisitionSource)) {
+    invalid("acquisitionSource is invalid", "INVALID_VALUE");
+  }
+  if (Object.hasOwn(value, "lotSize")
+    && (!Number.isSafeInteger(value.lotSize) || value.lotSize < 1 || value.lotSize > 1000)) {
+    invalid("lotSize is invalid", "INVALID_VALUE");
+  }
+  if (Object.hasOwn(value, "analysisId")
+    && (typeof value.analysisId !== "string" || !ANALYSIS_ID_RE.test(value.analysisId))) {
+    invalid("analysisId is invalid", "INVALID_VALUE");
+  }
+  if (Object.hasOwn(value, "previewHash")
+    && (typeof value.previewHash !== "string" || !SHA256_RE.test(value.previewHash))) {
+    invalid("previewHash is invalid", "INVALID_VALUE");
   }
   if (Object.hasOwn(value, "autoSubmit") && typeof value.autoSubmit !== "boolean") {
     invalid("autoSubmit must be boolean", "INVALID_VALUE");

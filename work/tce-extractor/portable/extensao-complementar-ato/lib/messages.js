@@ -23,6 +23,7 @@ export const MESSAGE_TYPES = Object.freeze({
   SET_REVIEWED: "SET_REVIEWED",
   REQUEST_COMPLEMENTAR_ATO: "REQUEST_COMPLEMENTAR_ATO",
   AUTO_START: "AUTO_START",
+  AUTO_ANALYZE: "AUTO_ANALYZE",
   AUTO_PAUSE: "AUTO_PAUSE",
   AUTO_RESUME: "AUTO_RESUME",
   AUTO_STOP: "AUTO_STOP",
@@ -41,6 +42,7 @@ const MESSAGE_KEYS = ["schemaVersion", "type", "requestId", "payload"];
 const MATCH_KIND_SET = new Set(["exact", "probable", "tie"]);
 const PORTAL_ACTION_SET = new Set(["next_page", "open_act", "select_interested", "return_list", "filter_marker"]);
 const PORTAL_ROLE_SET = new Set(["list", "interested", "form", "buttons", "unknown"]);
+const PORTAL_SOURCE_SCOPE_SET = new Set(["sector_finalistic", "my_processes"]);
 const PORTAL_EVENT_SET = new Set(["snapshot", "navigation", "manual_navigation", "sector_changed", "frame_unavailable"]);
 const PORTAL_IDENTITY_KEYS = ["processKey", "interestedOriginal", "interestedNormalized", "portalActId", "pending", "selected", "needsComplement"];
 
@@ -199,10 +201,13 @@ function isCanonicalPortalIdentity(value) {
 
 function validatePortalSnapshot(value) {
   if (!isRecord(value)) invalid("PORTAL snapshot must be an object");
-  exactKeysFrom(value, ["role", "generation", "sector", "identities", "actions"], ["marker"], "PORTAL snapshot");
+  exactKeysFrom(value, ["role", "generation", "sector", "identities", "actions"], ["marker", "source_scope"], "PORTAL snapshot");
   if (!PORTAL_ROLE_SET.has(value.role)) invalid("PORTAL snapshot role is invalid");
   if (!Number.isSafeInteger(value.generation) || value.generation < 1) invalid("PORTAL snapshot generation is invalid");
   if (value.sector !== null && typeof value.sector !== "string") invalid("PORTAL snapshot sector is invalid");
+  if (Object.hasOwn(value, "source_scope")
+    && value.source_scope !== null
+    && !PORTAL_SOURCE_SCOPE_SET.has(value.source_scope)) invalid("PORTAL snapshot source_scope is invalid");
   if (!Array.isArray(value.identities) || !Array.isArray(value.actions)) invalid("PORTAL snapshot collections are invalid");
   value.identities.forEach((identity, index) => validatePortalIdentity(identity, `PORTAL snapshot identity ${index}`));
   if (Object.hasOwn(value, "marker")) {
@@ -315,6 +320,27 @@ function validatePayload(type, payload) {
       }
       nonEmptyString(payload.eventId, "AUTO_START eventId");
       break;
+    case MESSAGE_TYPES.AUTO_ANALYZE: {
+      exactKeys(payload, ["spec", "eventId"], "AUTO_ANALYZE payload");
+      const spec = payload.spec;
+      if (!isRecord(spec)) invalid("AUTO_ANALYZE spec must be an object");
+      exactKeysFrom(
+        spec,
+        ["sector", "datasetSha256", "rulesVersion", "marker", "sourceScope", "lotSize", "acquisitionSource"],
+        ["tabId"],
+        "AUTO_ANALYZE spec",
+      );
+      nonEmptyString(spec.sector, "AUTO_ANALYZE sector");
+      if (typeof spec.datasetSha256 !== "string" || !/^[0-9a-f]{64}$/u.test(spec.datasetSha256)) invalid("AUTO_ANALYZE datasetSha256 is invalid");
+      nonEmptyString(spec.rulesVersion, "AUTO_ANALYZE rulesVersion");
+      nonEmptyString(spec.marker, "AUTO_ANALYZE marker");
+      if (!new Set(["sector_finalistic", "my_processes"]).has(spec.sourceScope)) invalid("AUTO_ANALYZE sourceScope is invalid");
+      if (!Number.isSafeInteger(spec.lotSize) || spec.lotSize < 1 || spec.lotSize > 1000) invalid("AUTO_ANALYZE lotSize is invalid");
+      if (spec.acquisitionSource !== "econtas") invalid("AUTO_ANALYZE acquisitionSource is invalid");
+      if (Object.hasOwn(spec, "tabId") && (!Number.isSafeInteger(spec.tabId) || spec.tabId < 0)) invalid("AUTO_ANALYZE tabId is invalid");
+      nonEmptyString(payload.eventId, "AUTO_ANALYZE eventId");
+      break;
+    }
     case MESSAGE_TYPES.AUTO_PAUSE:
     case MESSAGE_TYPES.AUTO_RESUME:
     case MESSAGE_TYPES.AUTO_STOP:

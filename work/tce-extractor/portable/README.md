@@ -25,8 +25,10 @@ computador de destino. `TESTAR-PACOTE.ps1` faz a verificação offline sem login
 2. Abra `chrome://extensions` → **Modo do desenvolvedor** → **Carregar sem compactação** e selecione a pasta `extensao-complementar-ato`.
 3. No outro computador, faça login novamente no e-Contas. Perfis autenticados,
    cookies e credenciais nunca entram no ZIP.
-4. Execute `INICIAR.cmd` (ou `INICIAR.bat`) e escolha uma das opções 1–8. Para coletar, deixe
-   **Meus Processos** visível na janela do Chrome/Edge e pressione `ENTER`.
+4. Execute `INICIAR.cmd` (ou `INICIAR.bat`) e escolha uma das opções 1–10. A ponte local
+   é iniciada antes do menu. Para coletar, deixe **Meus Processos** visível na janela
+   do Chrome/Edge e pressione `ENTER`. Use `INICIAR.bat ponte` para iniciar e verificar
+   a conexão local sem abrir o menu.
 
 Em cada coleta, `-ModoPreparacao progressivo` (padrão) analisa e publica cada
 processo assim que seus documentos são sincronizados; `-ModoPreparacao completo`
@@ -47,6 +49,22 @@ todos               baixa todos os processos exibidos
 novos               baixa apenas os que não estão concluídos no checkpoint
 buscar magnolia     filtra a lista; depois escolha pelos novos números
 ```
+
+Para drenar um lote congelado pela análise da Área Restrita, informe o JSON
+persistido e, quando a análise já tiver sido dividida, o número do lote. A
+ordem das chaves é preservada e qualquer processo ausente ou duplicado faz a
+coleta parar antes do primeiro download:
+
+```powershell
+& .\Coletar-Processos-TCE.ps1 `
+  -FilaCongelada 'D:\TCE-Atos\dados-locais\automacao\analises\analysis-....json' `
+  -NumeroLote 1 `
+  -ModoPreparacao progressivo
+```
+
+Essa etapa baixa os documentos do e-Contas e, se `-Python`, `-Tesseract` e
+`-Tessdata` forem fornecidos, executa a preparação/OCR incremental local. Ela
+não abre o formulário de Complementar Ato nem envia atos.
 
 ## Checkpoint e processos novos
 
@@ -135,6 +153,32 @@ extensão continua sendo informado em **Mesa local**. Pare-o com
 e HTML estático continuam válidos. A pesquisa da extensão por número de
 processo ou interessado apenas localiza o registro; a seleção no portal e o
 clique **Preencher campos disponíveis** continuam deliberados.
+
+## Fluxo híbrido por marcador e lotes
+
+1. Mantenha a Área Restrita autenticada e abra, na extensão, a origem desejada:
+   **Processos no setor / finalísticos / Proc./Doc. Eletrônicos** ou **Meus
+   Processos Eletrônicos**.
+2. Informe o marcador no painel e escolha lote de 50 ou 100. **Analisar
+   pendências no portal** percorre a lista autenticada em modo somente leitura,
+   calcula a prévia e congela a ordem; **Criar lotes da análise** grava o snapshot
+   em `acervo-tce\automacao\analises`.
+3. Após revisar a contagem, selecione o lote e use **Baixar e preparar OCR do
+   lote**. A ponte chama o coletor local com a fila congelada, baixa do e-Contas
+   e executa OCR/preparação incremental. O `source_scope` congelado também
+   escolhe a lista e-Contas correspondente: `sector_finalistic` usa
+   **Processos no setor/finalísticos** e `my_processes` usa **Meus Processos**.
+   O estado do job fica visível no painel;
+   nenhum ato é preenchido ou enviado por essa etapa.
+4. Como fallback, a opção **10 — Baixar e preparar OCR de lote congelado** em
+   `INICIAR.cmd` lista os snapshots locais e executa o mesmo coletor sem
+   substituição de processo. A opção **9 — Verificar ponte local** confirma que
+   o serviço loopback está respondendo.
+
+Processos sem documento/OCR entram como `acquisition_pending`: eles contam na
+prévia de aquisição e no lote, mas não são apresentados como prontos para
+preflight. Identidade ambígua, ausência da ação observada e processos já
+complementados ficam fora da fila de aquisição.
 
 `TESTAR-PACOTE.ps1` verifica offline Python/Tesseract, idiomas `por`, `eng` e
 `osd`, manifest e todos os arquivos declarados, permissões exatas, ausência de

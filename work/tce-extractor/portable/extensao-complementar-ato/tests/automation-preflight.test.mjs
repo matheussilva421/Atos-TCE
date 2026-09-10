@@ -40,6 +40,15 @@ function field(value, overrides = {}) {
   };
 }
 
+function missingField() {
+  return field(null, {
+    status: "missing",
+    confidence: "none",
+    source_value: null,
+    form_value: null,
+  });
+}
+
 function record(overrides = {}) {
   return {
     dataset_sha256: HASH,
@@ -112,6 +121,38 @@ test("prepares only the seven allowlisted fields when the snapshot is empty", ()
   assert.deepEqual(result.fields, values);
   assert.deepEqual(result.preserved, {});
   assert.deepEqual(result.reasons, []);
+});
+
+test("allows missing gender but rejects every other missing field", () => {
+  const genderMissing = prepareAutomaticAct(input({
+    record: record({
+      fields: {
+        ...record().fields,
+        genero: missingField(),
+      },
+    }),
+  }));
+
+  assert.equal(genderMissing.eligible, true);
+  assert.deepEqual(genderMissing.fields, Object.fromEntries(
+    Object.entries(values).filter(([fieldName]) => fieldName !== "genero"),
+  ));
+  assert.deepEqual(genderMissing.reasons, []);
+
+  for (const requiredField of ALLOWED_FIELDS.filter((fieldName) => fieldName !== "genero")) {
+    const result = prepareAutomaticAct(input({
+      record: record({
+        fields: {
+          ...record().fields,
+          [requiredField]: missingField(),
+        },
+      }),
+    }));
+
+    assert.equal(result.eligible, false, `${requiredField} must block preflight`);
+    assert.deepEqual(result.fields, {}, `${requiredField} must not produce a partial write`);
+    assert.ok(result.reasons.includes("FIELD_PROPOSAL_MISSING"), requiredField);
+  }
 });
 
 test("preserves empty and conservatively equivalent current values", () => {

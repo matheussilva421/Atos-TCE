@@ -90,6 +90,98 @@ function validateProgressEnvelope(payload) {
   return payload;
 }
 
+const ANALYSIS_ID_RE = /^analysis-[0-9a-f]{24}$/u;
+const ACQUISITION_JOB_ID_RE = /^acq-[0-9a-f]{24}$/u;
+
+function validateAnalysisId(value) {
+  if (typeof value !== 'string' || !ANALYSIS_ID_RE.test(value)) {
+    throw bridgeError('analysisId inválido', 'INVALID_ANALYSIS_ID');
+  }
+  return value;
+}
+
+function validateAcquisitionJobId(value) {
+  if (typeof value !== 'string' || !ACQUISITION_JOB_ID_RE.test(value)) {
+    throw bridgeError('jobId inválido', 'INVALID_ACQUISITION_JOB_ID');
+  }
+  return value;
+}
+
+function validateAcquisitionEnvelope(payload, expectedAnalysisId, expectedJobId = null) {
+  objectPayload(payload);
+  requireApiVersion(payload, 'acquisition');
+  if (payload.analysis_id !== expectedAnalysisId || typeof payload.analysis_id !== 'string') {
+    throw invalidResponse('acquisition.analysis_id incompatível');
+  }
+  if (typeof payload.job_id !== 'string' || !ACQUISITION_JOB_ID_RE.test(payload.job_id)
+    || (expectedJobId !== null && payload.job_id !== expectedJobId)) {
+    throw invalidResponse('acquisition.job_id inválido');
+  }
+  if (!Number.isSafeInteger(payload.lot_number) || payload.lot_number < 1 || payload.lot_number > 1000) {
+    throw invalidResponse('acquisition.lot_number inválido');
+  }
+  if (!['started', 'running', 'completed', 'failed'].includes(payload.status)) {
+    throw invalidResponse('acquisition.status inválido');
+  }
+  if (!Number.isSafeInteger(payload.pid) || payload.pid < 0) throw invalidResponse('acquisition.pid inválido');
+  if (Object.hasOwn(payload, 'return_code') && (!Number.isSafeInteger(payload.return_code) || payload.return_code < 0)) {
+    throw invalidResponse('acquisition.return_code inválido');
+  }
+  return payload;
+}
+
+function validateAnalysisSpec(spec) {
+  if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) {
+    throw bridgeError('spec da análise inválida', 'INVALID_ANALYSIS');
+  }
+  const expected = [
+    'schema_version',
+    'source_scope',
+    'marker',
+    'acquisition_source',
+    'lot_size',
+    'analysis_only',
+    'auto_prepare',
+    'auto_submit',
+    'dataset_sha256',
+  ];
+  const keys = Object.keys(spec);
+  if (keys.length !== expected.length || expected.some((key) => !Object.hasOwn(spec, key))) {
+    throw bridgeError('spec da análise possui chaves inválidas', 'INVALID_ANALYSIS');
+  }
+  if (spec.schema_version !== 2 || !['sector_finalistic', 'my_processes'].includes(spec.source_scope)) {
+    throw bridgeError('origem da análise inválida', 'INVALID_ANALYSIS');
+  }
+  if (spec.marker === null || typeof spec.marker !== 'object' || Array.isArray(spec.marker)
+    || Object.keys(spec.marker).length !== 2
+    || typeof spec.marker.label !== 'string' || !spec.marker.label
+    || typeof spec.marker.value !== 'string' || !spec.marker.value) {
+    throw bridgeError('marcador da análise inválido', 'INVALID_ANALYSIS');
+  }
+  if (spec.acquisition_source !== 'econtas'
+    || !Number.isSafeInteger(spec.lot_size) || spec.lot_size < 1 || spec.lot_size > 1000
+    || typeof spec.analysis_only !== 'boolean'
+    || typeof spec.auto_prepare !== 'boolean'
+    || typeof spec.auto_submit !== 'boolean') {
+    throw bridgeError('opções da análise inválidas', 'INVALID_ANALYSIS');
+  }
+  if (spec.dataset_sha256 !== null && (typeof spec.dataset_sha256 !== 'string' || !/^[0-9a-f]{64}$/u.test(spec.dataset_sha256))) {
+    throw bridgeError('hash do dataset da análise inválido', 'INVALID_ANALYSIS');
+  }
+  return spec;
+}
+
+function validateAnalysisEnvelope(payload) {
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)
+    || payload.schema_version !== 1
+    || typeof payload.analysis_id !== 'string' || !ANALYSIS_ID_RE.test(payload.analysis_id)
+    || typeof payload.dataset_sha256 !== 'string' || !/^[0-9a-f]{64}$/u.test(payload.dataset_sha256)) {
+    throw invalidResponse('snapshot de análise inválido');
+  }
+  if (Object.hasOwn(payload, 'canonical_json')) throw invalidResponse('snapshot expõe conteúdo canônico interno');
+  return payload;
+}
+
 function wireIdentity(identity) {
   validateAutomationIdentity(identity);
   return {
@@ -112,6 +204,12 @@ function wireRunSpec(spec, eventId) {
   if (spec.mode !== undefined) wire.mode = spec.mode;
   if (spec.pilotIdentity !== undefined) wire.pilot_identity = wireIdentity(spec.pilotIdentity);
   if (spec.marker !== undefined) wire.marker = spec.marker;
+  if (spec.markerValue !== undefined) wire.marker_value = spec.markerValue;
+  if (spec.sourceScope !== undefined) wire.source_scope = spec.sourceScope;
+  if (spec.acquisitionSource !== undefined) wire.acquisition_source = spec.acquisitionSource;
+  if (spec.lotSize !== undefined) wire.lot_size = spec.lotSize;
+  if (spec.analysisId !== undefined) wire.analysis_id = spec.analysisId;
+  if (spec.previewHash !== undefined) wire.preview_hash = spec.previewHash;
   if (spec.autoSubmit !== undefined) wire.auto_submit = spec.autoSubmit;
   return wire;
 }
@@ -372,6 +470,48 @@ export function createBridgeClient({ fetchImpl = globalThis.fetch, baseUrl, toke
       return request(since === undefined ? '/state' : `/state?since=${encodeURIComponent(since)}`, { validate: validateStateEnvelope });
     },
     async getDataset() { return request('/dataset', { validate: validateDatasetEnvelope }); },
+    async createAnalysisPreview({ spec, rows, observedAt } = {}) {
+      validateAnalysisSpec(spec);
+      if (!Array.isArray(rows) || rows.length > 10000 || rows.some((row) => row === null || typeof row !== 'object' || Array.isArray(row))) {
+        throw bridgeError('rows da análise inválidas', 'INVALID_ANALYSIS');
+      }
+      if (typeof observedAt !== 'string' || !observedAt) throw bridgeError('observedAt inválido', 'INVALID_ANALYSIS');
+      return request('/analysis/preview', {
+        method: 'POST',
+        body: { spec, rows, observed_at: observedAt },
+        validate: validateAnalysisEnvelope,
+      });
+    },
+    async getAnalysisPreview(analysisId) {
+      return request(`/analysis/${encodeURIComponent(validateAnalysisId(analysisId))}`, {
+        validate: validateAnalysisEnvelope,
+      });
+    },
+    async createAnalysisLots(analysisId) {
+      return request(`/analysis/${encodeURIComponent(validateAnalysisId(analysisId))}/lots`, {
+        method: 'POST',
+        body: {},
+        validate: validateAnalysisEnvelope,
+      });
+    },
+    async startAnalysisAcquisition(analysisId, lotNumber) {
+      const normalizedAnalysisId = validateAnalysisId(analysisId);
+      if (!Number.isSafeInteger(lotNumber) || lotNumber < 1 || lotNumber > 1000) {
+        throw bridgeError('lotNumber inválido', 'INVALID_LOT_NUMBER');
+      }
+      return request(`/analysis/${encodeURIComponent(normalizedAnalysisId)}/acquire`, {
+        method: 'POST',
+        body: { lot_number: lotNumber },
+        validate: (payload) => validateAcquisitionEnvelope(payload, normalizedAnalysisId),
+      });
+    },
+    async getAnalysisAcquisition(analysisId, jobId) {
+      const normalizedAnalysisId = validateAnalysisId(analysisId);
+      const normalizedJobId = validateAcquisitionJobId(jobId);
+      return request(`/analysis/${encodeURIComponent(normalizedAnalysisId)}/acquire/${encodeURIComponent(normalizedJobId)}`, {
+        validate: (payload) => validateAcquisitionEnvelope(payload, normalizedAnalysisId, normalizedJobId),
+      });
+    },
     async publishSelection(selection) {
       return request('/selection', { method: 'POST', body: { ...validateSelection(selection) }, validate: validateSelectionEnvelope });
     },

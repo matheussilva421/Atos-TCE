@@ -19,6 +19,7 @@ Chrome para auxiliar no preenchimento de sete campos do **Complementar Ato**.
    A opção 7 do menu faz apenas o diagnóstico de Python e OCR.
 4. Para consultar o lote que já veio pronto, abra
    `acervo-tce\complementar-ato.html` ou escolha a opção 5 de `INICIAR.cmd`/`INICIAR.bat`.
+   Use `INICIAR.bat ponte` para iniciar e testar a ponte local sem abrir o menu.
 
 ## Primeiro uso em outro computador
 
@@ -64,6 +65,8 @@ Abra `INICIAR.cmd` ou `INICIAR.bat` e escolha:
 | 6 | Fluxo completo | Coletar, analisar, atualizar resultados e abrir o HTML |
 | 7 | Diagnóstico do runtime | Testar Python e idiomas do OCR; não substitui `TESTAR-PACOTE.ps1` |
 | 8 | Zerar acervo e iniciar novo lote | Guardar o lote anterior e começar coleta, análise, HTML e JSON do zero |
+| 9 | Verificar ponte local | Confirmar que o serviço loopback está respondendo |
+| 10 | Baixar e preparar OCR de lote congelado | Drenar um snapshot criado pelo painel, sem substituir a ordem |
 
 Na seleção de processos, você pode digitar:
 
@@ -144,6 +147,16 @@ em **Iniciar**. O worker seleciona o marcador, confirma a filtragem, pagina até
 o fim, abre os processos, seleciona o interessado e prepara somente os atos com
 ação observável **Complementar Ato**. O painel mostra totais descobertos,
 elegíveis e pendentes; a fila é congelada antes da primeira escrita.
+
+Para o fluxo híbrido, escolha no painel entre **Processos no setor / finalísticos /
+Proc./Doc. Eletrônicos** e **Meus Processos Eletrônicos**. A análise usa a Área
+Restrita autenticada e permanece somente leitura. Depois de criar os lotes,
+selecione um lote e clique em **Baixar e preparar OCR do lote**: a ponte chama
+o coletor com a fila congelada, usa o e-Contas para baixar e prepara OCR local.
+O escopo congelado preserva a escolha: `sector_finalistic` abre a lista
+**Processos no setor/finalísticos**; `my_processes` abre **Meus Processos**.
+Processos sem documentos entram como pendentes de aquisição, não como atos
+prontos para preflight. A opção 10 oferece o mesmo fluxo pelo terminal.
 
 O checkbox **Concluir automaticamente os atos elegíveis** só pode ser marcado
 com capacidade de envio qualificada. Quando habilitado, o fluxo registra

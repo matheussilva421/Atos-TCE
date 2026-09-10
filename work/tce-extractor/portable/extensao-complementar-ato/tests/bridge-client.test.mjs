@@ -255,6 +255,12 @@ test('bridge exposes authenticated automation methods with closed wire payloads'
     datasetSha256: 'a'.repeat(64),
     rulesVersion: 'legal-foundation-v1',
     marker: 'PROFESSOR - IPERN - 2 RUBRICAS',
+    markerValue: 'marker-1',
+    sourceScope: 'my_processes',
+    acquisitionSource: 'econtas',
+    lotSize: 100,
+    analysisId: `analysis-${'a'.repeat(24)}`,
+    previewHash: 'a'.repeat(64),
     autoSubmit: true,
   }, 'start-1');
   await bridge.freezeAutomationQueue('run-1', {
@@ -295,6 +301,12 @@ test('bridge exposes authenticated automation methods with closed wire payloads'
     dataset_sha256: 'a'.repeat(64),
     rules_version: 'legal-foundation-v1',
     marker: 'PROFESSOR - IPERN - 2 RUBRICAS',
+    marker_value: 'marker-1',
+    source_scope: 'my_processes',
+    acquisition_source: 'econtas',
+    lot_size: 100,
+    analysis_id: `analysis-${'a'.repeat(24)}`,
+    preview_hash: 'a'.repeat(64),
     auto_submit: true,
     event_id: 'start-1',
   });
@@ -303,6 +315,75 @@ test('bridge exposes authenticated automation methods with closed wire payloads'
     event_id: 'queue-1',
     expected_revision: 0,
   });
+});
+
+test('bridge exposes authenticated analysis preview and deterministic lot methods', async () => {
+  const calls = [];
+  const analysis = {
+    schema_version: 1,
+    analysis_id: `analysis-${'a'.repeat(24)}`,
+    dataset_sha256: 'a'.repeat(64),
+    preview: { total_seen: 1, eligible: 1, lot_count: 1 },
+    queue: [],
+    blocked: [],
+  };
+  const bridge = createBridgeClient({
+    baseUrl: 'http://127.0.0.1:18743',
+    token: 'test',
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return { ok: true, status: 200, json: async () => analysis };
+    },
+  });
+  const spec = {
+    schema_version: 2,
+    source_scope: 'my_processes',
+    marker: { label: 'Marcador', value: 'm-1' },
+    acquisition_source: 'econtas',
+    lot_size: 50,
+    analysis_only: true,
+    auto_prepare: true,
+    auto_submit: false,
+    dataset_sha256: null,
+  };
+
+  await bridge.createAnalysisPreview({ spec, rows: [], observedAt: '2026-09-10T12:00:00Z' });
+  await bridge.getAnalysisPreview(analysis.analysis_id);
+  await bridge.createAnalysisLots(analysis.analysis_id);
+
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    spec,
+    rows: [],
+    observed_at: '2026-09-10T12:00:00Z',
+  });
+  assert.match(calls[1].url, /\/analysis\/analysis-aaaaaaaaaaaaaaaaaaaaaaaa$/u);
+  assert.match(calls[2].url, /\/analysis\/analysis-aaaaaaaaaaaaaaaaaaaaaaaa\/lots$/u);
+});
+
+test('bridge exposes authenticated acquisition start and status for a frozen analysis lot', async () => {
+  const calls = [];
+  const analysisId = `analysis-${'a'.repeat(24)}`;
+  const jobId = `acq-${'b'.repeat(24)}`;
+  const bridge = createBridgeClient({
+    baseUrl: 'http://127.0.0.1:18743',
+    token: 'test',
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      const status = url.endsWith(`/analysis/${analysisId}/acquire/${jobId}`)
+        ? { api_version: 1, analysis_id: analysisId, job_id: jobId, lot_number: 2, status: 'running', pid: 4321 }
+        : { api_version: 1, analysis_id: analysisId, job_id: jobId, lot_number: 2, status: 'started', pid: 4321 };
+      return { ok: true, status: 202, json: async () => status };
+    },
+  });
+
+  const started = await bridge.startAnalysisAcquisition(analysisId, 2);
+  const observed = await bridge.getAnalysisAcquisition(analysisId, jobId);
+
+  assert.equal(started.job_id, jobId);
+  assert.equal(observed.status, 'running');
+  assert.equal(calls[0].options.method, 'POST');
+  assert.deepEqual(JSON.parse(calls[0].options.body), { lot_number: 2 });
+  assert.match(calls[1].url, /\/analysis\/analysis-aaaaaaaaaaaaaaaaaaaaaaaa\/acquire\/acq-bbbbbbbbbbbbbbbbbbbbbbbb$/u);
 });
 
 test('new automation client falls back to manual mode when an old service lacks capabilities', async () => {

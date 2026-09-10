@@ -47,6 +47,8 @@ function statusToPublic(state) {
     revision: state.revision,
     tabId: state.tabId,
     sector: state.sector,
+    sourceScope: state.sourceScope,
+    source_scope: state.sourceScope,
     mode: state.mode,
     marker: state.marker,
     autoSubmit: state.autoSubmit,
@@ -319,6 +321,7 @@ export function createAutomationController({
     revision: 0,
     tabId: null,
     sector: null,
+    sourceScope: null,
     mode: "batch",
     marker: null,
     autoSubmit: false,
@@ -329,6 +332,7 @@ export function createAutomationController({
     frame: null,
     submitFrame: null,
     queue: [],
+    areaObservations: new Map(),
     seenIdentities: new Set(),
     completedIdentities: new Set(),
     totals: { discovered: 0, unique: 0, pending: 0 },
@@ -413,10 +417,17 @@ export function createAutomationController({
       role: snapshot.role,
       generation: snapshot.generation,
       sector: snapshot.sector ?? null,
+      source_scope: snapshot.source_scope ?? null,
       observedAt: now(),
     };
     frames.set(`${tabId}:${frameId}`, registration);
-    state.frame = { frameId, role: snapshot.role, generation: snapshot.generation, sector: snapshot.sector ?? null };
+    state.frame = {
+      frameId,
+      role: snapshot.role,
+      generation: snapshot.generation,
+      sector: snapshot.sector ?? null,
+      source_scope: snapshot.source_scope ?? null,
+    };
     void persistFrames().catch(() => undefined);
   }
 
@@ -442,6 +453,13 @@ export function createAutomationController({
     for (const candidate of snapshot.identities ?? []) {
       state.totals.discovered += 1;
       const rawKey = identityKey(candidate);
+      if (!state.areaObservations.has(rawKey) && candidate?.processKey) {
+        state.areaObservations.set(rawKey, {
+          candidate: clone(candidate),
+          source_scope: snapshot.source_scope ?? null,
+          marker: clone(snapshot.marker),
+        });
+      }
       if (state.seenIdentities.has(rawKey)) continue;
       state.seenIdentities.add(rawKey);
       state.totals.unique += 1;
@@ -456,6 +474,36 @@ export function createAutomationController({
       }
       state.queue.push(identity);
     }
+  }
+
+  async function analysisRows(spec) {
+    const rows = [];
+    for (const observation of state.areaObservations.values()) {
+      const candidate = observation.candidate;
+      const marker = observation.marker;
+      if (observation.source_scope !== spec.sourceScope || !isRecord(marker)
+        || typeof marker.label !== "string" || typeof marker.value !== "string") continue;
+      const identity = resolvedIdentity(candidate);
+      const snapshotHash = await sha256Hex({
+        source_scope: observation.source_scope,
+        marker,
+        identity: candidate,
+        needs_complement: candidate.needsComplement === true,
+      });
+      rows.push({
+        process_key: candidate.processKey,
+        interested_key: identity?.interestedNormalized ?? null,
+        area_restrita: {
+          scope: observation.source_scope,
+          marker_label: marker.label,
+          marker_value: marker.value,
+          needs_complement: candidate.needsComplement === true,
+          action_observed: candidate.needsComplement === true ? "Complementar Ato" : "Complementar Ato já concluído",
+          snapshot_hash: snapshotHash,
+        },
+      });
+    }
+    return rows;
   }
 
   function markerMatches(snapshot, expectedMarker) {
@@ -1033,6 +1081,7 @@ export function createAutomationController({
       revision: 0,
       tabId: spec.tabId,
       sector: spec.sector,
+      sourceScope: spec.sourceScope ?? null,
       mode: spec.mode ?? "batch",
       marker: spec.marker ?? null,
       autoSubmit: spec.autoSubmit === true,
@@ -1043,6 +1092,7 @@ export function createAutomationController({
       frame: null,
       submitFrame: null,
       queue: [],
+      areaObservations: new Map(),
       seenIdentities: new Set(),
       completedIdentities: new Set(),
       totals: { discovered: 0, unique: 0, pending: 0 },
@@ -1052,7 +1102,13 @@ export function createAutomationController({
     const storedFrames = [...frames.values()].filter((entry) => entry.tabId === spec.tabId);
     if (storedFrames.length === 1) {
       const stored = storedFrames[0];
-      state.frame = { frameId: stored.frameId, role: stored.role, generation: stored.generation, sector: stored.sector ?? null };
+      state.frame = {
+        frameId: stored.frameId,
+        role: stored.role,
+        generation: stored.generation,
+        sector: stored.sector ?? null,
+        source_scope: stored.source_scope ?? null,
+      };
     }
     refreshSubmitFrame(spec.tabId);
     const run = await bridge.createAutomationRun(spec, startEventId);
@@ -1062,6 +1118,10 @@ export function createAutomationController({
     if (!first) return statusToPublic(state);
     if (first.snapshot.sector && first.snapshot.sector !== spec.sector) {
       setPaused("sector changed before discovery");
+      return statusToPublic(state);
+    }
+    if (spec.sourceScope && first.snapshot.source_scope !== spec.sourceScope) {
+      setPaused("origem selecionada não corresponde à lista aberta; navegue para a tela escolhida antes de iniciar");
       return statusToPublic(state);
     }
     if (first.snapshot.role !== "list") {
@@ -1102,6 +1162,73 @@ export function createAutomationController({
       await driveSnapshot(spec.tabId, state.frame?.frameId ?? 0, ready);
     }
     return statusToPublic(state);
+  }
+
+  async function analyze(input) {
+    const spec = input?.spec ?? input;
+    validateAutomationRunSpec(spec);
+    if (ACTIVE_STATUSES.has(state.status)) {
+      const error = new Error("an automation run is already active");
+      error.code = "ACTIVE_RUN";
+      throw error;
+    }
+    await loadFrames();
+    state = {
+      runId: null,
+      status: "discovering",
+      revision: 0,
+      tabId: spec.tabId,
+      sector: spec.sector,
+      sourceScope: spec.sourceScope ?? null,
+      mode: "batch",
+      marker: spec.marker ?? null,
+      autoSubmit: false,
+      pilotIdentity: null,
+      queueFrozen: false,
+      currentIdentity: null,
+      pausedReason: null,
+      frame: null,
+      submitFrame: null,
+      queue: [],
+      areaObservations: new Map(),
+      seenIdentities: new Set(),
+      completedIdentities: new Set(),
+      totals: { discovered: 0, unique: 0, pending: 0 },
+      eventPrefix: eventPrefix(input?.eventId ?? eventId("analysis")),
+    };
+    const first = await readPortalSnapshot(spec.tabId);
+    if (!first) return { ok: false, error: "portal snapshot unavailable" };
+    if (spec.sector !== "*" && first.snapshot.sector && first.snapshot.sector !== spec.sector) {
+      setPaused("sector changed before analysis");
+      return { ok: false, error: state.pausedReason, totals: state.totals };
+    }
+    if (spec.sourceScope && first.snapshot.source_scope !== spec.sourceScope) {
+      setPaused("origem selecionada não corresponde à lista aberta; navegue para a tela escolhida antes de analisar");
+      return { ok: false, error: state.pausedReason, totals: state.totals };
+    }
+    if (first.snapshot.role !== "list") {
+      setPaused("manual navigation required: process list not visible");
+      return { ok: false, error: state.pausedReason, totals: state.totals };
+    }
+    const discovered = await discoverList(spec.tabId, first.snapshot, spec);
+    if (!discovered || state.status === "paused") {
+      return { ok: false, error: state.pausedReason ?? "analysis paused", totals: state.totals };
+    }
+    const rows = await analysisRows(spec);
+    const marker = rows[0]?.area_restrita
+      ? { label: rows[0].area_restrita.marker_label, value: rows[0].area_restrita.marker_value }
+      : null;
+    const result = {
+      source_scope: spec.sourceScope,
+      marker,
+      rows,
+      totals: clone(state.totals),
+      tab_id: spec.tabId,
+      frame_id: state.frame?.frameId ?? 0,
+    };
+    state.status = "stopped";
+    state.pausedReason = null;
+    return result;
   }
 
   async function control(action, input = {}) {
@@ -1148,6 +1275,10 @@ export function createAutomationController({
     for (let step = 0; step < 100 && state.status === "running"; step += 1) {
       if (snapshot.sector && snapshot.sector !== state.sector) {
         setPaused("setor mudou durante a navegação");
+        return;
+      }
+      if (state.sourceScope && snapshot.source_scope !== state.sourceScope) {
+        setPaused("a tela atual não corresponde à origem selecionada");
         return;
       }
       if (state.marker && snapshot.role === "list" && !markerMatches(snapshot, state.marker)) {
@@ -1270,7 +1401,13 @@ export function createAutomationController({
       return statusToPublic(state);
     }
     if (event.tabId !== state.tabId) return statusToPublic(state);
-    if (state.frame && event.frameId !== state.frame.frameId && snapshot?.role !== "form") return statusToPublic(state);
+    // Area Restrita opens Complementar Ato in a new sibling frame. The first
+    // event from that frame is the unselected interested-party surface, not a
+    // form yet, so it must be accepted before the controller can select the
+    // radio and continue with field preparation.
+    if (state.frame
+      && event.frameId !== state.frame.frameId
+      && !["interested", "form"].includes(snapshot?.role)) return statusToPublic(state);
     if (eventType === "navigation") invalidateFrames(event.tabId);
     if (eventType === "frame_unavailable" || eventType === "tab_closed") {
       setPaused(eventType === "tab_closed" ? "tab closed" : "portal frame unavailable");
@@ -1355,6 +1492,7 @@ export function createAutomationController({
 
   return Object.freeze({
     start,
+    analyze,
     pause: (input) => control("pause", input),
     resume: (input) => control("resume", input),
     stop: (input) => control("stop", input),

@@ -7,6 +7,7 @@ const AUTOMATION_FIELDS = Object.freeze([
   "data_nascimento",
   "genero",
 ]);
+const REQUIRED_AUTOMATION_FIELDS = Object.freeze(AUTOMATION_FIELDS.filter((field) => field !== "genero"));
 
 const DATE_FIELDS = new Set(["data_publicacao_doe", "data_nascimento"]);
 const PROCESS_KEY_RE = /^\d+\/\d{4}$/u;
@@ -136,8 +137,10 @@ function optionValueExists(options, proposed) {
 }
 
 function fieldProposal(field, recordField, legalDecision) {
+  if (!isRecord(recordField) || typeof recordField.form_value !== "string" || !recordField.form_value.trim()) {
+    return null;
+  }
   if (field === "fundamento_legal") return legalDecision.option_value;
-  if (!isRecord(recordField)) return null;
   const value = recordField.form_value;
   return typeof value === "string" && value.trim() ? value : null;
 }
@@ -295,7 +298,7 @@ export function prepareAutomaticAct({ record, context, snapshot, legalDecision }
     }
     if (proposed === null) {
       preserved[field] = current;
-      addReason(reasons, "FIELD_PROPOSAL_MISSING");
+      if (REQUIRED_AUTOMATION_FIELDS.includes(field)) addReason(reasons, "FIELD_PROPOSAL_MISSING");
       fieldEvidence[field] = { current, proposed: null, action: "preserve" };
       continue;
     }
