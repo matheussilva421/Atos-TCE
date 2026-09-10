@@ -100,6 +100,98 @@ function Get-FileSha256 {
     }
 }
 
+function ConvertFrom-GitStatusOutput {
+    param([AllowEmptyString()][string]$Output)
+
+    $states = @{}
+    if ($null -eq $Output) { return $states }
+
+    foreach ($record in ($Output -split [char]0)) {
+        if ([string]::IsNullOrWhiteSpace($record)) { continue }
+        $recordType = $record.Substring(0, 1)
+        $separatorCount = switch ($recordType) {
+            '1' { 8 }
+            '2' { 9 }
+            'u' { 11 }
+            '?' { 1 }
+            '!' { 1 }
+            default { -1 }
+        }
+        if ($separatorCount -lt 0) { continue }
+
+        $seenSeparators = 0
+        $pathStart = -1
+        for ($index = 0; $index -lt $record.Length; $index++) {
+            if ($record[$index] -eq ' ') {
+                $seenSeparators++
+                if ($seenSeparators -eq $separatorCount) {
+                    $pathStart = $index + 1
+                    break
+                }
+            }
+        }
+        if ($pathStart -lt 0 -or $pathStart -ge $record.Length) { continue }
+
+        $path = $record.Substring($pathStart) -replace '\\', '/'
+        $path = $path -replace '^(?:\./)+', ''
+        if ([string]::IsNullOrWhiteSpace($path)) { continue }
+
+        $state = switch ($recordType) {
+            { $_ -in @('1', '2', 'u') } { 'modified' }
+            '?' { 'untracked' }
+            '!' { 'ignored' }
+        }
+        $states[$path.ToLowerInvariant()] = $state
+    }
+    return $states
+}
+
+function Get-GitStatusSnapshot {
+    param([Parameter(Mandatory = $true)][string]$RepoRoot)
+
+    try {
+        $gitArguments = @(
+            '-c', ('safe.directory=' + $RepoRoot),
+            '-C', $RepoRoot,
+            'status', '--porcelain=v2', '-z', '--untracked-files=all', '--ignored=matching'
+        )
+        $gitOutput = @(& git @gitArguments 2>$null)
+        $gitExitCode = $LASTEXITCODE
+        if ($gitExitCode -ne 0) { throw "git status retornou código $gitExitCode" }
+
+        $gitText = [string]::Join(([char]0).ToString(), [string[]]$gitOutput)
+        return [pscustomobject]@{
+            Source = 'queried'
+            States = (ConvertFrom-GitStatusOutput $gitText)
+        }
+    } catch {
+        return [pscustomobject]@{
+            Source = 'unavailable'
+            States = @{}
+        }
+    }
+}
+
+function Resolve-GitState {
+    param(
+        [Parameter(Mandatory = $true)][pscustomobject]$Snapshot,
+        [Parameter(Mandatory = $true)][string]$RelativePath
+    )
+
+    if ($Snapshot.Source -ne 'queried') { return 'unknown' }
+    $key = (($RelativePath -replace '\\', '/') -replace '^(?:\./)+', '').ToLowerInvariant()
+    if ($Snapshot.States.ContainsKey($key)) { return $Snapshot.States[$key] }
+    return 'clean_tracked'
+}
+
+function Get-ShortErrorMessage {
+    param([Parameter(Mandatory = $true)][object]$ErrorRecord)
+
+    $message = ([string]$ErrorRecord.Exception.Message -replace '\s+', ' ').Trim()
+    if ($message.Length -gt 160) { return $message.Substring(0, 160) }
+    return $message
+}
+
 function Get-PathClassification {
     param([Parameter(Mandatory = $true)][string]$RelativePath)
 
@@ -160,9 +252,17 @@ function Get-ReferenceMap {
         '-n', '--fixed-strings', '--no-heading', '--color', 'never',
         '--glob', '!*.pdf', '--glob', '!*.zip', '--glob', '!*.7z', '--glob', '!*.tar', '--glob', '!*.gz',
         '--glob', '!profile/**', '--glob', '!.chrome-work*/**', '--glob', '!.git/**', '--glob', '!.codex*/**',
+        '--glob', '!**/dados-locais/**', '--glob', '!**/acervo-tce/**', '--glob', '!**/backups-acervo/**',
+        '--glob', '!**/tce-acervo*/**', '--glob', '!**/TCE-Acervo*/**',
         '--file', '-', '--', $RootPath
     )
-    $output = @($patternInput | & $rgPath @rgArguments 2>$null)
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $output = @($patternInput | & $rgPath @rgArguments 2>&1)
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
     $referenceMap = @{}
     foreach ($line in $output) {
         $text = [string]$line
@@ -213,16 +313,33 @@ $manifestParentResolved = Get-ResolvedPath $manifestParent
 if (-not (Test-PathWithinRoot -Candidate $manifestParentResolved -Base $rootFull)) {
     throw 'diretório resolvido do manifesto está fora da raiz'
 }
+$manifestExisting = Get-Item -LiteralPath $manifestFull -Force -ErrorAction SilentlyContinue
+if ($null -ne $manifestExisting) {
+    throw "destino do manifesto já existe e não será sobrescrito: $manifestFull"
+}
 
 $queue = New-Object System.Collections.Generic.Queue[IO.DirectoryInfo]
 $protectedDirectories = New-Object System.Collections.Generic.HashSet[string]
 $queue.Enqueue((Get-Item -LiteralPath $rootFull -Force))
 $items = New-Object System.Collections.Generic.List[object]
+$warnings = New-Object System.Collections.Generic.List[string]
+$skippedDirectories = 0
+$gitSnapshot = Get-GitStatusSnapshot -RepoRoot $projectRoot
 
 while ($queue.Count -gt 0) {
     $directory = $queue.Dequeue()
     $protectedParent = $protectedDirectories.Contains($directory.FullName)
-    foreach ($item in @(Get-ChildItem -LiteralPath $directory.FullName -Force -ErrorAction Stop)) {
+    try {
+        $children = @(Get-ChildItem -LiteralPath $directory.FullName -Force -ErrorAction Stop)
+    } catch {
+        $relativeDirectory = Get-RelativePath -Path $directory.FullName -Base $rootFull
+        $reason = Get-ShortErrorMessage $_
+        [void]$warnings.Add("diretório ignorado: $relativeDirectory ($reason)")
+        $skippedDirectories++
+        continue
+    }
+
+    foreach ($item in $children) {
         $itemFull = ConvertTo-FullPath $item.FullName
         if (-not (Test-PathWithinRoot -Candidate $itemFull -Base $rootFull)) {
             throw "item fora da raiz: $itemFull"
@@ -245,12 +362,21 @@ while ($queue.Count -gt 0) {
         $bytes = [int64]0
         $sha256 = $null
         $isProtected = $classification.Classification -in @('private_operational_data', 'active_profile_or_session')
-        $isLargeOpaque = ([IO.Path]::GetExtension($item.Name).ToLowerInvariant() -in @('.pdf', '.zip', '.7z', '.tar', '.gz')) -and ([int64]$item.Length -gt 16777216)
-        if (-not $item.PSIsContainer -and -not $isReparse -and -not $isProtected -and -not $isLargeOpaque) {
-            $bytes = [int64]$item.Length
-            $sha256 = Get-FileSha256 $itemFull
-        } elseif (-not $item.PSIsContainer -and -not $isReparse) {
-            $bytes = [int64]$item.Length
+        if (-not $item.PSIsContainer -and -not $isReparse) {
+            try {
+                $itemLength = [int64]$item.Length
+                $isLargeOpaque = ([IO.Path]::GetExtension($item.Name).ToLowerInvariant() -in @('.pdf', '.zip', '.7z', '.tar', '.gz')) -and ($itemLength -gt 16777216)
+                if (-not $isProtected -and -not $isLargeOpaque) {
+                    $bytes = $itemLength
+                    $sha256 = Get-FileSha256 $itemFull
+                } else {
+                    $bytes = $itemLength
+                }
+            } catch {
+                $sha256 = $null
+                $reason = Get-ShortErrorMessage $_
+                [void]$warnings.Add("arquivo sem leitura/hash: $relative ($reason)")
+            }
         }
 
         $items.Add([pscustomobject]@{
@@ -259,7 +385,7 @@ while ($queue.Count -gt 0) {
             Kind = $kind
             Bytes = $bytes
             Sha256 = $sha256
-            GitState = 'untracked_or_modified_snapshot'
+            GitState = (Resolve-GitState -Snapshot $gitSnapshot -RelativePath (Get-RelativePath -Path $itemFull -Base $projectRoot))
             ReferencedBy = @()
             Classification = $classification.Classification
             Reason = $classification.Reason
@@ -269,7 +395,7 @@ while ($queue.Count -gt 0) {
         if ($item.PSIsContainer -and -not $isReparse) {
             if ($isProtected) { [void]$protectedDirectories.Add($itemFull) }
             if (-not $protectedParent) {
-                $queue.Enqueue((Get-Item -LiteralPath $itemFull -Force))
+                $queue.Enqueue([IO.DirectoryInfo]$item)
             }
         }
     }
@@ -312,6 +438,28 @@ foreach ($entry in $itemArray) {
     })
 }
 $json = ConvertTo-Json -InputObject $manifestEntries.ToArray() -Depth 10
-[IO.File]::WriteAllText($manifestFull, $json, (New-Object Text.UTF8Encoding($false)))
-$summary = [pscustomobject]@{ entries = $itemArray.Count; manifest = 'written' }
+$manifestStream = $null
+try {
+    $manifestEncoding = New-Object Text.UTF8Encoding($false)
+    $manifestBytes = $manifestEncoding.GetBytes($json)
+    $manifestStream = New-Object IO.FileStream(
+        $manifestFull,
+        [IO.FileMode]::CreateNew,
+        [IO.FileAccess]::Write,
+        [IO.FileShare]::None
+    )
+    $manifestStream.Write($manifestBytes, 0, $manifestBytes.Length)
+    $manifestStream.Flush()
+} catch {
+    throw "não foi possível criar o manifesto '$manifestFull' sem sobrescrever: $($_.Exception.Message)"
+} finally {
+    if ($null -ne $manifestStream) { $manifestStream.Dispose() }
+}
+$summary = [pscustomobject]@{
+    entries = $itemArray.Count
+    manifest = 'written'
+    skipped_directories = $skippedDirectories
+    warnings = $warnings.Count
+    git_state_source = $gitSnapshot.Source
+}
 Write-Output (ConvertTo-Json -InputObject $summary -Compress)

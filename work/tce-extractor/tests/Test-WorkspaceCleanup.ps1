@@ -44,6 +44,36 @@ function Invoke-Analyzer {
     & $AnalyzerPath -Root $Root -ManifestPath $ManifestPath | Out-Null
 }
 
+function Invoke-AnalyzerResult {
+    param(
+        [string]$AnalyzerPath,
+        [string]$Root,
+        [string]$ManifestPath
+    )
+
+    $output = @(& $AnalyzerPath -Root $Root -ManifestPath $ManifestPath)
+    return ([string]::Join([Environment]::NewLine, [string[]]$output)).Trim()
+}
+
+function Import-AnalyzerFunction {
+    param(
+        [string]$AnalyzerPath,
+        [string]$Name
+    )
+
+    $tokens = $null
+    $parseErrors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($AnalyzerPath, [ref]$tokens, [ref]$parseErrors)
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $Name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) {
+        throw "função do analisador não encontrada: $Name"
+    }
+    Invoke-Expression ("function global:$Name " + $functionAst.Body.Extent.Text)
+}
+
 function New-TestFile {
     param([string]$Path, [string]$Content)
 
@@ -62,12 +92,21 @@ $outsideTarget = Join-Path $outsideRoot 'outside-target'
 $manifestPath = Join-Path $fixtureRoot 'manifest.json'
 $rejectionManifestPath = Join-Path $fixtureRoot 'rejection.json'
 $outsideManifestPath = Join-Path $outsideRoot 'manifest.json'
+$preexistingManifestPath = Join-Path $fixtureRoot 'preexisting.json'
+$symlinkManifestPath = Join-Path $fixtureRoot 'manifest-leaf-link.json'
+$symlinkManifestTarget = Join-Path $outsideRoot 'manifest-leaf-target.json'
+$symlinkManifestDirectoryTarget = Join-Path $outsideRoot 'manifest-leaf-target-directory'
+$aclManifestPath = Join-Path $fixtureRoot 'acl-result.json'
+$aclDirectory = Join-Path $fixtureRoot 'acl-denied'
+$aclApplied = $false
 
 New-Item -ItemType Directory -Path $fixtureRoot, $outsideTarget -Force | Out-Null
 
 try {
     New-TestFile (Join-Path $fixtureRoot 'src\tracked.ps1') "Write-Output 'source fixture'`n"
     New-TestFile (Join-Path $fixtureRoot 'references.txt') "Referenced path: src\tracked.ps1`nPROFILE-SECRET-DO-NOT-REPORT`n"
+    New-TestFile (Join-Path $fixtureRoot 'dados-locais\reference-leak.txt') "Private hit: src\tracked.ps1`n"
+    New-TestFile (Join-Path $fixtureRoot 'acervo-tce\reference-leak.txt') "Private hit: src\tracked.ps1`n"
 
     $zipBytes = [Text.Encoding]::UTF8.GetBytes('ZIP-SECRET-BYTES-ARE-HASHED-BUT-NOT-REPORTED')
     [IO.File]::WriteAllBytes((Join-Path $fixtureRoot 'duplicate-a.zip'), $zipBytes)
@@ -102,8 +141,43 @@ try {
         exit 1
     }
 
-    Invoke-Analyzer $analyzerPath $fixtureRoot $manifestPath
+    $parserLoaded = $false
+    try {
+        Import-AnalyzerFunction $analyzerPath 'ConvertFrom-GitStatusOutput'
+        Import-AnalyzerFunction $analyzerPath 'Get-GitStatusSnapshot'
+        Import-AnalyzerFunction $analyzerPath 'Resolve-GitState'
+        $parserLoaded = $true
+    } catch {
+        Assert-True $false ('funções de git do analisador são testáveis: ' + $_.Exception.Message)
+    }
+    if ($parserLoaded) {
+        $syntheticGitStatus = @(
+            "1 .M N... 100644 100644 100644 1111111 1111111 SRC/Mixed-Modified.PS1`0",
+            "2 R. N... 100644 100644 100644 2222222 2222222 R100 renamed-new.ps1`0renamed-old.ps1`0",
+            "u UU N... 100644 100644 100644 100644 3333333 3333333 3333333 3333333 unmerged.ps1`0",
+            "? new file.ps1`0",
+            "! ignored.cache`0"
+        ) -join ''
+        $syntheticStates = ConvertFrom-GitStatusOutput $syntheticGitStatus
+        $queriedSynthetic = [pscustomobject]@{ Source = 'queried'; States = $syntheticStates }
+        Assert-Equal ([string]$syntheticStates['src/mixed-modified.ps1']) 'modified' 'git parser mapeia registro 1 como modified'
+        Assert-Equal ([string]$syntheticStates['renamed-new.ps1']) 'modified' 'git parser mapeia registro 2 como modified'
+        Assert-Equal ([string]$syntheticStates['unmerged.ps1']) 'modified' 'git parser mapeia registro u como modified'
+        Assert-Equal ([string]$syntheticStates['new file.ps1']) 'untracked' 'git parser mapeia registro ? como untracked'
+        Assert-Equal ([string]$syntheticStates['ignored.cache']) 'ignored' 'git parser mapeia registro ! como ignored'
+        Assert-Equal ([string](Resolve-GitState -Snapshot $queriedSynthetic -RelativePath 'SRC\clean-tracked.ps1')) 'clean_tracked' 'git estado ausente é clean_tracked'
+
+        $unavailableSynthetic = Get-GitStatusSnapshot -RepoRoot $outsideRoot
+        Assert-Equal ([string]$unavailableSynthetic.Source) 'unavailable' 'git consulta indisponível fica unavailable'
+        Assert-Equal ([string](Resolve-GitState -Snapshot $unavailableSynthetic -RelativePath 'src\unknown.ps1')) 'unknown' 'git consulta indisponível fica unknown'
+    }
+
+    $initialAnalyzerResult = Invoke-AnalyzerResult $analyzerPath $fixtureRoot $manifestPath
+    $initialSummary = $initialAnalyzerResult | ConvertFrom-Json
     Assert-True (Test-Path -LiteralPath $manifestPath -PathType Leaf) 'analisador produz manifesto no caminho solicitado'
+    Assert-Equal ([string]$initialSummary.git_state_source) 'queried' 'resumo registra origem queried do git_state'
+    Assert-True ([int]$initialSummary.skipped_directories -ge 0) 'resumo registra skipped_directories'
+    Assert-True ([int]$initialSummary.warnings -ge 0) 'resumo registra warnings'
 
     $manifestText = [IO.File]::ReadAllText($manifestPath)
     $parsedManifest = $manifestText | ConvertFrom-Json
@@ -122,6 +196,8 @@ try {
     Assert-True ($null -ne $source) 'fonte fixture é enumerada'
     Assert-Equal ([string]$source.classification) 'source' 'fonte recebe classificação source'
     Assert-True (@($source.referenced_by) -contains 'references.txt:1') 'referência registra somente arquivo e linha'
+    Assert-True (-not (@($source.referenced_by) -match 'dados-locais|acervo-tce')) 'referências em diretórios privados são excluídas'
+    Assert-True ([string]$source.git_state -in @('clean_tracked', 'modified', 'untracked', 'ignored', 'unknown')) 'fonte recebe git_state real'
     Assert-True ($manifestText -notmatch 'PROFILE-SECRET|ZIP-SECRET|PRIVATE-SECRET|UNKNOWN-SECRET|OUTSIDE-SECRET') 'manifesto não expõe conteúdo sensível'
 
     $duplicateEntries = @($entries | Where-Object { $_.path -in @('duplicate-a.zip', 'duplicate-b.zip') })
@@ -170,6 +246,100 @@ try {
     foreach ($snapshot in $snapshotFiles) {
         $current = Get-FileHash -LiteralPath (Join-Path $fixtureRoot $snapshot.Path) -Algorithm SHA256
         Assert-Equal $current.Hash $snapshot.Hash ('analisador não altera ' + $snapshot.Path)
+    }
+
+    $preexistingContent = 'PREEXISTING-MANIFEST-MUST-REMAIN-INTACT'
+    New-TestFile $preexistingManifestPath $preexistingContent
+    $preexistingError = $null
+    try {
+        Invoke-Analyzer $analyzerPath $fixtureRoot $preexistingManifestPath
+    } catch {
+        $preexistingError = [string]$_.Exception.Message
+    }
+    Assert-True ($null -ne $preexistingError -and $preexistingError.Contains($preexistingManifestPath)) 'manifesto preexistente é recusado com caminho na mensagem'
+    Assert-Equal ([IO.File]::ReadAllText($preexistingManifestPath)) $preexistingContent 'manifesto preexistente permanece intacto'
+
+    New-TestFile $symlinkManifestTarget 'SYMLINK-MANIFEST-TARGET-MUST-REMAIN-INTACT'
+    New-TestFile (Join-Path $symlinkManifestDirectoryTarget 'sentinel.txt') 'SYMLINK-DIRECTORY-TARGET-MUST-REMAIN-INTACT'
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $symlinkOutput = @(& cmd.exe /c mklink $symlinkManifestPath $symlinkManifestTarget 2>&1)
+    $symlinkExitCode = $LASTEXITCODE
+    $ErrorActionPreference = $previousErrorActionPreference
+    $symlinkKind = 'file symlink'
+    $symlinkCreated = ($symlinkExitCode -eq 0) -and (Test-Path -LiteralPath $symlinkManifestPath)
+    if (-not $symlinkCreated) {
+        $previousErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        $symlinkOutput = @(& cmd.exe /c mklink /J $symlinkManifestPath $symlinkManifestDirectoryTarget 2>&1)
+        $symlinkExitCode = $LASTEXITCODE
+        $ErrorActionPreference = $previousErrorActionPreference
+        $symlinkKind = 'directory junction fallback'
+        $symlinkCreated = ($symlinkExitCode -eq 0) -and (Test-Path -LiteralPath $symlinkManifestPath)
+    }
+    Assert-True $symlinkCreated ('fixture cria ' + $symlinkKind + ' de leaf do manifesto para fora')
+    if ($symlinkCreated) {
+        $symlinkError = $null
+        try {
+            Invoke-Analyzer $analyzerPath $fixtureRoot $symlinkManifestPath
+        } catch {
+            $symlinkError = [string]$_.Exception.Message
+        }
+        Assert-True ($null -ne $symlinkError -and $symlinkError.Contains($symlinkManifestPath) -and $symlinkError -match 'já existe|destino') 'leaf reparse do manifesto é recusado com caminho na mensagem'
+        if ($symlinkKind -eq 'file symlink') {
+            Assert-Equal ([IO.File]::ReadAllText($symlinkManifestTarget)) 'SYMLINK-MANIFEST-TARGET-MUST-REMAIN-INTACT' 'symlink externo não recebe escrita'
+        } else {
+            Assert-Equal ([IO.File]::ReadAllText((Join-Path $symlinkManifestDirectoryTarget 'sentinel.txt'))) 'SYMLINK-DIRECTORY-TARGET-MUST-REMAIN-INTACT' 'junction externa não recebe escrita'
+        }
+        $previousErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        if ($symlinkKind -eq 'file symlink') {
+            @(& cmd.exe /c del $symlinkManifestPath 2>&1) | Out-Null
+        } else {
+            @(& cmd.exe /c rmdir $symlinkManifestPath 2>&1) | Out-Null
+        }
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    New-TestFile (Join-Path $aclDirectory 'blocked.txt') 'ACL-BLOCKED-FILE'
+    try {
+        $currentUserSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        $denyRule = '*{0}:(OI)(CI)(F)' -f $currentUserSid
+        $previousErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        @(& icacls.exe $aclDirectory /deny $denyRule 2>&1) | Out-Null
+        $aclExitCode = $LASTEXITCODE
+        $ErrorActionPreference = $previousErrorActionPreference
+        $aclApplied = ($aclExitCode -eq 0)
+        Assert-True $aclApplied 'fixture aplica ACL de negação no diretório'
+        if ($aclApplied) {
+            $aclResult = $null
+            $aclError = $null
+            try {
+                $aclResult = Invoke-AnalyzerResult $analyzerPath $fixtureRoot $aclManifestPath
+            } catch {
+                $aclError = [string]$_.Exception.Message
+            }
+            Assert-True (Test-Path -LiteralPath $aclManifestPath -PathType Leaf) 'analisador grava manifesto apesar de diretório não listável'
+            if ($null -ne $aclResult) {
+                $aclSummary = $aclResult | ConvertFrom-Json
+                Assert-True ([int]$aclSummary.skipped_directories -ge 1) 'diretório não listável é contabilizado em skipped_directories'
+                Assert-True ([int]$aclSummary.warnings -ge 1) 'falha de enumeração é contabilizada em warnings'
+            } else {
+                Assert-True $false ('diretório não listável não aborta o analisador: ' + $aclError)
+            }
+        }
+    } finally {
+        if (Test-Path -LiteralPath $aclDirectory) {
+            $previousErrorActionPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            @(& icacls.exe $aclDirectory /reset 2>&1) | Out-Null
+            $aclResetExitCode = $LASTEXITCODE
+            $ErrorActionPreference = $previousErrorActionPreference
+            if ($aclResetExitCode -eq 0) {
+                Remove-Item -LiteralPath $aclDirectory -Recurse -Force
+            }
+        }
     }
 
     Assert-Throws { Invoke-Analyzer $analyzerPath '' $manifestPath } 'raiz vazia é recusada'
