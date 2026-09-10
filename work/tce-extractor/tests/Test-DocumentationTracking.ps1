@@ -30,7 +30,11 @@ function Assert-True {
 function Test-GitIgnored {
     param([string]$RepoRoot, [string]$RelativePath)
 
-    & git -c safe.directory=$RepoRoot check-ignore -q -- $RelativePath 2>$null
+    # -C ancora a consulta na raiz do repositorio: sem ele o git resolve
+    # $RelativePath contra o diretorio de trabalho herdado e um caminho como
+    # README.md passa a significar work/tce-extractor/README.md quando o
+    # verificador executa este teste a partir de work/tce-extractor.
+    & git -C $RepoRoot -c safe.directory=$RepoRoot check-ignore -q -- $RelativePath 2>$null
     return ($LASTEXITCODE -eq 0)
 }
 

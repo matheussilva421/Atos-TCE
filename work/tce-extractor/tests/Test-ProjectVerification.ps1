@@ -38,7 +38,7 @@ function Get-TestPowerShell {
 function Invoke-TestScript {
     param(
         [Parameter(Mandatory)][string]$FilePath,
-        [Parameter(Mandatory)][string[]]$Arguments
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Arguments
     )
 
     $shell = Get-TestPowerShell
@@ -175,6 +175,27 @@ exit $ExitCode
         Assert-Equal $refused.ExitCode 64 ('rejects ' + $mode + ' mode')
         Assert-Contains $refused.Output 'offline only' ('explains offline refusal for ' + $mode)
     }
+
+    # Regression: verify-project.ps1 executa os testes PowerShell a partir de
+    # work/tce-extractor, portanto nenhum deles pode depender do diretorio de
+    # trabalho herdado do chamador.
+    $extractorRoot = Join-Path $projectRoot 'work\tce-extractor'
+    $documentationTest = Join-Path $extractorRoot 'tests\Test-DocumentationTracking.ps1'
+    Push-Location $extractorRoot
+    try {
+        $documentationRun = Invoke-TestScript -FilePath $documentationTest -Arguments @()
+    } finally {
+        Pop-Location
+    }
+    Assert-Equal $documentationRun.ExitCode 0 'documentation tracking passes when started from work/tce-extractor'
+    Assert-Contains $documentationRun.Output '0 falharam.' 'documentation tracking reports no failure when started from work/tce-extractor'
+
+    # O gate precisa executar todos os testes PowerShell disponiveis; uma lista
+    # manual que esqueca um arquivo deixa contrato sem cobertura.
+    $verifierText = [IO.File]::ReadAllText($verifierPath)
+    $enumeratedTests = @([regex]::Matches($verifierText, "'(Test-[A-Za-z]+\.ps1)'") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+    $availableTests = @(Get-ChildItem -LiteralPath (Join-Path $projectRoot 'work\tce-extractor\tests') -Filter 'Test-*.ps1' | Select-Object -ExpandProperty Name | Sort-Object)
+    Assert-Equal ($enumeratedTests -join ',') ($availableTests -join ',') 'verifier executes every PowerShell test script under work/tce-extractor/tests'
 } finally {
     if (Test-Path -LiteralPath $fixtureRoot) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }
 }
