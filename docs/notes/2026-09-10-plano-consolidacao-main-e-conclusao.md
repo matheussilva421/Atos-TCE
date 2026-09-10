@@ -86,7 +86,7 @@ arquivos não rastreados e hashes dos artefatos essenciais.
 - [x] Implementar busca de referências por caminhos/literais usando `rg`,
   registrando apenas arquivo/linha, nunca conteúdo sensível.
 - [x] Rodar os testes e exigir todos verdes.
-- [ ] Executar contra a raiz real e gravar somente o manifesto em `tmp/fase0`.
+- [x] Executar contra a raiz real e gravar somente o manifesto em `tmp/fase0`.
 
 ### Tarefa 0.3 — classificar todo o workspace
 
@@ -94,19 +94,19 @@ arquivos não rastreados e hashes dos artefatos essenciais.
 `artifacts`, `outputs`, `portable`, `tmp`, `TCE-Acervo... - v2`, ZIP raiz,
 `work/tce-extractor/outputs` e arquivos de raiz.
 
-- [ ] Classificar item a item nas nove classes da especificação.
-- [ ] Marcar como preservação obrigatória: `.git`, fontes, docs versionadas,
+- [x] Classificar item a item nas nove classes da especificação.
+- [x] Marcar como preservação obrigatória: `.git`, fontes, docs versionadas,
   pacote `fase11k`, evidência live do lote 1, acervo autorizado de 05/09 e
   anexos originais ainda referenciados.
-- [ ] Comparar por SHA-256 o ZIP de 1,737 GB da raiz e o de `outputs`; apenas
+- [x] Comparar por SHA-256 o ZIP de 1,737 GB da raiz e o de `outputs`; apenas
   se forem idênticos escolher uma cópia canônica.
-- [ ] Identificar referências antes de classificar `portable/`, `artifacts/`,
+- [x] Identificar referências antes de classificar `portable/`, `artifacts/`,
   montagens `staging*`, `.package-staging-*` e diretórios extraídos.
-- [ ] Tratar `.worktrees` como removível somente se `git worktree list` não
+- [x] Tratar `.worktrees` como removível somente se `git worktree list` não
   apontar para seus diretórios e `git worktree prune --dry-run` confirmar.
-- [ ] Tratar `.chrome-work*`, perfis e locks como preservados até provar ausência
+- [x] Tratar `.chrome-work*`, perfis e locks como preservados até provar ausência
   de processo e de sessão necessária.
-- [ ] Produzir tabela `reter`, `quarentenar`, `investigar`, `duplicata` e
+- [x] Produzir tabela `reter`, `quarentenar`, `investigar`, `duplicata` e
   `proibido remover`, com tamanho recuperável estimado.
 - [ ] Obter aprovação humana do manifesto antes da Tarefa 0.8.
 

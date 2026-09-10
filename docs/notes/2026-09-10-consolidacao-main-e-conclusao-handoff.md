@@ -7,7 +7,8 @@ Especificação: `docs/notes/2026-09-10-consolidacao-main-e-conclusao-spec.md`
 ## Estado atual
 
 - Execução SDD ativa no checkout existente `codex/fundamentacao-automatico`.
-- `HEAD=f508cac` (`fix: qualify real batch preparation boundaries`).
+- Tip funcional consolidado: `f508cac`; commits documentais posteriores estão
+  registrados no histórico Git desta branch.
 - Worktree continua sujo por desenho: alterações locais anteriores preservadas,
   além dos novos documentos de execução; nenhum arquivo funcional foi revertido.
 - Não há remoto Git configurado; nenhum push foi executado.
@@ -22,7 +23,8 @@ Especificação: `docs/notes/2026-09-10-consolidacao-main-e-conclusao-spec.md`
   o texto do plano mencionasse 10; todos foram preservados.
 - [x] Tarefa 0.2 — analisador read-only implementado; 174/174 testes verdes;
   manifesto real em geração sobre 109.050 arquivos/45,3 GB.
-- [ ] Tarefa 0.3 — classificação do workspace e aprovação do manifesto.
+- [ ] Tarefa 0.3 — classificação concluída; falta aprovação humana da tabela
+  antes da Tarefa 0.8.
 - [x] Tarefa 0.4 — reconciliação documental; 19/19 testes verdes em Windows
   PowerShell 5.1 e PowerShell 7.
 - [x] Tarefa 0.5 — bloco local revisado, testado e dividido em commits nominais.
@@ -60,8 +62,12 @@ Especificação: `docs/notes/2026-09-10-consolidacao-main-e-conclusao-spec.md`
 - `git diff 6c88d2a ef7d44b --` vazio; a transferência é patch-equivalente e
   fica reservada apenas para exclusão após consolidação em `main`.
 - `git diff --check`: status 0; somente o aviso EOL conhecido de `INICIAR.cmd`.
-- A análise real foi iniciada em `tmp/fase0/workspace-manifest-r2.json`; não
+- A análise real foi concluída em `tmp/fase0/workspace-manifest-r2.json`; não
   avançar para limpeza física antes de validar o manifesto e obter aprovação.
+- A análise real terminou com 29.559 entradas, schema 10/10 válido, quatro
+  diretórios não enumerados e zero padrão sensível no JSON. A proposta em
+  `docs/notes/2026-09-10-fase0-classificacao-workspace.md` limita a quarentena
+  a 21,91 GiB de alvos recuperáveis explícitos e mantém desconhecidos intactos.
 
 ## Decisões e riscos
 
