@@ -1,5 +1,18 @@
 # Fundamentação e complementação automática — plano de implementação em fases
 
+**Atualização de 09/09/2026 — pacote final13:** foi adicionado
+`INICIAR.bat` como alias Windows do `INICIAR.cmd`, sem duplicar a lógica do
+menu; allowlist, diagnóstico e guias foram atualizados. O ZIP
+`work/tce-extractor/outputs/tce-processos-completo-portatil-final13.zip` tem
+98.271.575 bytes e SHA-256
+`4BD02DCA77FD5162A222C04E930CABE8438C7D18482053B599489CA74AF59D52`. A
+extração limpa passou `TESTAR-PACOTE.ps1` 6/6; a suíte focal de auditoria,
+empacotamento e launcher passou 63 testes, com 3 skips ambientais. A
+comparação normalizada com o final12 mostra somente o novo BAT e alterações de
+guia/diagnóstico; extensão e runtime permaneceram idênticos. O canal de
+controle continua sem expor a aba Chrome externa autenticada, então os gates
+live da seção 14.2 seguem pendentes e `real_send_enabled=false`.
+
 > Para agentes executores: usar `superpowers:executing-plans` ou `superpowers:subagent-driven-development` para executar tarefa por tarefa, com revisão de integração. As caixas abaixo rastreiam implementação futura; a criação deste documento não significa que a funcionalidade foi implementada.
 
 **Objetivo:** corrigir a seleção do fundamento legal, redesenhar a extensão para conferência e acompanhamento claros e executar a complementação sequencial dos atos disponíveis, com relatório incremental durável e retomada sem repetição cega de envios.
@@ -889,6 +902,7 @@ configurado; nenhum push foi realizado.
 - [x] Preservar o fluxo existente de quiesce/fechamento do banco antes da transferência; testes de `prepare_transfer` e pacote permanecem verdes.
 - [x] Auditar CRC, hashes, allowlist, imports e conteúdo do ZIP em fixtures novas; a composição final local, o runtime portátil extraído e o smoke Chrome descartável passaram os checks locais. A validação no portal real permanece pendente de uma release autorizada.
 - [x] Entregar a composição compatível de extensão + serviço no pacote completo local; a documentação não trata o ZIP isolado como persistência completa.
+- [x] Entregar lançadores Windows `INICIAR.cmd` e `INICIAR.bat`; o BAT delega ao CMD e ambos são auditados no pacote público.
 - [x] Atualizar guia com iniciar/pausar/retomar, interpretação de incerto, relatórios e serviço ausente.
 - [x] Manter handoffs por fase; o handoff da Fase 9/10 registra contagens, limites, commit e retomada.
 - [x] Commit apenas código, testes sanitizados e documentação. O staging foi explícito; não usar `git add .` para evitar incluir dados privados.

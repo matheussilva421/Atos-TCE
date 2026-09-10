@@ -1,5 +1,27 @@
 # Handoff — Fases 9 e 10 locais
 
+## Atualização do pacote final13 — 09/09/2026
+
+Foi criado `portable/INICIAR.bat` como alias fino para `INICIAR.cmd`,
+preservando uma única implementação do menu. A allowlist do empacotador, o
+diagnóstico `TESTAR-PACOTE.ps1`, `README.md`, `GUIA-RAPIDO.md` e
+`GUIA-RAPIDO.html` foram atualizados.
+
+Artefato: `work/tce-extractor/outputs/tce-processos-completo-portatil-final13.zip`
+(98.271.575 bytes; SHA-256
+`4BD02DCA77FD5162A222C04E930CABE8438C7D18482053B599489CA74AF59D52`). A
+extração limpa passou 6/6 verificações offline. A suíte focal de auditoria,
+empacotamento e launcher passou 63 testes, com 3 skips ambientais. A comparação
+normalizada com o final12 encontrou somente `INICIAR.bat` e as alterações
+esperadas nos guias/diagnóstico; os arquivos da extensão e do runtime ficaram
+iguais.
+
+O Chrome externo autenticado continua aberto, mas a superfície CUA/DevTools
+disponível retorna apenas o navegador interno do Codex sem abas. Nenhuma ação
+real foi executada. Permanecem pendentes DOM live da Área Restrita, três
+preflights, primeiro envio, observação/reabertura, fixture/qualificação e lote
+supervisionado. `real_send_enabled=false` permanece obrigatório.
+
 ## Atualização de acesso ao Chrome autenticado — 09/09/2026
 
 O operador confirmou que o Chrome com a Área Restrita autenticada está aberto e

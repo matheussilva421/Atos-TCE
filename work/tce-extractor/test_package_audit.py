@@ -115,6 +115,15 @@ class PackageAuditContractTests(unittest.TestCase):
         self.assertNotIn(b"\n", raw.replace(b"\r\n", b""))
         self.assertGreaterEqual(raw.count(b"\r\n"), 1)
 
+    def test_portable_bat_launcher_delegates_to_cmd(self):
+        launcher = ROOT / "portable" / "INICIAR.bat"
+        raw = launcher.read_bytes()
+        self.assertTrue(raw)
+        self.assertNotIn(b"\n", raw.replace(b"\r\n", b""))
+        text = raw.decode("utf-8-sig")
+        self.assertIn("INICIAR.cmd", text)
+        self.assertIn("call", text.lower())
+
     def test_rejects_auth_profile_bridge_backup_and_log_directories(self):
         forbidden = (
             "auth/session.json",
@@ -1055,6 +1064,7 @@ class PackagerContractTests(unittest.TestCase):
         packager = (ROOT / "empacotar-coletor-portatil.ps1").read_text(
             encoding="utf-8-sig"
         )
+        self.assertIn("'INICIAR.bat'", packager)
         required_topics = (
             "Primeiro uso",
             "Uso diário",

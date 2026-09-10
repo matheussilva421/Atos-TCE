@@ -229,6 +229,7 @@ try {
 
     # Explicit launcher allowlist.  No other portable child is copied.
     foreach ($name in @(
+        'INICIAR.bat',
         'INICIAR.cmd',
         'Coletar-Processos-TCE.ps1',
         'TcePortable.Core.psm1',

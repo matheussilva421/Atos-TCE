@@ -18,7 +18,7 @@ Chrome para auxiliar no preenchimento de sete campos do **Complementar Ato**.
 3. Abra `TESTAR-PACOTE.ps1` com o PowerShell para verificar a integridade.
    A opção 7 do menu faz apenas o diagnóstico de Python e OCR.
 4. Para consultar o lote que já veio pronto, abra
-   `acervo-tce\complementar-ato.html` ou escolha a opção 5 de `INICIAR.cmd`.
+   `acervo-tce\complementar-ato.html` ou escolha a opção 5 de `INICIAR.cmd`/`INICIAR.bat`.
 
 ## Primeiro uso em outro computador
 
@@ -35,7 +35,7 @@ Python, Tesseract e o idioma português já estão incluídos. Não instale nada
 
 ### 2. Entrar no e-Contas
 
-Para baixar processos novos, abra `INICIAR.cmd`, escolha **1** ou **6** e siga
+Para baixar processos novos, abra `INICIAR.cmd` ou `INICIAR.bat`, escolha **1** ou **6** e siga
 a mensagem exibida. Quando o navegador abrir, faça login no e-Contas, deixe a
 tela **Meus Processos Finalísticos** carregada e volte ao terminal.
 
@@ -52,7 +52,7 @@ novamente.
 
 ## Uso diário: qual opção escolher?
 
-Abra `INICIAR.cmd` e escolha:
+Abra `INICIAR.cmd` ou `INICIAR.bat` e escolha:
 
 | Opção | O que faz | Quando usar |
 |---|---|---|
@@ -281,7 +281,7 @@ linha marcada como **FALHOU** e preserve a pasta para correção.
 
 | Item | Finalidade |
 |---|---|
-| `INICIAR.cmd` | Menu principal de uso diário |
+| `INICIAR.cmd` / `INICIAR.bat` | Menus principais; o `.bat` delega ao `.cmd` |
 | `GUIA-RAPIDO.html` | Este guia em formato visual |
 | `TESTAR-PACOTE.ps1` | Diagnóstico offline de integridade |
 | `Coletar-Processos-TCE.ps1` | Coleta direta e opções avançadas |
@@ -294,7 +294,7 @@ linha marcada como **FALHOU** e preserve a pasta para correção.
 | `runtime-manifest.json` | Inventário e hashes do runtime |
 
 Não edite `runtime`, `app` ou `runtime-manifest.json`. Para uso normal, concentre-se
-em `INICIAR.cmd`, no HTML, na extensão e na pasta `acervo-tce`.
+em `INICIAR.cmd`/`INICIAR.bat`, no HTML, na extensão e na pasta `acervo-tce`.
 
 ## Limites de segurança
 

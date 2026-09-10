@@ -25,7 +25,7 @@ computador de destino. `TESTAR-PACOTE.ps1` faz a verificação offline sem login
 2. Abra `chrome://extensions` → **Modo do desenvolvedor** → **Carregar sem compactação** e selecione a pasta `extensao-complementar-ato`.
 3. No outro computador, faça login novamente no e-Contas. Perfis autenticados,
    cookies e credenciais nunca entram no ZIP.
-4. Execute `INICIAR.cmd` e escolha uma das opções 1–8. Para coletar, deixe
+4. Execute `INICIAR.cmd` (ou `INICIAR.bat`) e escolha uma das opções 1–8. Para coletar, deixe
    **Meus Processos** visível na janela do Chrome/Edge e pressione `ENTER`.
 
 Em cada coleta, `-ModoPreparacao progressivo` (padrão) analisa e publica cada
