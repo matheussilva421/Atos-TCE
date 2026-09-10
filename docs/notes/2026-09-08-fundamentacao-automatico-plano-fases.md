@@ -27,6 +27,10 @@ com 272/272 testes JS. O ZIP final14 tem 98.271.670 bytes e SHA-256
 extração 6/6 e smoke Chrome 1/1 em porta isolada `18746`. Isso melhora a
 integração local, mas não promove nenhum gate do portal real.
 
+A suíte Python ampla posterior passou 398/398 testes, com 7 skips ambientais;
+os avisos observados foram apenas de limpeza de `HTTPError` e não alteraram o
+exit code.
+
 > Para agentes executores: usar `superpowers:executing-plans` ou `superpowers:subagent-driven-development` para executar tarefa por tarefa, com revisão de integração. As caixas abaixo rastreiam implementação futura; a criação deste documento não significa que a funcionalidade foi implementada.
 
 **Objetivo:** corrigir a seleção do fundamento legal, redesenhar a extensão para conferência e acompanhamento claros e executar a complementação sequencial dos atos disponíveis, com relatório incremental durável e retomada sem repetição cega de envios.

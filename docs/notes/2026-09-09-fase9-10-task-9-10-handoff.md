@@ -38,6 +38,10 @@ extração passou 6/6 verificações offline e o smoke Chrome descartável passo
 1/1 em porta local isolada `18746`, com pareamento, conexão ativa e token de
 sessão. A extensão e o launcher final estão dentro desse ZIP.
 
+A suíte Python ampla posterior passou 398/398 testes, com 7 skips ambientais;
+os avisos foram somente de limpeza de `HTTPError` e o processo terminou com
+exit code 0.
+
 O gate live continua separado: a aba externa autenticada permanece invisível
 ao CUA/DevTools disponível; nenhum ato real foi aberto, preenchido ou enviado.
 
