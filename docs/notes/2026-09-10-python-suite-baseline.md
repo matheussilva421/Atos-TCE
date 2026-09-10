@@ -139,3 +139,35 @@ atribuir essa alteração a outra tarefa/agente.
   preservados sem edição nesta tarefa.
 - Pendência principal: correção JavaScript de `window.frames` e sua regressão;
   depois disso, repetir o focal três vezes e a ampla duas vezes.
+
+## Fechamento do gate (2026-09-10, após consolidação da `main`)
+
+A correção mínima exigida já está publicada na `main` no commit `7137dc3`
+(`fix(portal): iterate array-like window.frames and route local Voltar to the
+generic wait path`). Com ela, o RED original virou GREEN; a tarefa foi
+fechada com as medições abaixo, executadas na `main` consolidada em
+`21054a4`.
+
+Teste focal (comando `C:\Python314\python.exe -u -m unittest
+test_automation_browser`, diretório `work/tce-extractor`):
+
+| rodada | executados | aprovados | falhados | erros | skips | duração |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 1 | 1 | 0 | 0 | 0 | 17,115 s |
+| 2 | 1 | 1 | 0 | 0 | 0 | 5,454 s |
+| 3 | 1 | 1 | 0 | 0 | 0 | 5,205 s |
+
+Suíte ampla (comando `C:\Python314\python.exe -u -m unittest discover -s .
+-p 'test_*.py'`, mesmo diretório):
+
+| rodada | executados | aprovados | falhados | erros | skips | duração |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 409 | 401 | 0 | 0 | 8 | 144,316 s |
+| 2 | 409 | 401 | 0 | 0 | 8 | 147,969 s |
+
+Warnings observados nas duas rodadas amplas: depreciação da API `fitz` e
+`ResourceWarning` de respostas HTTP de erro emitidas por fixtures locais.
+Nenhum warning de teste falhado; exit code 0 nas cinco execuções.
+
+Conclusão: a paralisação descrita neste baseline não se reproduz na `main`
+consolidada; o teste focal e a suíte ampla encerram sem espera pendurada.

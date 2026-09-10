@@ -236,9 +236,18 @@ prévia, escopo e reconciliação.
   rede, fixture grande ou cleanup ausente.
 - [x] Escrever teste RED/asserção de cleanup ou timeout proporcional à causa.
 - [x] Implementar correção mínima sem pular o teste nem reduzir cobertura.
-- [ ] Rodar teste focal três vezes e a suíte ampla duas vezes; registrar total,
+- [x] Rodar teste focal três vezes e a suíte ampla duas vezes; registrar total,
   aprovados, skips, duração e warnings.
-- [ ] Commit `test: stabilize complete Python verification`.
+  (focal 3/3 verde: 17,115 s / 5,454 s / 5,205 s; ampla 2/2 verde: 409
+  executados, 401 aprovados, 8 skips, 144,316 s e 147,969 s; registro em
+  `docs/notes/2026-09-10-python-suite-baseline.md`.)
+- [x] Commit `test: stabilize complete Python verification`. A correção real
+  (`window.frames` array-like no content script) já estava publicada na
+  `main` em `7137dc3` (`fix(portal): iterate array-like window.frames and
+  route local Voltar to the generic wait path`), então o commit deste gate
+  registra as medições de fechamento em
+  `docs/notes/2026-09-10-python-suite-baseline.md`; verificado em 2026-09-10
+  com o teste focal (3/3) e a suíte ampla (2/2) reexecutados.
 
 ### Tarefa 1.2 — estabelecer o comando único de verificação
 
@@ -276,15 +285,15 @@ prévia, escopo e reconciliação.
 
 ### Tarefa 2.2 — resolver evidência dos campos obrigatórios ausentes
 
-- [ ] Para cada um dos nove registros sem nascimento, revisar documentos já
+- [x] Para cada um dos nove registros sem nascimento, revisar documentos já
   baixados e evidências por página; não inferir data por idade ou identificador.
-- [ ] Para o segundo interessado de `104956/2025`, revisar modalidade e
+- [x] Para o segundo interessado de `104956/2025`, revisar modalidade e
   fundamento vinculados à identidade correta.
-- [ ] Se o dado existir, corrigir a extração em TDD com fixture sanitizada e
+- [x] Se o dado existir, corrigir a extração em TDD com fixture sanitizada e
   evidência exata; se não existir, manter bloqueado com motivo explícito.
-- [ ] Reexecutar análise apenas dos itens afetados e provar que itens íntegros
+- [x] Reexecutar análise apenas dos itens afetados e provar que itens íntegros
   não foram baixados/processados novamente.
-- [ ] Atualizar relatório com contagem final de elegíveis e bloqueados.
+- [x] Atualizar relatório com contagem final de elegíveis e bloqueados.
 
 ---
 
@@ -299,7 +308,11 @@ prévia, escopo e reconciliação.
 - [ ] Confirmar cache por hash/versão, caixas TSV, confiança e evidência de
   página; não alterar o PDF original.
 - [ ] Reexecutar e provar cache hit sem segundo OCR.
-- [ ] Se nenhum documento apto existir, registrar gate `not-observed`, não PASS.
+- [x] Se nenhum documento apto existir, registrar gate `not-observed`, não PASS.
+  (executada em 2026-09-10: 28.398 PDFs / 98.515 páginas varridos no escopo
+  `work` sem runtime/vendor/site-packages, `native_zero=0`; 10 caches
+  `cache-ocr*.json` vazios; nenhum código de produção alterado; evidência no
+  handoff e em `task-3.1-report.md`.)
 
 ---
 
