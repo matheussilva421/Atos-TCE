@@ -86,6 +86,7 @@ function New-TestFile {
 
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $analyzerPath = Join-Path $PSScriptRoot '..\analyze-local-workspace.ps1'
+$cleanerPath = Join-Path $PSScriptRoot '..\clean-local-workspace.ps1'
 $fixtureRoot = Join-Path $projectRoot ('tmp\workspace-cleanup-test-' + [guid]::NewGuid().ToString('N'))
 $outsideRoot = Join-Path ([IO.Path]::GetTempPath()) ('workspace-cleanup-outside-' + [guid]::NewGuid().ToString('N'))
 $outsideTarget = Join-Path $outsideRoot 'outside-target'
@@ -355,6 +356,199 @@ try {
     }
     Assert-True $outsideJunctionCreated 'fixture cria reparse point para caso externo'
     Assert-Throws { Invoke-Analyzer $analyzerPath $fixtureRoot $rejectionManifestPath } 'caminho resolvido fora da raiz é recusado'
+
+    $cleanerAvailable = Test-Path -LiteralPath $cleanerPath -PathType Leaf
+    Assert-True $cleanerAvailable 'cleaner script exists'
+    if ($cleanerAvailable) {
+        $cleanerRoot = Join-Path $fixtureRoot 'cleaner-cases'
+        New-Item -ItemType Directory -Path $cleanerRoot -Force | Out-Null
+
+        function Write-CleanupManifest {
+            param([string]$Path, [string]$Root, [object[]]$Entries)
+            $payload = [ordered]@{
+                schema_version = 1
+                root = [IO.Path]::GetFullPath($Root)
+                entries = @($Entries)
+            }
+            [IO.File]::WriteAllText($Path, ($payload | ConvertTo-Json -Depth 10), (New-Object Text.UTF8Encoding($false)))
+        }
+
+        function New-CleanupEntry {
+            param([string]$Path, [string]$Hash, [long]$Bytes, [bool]$Approved = $true)
+            return [ordered]@{
+                path = $Path
+                kind = 'file'
+                bytes = $Bytes
+                sha256 = $Hash
+                decision = 'quarantine'
+                approved = $Approved
+            }
+        }
+
+        function Invoke-CleanerJson {
+            param([string]$Root, [string]$Manifest, [switch]$Apply, [switch]$PurgeQuarantine)
+            $arguments = @{ Root = $Root; ManifestPath = $Manifest }
+            if ($Apply) { $arguments.Apply = $true }
+            if ($PurgeQuarantine) { $arguments.PurgeQuarantine = $true }
+            $output = @(& $cleanerPath @arguments)
+            return ([string]::Join([Environment]::NewLine, [string[]]$output)).Trim() | ConvertFrom-Json
+        }
+
+        $whatIfFile = Join-Path $cleanerRoot 'whatif.txt'
+        New-TestFile $whatIfFile 'WHATIF-CONTENT'
+        $whatIfHash = (Get-FileHash -LiteralPath $whatIfFile -Algorithm SHA256).Hash.ToLowerInvariant()
+        $whatIfManifest = Join-Path $cleanerRoot 'whatif-manifest.json'
+        Write-CleanupManifest $whatIfManifest $cleanerRoot @(
+            (New-CleanupEntry 'whatif.txt' $whatIfHash ([IO.FileInfo]$whatIfFile).Length)
+        )
+        $whatIfResult = Invoke-CleanerJson $cleanerRoot $whatIfManifest
+        Assert-Equal $whatIfResult.mode 'whatif' 'default mode is whatif'
+        Assert-Equal ([int]$whatIfResult.approved_items) 1 'whatif counts approved items'
+        Assert-True (Test-Path -LiteralPath $whatIfFile -PathType Leaf) 'whatif does not move source'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $cleanerRoot 'tmp\quarantine'))) 'whatif creates no quarantine'
+
+        $hashFile = Join-Path $cleanerRoot 'hash-mismatch.txt'
+        New-TestFile $hashFile 'CURRENT-CONTENT'
+        $hashManifest = Join-Path $cleanerRoot 'hash-manifest.json'
+        Write-CleanupManifest $hashManifest $cleanerRoot @(
+            (New-CleanupEntry 'hash-mismatch.txt' ('0' * 64) ([IO.FileInfo]$hashFile).Length)
+        )
+        Assert-Throws { Invoke-CleanerJson $cleanerRoot $hashManifest | Out-Null } 'hash mismatch is rejected'
+
+        $missingManifest = Join-Path $cleanerRoot 'missing-manifest.json'
+        Write-CleanupManifest $missingManifest $cleanerRoot @(
+            (New-CleanupEntry 'missing.txt' ('1' * 64) 1)
+        )
+        Assert-Throws { Invoke-CleanerJson $cleanerRoot $missingManifest | Out-Null } 'missing target is rejected'
+
+        $traversalManifest = Join-Path $cleanerRoot 'traversal-manifest.json'
+        Write-CleanupManifest $traversalManifest $cleanerRoot @(
+            (New-CleanupEntry '..\outside.txt' ('2' * 64) 1)
+        )
+        Assert-Throws { Invoke-CleanerJson $cleanerRoot $traversalManifest | Out-Null } 'path traversal is rejected'
+
+        $unapprovedFile = Join-Path $cleanerRoot 'unapproved.txt'
+        New-TestFile $unapprovedFile 'UNAPPROVED'
+        $unapprovedHash = (Get-FileHash -LiteralPath $unapprovedFile -Algorithm SHA256).Hash.ToLowerInvariant()
+        $unapprovedManifest = Join-Path $cleanerRoot 'unapproved-manifest.json'
+        Write-CleanupManifest $unapprovedManifest $cleanerRoot @(
+            (New-CleanupEntry 'unapproved.txt' $unapprovedHash ([IO.FileInfo]$unapprovedFile).Length $false)
+        )
+        Assert-Throws { Invoke-CleanerJson $cleanerRoot $unapprovedManifest | Out-Null } 'unapproved item is rejected'
+
+        $profileFile = Join-Path $cleanerRoot 'profile\session.json'
+        New-TestFile $profileFile 'PROFILE'
+        $profileHash = (Get-FileHash -LiteralPath $profileFile -Algorithm SHA256).Hash.ToLowerInvariant()
+        $profileManifest = Join-Path $cleanerRoot 'profile-manifest.json'
+        Write-CleanupManifest $profileManifest $cleanerRoot @(
+            (New-CleanupEntry 'profile\session.json' $profileHash ([IO.FileInfo]$profileFile).Length)
+        )
+        Assert-Throws { Invoke-CleanerJson $cleanerRoot $profileManifest | Out-Null } 'active profile path is rejected'
+
+        $protectedAcervoFile = Join-Path $cleanerRoot 'tce-acervo-backup\data.bin'
+        New-TestFile $protectedAcervoFile 'PROTECTED-ACERVO'
+        $protectedAcervoHash = (Get-FileHash -LiteralPath $protectedAcervoFile -Algorithm SHA256).Hash.ToLowerInvariant()
+        $protectedAcervoManifest = Join-Path $cleanerRoot 'protected-acervo-manifest.json'
+        Write-CleanupManifest $protectedAcervoManifest $cleanerRoot @(
+            (New-CleanupEntry 'tce-acervo-backup\data.bin' $protectedAcervoHash ([IO.FileInfo]$protectedAcervoFile).Length)
+        )
+        Assert-Throws { Invoke-CleanerJson $cleanerRoot $protectedAcervoManifest | Out-Null } 'protected acervo directory is rejected'
+
+        $rootZipName = 'TCE-Acervo-Atualizado-227-2026-09-05.zip'
+        $rootZipFile = Join-Path $cleanerRoot $rootZipName
+        New-TestFile $rootZipFile 'ROOT-ZIP-DUPLICATE'
+        $rootZipHash = (Get-FileHash -LiteralPath $rootZipFile -Algorithm SHA256).Hash.ToLowerInvariant()
+        $rootZipManifest = Join-Path $cleanerRoot 'root-zip-manifest.json'
+        Write-CleanupManifest $rootZipManifest $cleanerRoot @(
+            (New-CleanupEntry $rootZipName $rootZipHash ([IO.FileInfo]$rootZipFile).Length)
+        )
+        $rootZipResult = Invoke-CleanerJson $cleanerRoot $rootZipManifest
+        Assert-Equal ([string]$rootZipResult.mode) 'whatif' 'root-level duplicate zip keeps whatif mode'
+        Assert-Equal ([int]$rootZipResult.approved_items) 1 'approved root-level leaf file starting with tce-acervo is accepted'
+        Assert-True (Test-Path -LiteralPath $rootZipFile -PathType Leaf) 'root-level duplicate zip is not moved in whatif'
+
+        $reparseTarget = Join-Path $cleanerRoot 'reparse-target.txt'
+        $reparsePath = Join-Path $cleanerRoot 'reparse-link.txt'
+        New-TestFile $reparseTarget 'REPARSE'
+        $previousErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        @(& cmd.exe /c mklink $reparsePath $reparseTarget 2>&1) | Out-Null
+        $reparseCreated = ($LASTEXITCODE -eq 0) -and (Test-Path -LiteralPath $reparsePath)
+        $ErrorActionPreference = $previousErrorActionPreference
+        $reparseRelative = 'reparse-link.txt'
+        $reparseKind = 'file symlink'
+        if (-not $reparseCreated) {
+            $reparseDirectoryTarget = Join-Path $cleanerRoot 'reparse-directory-target'
+            $reparseDirectory = Join-Path $cleanerRoot 'reparse-directory'
+            New-TestFile (Join-Path $reparseDirectoryTarget 'child.txt') 'REPARSE'
+            $previousErrorActionPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            @(& cmd.exe /c mklink /J $reparseDirectory $reparseDirectoryTarget 2>&1) | Out-Null
+            $reparseCreated = ($LASTEXITCODE -eq 0) -and (Test-Path -LiteralPath $reparseDirectory -PathType Container)
+            $ErrorActionPreference = $previousErrorActionPreference
+            $reparsePath = $reparseDirectory
+            $reparseTarget = Join-Path $reparseDirectoryTarget 'child.txt'
+            $reparseRelative = 'reparse-directory\child.txt'
+            $reparseKind = 'directory junction fallback'
+        }
+        Assert-True $reparseCreated ('cleanup fixture creates ' + $reparseKind)
+        if ($reparseCreated) {
+            $reparseHash = (Get-FileHash -LiteralPath $reparseTarget -Algorithm SHA256).Hash.ToLowerInvariant()
+            $reparseManifest = Join-Path $cleanerRoot 'reparse-manifest.json'
+            Write-CleanupManifest $reparseManifest $cleanerRoot @(
+                (New-CleanupEntry $reparseRelative $reparseHash ([IO.FileInfo]$reparseTarget).Length)
+            )
+            Assert-Throws { Invoke-CleanerJson $cleanerRoot $reparseManifest | Out-Null } 'reparse target is rejected'
+            $previousErrorActionPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            if ($reparseKind -eq 'file symlink') {
+                @(& cmd.exe /c del $reparsePath 2>&1) | Out-Null
+            } else {
+                @(& cmd.exe /c rmdir $reparsePath 2>&1) | Out-Null
+            }
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+
+        $outsideQuarantineRoot = Join-Path $outsideRoot 'outside-quarantine'
+        New-Item -ItemType Directory -Path $outsideQuarantineRoot -Force | Out-Null
+        $quarantineParent = Join-Path $cleanerRoot 'tmp'
+        New-Item -ItemType Directory -Path $quarantineParent -Force | Out-Null
+        $quarantineLink = Join-Path $quarantineParent 'quarantine'
+        $previousErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        @(& cmd.exe /c mklink /J $quarantineLink $outsideQuarantineRoot 2>&1) | Out-Null
+        $quarantineLinkCreated = ($LASTEXITCODE -eq 0) -and (Test-Path -LiteralPath $quarantineLink -PathType Container)
+        $ErrorActionPreference = $previousErrorActionPreference
+        Assert-True $quarantineLinkCreated 'cleanup fixture creates external quarantine junction'
+        if ($quarantineLinkCreated) {
+            Assert-Throws { Invoke-CleanerJson $cleanerRoot $whatIfManifest | Out-Null } 'quarantine destination outside root is rejected'
+            $previousErrorActionPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            @(& cmd.exe /c rmdir $quarantineLink 2>&1) | Out-Null
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+
+        $applyFile = Join-Path $cleanerRoot 'apply.txt'
+        New-TestFile $applyFile 'APPLY-CONTENT'
+        $applyHash = (Get-FileHash -LiteralPath $applyFile -Algorithm SHA256).Hash.ToLowerInvariant()
+        $applyManifest = Join-Path $cleanerRoot 'apply-manifest.json'
+        Write-CleanupManifest $applyManifest $cleanerRoot @(
+            (New-CleanupEntry 'apply.txt' $applyHash ([IO.FileInfo]$applyFile).Length)
+        )
+        $applyResult = Invoke-CleanerJson $cleanerRoot $applyManifest -Apply
+        Assert-Equal $applyResult.mode 'apply' 'apply mode is explicit'
+        Assert-True (-not (Test-Path -LiteralPath $applyFile)) 'apply moves approved source'
+        Assert-True (Test-Path -LiteralPath $applyResult.receipt -PathType Leaf) 'apply writes receipt'
+        $receipt = Get-Content -LiteralPath $applyResult.receipt -Raw | ConvertFrom-Json
+        Assert-Equal ([int]$receipt.items.Count) 1 'receipt records moved item'
+        Assert-Equal $receipt.items[0].sha256 $applyHash 'receipt records approved hash'
+        Assert-Equal $receipt.items[0].result 'moved' 'receipt records move result'
+
+        Assert-Throws { Invoke-CleanerJson $cleanerRoot (Join-Path $cleanerRoot 'tmp') -PurgeQuarantine | Out-Null } 'purge refuses broad tmp target'
+        $purgeResult = Invoke-CleanerJson $cleanerRoot $applyResult.receipt -PurgeQuarantine
+        Assert-Equal $purgeResult.mode 'purge' 'purge mode is explicit'
+        Assert-True (-not (Test-Path -LiteralPath $receipt.quarantine_root)) 'purge removes only receipted quarantine'
+    }
 } finally {
     if (Test-Path -LiteralPath $fixtureRoot) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }
     if (Test-Path -LiteralPath $outsideRoot) { Remove-Item -LiteralPath $outsideRoot -Recurse -Force }
