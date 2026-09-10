@@ -13,6 +13,10 @@ guia/diagnóstico; extensão e runtime permaneceram idênticos. O canal de
 controle continua sem expor a aba Chrome externa autenticada, então os gates
 live da seção 14.2 seguem pendentes e `real_send_enabled=false`.
 
+O smoke do pacote final13 também passou 1/1 em perfil Chrome descartável, com
+porta local isolada `18745`, confirmando pareamento, conexão ativa e token de
+sessão; o teste não abriu o portal real nem enviou ato.
+
 > Para agentes executores: usar `superpowers:executing-plans` ou `superpowers:subagent-driven-development` para executar tarefa por tarefa, com revisão de integração. As caixas abaixo rastreiam implementação futura; a criação deste documento não significa que a funcionalidade foi implementada.
 
 **Objetivo:** corrigir a seleção do fundamento legal, redesenhar a extensão para conferência e acompanhamento claros e executar a complementação sequencial dos atos disponíveis, com relatório incremental durável e retomada sem repetição cega de envios.

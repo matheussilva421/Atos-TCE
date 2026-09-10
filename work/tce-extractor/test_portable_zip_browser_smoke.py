@@ -26,6 +26,7 @@ from test_extension_browser import _close_context, _extension_id, _open_context
 
 SMOKE_ROOT = os.environ.get("TCE_PORTABLE_SMOKE_ROOT")
 PACKAGE_ROOT = Path(SMOKE_ROOT).resolve() if SMOKE_ROOT else None
+SMOKE_PORT = os.environ.get("TCE_PORTABLE_SMOKE_PORT", "18743")
 
 
 def _canonical_json(value: object) -> bytes:
@@ -130,7 +131,7 @@ class PortableZipBrowserSmokeTests(unittest.TestCase):
                 "--bridge-root",
                 str(bridge),
                 "--port",
-                "18743",
+                SMOKE_PORT,
             ],
             cwd=package / "app",
             stdout=subprocess.DEVNULL,

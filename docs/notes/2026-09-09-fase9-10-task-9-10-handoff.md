@@ -16,6 +16,11 @@ normalizada com o final12 encontrou somente `INICIAR.bat` e as alterações
 esperadas nos guias/diagnóstico; os arquivos da extensão e do runtime ficaram
 iguais.
 
+O smoke Chrome do final13 passou 1/1 em perfil descartável, com porta local
+isolada `18745`, confirmando `pair`, conexão ativa e token de sessão. A opção
+de porta configurável foi adicionada somente ao teste para evitar conflito com
+pontes antigas; não muda o serviço entregue.
+
 O Chrome externo autenticado continua aberto, mas a superfície CUA/DevTools
 disponível retorna apenas o navegador interno do Codex sem abas. Nenhuma ação
 real foi executada. Permanecem pendentes DOM live da Área Restrita, três
