@@ -17,6 +17,16 @@ O smoke do pacote final13 também passou 1/1 em perfil Chrome descartável, com
 porta local isolada `18745`, confirmando pareamento, conexão ativa e token de
 sessão; o teste não abriu o portal real nem enviou ato.
 
+**Atualização de 09/09/2026 — final14 e corrida de conexão do painel:** foi
+corrigida uma corrida em que clicar para iniciar o piloto enquanto o
+pareamento ainda sincronizava dataset/capacidades retornava falso. O painel
+agora aguarda a promessa de conexão em andamento antes de validar o início;
+teste isolado RED/GREEN e três execuções completas consecutivas ficaram verdes
+com 272/272 testes JS. O ZIP final14 tem 98.271.670 bytes e SHA-256
+`D0D81D477E5192E8BA79F6152E959519422F4BC6E2CA22D00EA8571E2CFC02A8`;
+extração 6/6 e smoke Chrome 1/1 em porta isolada `18746`. Isso melhora a
+integração local, mas não promove nenhum gate do portal real.
+
 > Para agentes executores: usar `superpowers:executing-plans` ou `superpowers:subagent-driven-development` para executar tarefa por tarefa, com revisão de integração. As caixas abaixo rastreiam implementação futura; a criação deste documento não significa que a funcionalidade foi implementada.
 
 **Objetivo:** corrigir a seleção do fundamento legal, redesenhar a extensão para conferência e acompanhamento claros e executar a complementação sequencial dos atos disponíveis, com relatório incremental durável e retomada sem repetição cega de envios.

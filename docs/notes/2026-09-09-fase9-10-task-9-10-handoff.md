@@ -21,6 +21,26 @@ isolada `18745`, confirmando `pair`, conexão ativa e token de sessão. A opçã
 de porta configurável foi adicionada somente ao teste para evitar conflito com
 pontes antigas; não muda o serviço entregue.
 
+## Correção da corrida de conexão e pacote final14 — 09/09/2026
+
+O painel podia receber `startAutomation("pilot")` enquanto o clique de
+pareamento ainda executava sincronização do dataset e capacidades. A espera
+fixa no teste era não determinística. Foi adicionado um `bridgeConnectionPromise`
+ao painel: o início aguarda a conexão em andamento e só então aplica os guards
+de capacidade/dataset. O teste de delegação foi convertido em caso determinista
+de início durante conexão; o RED foi reproduzido e o GREEN passou. Três
+execuções completas consecutivas da suíte JS passaram 272/272.
+
+Novo artefato: `work/tce-extractor/outputs/tce-processos-completo-portatil-final14.zip`
+(98.271.670 bytes; SHA-256
+`D0D81D477E5192E8BA79F6152E959519422F4BC6E2CA22D00EA8571E2CFC02A8`). A
+extração passou 6/6 verificações offline e o smoke Chrome descartável passou
+1/1 em porta local isolada `18746`, com pareamento, conexão ativa e token de
+sessão. A extensão e o launcher final estão dentro desse ZIP.
+
+O gate live continua separado: a aba externa autenticada permanece invisível
+ao CUA/DevTools disponível; nenhum ato real foi aberto, preenchido ou enviado.
+
 O Chrome externo autenticado continua aberto, mas a superfície CUA/DevTools
 disponível retorna apenas o navegador interno do Codex sem abas. Nenhuma ação
 real foi executada. Permanecem pendentes DOM live da Área Restrita, três

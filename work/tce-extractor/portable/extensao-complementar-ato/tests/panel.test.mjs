@@ -774,7 +774,6 @@ test("pilot action delegates run creation to the worker controller", async () =>
   });
   documentRef.getElementById("bridge-pairing-code").value = "12345678";
   documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
-  for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setImmediate(resolve));
   assert.equal(await app.startAutomation("pilot"), true);
   const start = workerCalls.find((message) => message.type === MESSAGE_TYPES.AUTO_START);
   assert.ok(start);

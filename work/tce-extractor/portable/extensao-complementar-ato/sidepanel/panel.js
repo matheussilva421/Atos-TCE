@@ -197,6 +197,7 @@ export function createPanelApp({
     result: null,
     searchSelection: null,
     bridgeClient: null,
+    bridgeConnectionPromise: null,
     bridgeRevision: null,
     bridgeDatasetRevision: null,
     bridgePollTimer: null,
@@ -517,6 +518,15 @@ export function createPanelApp({
       render();
       return false;
     }
+  }
+
+  function beginBridgeConnection() {
+    const promise = connectBridge();
+    state.bridgeConnectionPromise = promise;
+    void promise.finally(() => {
+      if (state.bridgeConnectionPromise === promise) state.bridgeConnectionPromise = null;
+    });
+    return promise;
   }
 
   async function restoreBridge() {
@@ -880,6 +890,7 @@ export function createPanelApp({
   }
 
   async function startAutomation(mode = "batch") {
+    if (state.bridgeConnectionPromise) await state.bridgeConnectionPromise;
     if (!state.bridgeClient || !state.automationCapabilities || !state.dataset) {
       setMessage("Conecte um serviço local compatível antes de iniciar a execução.", true);
       render();
@@ -1061,7 +1072,7 @@ export function createPanelApp({
       elements["search-interested"].addEventListener("input", () => { render(); });
       elements["reviewed-checkbox"].addEventListener("change", () => { void setReviewed(elements["reviewed-checkbox"].checked); });
       bridgeElements["bridge-pairing-code"]?.addEventListener("input", () => { render(); });
-      bridgeElements["bridge-connect-button"]?.addEventListener("click", () => { void connectBridge(); });
+      bridgeElements["bridge-connect-button"]?.addEventListener("click", () => { void beginBridgeConnection(); });
       state.listenersInstalled = true;
     }
     const storedView = await chromeApi?.storage?.session?.get?.([STORAGE_KEYS.PANEL_VIEW]);
