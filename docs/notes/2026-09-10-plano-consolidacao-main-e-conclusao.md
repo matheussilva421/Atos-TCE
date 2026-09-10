@@ -108,7 +108,7 @@ arquivos não rastreados e hashes dos artefatos essenciais.
   de processo e de sessão necessária.
 - [x] Produzir tabela `reter`, `quarentenar`, `investigar`, `duplicata` e
   `proibido remover`, com tamanho recuperável estimado.
-- [ ] Obter aprovação humana do manifesto antes da Tarefa 0.8.
+- [x] Obter aprovação humana do manifesto antes da Tarefa 0.8. (aprovada em 2026-09-10)
 
 ### Tarefa 0.4 — reconciliar documentação e arquivos ignorados
 
@@ -185,23 +185,23 @@ prévia, escopo e reconciliação.
 **Interface:** `clean-local-workspace.ps1 -Root <absoluto> -ManifestPath <json>
 [-Apply] [-PurgeQuarantine]`; sem `-Apply`, somente WhatIf.
 
-- [ ] Criar testes RED para hash divergente, alvo ausente, path traversal,
+- [x] Criar testes RED para hash divergente, alvo ausente, path traversal,
   reparse point, item não aprovado, perfil ativo e destino fora da raiz.
-- [ ] Implementar validação de raiz/path/hash e mover somente itens aprovados
+- [x] Implementar validação de raiz/path/hash e mover somente itens aprovados
   para `tmp/quarantine/YYYYMMDD-HHMMSS/<caminho-relativo>`.
-- [ ] Criar recibo JSON com origem, destino, hash, timestamp e resultado.
-- [ ] Implementar purge separado que aceita somente uma quarentena explícita,
+- [x] Criar recibo JSON com origem, destino, hash, timestamp e resultado.
+- [x] Implementar purge separado que aceita somente uma quarentena explícita,
   após validar recibo e raiz; nunca aceitar `tmp`, raiz ou glob amplo.
-- [ ] Rodar testes e depois WhatIf no manifesto real; comparar contagens e bytes
+- [x] Rodar testes e depois WhatIf no manifesto real; comparar contagens e bytes
   com o analisador.
-- [ ] Exigir aprovação humana do WhatIf antes de `-Apply`.
+- [x] Exigir aprovação humana do WhatIf antes de `-Apply`. (aprovada em 2026-09-10)
 
 ### Tarefa 0.9 — quarentenar e validar a pasta organizada
 
 - [ ] Aplicar somente itens `quarentenar` aprovados; desconhecidos permanecem.
 - [ ] Reexecutar analisador e confirmar que fontes, docs, entregas, lote live e
   recuperação continuam presentes com hashes iguais.
-- [ ] Rodar pacote `fase11k` em extração limpa e os seis gates públicos.
+- [x] Rodar pacote `fase11k` em extração limpa e os seis gates públicos.
 - [ ] Rodar os testes focais novamente.
 - [ ] Preservar a quarentena durante todas as fases de qualificação; não fazer
   purge definitivo nesta tarefa.
@@ -229,13 +229,13 @@ prévia, escopo e reconciliação.
 - Criar: `docs/notes/2026-09-10-python-suite-baseline.md`
 - Modificar testes/harness somente após reproduzir causa específica.
 
-- [ ] Executar descoberta ampla com verbosidade e log local ignorado para obter
+- [x] Executar descoberta ampla com verbosidade e log local ignorado para obter
   o último teste iniciado antes da paralisação.
-- [ ] Reexecutar apenas esse módulo/teste com timeout externo de 60 segundos.
-- [ ] Classificar causa: espera de navegador, processo filho, servidor, lock,
+- [x] Reexecutar apenas esse módulo/teste com timeout externo de 60 segundos.
+- [x] Classificar causa: espera de navegador, processo filho, servidor, lock,
   rede, fixture grande ou cleanup ausente.
-- [ ] Escrever teste RED/asserção de cleanup ou timeout proporcional à causa.
-- [ ] Implementar correção mínima sem pular o teste nem reduzir cobertura.
+- [x] Escrever teste RED/asserção de cleanup ou timeout proporcional à causa.
+- [x] Implementar correção mínima sem pular o teste nem reduzir cobertura.
 - [ ] Rodar teste focal três vezes e a suíte ampla duas vezes; registrar total,
   aprovados, skips, duração e warnings.
 - [ ] Commit `test: stabilize complete Python verification`.

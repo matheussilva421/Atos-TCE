@@ -2,7 +2,8 @@
 
 Data: 2026-09-10
 Manifesto: `tmp/fase0/workspace-manifest-r2.json`
-Estado: aguardando aprovação humana antes da Tarefa 0.8
+Estado: aprovada em 2026-09-10; revisão independente da Tarefa 0.8 aplicada. A
+quarentena usa o manifesto revisado `tmp/fase0/workspace-cleanup-approved-r2.json`.
 
 ## Evidência medida
 
@@ -33,7 +34,7 @@ Estado: aguardando aprovação humana antes da Tarefa 0.8
 | reter | `.codex-remote-attachments` e anexos originais ainda referenciados | necessário | evidência original |
 | quarentenar | `work/tce-extractor/.package-staging-*` | 10.298.032.216 B | montagens reproduzíveis |
 | quarentenar | `work/tce-extractor/staging*` | 2.530.773.380 B | staging reproduzível |
-| quarentenar | `work/tce-extractor/qa-extracted-*` | 1.440.437.100 B | extrações de QA reproduzíveis |
+| quarentenar | `work/tce-extractor/qa-extracted-*` | 1.440.437.100 B | extrações de QA reproduzíveis; exceto `qa-extracted-portable-acervo-v2-20260908-v6` (extração validada, retida) |
 | quarentenar | `work/tce-extractor/tmp` | 267.507.466 B | temporários reproduzíveis |
 | quarentenar | `work/chrome-qa-*`, `work/chrome-html-qa*` | 33.033.390 B | perfis/saídas de QA não ativos, após checagem de processo |
 | quarentenar | `tmp/verify-release-integrated` | 262.377.072 B | extração de verificação reproduzível |
@@ -45,6 +46,25 @@ Estado: aguardando aprovação humana antes da Tarefa 0.8
 
 Total máximo desta proposta: 23.525.135.787 bytes (21,91 GiB), sempre por
 movimento recuperável para quarentena. Não há autorização para purge.
+
+## Correção pós-revisão independente (r2)
+
+A revisão independente da Tarefa 0.8 (`task-0.8-review.md`) reprovou o primeiro
+manifesto aprovado por incluir 303 arquivos da extração validada `v6`, que a
+tabela manda reter. O escopo aprovado não mudou: a correção apenas deixa de
+quarentenar a `v6`, mantendo a decisão de retenção já aprovada.
+
+- Manifesto revisado: `tmp/fase0/workspace-cleanup-approved-r2.json`
+  (`revision=r2`; `source_manifest=tmp/fase0/workspace-cleanup-approved.json`;
+  `approved_at` original preservado).
+- Totais medidos no r2: 16.074 itens / 23.126.367.618 bytes (21,54 GiB);
+  SHA-256 `a7994ff698dfabc690a0a50654d0c3a68996677de4e336ff0af6075da11e492f`.
+- Diferença para o manifesto original: 303 itens e 266.898.633 bytes a menos.
+- `WhatIf` com o manifesto original havia passado com 16.377 itens /
+  23.393.266.251 bytes, sem efeitos colaterais.
+- Os demais achados da revisão (TOCTOU/rollback, colisão de destino, alias 8.3,
+  validação estrutural do recibo no purge) são tratados no endurecimento do
+  limpador, com testes, antes de qualquer `-Apply`.
 
 ## Gate humano
 
