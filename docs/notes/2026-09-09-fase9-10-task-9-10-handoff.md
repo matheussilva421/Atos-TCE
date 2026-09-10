@@ -1,5 +1,32 @@
 # Handoff — Fases 9 e 10 locais
 
+## Atualização de acesso ao Chrome autenticado — 09/09/2026
+
+O operador confirmou que o Chrome com a Área Restrita autenticada está aberto e
+deve permanecer intacto. A tentativa de descoberta pelo canal de controle
+disponível nesta sessão retornou somente o navegador interno do Codex, sem abas;
+nenhuma aba do Chrome externo foi exposta para inspeção ou interação. Não houve
+fechamento, reinício, recarga, preenchimento ou envio.
+
+Verificações read-only desta retomada:
+
+- não há conector DevTools/Chrome externo disponível entre as ferramentas
+  callable da sessão;
+- o endpoint CDP histórico `127.0.0.1:63097` não respondeu nesta sessão;
+- as pontes locais `127.0.0.1:18743` e `127.0.0.1:18744` continuam escutando e
+  retornaram `real_send_enabled=false`, `pilot_enabled=false` e
+  `pilot_consumes_remaining=false` em `/api/v1/health`;
+- o artefato sanitizado existente ainda é da origem pública
+  `processos.tce.rn.gov.br`, portanto não vale como DOM da Área Restrita.
+
+Estado: a implementação local e o pacote final12 continuam verdes e
+fail-closed; os gates reais (DOM da Área Restrita, três preflights, primeiro
+envio supervisionado, reabertura/resultado, fixture/qualificação e lote de até
+cinco) não foram promovidos. Para retomada, é necessário expor a aba já aberta
+por um canal Chrome/DevTools suportado, sem criar uma nova sessão e sem perder o
+login. Até essa exposição, `real_send_enabled=false` permanece a decisão
+correta.
+
 ## Correção crítica de rota — 09/09/2026
 
 O operador esclareceu, com capturas da sessão real, que toda a ação de
