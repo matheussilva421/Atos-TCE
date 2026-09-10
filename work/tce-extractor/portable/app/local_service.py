@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 import re
 import secrets
 import sys
+import subprocess
 import tempfile
 import threading
 import time
@@ -29,6 +30,9 @@ for candidate in (APP_ROOT, PROJECT_ROOT):
 
 from bridge_auth import BridgeAuth, BridgeAuthError
 from automation_report import render_run_reports
+from acquisition import build_collector_command, validate_acquisition_request, validate_source_scope
+from analysis_preview import AnalysisPreviewStore, create_preview
+from batch_scope import validate_batch_spec
 from automation_store import (
     ActiveRunError,
     AutomationStore,
@@ -60,6 +64,10 @@ PROCESS_KEY_QUERY_RE = re.compile(r"^(\d+)\s*/\s*(\d{4})$")
 AUTOMATION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$")
 AUTOMATION_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+ANALYSIS_ID_RE = re.compile(r"^analysis-[0-9a-f]{24}$")
+ACQUISITION_JOB_ID_RE = re.compile(r"^acq-[0-9a-f]{24}$")
+SOURCE_SCOPES = frozenset({"sector_finalistic", "my_processes"})
+ACQUISITION_SOURCES = frozenset({"econtas"})
 
 _AUTOMATION_PAYLOAD_KEYS = frozenset(
     {
@@ -500,7 +508,18 @@ def _validate_run_payload(payload: dict, *, pilot_enabled: bool = False) -> tupl
     _require_exact_keys(
         payload,
         {"tab_id", "sector", "dataset_sha256", "rules_version", "event_id"},
-        {"mode", "pilot_identity", "marker", "auto_submit"},
+        {
+            "mode",
+            "pilot_identity",
+            "marker",
+            "marker_value",
+            "auto_submit",
+            "source_scope",
+            "acquisition_source",
+            "lot_size",
+            "analysis_id",
+            "preview_hash",
+        },
     )
     tab_id = payload.get("tab_id")
     if isinstance(tab_id, bool) or not isinstance(tab_id, int) or tab_id < 0:
@@ -529,6 +548,26 @@ def _validate_run_payload(payload: dict, *, pilot_enabled: bool = False) -> tupl
         marker = _require_text(marker, "marker")
         if not marker.strip():
             raise _ApiProblem(400, "INVALID_PAYLOAD", "marker inválido")
+    marker_value = payload.get("marker_value")
+    if marker_value is not None:
+        marker_value = _require_text(marker_value, "marker_value")
+    source_scope = payload.get("source_scope")
+    if source_scope is not None:
+        if source_scope not in SOURCE_SCOPES:
+            raise _ApiProblem(400, "INVALID_PAYLOAD", "source_scope inválido")
+    acquisition_source = payload.get("acquisition_source")
+    if acquisition_source is not None:
+        if acquisition_source not in ACQUISITION_SOURCES:
+            raise _ApiProblem(400, "INVALID_PAYLOAD", "acquisition_source inválido")
+    lot_size = payload.get("lot_size")
+    if lot_size is not None and (isinstance(lot_size, bool) or not isinstance(lot_size, int) or not 1 <= lot_size <= 1000):
+        raise _ApiProblem(400, "INVALID_PAYLOAD", "lot_size inválido")
+    analysis_id = payload.get("analysis_id")
+    if analysis_id is not None and (not isinstance(analysis_id, str) or not ANALYSIS_ID_RE.fullmatch(analysis_id)):
+        raise _ApiProblem(400, "INVALID_PAYLOAD", "analysis_id inválido")
+    preview_hash = payload.get("preview_hash")
+    if preview_hash is not None and (not isinstance(preview_hash, str) or not SHA256_RE.fullmatch(preview_hash)):
+        raise _ApiProblem(400, "INVALID_PAYLOAD", "preview_hash inválido")
     auto_submit = payload.get("auto_submit", False)
     if not isinstance(auto_submit, bool):
         raise _ApiProblem(400, "INVALID_PAYLOAD", "auto_submit deve ser booleano")
@@ -548,7 +587,46 @@ def _validate_run_payload(payload: dict, *, pilot_enabled: bool = False) -> tupl
     }
     if marker is not None:
         normalized["marker"] = marker
+    if marker_value is not None:
+        normalized["marker_value"] = marker_value
+    if source_scope is not None:
+        normalized["source_scope"] = source_scope
+    if acquisition_source is not None:
+        normalized["acquisition_source"] = acquisition_source
+    if lot_size is not None:
+        normalized["lot_size"] = lot_size
+    if analysis_id is not None:
+        normalized["analysis_id"] = analysis_id
+    if preview_hash is not None:
+        normalized["preview_hash"] = preview_hash
     return normalized, event_id
+
+
+def _validate_analysis_preview_payload(payload: dict) -> tuple[dict, list[dict], str]:
+    _require_exact_keys(payload, {"spec", "rows", "observed_at"})
+    spec = payload.get("spec")
+    rows = payload.get("rows")
+    observed_at = _require_text(payload.get("observed_at"), "observed_at", max_length=128)
+    if not isinstance(spec, dict):
+        raise _ApiProblem(400, "INVALID_ANALYSIS", "spec da análise deve ser objeto")
+    if not isinstance(rows, list) or len(rows) > MAX_AUTOMATION_IDENTITIES:
+        raise _ApiProblem(400, "INVALID_ANALYSIS", "rows da análise inválidas")
+    _reject_private_payload(payload)
+    try:
+        normalized_spec = validate_batch_spec(spec)
+    except (TypeError, ValueError) as error:
+        raise _ApiProblem(400, "INVALID_ANALYSIS", str(error)) from error
+    if any(not isinstance(row, dict) for row in rows):
+        raise _ApiProblem(400, "INVALID_ANALYSIS", "cada row da análise deve ser objeto")
+    return normalized_spec, rows, observed_at
+
+
+def _project_analysis_snapshot(snapshot: dict) -> dict:
+    return {
+        key: copy.deepcopy(value)
+        for key, value in snapshot.items()
+        if key != "canonical_json"
+    }
 
 
 def _validate_queue_payload(payload: dict) -> tuple[list[dict], str, int]:
@@ -757,7 +835,18 @@ def _project_automation_snapshot(snapshot: dict, run_id: str, *, include_reports
     if isinstance(stored_spec, dict):
         result["spec"] = {
             key: copy.deepcopy(stored_spec[key])
-            for key in ("mode", "sector", "marker", "auto_submit")
+            for key in (
+                "mode",
+                "sector",
+                "marker",
+                "marker_value",
+                "auto_submit",
+                "source_scope",
+                "acquisition_source",
+                "lot_size",
+                "analysis_id",
+                "preview_hash",
+            )
             if key in stored_spec
         }
     if include_reports:
@@ -805,6 +894,7 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
 
     def __init__(self, address, root: Path, *, automation_pilot: bool = False, enable_real_send: bool = False):
         self.workflow_root = root.resolve()
+        self.package_root = self.workflow_root.parent
         self.automation_pilot = automation_pilot is True
         self.real_send_enabled = False
         if enable_real_send:
@@ -832,7 +922,103 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
             raise
         self.workflow_state = workflow_state
         self.automation_store = automation_store
+        self.analysis_previews = AnalysisPreviewStore(self.workflow_root)
+        self._acquisition_lock = threading.RLock()
+        self._acquisition_jobs: dict[str, dict[str, object]] = {}
         self.service_revision = self.workflow_state.snapshot()["revision"]
+
+    def start_analysis_acquisition(self, analysis_id: str, lot_number: int) -> dict[str, object]:
+        if not ANALYSIS_ID_RE.fullmatch(analysis_id):
+            raise _ApiProblem(404, "ANALYSIS_NOT_FOUND", "análise não encontrada")
+        try:
+            request = validate_acquisition_request({"lot_number": lot_number})
+            snapshot = self.analysis_previews.load(analysis_id)
+        except ValueError as error:
+            if "lot_number" in str(error):
+                raise _ApiProblem(400, "INVALID_ACQUISITION", str(error)) from error
+            raise _ApiProblem(404, "ANALYSIS_NOT_FOUND", "análise não encontrada") from error
+        lots = snapshot.get("lots")
+        if not isinstance(lots, list):
+            raise _ApiProblem(409, "LOTS_REQUIRED", "crie os lotes da análise antes da aquisição")
+        lot = next(
+            (candidate for candidate in lots
+             if isinstance(candidate, dict) and candidate.get("lot_number") == request["lot_number"]),
+            None,
+        )
+        if lot is None:
+            raise _ApiProblem(404, "LOT_NOT_FOUND", "lote não encontrado na análise")
+        spec = snapshot.get("spec")
+        try:
+            source_scope = validate_source_scope(spec.get("source_scope") if isinstance(spec, dict) else None)
+        except ValueError as error:
+            raise _ApiProblem(409, "INVALID_ANALYSIS_SCOPE", str(error)) from error
+        with self._acquisition_lock:
+            for job in self._acquisition_jobs.values():
+                if (
+                    job["analysis_id"] == analysis_id
+                    and job["lot_number"] == request["lot_number"]
+                    and job["process"].poll() is None  # type: ignore[union-attr]
+                ):
+                    raise _ApiProblem(409, "ACQUISITION_ACTIVE", "a aquisição deste lote já está em execução")
+            job_id = f"acq-{secrets.token_hex(12)}"
+            command = build_collector_command(
+                package_root=self.package_root,
+                workflow_root=self.workflow_root,
+                analysis_path=self.workflow_root / "automacao" / "analises" / f"{analysis_id}.json",
+                lot_number=request["lot_number"],
+                source_scope=source_scope,
+                python_path=self.package_root / "runtime" / "python" / "python.exe",
+                tesseract_path=self.package_root / "runtime" / "tesseract" / "tesseract.exe",
+                tessdata_path=self.package_root / "runtime" / "tesseract" / "tessdata",
+            )
+            log_directory = self.workflow_root / "automacao" / "coletas"
+            log_directory.mkdir(parents=True, exist_ok=True)
+            log_path = log_directory / f"{job_id}.log"
+            with log_path.open("ab") as log_stream:
+                process = subprocess.Popen(
+                    command,
+                    cwd=str(self.package_root),
+                    stdin=subprocess.DEVNULL,
+                    stdout=log_stream,
+                    stderr=subprocess.STDOUT,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            self._acquisition_jobs[job_id] = {
+                "analysis_id": analysis_id,
+                "lot_number": request["lot_number"],
+                "process": process,
+                "pid": process.pid,
+                "started_at": time.time(),
+            }
+        return {
+            "api_version": API_VERSION,
+            "analysis_id": analysis_id,
+            "job_id": job_id,
+            "lot_number": request["lot_number"],
+            "status": "started",
+            "pid": process.pid,
+        }
+
+    def analysis_acquisition_status(self, analysis_id: str, job_id: str) -> dict[str, object]:
+        if not ANALYSIS_ID_RE.fullmatch(analysis_id) or not ACQUISITION_JOB_ID_RE.fullmatch(job_id):
+            raise _ApiProblem(404, "ACQUISITION_NOT_FOUND", "aquisição não encontrada")
+        with self._acquisition_lock:
+            job = self._acquisition_jobs.get(job_id)
+            if job is None or job["analysis_id"] != analysis_id:
+                raise _ApiProblem(404, "ACQUISITION_NOT_FOUND", "aquisição não encontrada")
+            return_code = job["process"].poll()  # type: ignore[union-attr]
+            status = "running" if return_code is None else ("completed" if return_code == 0 else "failed")
+            result: dict[str, object] = {
+                "api_version": API_VERSION,
+                "analysis_id": analysis_id,
+                "job_id": job_id,
+                "lot_number": job["lot_number"],
+                "status": status,
+                "pid": job["pid"],
+            }
+            if return_code is not None:
+                result["return_code"] = return_code
+            return result
 
     def server_close(self):
         try:
@@ -1111,6 +1297,89 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             return
         self._send(200, {"api_version": API_VERSION, **result})
 
+    def _send_analysis(self, analysis_id: str) -> None:
+        if not ANALYSIS_ID_RE.fullmatch(analysis_id):
+            self._error(404, "ANALYSIS_NOT_FOUND", "análise não encontrada")
+            return
+        try:
+            snapshot = self.server_state.analysis_previews.load(analysis_id)
+        except ValueError:
+            self._error(404, "ANALYSIS_NOT_FOUND", "análise não encontrada")
+            return
+        self._send(200, _project_analysis_snapshot(snapshot))
+
+    def _create_analysis_preview(self) -> None:
+        try:
+            payload = self._read_json()
+            spec, rows, observed_at = _validate_analysis_preview_payload(payload)
+            snapshot = create_preview(
+                self.server_state.workflow_root,
+                spec,
+                rows,
+                observed_at,
+            )
+            saved = self.server_state.analysis_previews.save(snapshot)
+        except _BodyTooLarge as problem:
+            self._error(problem.status, problem.code, str(problem))
+            return
+        except _ApiProblem as problem:
+            self._error(problem.status, problem.code, str(problem))
+            return
+        except (ValueError, TypeError, UnicodeError, json.JSONDecodeError) as error:
+            self._error(400, "INVALID_ANALYSIS", str(error))
+            return
+        self._send(200, _project_analysis_snapshot(saved))
+
+    def _create_analysis_lots(self, analysis_id: str) -> None:
+        if not ANALYSIS_ID_RE.fullmatch(analysis_id):
+            self._error(404, "ANALYSIS_NOT_FOUND", "análise não encontrada")
+            return
+        try:
+            payload = self._read_json()
+            if payload:
+                raise _ApiProblem(400, "INVALID_ANALYSIS", "criação de lotes não aceita campos")
+            snapshot = self.server_state.analysis_previews.create_lots(analysis_id)
+        except _BodyTooLarge as problem:
+            self._error(problem.status, problem.code, str(problem))
+            return
+        except _ApiProblem as problem:
+            self._error(problem.status, problem.code, str(problem))
+            return
+        except ValueError:
+            self._error(404, "ANALYSIS_NOT_FOUND", "análise não encontrada")
+            return
+        self._send(200, _project_analysis_snapshot(snapshot))
+
+    def _start_analysis_acquisition(self, analysis_id: str) -> None:
+        if not ANALYSIS_ID_RE.fullmatch(analysis_id):
+            self._error(404, "ANALYSIS_NOT_FOUND", "análise não encontrada")
+            return
+        try:
+            payload = self._read_json()
+            request = validate_acquisition_request(payload)
+            result = self.server_state.start_analysis_acquisition(analysis_id, request["lot_number"])
+        except _BodyTooLarge as problem:
+            self._error(problem.status, problem.code, str(problem))
+            return
+        except _ApiProblem as problem:
+            self._error(problem.status, problem.code, str(problem))
+            return
+        except (ValueError, TypeError, UnicodeError, json.JSONDecodeError) as error:
+            self._error(400, "INVALID_ACQUISITION", str(error))
+            return
+        except OSError as error:
+            self._error(503, "ACQUISITION_UNAVAILABLE", f"coleta não pôde ser iniciada: {error}")
+            return
+        self._send(202, result)
+
+    def _send_analysis_acquisition_status(self, analysis_id: str, job_id: str) -> None:
+        try:
+            result = self.server_state.analysis_acquisition_status(analysis_id, job_id)
+        except _ApiProblem as problem:
+            self._error(problem.status, problem.code, str(problem))
+            return
+        self._send(200, result)
+
     def _send_automation_events(self, run_id: str, params: dict[str, list[str]]) -> None:
         try:
             after, limit = _validate_event_history_query(params)
@@ -1339,6 +1608,17 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             return
         if not self._require_auth(allow_missing_origin=True):
             return
+        analysis_parts = [unquote(part) for part in parsed.path.split("/") if part]
+        if (
+            len(analysis_parts) == 6
+            and analysis_parts[:3] == ["api", "v1", "analysis"]
+            and analysis_parts[4] == "acquire"
+        ):
+            self._send_analysis_acquisition_status(analysis_parts[3], analysis_parts[5])
+            return
+        if len(analysis_parts) == 4 and analysis_parts[:3] == ["api", "v1", "analysis"]:
+            self._send_analysis(analysis_parts[3])
+            return
         automation_parts = [unquote(part) for part in parsed.path.split("/") if part]
         if automation_parts == ["api", "v1", "automation", "runs"]:
             self._send_automation_runs(parse_qs(parsed.query, keep_blank_values=True))
@@ -1513,6 +1793,24 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             )
             return
         if not self._require_auth():
+            return
+        if parsed.path == "/api/v1/analysis/preview":
+            self._create_analysis_preview()
+            return
+        analysis_parts = [unquote(part) for part in parsed.path.split("/") if part]
+        if (
+            len(analysis_parts) == 5
+            and analysis_parts[:3] == ["api", "v1", "analysis"]
+            and analysis_parts[4] == "lots"
+        ):
+            self._create_analysis_lots(analysis_parts[3])
+            return
+        if (
+            len(analysis_parts) == 5
+            and analysis_parts[:3] == ["api", "v1", "analysis"]
+            and analysis_parts[4] == "acquire"
+        ):
+            self._start_analysis_acquisition(analysis_parts[3])
             return
         if parsed.path == "/api/v1/automation/runs":
             try:

@@ -49,8 +49,10 @@ try {
 }
 
 $options = @(Get-TceMenuOptions | ForEach-Object key)
-Assert-Equal $options @(1, 2, 3, 4, 5, 6, 7, 8) 'oferece exatamente as opções 1 a 8'
+Assert-Equal $options @(1, 2, 3, 4, 5, 6, 7, 8, 9, 10) 'oferece as opções legadas e o fluxo híbrido'
 Assert-Equal ((Get-TceMenuOptions | Where-Object key -eq 7).label) 'Diagnóstico do runtime' 'opção 7 descreve somente o diagnóstico do runtime'
+Assert-Equal ((Get-TceMenuOptions | Where-Object key -eq 9).label) 'Verificar ponte local' 'opção 9 verifica a conexão da ponte'
+Assert-Equal ((Get-TceMenuOptions | Where-Object key -eq 10).label) 'Baixar e preparar OCR de lote congelado' 'opção 10 executa aquisição/OCR do lote'
 $menuText = Get-Content -LiteralPath $menuPath -Raw
 Assert-True ($menuText -match '\.operation\.lock') 'menu não inicia o serviço durante transferência do pacote'
 
@@ -62,9 +64,11 @@ $distinctCodes = @(
     $codes.Analysis,
     $codes.Html,
     $codes.ExtensionData,
-    $codes.Reset
+    $codes.Reset,
+    $codes.Bridge,
+    $codes.Acquisition
 ) | Sort-Object -Unique
-Assert-Equal $distinctCodes.Count 7 'códigos de runtime, autenticação, coleta, análise, HTML, extensão e reset são distintos'
+Assert-Equal $distinctCodes.Count 9 'códigos de runtime, autenticação, coleta, análise, HTML, extensão, reset, ponte e aquisição são distintos'
 
 $bridgePackageRoot = Join-Path ([IO.Path]::GetTempPath()) ('tce-menu-bridge-' + [guid]::NewGuid().ToString('N'))
 $bridgeArchiveRoot = Join-Path $bridgePackageRoot 'acervo-tce'
@@ -80,6 +84,8 @@ try {
     }
     $started = Start-TceLocalService -PackageRoot $bridgePackageRoot -ArchiveRoot $bridgeArchiveRoot -Python $bridgePython -ProcessStarter $fakeStarter
     $bridgePath = Get-TceLocalServiceMetadataPath -PackageRoot $bridgePackageRoot
+    $bridgeLockPath = Join-Path $bridgePackageRoot 'dados-locais\bridge\.operation.lock'
+    [IO.File]::WriteAllText($bridgeLockPath, '{"pid":4321,"token":"fixture"}')
     Assert-True (Test-Path -LiteralPath $bridgePath -PathType Leaf) 'iniciar serviço registra estado somente na ponte local'
     Assert-Equal $started.pid 4321 'iniciar serviço registra o PID retornado pelo processo'
     Assert-True ((($startCalls | Select-Object -First 1)[1] -join ' ') -match '(?i)--bridge-root') 'iniciar serviço passa a ponte fora do acervo'
@@ -91,6 +97,7 @@ try {
     Assert-True (Stop-TceLocalService -PackageRoot $bridgePackageRoot -Python $bridgePython -ProcessResolver $fakeResolver -ProcessStopper $fakeStopper) 'parar serviço encerra somente o helper identificado'
     Assert-Equal ($stopCalls -join ',') '4321' 'parar serviço usa o PID registrado'
     Assert-True (-not (Test-Path -LiteralPath $bridgePath)) 'parar serviço remove metadados da ponte'
+    Assert-True (-not (Test-Path -LiteralPath $bridgeLockPath)) 'parar serviço remove o lock órfão do próprio PID'
 
     $readinessError = $null
     try {
@@ -106,6 +113,7 @@ try {
 $launcherText = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\portable\INICIAR.cmd') -Raw
 Assert-True ($launcherText -match '(?i)parar') 'iniciador oferece comando explícito para parar o serviço'
 Assert-True ($launcherText -match '(?i)Hidden') 'iniciador solicita helper oculto'
+Assert-True ($launcherText -match '(?i)LaunchLocalService') 'iniciador inicia a ponte local antes do menu híbrido'
 Assert-True ($launcherText -notmatch '(?i)netsh|firewall|RunOnce|Startup') 'iniciador não cria firewall nem inicialização automática'
 
 $safe = ConvertTo-TceSafeText 'warning token=secret Authorization: Bearer header-secret https://temporary.invalid/download?id=1'
@@ -161,6 +169,8 @@ try {
     $opener = { param([string]$HtmlPath) [void]$calls.Add('open'); return 0 }
     $extension = { param([string]$ArchiveRoot) [void]$calls.Add('extension'); return 0 }
     $diagnostics = { param([string]$PackageRoot) [void]$calls.Add('diagnose'); return 0 }
+    $bridgeStatus = { param([string]$PackageRoot) [void]$calls.Add('bridge'); return 0 }
+    $frozenAcquisition = { param([string]$ArchiveRoot) [void]$calls.Add('acquire'); return 0 }
 
     $common = @{
         ArchiveRoot = $archiveRoot
@@ -170,6 +180,8 @@ try {
         Opener = $opener
         ExtensionExporter = $extension
         Diagnostics = $diagnostics
+        BridgeStatus = $bridgeStatus
+        FrozenAcquisition = $frozenAcquisition
     }
 
     Assert-Equal (Invoke-TceMenuAction -Action 1 @common) 0 'ação 1 conclui coleta'
@@ -198,6 +210,14 @@ try {
 
     Assert-Equal (Invoke-TceMenuAction -Action 7 @common) 0 'ação 7 conclui diagnóstico'
     Assert-Equal ($calls -join ',') 'diagnose' 'ação 7 executa somente diagnóstico'
+
+    [void]$calls.Clear()
+    Assert-Equal (Invoke-TceMenuAction -Action 9 @common) 0 'ação 9 verifica a ponte local'
+    Assert-Equal ($calls -join ',') 'bridge' 'ação 9 executa somente verificação da ponte'
+
+    [void]$calls.Clear()
+    Assert-Equal (Invoke-TceMenuAction -Action 10 @common) 0 'ação 10 executa aquisição do lote congelado'
+    Assert-Equal ($calls -join ',') 'acquire' 'ação 10 executa somente download e OCR do lote'
 
     [void]$calls.Clear()
     $resetter = { param([string]$ArchiveRoot) [void]$calls.Add('reset'); return 0 }
@@ -292,7 +312,7 @@ foreach ($requiredText in @(
 )) {
     Assert-True ($readmeText.IndexOf($requiredText, [StringComparison]::OrdinalIgnoreCase) -ge 0) "README documenta: $requiredText"
 }
-Assert-True ($readmeText -notmatch 'opções 1[–-]6') 'README reflete as sete opcoes atuais'
+Assert-True ($readmeText -match 'opções 1[–-]10') 'README reflete as dez opções atuais'
 Assert-True ($readmeText.IndexOf(($nao + ' submete'), [StringComparison]::OrdinalIgnoreCase) -ge 0) 'README atribui o limite à extensão'
 
 Write-Host "`nResultado: $script:passed passaram; $script:failed falharam."

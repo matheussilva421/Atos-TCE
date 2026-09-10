@@ -12,7 +12,7 @@ import time
 from tempfile import TemporaryDirectory
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -66,6 +66,196 @@ def running_server():
 
 
 class LocalServiceTests(unittest.TestCase):
+    def test_run_payload_preserves_hybrid_scope_and_frozen_lot_contract(self):
+        payload = {
+            "tab_id": 7,
+            "sector": "aposentadorias",
+            "dataset_sha256": "a" * 64,
+            "rules_version": "legal-foundation-v1",
+            "event_id": "start-hybrid-1",
+            "marker": "Marcador",
+            "marker_value": "marker-1",
+            "source_scope": "my_processes",
+            "acquisition_source": "econtas",
+            "lot_size": 100,
+            "analysis_id": "analysis-" + "a" * 24,
+            "preview_hash": "a" * 64,
+            "auto_submit": False,
+        }
+
+        normalized, event_id = local_service._validate_run_payload(payload)
+
+        self.assertEqual(event_id, "start-hybrid-1")
+        self.assertEqual(normalized["source_scope"], "my_processes")
+        self.assertEqual(normalized["acquisition_source"], "econtas")
+        self.assertEqual(normalized["lot_size"], 100)
+        self.assertEqual(normalized["analysis_id"], "analysis-" + "a" * 24)
+        self.assertEqual(normalized["preview_hash"], "a" * 64)
+
+    def test_authenticated_analysis_preview_can_be_read_and_split_into_lots(self):
+        with running_server() as (_root, server, base):
+            code = server.auth.issue_pairing_code()
+            _status, _headers, pair_body = json_request(
+                f"{base}/api/v1/pair",
+                method="POST",
+                payload={"code": code},
+                origin="chrome-extension://test-extension",
+            )
+            token = json.loads(pair_body)["token"]
+            payload = {
+                "spec": {
+                    "schema_version": 2,
+                    "source_scope": "sector_finalistic",
+                    "marker": {"label": "Marcador", "value": "m-1"},
+                    "acquisition_source": "econtas",
+                    "lot_size": 50,
+                    "analysis_only": True,
+                    "auto_prepare": True,
+                    "auto_submit": False,
+                    "dataset_sha256": None,
+                },
+                "observed_at": "2026-09-10T12:00:00+00:00",
+                "rows": [{
+                    "process_key": "100/2026",
+                    "interested_key": "person-1",
+                    "area_restrita": {
+                        "scope": "sector_finalistic",
+                        "marker_label": "Marcador",
+                        "marker_value": "m-1",
+                        "needs_complement": True,
+                        "action_observed": "Complementar Ato",
+                        "snapshot_hash": "a" * 64,
+                    },
+                    "econtas": {
+                        "match": "exact",
+                        "documents": [{"document_id": "doc-1"}],
+                        "snapshot_hash": "a" * 64,
+                        "ocr_status": "ready",
+                    },
+                }],
+            }
+            status, _headers, body = json_request(
+                f"{base}/api/v1/analysis/preview",
+                method="POST",
+                payload=payload,
+                token=token,
+                origin="chrome-extension://test-extension",
+            )
+            preview = json.loads(body)
+            self.assertEqual(status, 200)
+            self.assertEqual(preview["preview"]["eligible"], 1)
+            self.assertNotIn("canonical_json", preview)
+
+            analysis_id = preview["analysis_id"]
+            status, _headers, body = json_request(
+                f"{base}/api/v1/analysis/{analysis_id}",
+                token=token,
+                origin="chrome-extension://test-extension",
+            )
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body)["dataset_sha256"], preview["dataset_sha256"])
+
+            status, _headers, body = json_request(
+                f"{base}/api/v1/analysis/{analysis_id}/lots",
+                method="POST",
+                payload={},
+                token=token,
+                origin="chrome-extension://test-extension",
+            )
+            self.assertEqual(status, 200)
+            self.assertEqual(len(json.loads(body)["lots"]), 1)
+
+    def test_authenticated_analysis_lot_starts_local_acquisition_without_real_send(self):
+        with running_server() as (_root, server, base):
+            code = server.auth.issue_pairing_code()
+            _status, _headers, pair_body = json_request(
+                f"{base}/api/v1/pair",
+                method="POST",
+                payload={"code": code},
+                origin="chrome-extension://test-extension",
+            )
+            token = json.loads(pair_body)["token"]
+            payload = {
+                "spec": {
+                    "schema_version": 2,
+                    "source_scope": "sector_finalistic",
+                    "marker": {"label": "Marcador", "value": "m-1"},
+                    "acquisition_source": "econtas",
+                    "lot_size": 50,
+                    "analysis_only": True,
+                    "auto_prepare": True,
+                    "auto_submit": False,
+                    "dataset_sha256": None,
+                },
+                "observed_at": "2026-09-10T12:00:00+00:00",
+                "rows": [{
+                    "process_key": "100/2026",
+                    "interested_key": "person-1",
+                    "area_restrita": {
+                        "scope": "sector_finalistic",
+                        "marker_label": "Marcador",
+                        "marker_value": "m-1",
+                        "needs_complement": True,
+                        "action_observed": "Complementar Ato",
+                        "snapshot_hash": "a" * 64,
+                    },
+                    "econtas": {
+                        "match": "missing",
+                        "documents": [],
+                        "snapshot_hash": None,
+                        "ocr_status": "not_run",
+                    },
+                }],
+            }
+            _status, _headers, body = json_request(
+                f"{base}/api/v1/analysis/preview",
+                method="POST",
+                payload=payload,
+                token=token,
+                origin="chrome-extension://test-extension",
+            )
+            analysis = json.loads(body)
+            analysis_id = analysis["analysis_id"]
+            json_request(
+                f"{base}/api/v1/analysis/{analysis_id}/lots",
+                method="POST",
+                payload={},
+                token=token,
+                origin="chrome-extension://test-extension",
+            )
+
+            process = MagicMock()
+            process.pid = 4321
+            process.poll.return_value = None
+            with patch.object(local_service.subprocess, "Popen", return_value=process) as popen:
+                status, _headers, body = json_request(
+                    f"{base}/api/v1/analysis/{analysis_id}/acquire",
+                    method="POST",
+                    payload={"lot_number": 1},
+                    token=token,
+                    origin="chrome-extension://test-extension",
+                )
+
+            started = json.loads(body)
+            self.assertEqual(status, 202)
+            self.assertEqual(started["status"], "started")
+            self.assertEqual(started["lot_number"], 1)
+            command = popen.call_args.args[0]
+            self.assertIn("-FilaCongelada", command)
+            self.assertIn("-NumeroLote", command)
+            self.assertIn("1", command)
+            self.assertIn("-NaoInterativo", command)
+            self.assertIn("-ServiceChild", command)
+            self.assertNotIn("-enable-real-send", " ".join(command).lower())
+
+            status, _headers, body = json_request(
+                f"{base}/api/v1/analysis/{analysis_id}/acquire/{started['job_id']}",
+                token=token,
+                origin="chrome-extension://test-extension",
+            )
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body)["status"], "running")
+
     def test_portable_service_metadata_pairs_and_reaches_capabilities(self):
         """Exercise the package startup boundary, not only an in-process server."""
         with TemporaryDirectory() as temporary:

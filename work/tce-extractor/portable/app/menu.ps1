@@ -1,7 +1,8 @@
 ﻿param(
     [string]$MenuRoot = '',
     [switch]$LaunchLocalService,
-    [switch]$StopLocalService
+    [switch]$StopLocalService,
+    [switch]$BridgeStatusOnly
 )
 
 Set-StrictMode -Version 2.0
@@ -34,7 +35,7 @@ $script:TceMenuAppRoot = if (-not [string]::IsNullOrWhiteSpace($MenuRoot)) {
 }
 
 function Get-TceExitCodes {
-    [pscustomobject]@{ Runtime = 10; Authentication = 20; Collection = 30; Analysis = 40; Html = 50; ExtensionData = 60; Reset = 70 }
+    [pscustomobject]@{ Runtime = 10; Authentication = 20; Collection = 30; Analysis = 40; Html = 50; ExtensionData = 60; Reset = 70; Bridge = 80; Acquisition = 90 }
 }
 
 function Get-TceMenuOptions {
@@ -47,6 +48,8 @@ function Get-TceMenuOptions {
         [pscustomobject]@{ key = 6; label = 'Fluxo completo' }
         [pscustomobject]@{ key = 7; label = 'Diagnóstico do runtime' }
         [pscustomobject]@{ key = 8; label = 'Zerar acervo e iniciar novo lote' }
+        [pscustomobject]@{ key = 9; label = 'Verificar ponte local' }
+        [pscustomobject]@{ key = 10; label = 'Baixar e preparar OCR de lote congelado' }
     )
 }
 
@@ -113,7 +116,7 @@ function Invoke-TceMenuStep {
     } catch {
         if ($_.Exception.Data['TceExitCode']) { throw }
         $codes = Get-TceExitCodes
-        if ($Code -eq $codes.Collection -and $_.Exception.Message -match '(?i)autentica|login|sess[aã]o') {
+        if ($Code -in @($codes.Collection, $codes.Acquisition) -and $_.Exception.Message -match '(?i)autentica|login|sess[aã]o') {
             throw (New-TceMenuException -Message $_.Exception.Message -Code $codes.Authentication)
         }
         throw (New-TceMenuException -Message $_.Exception.Message -Code $Code)
@@ -219,7 +222,19 @@ function Start-TceLocalService {
     if (-not (Test-Path -LiteralPath $serviceScript -PathType Leaf)) {
         throw 'Helper do serviço local ausente; o modo manual permanece disponível.'
     }
-    $arguments = @('-B', $serviceScript, '--root', $canonicalArchive, '--bridge-root', $bridgeRoot, '--port', '18743')
+    # Start-Process concatenates ArgumentList items before handing them to the
+    # Windows command line. Quote every filesystem path so extracted packages
+    # continue to work from paths containing spaces or Unicode characters.
+    $quoteArgument = {
+        param([Parameter(Mandatory)][string]$Value)
+        return '"' + $Value.Replace('"', '\"') + '"'
+    }
+    $arguments = @(
+        '-B', (& $quoteArgument $serviceScript),
+        '--root', (& $quoteArgument $canonicalArchive),
+        '--bridge-root', (& $quoteArgument $bridgeRoot),
+        '--port', '18743'
+    )
     try {
         $process = if ($null -ne $ProcessStarter) {
             & $ProcessStarter $Python $arguments (Join-Path $canonicalPackage 'app')
@@ -281,6 +296,15 @@ function Stop-TceLocalService {
         try { $actualPath = [IO.Path]::GetFullPath([string]$process.Path) } catch { return $false }
         if (-not [StringComparer]::OrdinalIgnoreCase.Equals($actualPath, $expectedPython)) { return $false }
         if ($null -ne $ProcessStopper) { & $ProcessStopper $process } else { Stop-Process -Id ([int]$metadata.pid) -Force -ErrorAction Stop }
+        $operationLockPath = Join-Path ([IO.Path]::GetDirectoryName($metadataPath)) '.operation.lock'
+        if (Test-Path -LiteralPath $operationLockPath -PathType Leaf) {
+            try {
+                $operationLock = Get-Content -LiteralPath $operationLockPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ([int]$operationLock.pid -eq [int]$metadata.pid) {
+                    Remove-Item -LiteralPath $operationLockPath -Force -ErrorAction SilentlyContinue
+                }
+            } catch { }
+        }
         Remove-Item -LiteralPath $metadataPath -Force -ErrorAction SilentlyContinue
         return $true
     } catch {
@@ -288,9 +312,30 @@ function Stop-TceLocalService {
     }
 }
 
+function Test-TceLocalBridge {
+    param([Parameter(Mandatory)][string]$PackageRoot)
+    $metadataPath = Get-TceLocalServiceMetadataPath -PackageRoot $PackageRoot
+    if (-not (Test-Path -LiteralPath $metadataPath -PathType Leaf)) {
+        throw 'Ponte local não iniciada; execute INICIAR.cmd sem argumentos primeiro.'
+    }
+    try {
+        $metadata = Get-Content -LiteralPath $metadataPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $port = [int]$metadata.port
+        $health = Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/v1/health" -UseBasicParsing -TimeoutSec 5
+        if ([int]$health.api_version -ne 1 -or [string]$health.service -ne 'tce-portable') {
+            throw 'resposta de saúde incompatível'
+        }
+        Write-Host "Ponte local conectada: 127.0.0.1:$port (PID $($metadata.pid))." -ForegroundColor Green
+        Write-Host 'A extensão ainda precisa usar o código temporário mostrado pelo iniciador para parear.' -ForegroundColor Yellow
+        return 0
+    } catch {
+        throw "Ponte local não respondeu: $($_.Exception.Message)"
+    }
+}
+
 function Invoke-TceMenuAction {
     param(
-        [Parameter(Mandatory)][ValidateRange(1,8)][int]$Action,
+        [Parameter(Mandatory)][ValidateRange(1,10)][int]$Action,
         [Parameter(Mandatory)][string]$ArchiveRoot,
         [string]$PackageRoot,
         [scriptblock]$Collector,
@@ -299,6 +344,8 @@ function Invoke-TceMenuAction {
         [scriptblock]$Opener,
         [scriptblock]$ExtensionExporter,
         [scriptblock]$Diagnostics,
+        [scriptblock]$BridgeStatus,
+        [scriptblock]$FrozenAcquisition,
         [scriptblock]$Resetter,
         [scriptblock]$ConfirmationReader
     )
@@ -326,6 +373,8 @@ function Invoke-TceMenuAction {
                 Invoke-TceMenuStep $Analyzer $ArchiveRoot $codes.Analysis
                 Invoke-TceMenuStep $Opener (Join-Path $ArchiveRoot 'complementar-ato.html') $codes.Html
             }
+            9 { Invoke-TceMenuStep $BridgeStatus $PackageRoot $codes.Bridge }
+            10 { Invoke-TceMenuStep $FrozenAcquisition $ArchiveRoot $codes.Acquisition }
         }
         return 0
     } catch {
@@ -340,8 +389,9 @@ function Invoke-TceMenuAction {
 }
 
 function Start-TcePortableMenu {
-    param([switch]$LaunchLocalService, [switch]$StopLocalService)
+    param([switch]$LaunchLocalService, [switch]$StopLocalService, [switch]$BridgeStatusOnly)
     $appRoot = $script:TceMenuAppRoot
+    $codes = Get-TceExitCodes
     $packageRoot = Split-Path -Parent $appRoot
     $archiveRoot = Join-Path $packageRoot 'acervo-tce'
     $pythonPath = Join-Path $packageRoot 'runtime\python\python.exe'
@@ -404,6 +454,12 @@ function Start-TcePortableMenu {
         & $runtime.Tesseract --tessdata-dir $runtime.Tessdata --list-langs
         return $LASTEXITCODE
     }.GetNewClosure()
+    $bridgeCheck = ${function:Test-TceLocalBridge}
+    $bridgeStatus = {
+        param($root)
+        & $bridgeCheck -PackageRoot $root
+        return $LASTEXITCODE
+    }.GetNewClosure()
 
     if ($LaunchLocalService) {
         try {
@@ -416,6 +472,10 @@ function Start-TcePortableMenu {
         } catch {
             Write-Warning 'Serviço local indisponível; continue pelo HTML/JSON manual.'
         }
+    }
+
+    if ($BridgeStatusOnly) {
+        return Invoke-TceMenuStep $bridgeStatus $packageRoot $codes.Bridge
     }
 
     Write-Host 'TCE/RN - pacote portátil (somente leitura)' -ForegroundColor Cyan
@@ -434,9 +494,42 @@ function Start-TcePortableMenu {
         & $collectorPath -Destino $root -ManterNavegadorAberto -ModoPreparacao $preparationMode -MaxDownloads 2 -Python $runtime.Python -Tesseract $runtime.Tesseract -Tessdata $runtime.Tessdata
         return $LASTEXITCODE
     }.GetNewClosure()
-    return Invoke-TceMenuAction -Action $choice -ArchiveRoot $archiveRoot -PackageRoot $packageRoot -Collector $collector -Analyzer $analyzer -HtmlGenerator $html -Opener $open -ExtensionExporter $extension -Diagnostics $diagnose -Resetter $resetter
+    $frozenAcquisition = {
+        param($root)
+        $analysisDirectory = Join-Path $root 'automacao\analises'
+        $analysisFiles = @(Get-ChildItem -LiteralPath $analysisDirectory -Filter 'analysis-*.json' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending)
+        if (-not $analysisFiles.Count) { throw 'Nenhuma análise congelada encontrada; analise a lista na extensão e crie os lotes primeiro.' }
+        Write-Host 'Análises congeladas disponíveis:' -ForegroundColor Cyan
+        foreach ($file in $analysisFiles) { Write-Host "- $($file.Name)" }
+        $requestedName = (Read-Host 'Nome do arquivo analysis-...json (ENTER usa o mais recente)').Trim()
+        $selectedFile = if ([string]::IsNullOrWhiteSpace($requestedName) -and $analysisFiles.Count -eq 1) {
+            $analysisFiles[0]
+        } elseif ([string]::IsNullOrWhiteSpace($requestedName)) {
+            $analysisFiles[0]
+        } else {
+            $analysisFiles | Where-Object Name -eq ([IO.Path]::GetFileName($requestedName)) | Select-Object -First 1
+        }
+        if ($null -eq $selectedFile) { throw 'análise selecionada não pertence à pasta automacao\analises.' }
+        try {
+            $analysisPayload = Get-Content -LiteralPath $selectedFile.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+            $sourceScope = [string]$analysisPayload.spec.source_scope
+        } catch {
+            throw 'análise selecionada não contém uma especificação JSON legível.'
+        }
+        if ($sourceScope -notin @('sector_finalistic', 'my_processes')) {
+            throw 'source_scope da análise deve ser sector_finalistic ou my_processes.'
+        }
+        $lotText = (Read-Host 'Número do lote congelado').Trim()
+        $lotNumber = 0
+        if (-not [int]::TryParse($lotText, [ref]$lotNumber) -or $lotNumber -lt 1 -or $lotNumber -gt 1000) {
+            throw 'Número do lote inválido; informe um inteiro entre 1 e 1000.'
+        }
+        & $collectorPath -Destino $root -FilaCongelada $selectedFile.FullName -NumeroLote $lotNumber -EscopoPortal $sourceScope -NaoInterativo -ServiceChild -ManterNavegadorAberto -ModoPreparacao $preparationMode -MaxDownloads 2 -Python $runtime.Python -Tesseract $runtime.Tesseract -Tessdata $runtime.Tessdata
+        return $LASTEXITCODE
+    }.GetNewClosure()
+    return Invoke-TceMenuAction -Action $choice -ArchiveRoot $archiveRoot -PackageRoot $packageRoot -Collector $collector -Analyzer $analyzer -HtmlGenerator $html -Opener $open -ExtensionExporter $extension -Diagnostics $diagnose -BridgeStatus $bridgeStatus -FrozenAcquisition $frozenAcquisition -Resetter $resetter
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
-    exit (Start-TcePortableMenu -LaunchLocalService:$LaunchLocalService -StopLocalService:$StopLocalService)
+    exit (Start-TcePortableMenu -LaunchLocalService:$LaunchLocalService -StopLocalService:$StopLocalService -BridgeStatusOnly:$BridgeStatusOnly)
 }

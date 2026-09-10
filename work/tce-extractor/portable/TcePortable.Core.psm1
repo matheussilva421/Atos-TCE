@@ -82,6 +82,31 @@ function Get-TceLiveDevToolsPort {
     return $null
 }
 
+function Get-TceExistingPortalDevToolsPort {
+    param(
+        [int[]]$Ports = (9222..9232),
+        [scriptblock]$TargetProbe = {
+            param([int]$Port)
+            try {
+                return @(Invoke-RestMethod -Uri "http://127.0.0.1:$Port/json/list" -UseBasicParsing -TimeoutSec 2)
+            } catch {
+                return @()
+            }
+        }
+    )
+    foreach ($port in $Ports) {
+        if ($port -lt 1 -or $port -gt 65535) { continue }
+        try {
+            $targets = @(& $TargetProbe $port)
+            $portalTarget = $targets | Where-Object {
+                $_.type -eq 'page' -and [string]$_.url -match '(?i)(?:processos|novaarearestrita)\.tce\.rn\.gov\.br'
+            } | Select-Object -First 1
+            if ($null -ne $portalTarget) { return [int]$port }
+        } catch { }
+    }
+    return $null
+}
+
 function Search-TceProcesses {
     param(
         [Parameter(Mandatory)][object[]]$Processes,
@@ -836,4 +861,4 @@ function Sync-TceProcessManifest {
     }
 }
 
-Export-ModuleMember -Function ConvertTo-TceSafeName, ConvertTo-TceSafeText, Get-TceObjectPropertyValue, Get-TceLiveDevToolsPort, Search-TceProcesses, Resolve-TceSelection, Write-TceJsonAtomic, Add-TceFailure, Get-TceCheckpoint, Get-TceCheckpointFromSource, Get-TceCompletedProcessKeys, ConvertTo-TceCanonicalProcessKey, Get-TceSha256, Sync-TceProcessManifest
+Export-ModuleMember -Function ConvertTo-TceSafeName, ConvertTo-TceSafeText, Get-TceObjectPropertyValue, Get-TceLiveDevToolsPort, Get-TceExistingPortalDevToolsPort, Search-TceProcesses, Resolve-TceSelection, Write-TceJsonAtomic, Add-TceFailure, Get-TceCheckpoint, Get-TceCheckpointFromSource, Get-TceCompletedProcessKeys, ConvertTo-TceCanonicalProcessKey, Get-TceSha256, Sync-TceProcessManifest

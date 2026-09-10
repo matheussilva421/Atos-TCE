@@ -3,10 +3,15 @@ param(
     [string]$Destino = 'acervo-tce',
     [ValidateSet('Auto','Chrome','Edge')][string]$Navegador = 'Auto',
     [string]$Selecao = '',
+    [string]$FilaCongelada = '',
+    [ValidateRange(0,1000)][int]$NumeroLote = 0,
     [string]$BaseConcluidos = '',
     [switch]$BaselineAllComplete,
     [switch]$SomenteDiagnostico,
     [switch]$ManterNavegadorAberto,
+    [switch]$NaoInterativo,
+    [switch]$ServiceChild,
+    [ValidateSet('sector_finalistic','my_processes')][string]$EscopoPortal = 'sector_finalistic',
     [ValidateSet('progressivo','completo')][string]$ModoPreparacao = 'progressivo',
     [ValidateRange(1,2)][int]$MaxDownloads = 2,
     [string]$Python = '',
@@ -20,11 +25,17 @@ $ProgressPreference = 'SilentlyContinue'
 $scriptRoot = if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 if ($Destino -eq 'acervo-tce') { $Destino = Join-Path $scriptRoot $Destino }
 Import-Module (Join-Path $scriptRoot 'TcePortable.Core.psm1') -Force
+Import-Module (Join-Path $scriptRoot 'TceFrozenQueue.psm1') -Force
 
 $script:CdpSequence = 0
 $script:CdpSocket = $null
+$script:AreaCdpSocket = $null
 $script:BrowserProcess = $null
-$portalUrl = 'https://processos.tce.rn.gov.br/#/dashboard/meus/meus-processos?ProcessosFinalisticosNoSetor=true&setor=CBP'
+$portalUrl = if ($EscopoPortal -eq 'sector_finalistic') {
+    'https://processos.tce.rn.gov.br/#/dashboard/processos-no-setor/no-setor?ProcessosFinalisticosNoSetor=true&setor=CBP'
+} else {
+    'https://processos.tce.rn.gov.br/#/dashboard/meus/meus-processos?ProcessosFinalisticosNoSetor=true&setor=CBP'
+}
 
 function Find-ChromiumBrowser {
     $candidates = @()
@@ -45,6 +56,11 @@ function Find-ChromiumBrowser {
 
 function Start-TceBrowser {
     $browserExe = Find-ChromiumBrowser
+    $attachedPort = Get-TceExistingPortalDevToolsPort
+    if ($attachedPort) {
+        Write-Host "Reutilizando navegador TCE/RN já aberto na porta DevTools $attachedPort." -ForegroundColor Green
+        return $attachedPort
+    }
     $profile = Join-Path $scriptRoot 'dados-locais\perfil-navegador'
     [IO.Directory]::CreateDirectory($profile) | Out-Null
     $existingPort = Get-TceLiveDevToolsPort -ProfileRoot $profile
@@ -72,32 +88,43 @@ function Start-TceBrowser {
     return [int]$lines[0]
 }
 
-function Connect-TceCdp {
-    param([Parameter(Mandatory)][int]$Port)
+function Connect-TceCdpTarget {
+    param(
+        [Parameter(Mandatory)][int]$Port,
+        [Parameter(Mandatory)][string]$UrlPattern
+    )
     $targets = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/json/list" -UseBasicParsing
-    $target = $targets | Where-Object { $_.type -eq 'page' -and $_.url -match 'processos\.tce\.rn\.gov\.br' } | Select-Object -First 1
-    if (-not $target) { $target = $targets | Where-Object type -eq 'page' | Select-Object -First 1 }
-    if (-not $target) { throw 'Nenhuma aba controlável foi encontrada.' }
+    $target = $targets | Where-Object { $_.type -eq 'page' -and $_.url -match $UrlPattern } | Select-Object -First 1
+    if (-not $target) { throw "Nenhuma aba controlável correspondeu a $UrlPattern." }
     $socket = New-Object Net.WebSockets.ClientWebSocket
     [void]($socket.ConnectAsync([Uri]$target.webSocketDebuggerUrl, [Threading.CancellationToken]::None).GetAwaiter().GetResult())
-    $script:CdpSocket = $socket
+    return $socket
 }
 
-function Send-TceCdp {
-    param([Parameter(Mandatory)][string]$Method, [hashtable]$Params = @{})
+function Connect-TceCdp {
+    param([Parameter(Mandatory)][int]$Port)
+    $script:CdpSocket = Connect-TceCdpTarget -Port $Port -UrlPattern 'processos\.tce\.rn\.gov\.br'
+}
+
+function Send-TceCdpSocket {
+    param(
+        [Parameter(Mandatory)][object]$Socket,
+        [Parameter(Mandatory)][string]$Method,
+        [hashtable]$Params = @{}
+    )
     $script:CdpSequence++
     $id = $script:CdpSequence
     $request = @{ id = $id; method = $Method; params = $Params } | ConvertTo-Json -Compress -Depth 30
     $bytes = [Text.Encoding]::UTF8.GetBytes($request)
     $segment = New-Object 'ArraySegment[byte]' -ArgumentList @(,$bytes)
-    [void]($script:CdpSocket.SendAsync($segment, [Net.WebSockets.WebSocketMessageType]::Text, $true, [Threading.CancellationToken]::None).GetAwaiter().GetResult())
+    [void]($Socket.SendAsync($segment, [Net.WebSockets.WebSocketMessageType]::Text, $true, [Threading.CancellationToken]::None).GetAwaiter().GetResult())
 
     while ($true) {
         $stream = New-Object IO.MemoryStream
         do {
             $buffer = New-Object byte[] 1048576
             $receiveSegment = New-Object 'ArraySegment[byte]' -ArgumentList @(,$buffer)
-            $result = $script:CdpSocket.ReceiveAsync($receiveSegment, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
+            $result = $Socket.ReceiveAsync($receiveSegment, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
             if ($result.MessageType -eq [Net.WebSockets.WebSocketMessageType]::Close) { throw 'O navegador encerrou a conexão.' }
             $stream.Write($buffer, 0, $result.Count)
         } while (-not $result.EndOfMessage)
@@ -108,6 +135,11 @@ function Send-TceCdp {
             return $message.result
         }
     }
+}
+
+function Send-TceCdp {
+    param([Parameter(Mandatory)][string]$Method, [hashtable]$Params = @{})
+    return Send-TceCdpSocket -Socket $script:CdpSocket -Method $Method -Params $Params
 }
 
 function Invoke-TceJavaScript {
@@ -122,6 +154,51 @@ function Invoke-TceJavaScript {
         throw "Erro na página do TCE: $description"
     }
     return $result.result.value
+}
+
+function Invoke-TceBrowserDownload {
+    param(
+        [Parameter(Mandatory)]$Document,
+        [Parameter(Mandatory)][string]$Destination,
+        [AllowNull()][object]$Context = $null
+    )
+    $documentId = [string](Get-TceObjectPropertyValue -InputObject $Document -Name 'id' -Default 'sem-id')
+    $documentUrl = [string](Get-TceObjectPropertyValue -InputObject $Document -Name 'url' -Default '')
+    if (-not $documentUrl) { throw "Documento $documentId não possui endereço de download." }
+    $absoluteUri = [Uri]::new([Uri]'https://processos.tce.rn.gov.br/', $documentUrl)
+    $socket = $script:CdpSocket
+    if ($absoluteUri.Host -eq 'novaarearestrita.tce.rn.gov.br') {
+        if (-not $script:AreaCdpSocket) {
+            $script:AreaCdpSocket = Connect-TceCdpTarget -Port $port -UrlPattern 'novaarearestrita\.tce\.rn\.gov\.br'
+        }
+        $socket = $script:AreaCdpSocket
+    }
+    $urlJson = $absoluteUri.AbsoluteUri | ConvertTo-Json -Compress
+    $expression = @"
+(async()=>{
+  const response = await fetch($urlJson, { credentials: 'include' });
+  if (!response.ok) return { ok: false, status: response.status };
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.length)));
+  }
+  return { ok: true, status: response.status, base64: btoa(binary) };
+})()
+"@
+    $result = Send-TceCdpSocket -Socket $socket -Method 'Runtime.evaluate' -Params @{ expression = $expression; awaitPromise = $true; returnByValue = $true }
+    if ($result.exceptionDetails) {
+        $description = $result.exceptionDetails.exception.description
+        if (-not $description) { $description = $result.exceptionDetails.text }
+        throw "Download no contexto autenticado do Chrome falhou: $description"
+    }
+    $value = $result.result.value
+    if (-not $value.ok) { throw "Download no contexto autenticado do Chrome retornou HTTP $($value.status)." }
+    if ([string]::IsNullOrWhiteSpace([string]$value.base64)) { throw 'O arquivo baixado pelo Chrome veio vazio.' }
+    [IO.File]::WriteAllBytes($Destination, [Convert]::FromBase64String([string]$value.base64))
+    if (-not [IO.File]::Exists($Destination) -or (Get-Item -LiteralPath $Destination).Length -eq 0) {
+        throw 'O arquivo baixado pelo Chrome veio vazio.'
+    }
 }
 
 function Wait-TcePage {
@@ -221,7 +298,8 @@ function Start-TceCollectorLease {
     if (Test-TceTransferPauseRequested) {
         throw 'Transferência portátil em andamento; nova coleta foi pausada até a conclusão.'
     }
-    $lockPath = Join-Path $bridgeRoot '.operation.lock'
+    $lockName = if ($ServiceChild) { '.collector.lock' } else { '.operation.lock' }
+    $lockPath = Join-Path $bridgeRoot $lockName
     $markerPath = Join-Path $bridgeRoot 'collector.json'
     $token = [guid]::NewGuid().ToString('N')
     Remove-TceStaleLeaseFiles -LockPath $lockPath -MarkerPath $markerPath
@@ -325,33 +403,71 @@ try {
         return
     }
 
-    Write-Host ''
-    Write-Host 'Faça login na janela aberta e deixe a página “Meus Processos” visível.' -ForegroundColor Yellow
-    [void](Read-Host 'Depois pressione ENTER aqui')
+    if ($NaoInterativo) {
+        Write-Host 'Modo não interativo: validando a sessão já aberta.' -ForegroundColor Yellow
+    } else {
+        Write-Host ''
+        Write-Host 'Faça login na janela aberta e deixe a página “Meus Processos” visível.' -ForegroundColor Yellow
+        [void](Read-Host 'Depois pressione ENTER aqui')
+    }
 
     $session = Invoke-TceJavaScript -Payload @{ operation = 'session' }
     if (-not $session.authenticated) { throw 'Login não detectado. Entre no e-Contas e execute novamente.' }
-    Write-Host "Sessão confirmada. Setor: $($session.sector)" -ForegroundColor Green
+    Write-Host "Sessão confirmada. Escopo e-Contas: $EscopoPortal. Setor: $($session.sector)" -ForegroundColor Green
+
+    if (-not [string]::IsNullOrWhiteSpace($FilaCongelada) -and -not [string]::IsNullOrWhiteSpace($Selecao)) {
+        throw 'Use FilaCongelada ou Selecao, não os dois ao mesmo tempo.'
+    }
+    $frozen = $null
+    if (-not [string]::IsNullOrWhiteSpace($FilaCongelada)) {
+        $requestedLot = if ($NumeroLote -gt 0) { [Nullable[int]]$NumeroLote } else { $null }
+        $frozen = Read-TceFrozenQueue -Path $FilaCongelada -LotNumber $requestedLot
+    }
 
     [void](Send-TceCdp -Method 'Page.navigate' -Params @{ url = $portalUrl })
     Wait-TcePage
     Start-Sleep -Seconds 2
-    $allProcesses = @(Invoke-TceJavaScript -Payload @{ operation = 'enumerateProcesses' })
+    $targetKeys = if ($frozen) { @($frozen.items | ForEach-Object process_key) } else { @() }
+    $targetMarker = if ($frozen) { $frozen.marker } else { $null }
+    $allProcesses = @(Invoke-TceJavaScript -Payload @{ operation = 'enumerateProcesses'; targetKeys = $targetKeys; marker = $targetMarker })
     if (-not $allProcesses.Count) { throw 'Nenhum processo foi encontrado na lista atual.' }
 
-    $view = $allProcesses
-    Show-ProcessList -Processes $view
-    $answer = $Selecao
-    while ($true) {
-        if (-not $answer) { $answer = Read-Host 'Selecione os processos' }
-        if ($answer -match '^\s*buscar\s+(.+)$') {
-            $view = @(Search-TceProcesses -Term $Matches[1] -Processes $allProcesses)
-            Show-ProcessList -Processes $view
-            $answer = ''
-            continue
+    if ($frozen) {
+        $byKey = @{}
+        foreach ($process in $allProcesses) {
+            $key = ConvertTo-TceCanonicalProcessKey -Process $process -Context 'lista atual do e-Contas'
+            if ($byKey.ContainsKey($key)) { throw "Processo duplicado na lista atual do e-Contas: $key" }
+            $byKey[$key] = $process
         }
-        $selected = @(Resolve-TceSelection -InputText $answer -Processes $view -KnownProcessKeys $knownKeys)
-        break
+        $selectedList = New-Object System.Collections.ArrayList
+        $missing = New-Object System.Collections.ArrayList
+        foreach ($queued in @($frozen.items)) {
+            if ($byKey.ContainsKey($queued.process_key)) {
+                [void]$selectedList.Add($byKey[$queued.process_key])
+            } else {
+                [void]$missing.Add($queued.process_key)
+            }
+        }
+        if ($missing.Count) {
+            throw "Fila congelada não encontrada integralmente no e-Contas; nenhum download iniciado. Ausentes: $([string]::Join(', ', @($missing)))"
+        }
+        $selected = @($selectedList)
+        Write-Host "Fila congelada validada: $($selected.Count) processo(s)$(if ($frozen.lot_number) { ", lote $($frozen.lot_number)" }). Ordem preservada; substituições recusadas." -ForegroundColor Green
+    } else {
+        $view = $allProcesses
+        Show-ProcessList -Processes $view
+        $answer = $Selecao
+        while ($true) {
+            if (-not $answer) { $answer = Read-Host 'Selecione os processos' }
+            if ($answer -match '^\s*buscar\s+(.+)$') {
+                $view = @(Search-TceProcesses -Term $Matches[1] -Processes $allProcesses)
+                Show-ProcessList -Processes $view
+                $answer = ''
+                continue
+            }
+            $selected = @(Resolve-TceSelection -InputText $answer -Processes $view -KnownProcessKeys $knownKeys)
+            break
+        }
     }
     if (-not $selected.Count) { Write-Host 'Nenhum processo selecionado.'; exit 0 }
 
@@ -375,29 +491,11 @@ try {
                 $badError = Get-TceObjectPropertyValue -InputObject $bad -Name 'error' -Default 'Sem endereço de download.'
                 Write-Warning (ConvertTo-TceSafeText "$($item.key): $badTitle - $badError")
             }
-            $token = [string]$session.token
             $downloader = {
                 param($document, $destination, $context)
-                $documentId = [string]$document.id
-                $documentUrl = [string]$document.url
-                if (-not $documentUrl) { throw "Documento $documentId não possui endereço de download." }
-                $uri = [Uri]::new([Uri]'https://processos.tce.rn.gov.br/', $documentUrl)
-                $client = [Activator]::CreateInstance([Net.WebClient])
-                try {
-                    $client.Headers['User-Agent'] = 'TCE-Processos-Portatil/1.0'
-                    if ([bool]$document.requires_auth -or $uri.Host -eq 'processos.tce.rn.gov.br') {
-                        if (-not $context -or -not $context.token) { throw 'Sessão sem token para baixar um arquivo autenticado.' }
-                        $client.Headers['Authorization'] = [string]$context.token
-                    }
-                    $client.DownloadFile($uri.AbsoluteUri, $destination)
-                } finally {
-                    $client.Dispose()
-                }
-                if (-not [IO.File]::Exists($destination) -or [IO.File]::GetLength($destination) -eq 0) {
-                    throw 'O arquivo baixado veio vazio.'
-                }
+                Invoke-TceBrowserDownload -Document $document -Destination $destination -Context $context
             }
-            $result = Sync-TceProcessManifest -Manifest $manifest -ArchiveRoot $Destino -MaxDownloads $MaxDownloads -Downloader $downloader -DownloaderContext @{ token = $token }
+            $result = Sync-TceProcessManifest -Manifest $manifest -ArchiveRoot $Destino -MaxDownloads 1 -Downloader $downloader -DownloaderContext $null
             $totals.downloaded += $result.downloaded
             $totals.skipped += $result.skipped
             $totals.deduplicated += $result.deduplicated
@@ -453,6 +551,7 @@ try {
 } finally {
     Stop-TceCollectorLease
     if ($script:CdpSocket) { $script:CdpSocket.Dispose() }
+    if ($script:AreaCdpSocket) { $script:AreaCdpSocket.Dispose() }
     if (-not $ManterNavegadorAberto -and $script:BrowserProcess -and -not $script:BrowserProcess.HasExited) {
         $script:BrowserProcess.CloseMainWindow() | Out-Null
     }
