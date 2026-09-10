@@ -166,14 +166,14 @@ prévia, escopo e reconciliação.
 
 ### Tarefa 0.7 — avançar main por fast-forward
 
-- [ ] Exigir worktree limpo em `codex/fundamentacao-automatico`.
-- [ ] Executar `git merge-base --is-ancestor main
+- [x] Exigir worktree limpo em `codex/fundamentacao-automatico`.
+- [x] Executar `git merge-base --is-ancestor main
   codex/fundamentacao-automatico`; esperado exit 0.
-- [ ] Trocar para `main` e executar `git merge --ff-only
+- [x] Trocar para `main` e executar `git merge --ff-only
   codex/fundamentacao-automatico`.
-- [ ] Confirmar que `git rev-parse main` é igual ao commit consolidado.
-- [ ] Repetir extensão, Python portátil, menu e `git diff --check` em `main`.
-- [ ] STOP se fast-forward não for possível; não usar merge commit nem rebase
+- [x] Confirmar que `git rev-parse main` é igual ao commit consolidado.
+- [x] Repetir extensão, Python portátil, menu e `git diff --check` em `main`.
+- [x] STOP se fast-forward não for possível; não usar merge commit nem rebase
   improvisado. Registrar a divergência para nova decisão.
 
 ### Tarefa 0.8 — criar limpador por manifesto e simular

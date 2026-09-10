@@ -441,6 +441,14 @@ async function startApp({
   return { app, documentRef, chromeApi: resolvedChromeApi };
 }
 
+async function waitUntil(predicate, message, maxTurns = 100) {
+  for (let turn = 0; turn < maxTurns; turn += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.fail(message);
+}
+
 test("renders no-dataset state and permanent warning with inaccessible actions", async () => {
   const { documentRef } = await startApp({ snapshots: [null] });
   assert.equal(documentRef.getElementById("dataset-status").textContent, "Nenhum lote importado.");
@@ -577,7 +585,10 @@ test("automation view requires a compatible bridge, starts explicitly, and keeps
   });
   documentRef.getElementById("bridge-pairing-code").value = "12345678";
   documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
-  for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  await waitUntil(
+    () => Boolean(app.getState().automationCapabilities),
+    "bridge connection did not load automation capabilities",
+  );
   assert.ok(app.getState().automationCapabilities, documentRef.getElementById("bridge-status").textContent);
   assert.equal(app.getState().automationCapabilities.real_send_enabled, false);
   documentRef.getElementById("automation-marker").value = "PROFESSOR - IPERN - 2 RUBRICAS";
@@ -656,7 +667,10 @@ test("runs a read-only Area Restrita analysis, shows the count, and creates dete
   });
   documentRef.getElementById("bridge-pairing-code").value = "12345678";
   documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
-  for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  await waitUntil(
+    () => Boolean(app.getState().automationCapabilities),
+    "bridge connection did not load automation capabilities for analysis",
+  );
   documentRef.getElementById("automation-marker").value = "PROFESSOR - IPERN - 2 RUBRICAS";
   documentRef.getElementById("automation-source-scope").value = "my_processes";
   documentRef.getElementById("automation-lot-size").value = "50";
@@ -900,7 +914,10 @@ test("automation status polls every two seconds without requiring a panel action
   });
   documentRef.getElementById("bridge-pairing-code").value = "12345678";
   documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
-  for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  await waitUntil(
+    () => timers.some((timer) => timer.delay === 2000),
+    "bridge connection did not schedule automation polling",
+  );
   const automationTimer = timers.find((timer) => timer.delay === 2000);
   assert.ok(automationTimer, "automation polling timer should be scheduled");
   await automationTimer.callback();

@@ -6,7 +6,7 @@ Especificação: `docs/notes/2026-09-10-consolidacao-main-e-conclusao-spec.md`
 
 ## Estado atual
 
-- Execução SDD ativa no checkout existente `codex/fundamentacao-automatico`.
+- Execução SDD ativa em `main`, avançada por fast-forward até `d8e9b7d`.
 - Tip funcional consolidado: `f508cac`; commits documentais posteriores estão
   registrados no histórico Git desta branch.
 - Worktree continua sujo por desenho: alterações locais anteriores preservadas,
@@ -30,7 +30,7 @@ Especificação: `docs/notes/2026-09-10-consolidacao-main-e-conclusao-spec.md`
 - [x] Tarefa 0.5 — bloco local revisado, testado e dividido em commits nominais.
 - [x] Tarefa 0.6 — branch de transferência comprovada como duplicata de patch;
   nenhum merge foi feito.
-- [ ] Tarefa 0.7 — fast-forward de `main` (checkpoint humano).
+- [x] Tarefa 0.7 — fast-forward de `main`; tips conferidos e gates repetidos.
 - [ ] Tarefa 0.8 — limpador por manifesto (checkpoint humano antes de Apply).
 - [ ] Tarefa 0.9 — quarentena e validação.
 - [ ] Tarefa 0.10 — somente `main` (checkpoint humano antes de exclusões).
@@ -61,6 +61,10 @@ Especificação: `docs/notes/2026-09-10-consolidacao-main-e-conclusao-spec.md`
   suíte da extensão permaneceu 287/287.
 - `git diff 6c88d2a ef7d44b --` vazio; a transferência é patch-equivalente e
   fica reservada apenas para exclusão após consolidação em `main`.
+- Pós-fast-forward: Python 34/34 e menu 83/83 verdes. A extensão revelou um
+  teste de polling intermitente (286/287); a causa foi atraso fixo de cinco
+  voltas do event loop. O teste passou 10/10 isolado após espera condicionada
+  e a suíte completa voltou a 287/287.
 - `git diff --check`: status 0; somente o aviso EOL conhecido de `INICIAR.cmd`.
 - A análise real foi concluída em `tmp/fase0/workspace-manifest-r2.json`; não
   avançar para limpeza física antes de validar o manifesto e obter aprovação.
