@@ -118,3 +118,10 @@ No smoke read-only, o Chromium isolado abriu as duas abas, com
 `ProcessonoSetor.asp` visível e `MeusProcessos.asp` separado/oculto conforme a
 aba ativa. O bridge permaneceu sem envio real; nenhum preflight real foi
 promovido a PASS e a Tarefa 4.2 continua bloqueada até três preflights verdes.
+
+## Publicação do hardening
+
+Commit `eae3c161f23c7fe552e2a382a0d4e279d555cf2d` foi publicado em
+`origin/main` por fast-forward. Após a publicação, `HEAD == origin/main` e
+`git diff --check` passaram; o worktree estava limpo. A pendência operacional
+permanece somente a obtenção de três preflights reais verdes.

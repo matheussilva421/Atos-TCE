@@ -468,3 +468,10 @@ Gates: 36/36 controlador, 27/27 portal-navigation, 43/43 panel e 313/313
 extensão completa. Pacote live sincronizado por SHA-256. Nenhum preenchimento,
 `APPLY_FIELDS`, envio ou finalização. A Tarefa 4.2 continua **NÃO PASSA** até
 três preflights reais verdes; Fase 5+ permanece desmarcada.
+
+## Publicação final deste bloco
+
+O hardening foi publicado em `origin/main` no commit
+`eae3c161f23c7fe552e2a382a0d4e279d555cf2d` (fast-forward). Pós-push:
+`HEAD == origin/main`, `git diff --check` verde e worktree limpo. A Tarefa
+4.2 continua pendente; este bloco não autoriza preenchimento ou envio.

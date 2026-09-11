@@ -81,3 +81,7 @@ de outra origem. A sidepanel tambem rotula explicitamente as duas escolhas.
 Testes: 36/36 controlador, 27/27 navegacao, 43/43 sidepanel e 313/313 suite
 completa. Nenhum `APPLY_FIELDS`, envio ou finalizacao ocorreu; a Tarefa 4.2
 continua bloqueada pelos preflights reais ainda divergentes.
+
+Publicação: o hardening foi commitado como `eae3c161f23c7fe552e2a382a0d4e279d555cf2d`
+e enviado por fast-forward a `origin/main`; a verificação pós-push confirmou
+`HEAD == origin/main` e worktree limpo.
