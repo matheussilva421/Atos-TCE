@@ -850,3 +850,21 @@ retomada deve usar ponte pareada com código fresco, `autoSubmit=false` e
   `ProcessonoSetor.asp`/`sector_finalistic`.
 - [ ] Tarefa 4.2: três preflights reais verdes; sem `APPLY_FIELDS`, envio ou
   finalização enquanto o checkpoint não for concluído.
+
+## Atualização de tasks — marcador restrito e rota operacional (2026-09-11)
+
+- [x] Restringir a retomada à origem `ProcessonoSetor.asp` /
+  `sector_finalistic`.
+- [x] Excluir `MeusProcessos.asp` / `my_processes` deste fluxo.
+- [x] Confirmar no catálogo live o marcador solicitado: rótulo apresentado
+  `PROFESSOR - IPERN - 2 RUBRICAS (470)`, valor canônico `6189`; o contador é
+  dinâmico e deve ser reconfirmado antes de cada análise.
+- [x] Documentar a rota correta do Chrome isolado e o caminho correto da
+  extensão no handoff de 2026-09-11.
+- [ ] Corrigir e validar a paginação tolerante a mutações intermediárias.
+- [ ] Corrigir e validar a propagação do erro interno do `AUTO_ANALYZE`.
+- [ ] Tarefa 4.2: três preflights reais verdes; não promover análise parcial,
+  `queued` ou `not-observed` a PASS.
+
+O requisito do marcador não autoriza misturar processos da aba “Meus Processos”
+com a lista do setor. Nenhum campo, envio ou finalização foi executado.

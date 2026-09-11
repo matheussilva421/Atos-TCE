@@ -301,3 +301,47 @@ aberto. Depois do login, confirmar `ProcessonoSetor.asp` como
 `sector_finalistic`, manter `MeusProcessos.asp` como origem distinta e repetir
 o piloto de um item. Nenhum `APPLY_FIELDS`, preenchimento, envio ou
 finalização deve ser executado antes da retomada.
+
+## Escopo operacional confirmado — marcador e rota do Chrome (2026-09-11)
+
+O escopo desta retomada foi restringido pelo usuário a processos do setor com
+o marcador `PROFESSOR - IPERN - 2 - RUBRICAS`. A Área Restrita apresenta esse
+marcador no catálogo como `PROFESSOR - IPERN - 2 RUBRICAS (470)`; o separador e
+o contador são apresentação dinâmica. A opção canônica observada nesta sessão
+é `value=6189`. Antes de cada análise, confirmar novamente o par
+`label/value` no catálogo e exigir `source_scope=sector_finalistic`.
+
+`MeusProcessos.asp`/`my_processes` não pertence ao escopo desta fase. A lista
+válida é exclusivamente `ProcessonoSetor.asp`/`sector_finalistic`; uma tela
+`ComplementarAto.asp` só é válida quando derivada dessa lista. Não misturar
+identidades, marcadores ou páginas das duas origens.
+
+### Procedimento canônico de abertura
+
+Usar o Chrome de sistema em perfil isolado, nunca o perfil pessoal, carregando
+a extensão antes de abrir/recarregar o portal. O caminho correto da extensão é:
+
+`work/tce-extractor/outputs/live-real-fase11h-sector-lot50/extensao-complementar-ato`
+
+O lançamento controlado deve usar `--user-data-dir` no perfil de trabalho,
+`--disable-extensions-except` e `--load-extension` apontando exatamente para o
+diretório acima, sem `--ignore-certificate-errors`. Abrir então
+`https://novaarearestrita.tce.rn.gov.br/telaPrincipalMenu.asp`, autenticar
+manualmente se solicitado, e só depois abrir a sidepanel. A verificação válida
+da extensão ocorre no mundo isolado nomeado `Complementar Ato TCE/RN`; testar
+somente o mundo principal pode produzir o falso diagnóstico de que a extensão
+não carregou.
+
+Após o login: abrir `Proc./Doc. Eletrônicos` > processos no setor, confirmar
+`ProcessonoSetor.asp`, selecionar/confirmar o marcador pelo valor `6189`,
+manter `source_scope=sector_finalistic`, e somente então consultar um processo
+do dataset. Não usar a aba `Meus Processos Eletrônicos` para este fluxo.
+
+### Falha técnica em correção
+
+A análise da lista falhava depois da filtragem correta porque a espera de
+navegação tratava a primeira mutação intermediária da paginação como timeout.
+O painel também descartava o erro interno retornado pelo controlador e exibia
+apenas uma mensagem genérica. Duas correções TDD independentes estão em curso;
+os guards de marcador, origem, geração, aba/frame, identidade e
+`real_send_enabled=false` permanecem obrigatórios.
