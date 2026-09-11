@@ -155,3 +155,12 @@ disponível para retomada, mas a próxima sessão deve preferir a interação
 visível de consulta se o portal voltar a exigir a sessão. O resultado da
 auditoria independente Luna da Tarefa 3.1 ainda não foi necessário para este
 checkpoint.
+
+## Verificação offline após o checkpoint (2026-09-11)
+
+Foi executado `verify-project.ps1` no estado atual, sem depender da sessão do
+portal. O resultado foi 982 casos/comandos agregados, 980 aprovados, 0 falhas e
+2 skips. A extensão passou em 313/313, a suíte web em 6/6, Python em 34/34,
+PowerShell em 555/555, os contratos do pacote em 71/73 com 2 skips esperados e
+`git diff --check` passou. Esta verificação não altera a classificação da
+Tarefa 4.2: ainda faltam três preflights reais verdes.

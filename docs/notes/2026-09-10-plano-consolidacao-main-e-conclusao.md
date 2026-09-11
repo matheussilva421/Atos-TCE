@@ -741,6 +741,14 @@ Nenhum ato foi selecionado; nenhum interessado foi alterado; não houve
 seguido de confirmação das duas origens (`ProcessonoSetor.asp` e
 `MeusProcessos.asp`) antes de qualquer novo preflight.
 
+## Verificação offline após a expiração da sessão (2026-09-11)
+
+`verify-project.ps1` foi executado contra a árvore atual sem usar o portal:
+982 execuções agregadas, 980 aprovadas, 0 falhas e 2 skips. Extensão 313/313,
+web 6/6, Python 34/34, PowerShell 555/555, contratos do pacote 71/73 com 2
+skips e `git diff --check` passaram. A verificação confirma a integridade local,
+mas não substitui os três preflights reais exigidos pela Tarefa 4.2.
+
 ## Atualização de tasks — separação das origens da Área Restrita (2026-09-11)
 
 - [x] Confirmar, por evidência visual e navegação controlada, a distinção entre

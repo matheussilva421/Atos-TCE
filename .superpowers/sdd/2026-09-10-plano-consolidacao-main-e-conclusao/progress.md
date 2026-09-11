@@ -206,3 +206,10 @@ The scan below records every task self-consistency check and every pair with a s
   Diagnostic `tmp/fase41/query-sector-form-readonly.py` is retained for
   controlled read-only resumption. Luna's independent Task 3.1 audit had not
   returned before this checkpoint.
+
+- Offline verification after the expired-session checkpoint (2026-09-11):
+  `verify-project.ps1` passed with 982 aggregate executions, 980 passes, 0
+  failures and 2 skips. Extension 313/313, web 6/6, Python 34/34, PowerShell
+  555/555, package contracts 71/73 with 2 skips, and `git diff --check` all
+  passed. This does not promote Task 4.2: three real green preflights still
+  require a renewed Area Restrita session.
