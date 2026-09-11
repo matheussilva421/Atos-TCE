@@ -125,20 +125,36 @@ Alterados nesta rodada sob ownership da tarefa:
 - este relatório;
 - `progress.md` da pasta SDD.
 
-Preservados sem edição, embora ainda modificados no checkout pelo outro agente:
+Preservados sem edição por este trabalho; pertencem à tarefa de cleanup do
+outro agente:
 
 - `work/tce-extractor/clean-local-workspace.ps1`;
 - `work/tce-extractor/tests/Test-WorkspaceCleanup.ps1`.
 
-Antes do commit, o stage deve conter somente os arquivos nominais desta tarefa
-e o relatório/progresso. Não usar `git add .`, `git reset`, `git checkout` ou
-`git clean`.
+O stage deste trabalho conteve somente os cinco arquivos nominais da tarefa e
+o `git diff --cached --check` passou sem avisos. Não foram usados `git add .`,
+`git reset`, `git checkout` ou `git clean`.
 
-## Retomada
+## Handoff final e GitHub
 
-Se a sessão for interrompida antes do commit/push, executar `git status
---short --branch`, confirmar que os dois arquivos de cleanup continuam fora do
-stage, e repetir somente a validação final se os logs não estiverem disponíveis.
-Depois fazer stage nominal, commit com a mensagem
-`test: add reproducible project verification gate`, `git push origin main` e
-verificar `git status`/`git log`/`git ls-remote`.
+Commit nominal: `0cc3680966a30da334bde592587a3b3f1e7f65fe`
+(`test: add reproducible project verification gate`).
+
+Push aceito por `origin/main`:
+`bbd6b70..0cc3680 main -> main`.
+
+Após o push, o gate foi executado em checkout limpo com o comando da seção
+anterior. Resultado: 959 executados, 957 aprovados, 0 falhas, 2 skips, exit 0,
+em 112,07 s. Log:
+`C:\Users\slvma\AppData\Local\Temp\tce-project-verification-postpush-20260910-211916`.
+
+As verificações read-only finais confirmaram:
+
+- `HEAD = 0cc3680966a30da334bde592587a3b3f1e7f65fe`;
+- `origin/main = 0cc3680966a30da334bde592587a3b3f1e7f65fe`;
+- `git ls-remote origin refs/heads/main` no mesmo SHA;
+- `git status --short --branch`: `## main...origin/main`.
+
+Para uma retomada futura, executar `git status --short --branch`, confirmar
+que os dois arquivos de cleanup continuam fora do escopo e repetir a
+validação final se os logs não estiverem disponíveis.
