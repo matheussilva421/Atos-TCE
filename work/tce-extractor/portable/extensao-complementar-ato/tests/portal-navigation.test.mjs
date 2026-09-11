@@ -831,6 +831,43 @@ test("waits for a later mutation before using its single navigation reread", asy
   assert.equal(next.clickCount, 1);
 });
 
+test("keeps waiting after an intermediate list mutation before the paginated result", async () => {
+  const documentRef = buildListDocument("1", [
+    { processKey: "103401/2023", interested: "Ana da Silva" },
+    { processKey: "103402/2023", interested: "Bruno de Souza" },
+  ]);
+  let notifyMutation = null;
+  documentRef.defaultView.MutationObserver = class {
+    constructor(callback) {
+      notifyMutation = callback;
+    }
+
+    observe() {}
+
+    disconnect() {}
+  };
+  const next = documentRef.querySelector('[data-action="next-page"]');
+  next.onClick = () => setTimeout(() => {
+    documentRef.setSurface(buildListSurface(documentRef, 1));
+    notifyMutation?.();
+    setTimeout(() => {
+      documentRef.setSurface(buildListSurface(documentRef, 2));
+      notifyMutation?.();
+    }, 0);
+  }, 0);
+
+  const result = await executeNavigation(documentRef, {
+    action: "next_page",
+    expected_generation: snapshotPortalScreen(documentRef).generation,
+    timeoutMs: 50,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.snapshot.identities[0].processKey, "103403/2023");
+  assert.equal(result.rereads, 2);
+  assert.equal(next.clickCount, 1);
+});
+
 test("rejects a global Complementar Ato action and unsupported navigation", async () => {
   const documentRef = buildButtonsDocument();
   const rejected = await executeNavigation(documentRef, {

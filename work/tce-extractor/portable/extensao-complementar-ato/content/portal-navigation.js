@@ -687,7 +687,6 @@ async function waitForNavigation(documentRef, before, action, identity, timeoutM
   let timer = null;
 
   const readOnce = () => {
-    if (rereads >= 1) return null;
     rereads += 1;
     const after = snapshotPortalScreen(documentRef);
     return isProgress(documentRef, before, after, action, identity, requestedMarker) ? after : null;
@@ -702,11 +701,11 @@ async function waitForNavigation(documentRef, before, action, identity, timeoutM
       if (timer !== null) clearTimer(timer);
       resolve(result);
     };
-    const check = () => {
+    const check = (timedOut = false) => {
       const after = readOnce();
       if (after) {
         finish({ ok: true, action, snapshot: after, rereads });
-      } else if (rereads >= 1) {
+      } else if (timedOut) {
         finish(navigationError("NAVIGATION_TIMEOUT", "navigation did not produce the expected portal screen", { action, rereads }));
       }
     };
@@ -714,7 +713,7 @@ async function waitForNavigation(documentRef, before, action, identity, timeoutM
     if (typeof Observer === "function") {
       observer = new Observer(check);
       observer.observe(documentRef?.body ?? documentRef, { childList: true, subtree: true, attributes: true });
-      timer = timerFactory(check, timeoutMs);
+      timer = timerFactory(() => check(true), timeoutMs);
       performClick();
       return;
     }
@@ -724,7 +723,7 @@ async function waitForNavigation(documentRef, before, action, identity, timeoutM
       finish({ ok: true, action, snapshot: immediate, rereads });
       return;
     }
-    timer = timerFactory(check, timeoutMs);
+    timer = timerFactory(() => check(true), timeoutMs);
   });
 }
 
