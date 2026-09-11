@@ -589,6 +589,20 @@ export function createAutomationController({
     return response;
   }
 
+  async function enumeratePortalFrameIds(tabId) {
+    if (typeof chromeApi.webNavigation?.getAllFrames !== "function") return [];
+    try {
+      const entries = await chromeApi.webNavigation.getAllFrames({ tabId });
+      return (Array.isArray(entries) ? entries : [])
+        .map((entry) => entry?.frameId)
+        .filter((candidate) => Number.isSafeInteger(candidate) && candidate >= 0)
+        .filter((candidate, index, all) => all.indexOf(candidate) === index);
+    } catch {
+      // The optional API may be unavailable when its manifest permission is absent.
+      return [];
+    }
+  }
+
   async function assertAutoSubmitCapability(spec) {
     if (spec.autoSubmit !== true) return;
     let capabilities = null;
@@ -906,7 +920,8 @@ export function createAutomationController({
   }
 
   async function readPortalSnapshot(tabId, frameId = state.frame?.frameId ?? null) {
-    const registeredFrameIds = Number.isSafeInteger(frameId) && frameId >= 0
+    const hasRequestedFrame = Number.isSafeInteger(frameId) && frameId >= 0;
+    const registeredFrameIds = hasRequestedFrame
       ? [frameId]
       : [...frames.values()]
         .filter((entry) => entry.tabId === tabId && ["list", "unknown"].includes(entry.role)
@@ -914,7 +929,11 @@ export function createAutomationController({
         .sort((left, right) => (right.observedAt ?? 0) - (left.observedAt ?? 0) || right.frameId - left.frameId)
         .map((entry) => entry.frameId)
         .filter((candidate, index, all) => all.indexOf(candidate) === index);
-    for (const registeredFrameId of registeredFrameIds) {
+    const frameIdsToProbe = hasRequestedFrame
+      ? registeredFrameIds
+      : [...registeredFrameIds, ...(await enumeratePortalFrameIds(tabId))]
+        .filter((candidate, index, all) => all.indexOf(candidate) === index);
+    for (const registeredFrameId of frameIdsToProbe) {
       try {
         const response = await sendPortalMessage(tabId, MESSAGE_TYPES.PORTAL_GET_SNAPSHOT, {}, registeredFrameId);
         const snapshot = snapshotFromResponse(response);
@@ -922,7 +941,9 @@ export function createAutomationController({
         // chrome.tabs.sendMessage targets the requested frame but does not
         // echo that frame id in the content-script response. If a mock or a
         // future bridge does echo it, reject an inconsistent value.
-        if (!snapshot || (responseFrameId !== null && responseFrameId !== registeredFrameId)) continue;
+        if (!snapshot || (responseFrameId !== null && responseFrameId !== registeredFrameId)
+          || (!hasRequestedFrame && (snapshot.role !== "list"
+            || (state.sourceScope !== null && snapshot.source_scope !== state.sourceScope)))) continue;
         registerFrame(tabId, registeredFrameId, snapshot);
         return { snapshot, frameId: registeredFrameId };
       } catch {

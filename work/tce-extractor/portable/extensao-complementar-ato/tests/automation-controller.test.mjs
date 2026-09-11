@@ -625,6 +625,48 @@ test("fails closed when a broadcast snapshot does not identify its responding fr
   assert.equal(started.frame, null);
 });
 
+test("recovers the scoped list frame after reload when an unknown frame precedes it", async () => {
+  const unknownPage = snapshot("unknown", 1);
+  const sectorPage = { ...PAGE_1, actions: [], source_scope: "sector_finalistic" };
+  const myProcessesPage = { ...PAGE_1, actions: [], source_scope: "my_processes" };
+  const chromeApi = chromeMock([unknownPage]);
+  chromeApi.webNavigation = {
+    async getAllFrames(details) {
+      assert.deepEqual(details, { tabId: 7 });
+      return [{ frameId: 0 }, { frameId: 6 }, { frameId: 4 }];
+    },
+  };
+  const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    if (message.type === "PORTAL_GET_SNAPSHOT" && Number.isSafeInteger(options?.frameId)) {
+      const frameId = options.frameId;
+      return {
+        ok: true,
+        frameId,
+        payload: structuredClone(frameId === 4 ? sectorPage : frameId === 6 ? myProcessesPage : unknownPage),
+      };
+    }
+    return originalSendMessage(tabId, message, options);
+  };
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  const result = await controller.analyze({
+    spec: { ...runSpec(), sourceScope: "sector_finalistic" },
+    eventId: "analysis-recover-scoped-frame",
+  });
+
+  assert.equal(result.source_scope, "sector_finalistic");
+  assert.equal(result.totals.unique, 2);
+  assert.equal(result.frame_id, 4);
+  assert.deepEqual(controller.status().frame, {
+    frameId: 4,
+    role: "list",
+    generation: 1,
+    sector: "aposentadorias",
+    source_scope: "sector_finalistic",
+  });
+});
+
 test("binds the discovered frame and pauses fail-closed on frame send errors", async () => {
   const activePage = snapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
     { action: "open_act", enabled: true, identity: identity("103401/2023", "ana da silva", "act-1") },
