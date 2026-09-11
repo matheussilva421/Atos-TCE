@@ -94,6 +94,9 @@ requestId.counter = 0;
 
 function unwrapResponse(response) {
   let payload = response?.payload;
+  if (isRecord(payload) && payload.ok === false && Object.hasOwn(payload, "error")) {
+    return { ok: false, payload: payload.payload, error: payload.error };
+  }
   if (isRecord(payload) && typeof payload.ok === "boolean" && Object.hasOwn(payload, "payload")) {
     return { ok: payload.ok, payload: payload.payload, error: payload.error };
   }
@@ -203,7 +206,8 @@ function resultFromResponse(response) {
 }
 
 function responseFailure(response, fallback) {
-  return response?.error?.message || fallback;
+  if (typeof response?.error === "string" && response.error) return response.error;
+  return typeof response?.error?.message === "string" && response.error.message ? response.error.message : fallback;
 }
 
 export function createPanelApp({

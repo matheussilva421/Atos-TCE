@@ -686,6 +686,7 @@ test("runs a read-only Area Restrita analysis, shows the count, and creates dete
   assert.equal(bridgeCalls[0][0], "preview");
   assert.equal(bridgeCalls[0][1].spec.source_scope, "my_processes");
   assert.equal(bridgeCalls[0][1].spec.lot_size, 50);
+  assert.equal(bridgeCalls[0][1].spec.auto_submit, false);
   assert.equal(documentRef.getElementById("analysis-lots-button").disabled, false);
   documentRef.getElementById("analysis-lots-button").dispatchEvent(new FakeEvent("click"));
   for (let index = 0; index < 3; index += 1) await new Promise((resolve) => setImmediate(resolve));
@@ -696,6 +697,66 @@ test("runs a read-only Area Restrita analysis, shows the count, and creates dete
   for (let index = 0; index < 3; index += 1) await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(bridgeCalls[2], ["acquire", analysisId, 1]);
   assert.match(documentRef.getElementById("analysis-acquisition-status").textContent, /iniciada|started/iu);
+});
+
+test("surfaces the internal Area Restrita analysis reason without exposing private payload data", async () => {
+  const dataset = await makeDataset();
+  const internalReason = "origem selecionada não corresponde à lista aberta; navegue para a tela escolhida antes de analisar";
+  const privateToken = "analysis-private-token";
+  const privateDom = "<input value=\"analysis-private-dom\">";
+  const bridgeCalls = [];
+  const client = {
+    async getDataset() { return { api_version: 1, revision: 1, dataset }; },
+    async getState() { return { revision: 1 }; },
+    async publishSelection() { return { accepted: true, revision: 1 }; },
+    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v1" }; },
+    async listAutomationRuns() { return { runs: [], next_cursor: null }; },
+    async createAnalysisPreview(input) {
+      bridgeCalls.push(input);
+      return { analysis_id: "analysis-unexpected", preview: {}, queue: [], blocked: [] };
+    },
+  };
+  const chromeApi = makeRuntime({
+    dataset,
+    snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })],
+  });
+  const sendMessage = chromeApi.runtime.sendMessage;
+  chromeApi.runtime.sendMessage = async (message) => {
+    if (message.type === MESSAGE_TYPES.AUTO_ANALYZE) {
+      return {
+        ok: true,
+        payload: {
+          ok: false,
+          error: internalReason,
+          token: privateToken,
+          dom: privateDom,
+          auto_submit: true,
+        },
+      };
+    }
+    return sendMessage(message);
+  };
+  const { app, documentRef } = await startApp({
+    chromeApi,
+    dataset,
+    snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })],
+    pairingFactory: async () => "token",
+    bridgeClientFactory: () => client,
+  });
+  documentRef.getElementById("bridge-pairing-code").value = "12345678";
+  documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
+  await waitUntil(() => Boolean(app.getState().automationCapabilities), "bridge connection did not load capabilities for analysis error");
+  documentRef.getElementById("automation-marker").value = "PROFESSOR - IPERN - 2 RUBRICAS";
+  documentRef.getElementById("automation-source-scope").value = "my_processes";
+  documentRef.getElementById("automation-lot-size").value = "50";
+
+  assert.equal(await app.startAnalysis(), false);
+  const message = documentRef.getElementById("panel-message").textContent;
+  assert.equal(message, `Análise não concluída: ${internalReason}`);
+  assert.doesNotMatch(message, new RegExp(privateToken, "u"));
+  assert.doesNotMatch(message, new RegExp(privateDom.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+  assert.equal(bridgeCalls.length, 0);
+  assert.equal(chromeApi.calls.some((call) => call.type === MESSAGE_TYPES.AUTO_START), false);
 });
 
 test("automatic submission requires capability and an action-time confirmation", async () => {
