@@ -44,3 +44,19 @@ versionamento como evidência sanitizada e temporária.
 - Fechamento do handoff: `2822ef2` — `docs: close phase 4.1 publication
   record`, também publicado por fast-forward.
 - Worktree limpo após `git diff --check`; nenhum force push foi usado.
+
+## Correção de retomada — mirror somente leitura (2026-09-11)
+
+O bloco acima descreve uma tentativa anterior e foi supersedido pela evidência
+atual. A ponte live não conseguiu ler a publicação por ACL; por isso foi usado
+um mirror temporário com cópia hash-equivalente de sete artefatos públicos. A
+ponte do mirror respondeu em `127.0.0.1:18746` e o pareamento existente no
+Chrome 151 foi validado sem novo envio ou preenchimento.
+
+Evidência atual: `tmp/fase41/mirror-bridge-evidence.json`, com CDP 19231,
+dataset HTTP 200/revisão 120/51 registros, state HTTP 200, capabilities HTTP
+200, `real_send_enabled=false`, `pilot_enabled=false`, e pareamento confirmado.
+Área Restrita e e-Contas permaneceram autenticados; não foram gravados
+tokens, cookies, CPF ou DOM bruto. O snapshot de inspeção pode conter rótulos
+sanitizados da extensão necessários à conferência da superfície. O próximo passo é Tarefa 4.2,
+preflight sem APPLY_FIELDS e sem botão final.

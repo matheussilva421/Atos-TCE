@@ -290,3 +290,30 @@ plano. Fonte única desta atualização: `tmp/fase41/mirror-bridge-evidence.json
   record`, também publicado em `origin/main` por fast-forward.
 - Verificação pós-push: `HEAD == origin/main`, worktree limpo e
   `git diff --check` sem erros.
+
+## Correção operacional — Tarefa 4.1 concluída (2026-09-11)
+
+O registro anterior de 4.1 referia-se a uma tentativa anterior contra o live
+e não deve ser usado como estado atual. A validação atual foi feita após o
+login manual do usuário, em Chromium 151 isolado via CDP `127.0.0.1:19231`,
+sem reutilizar o perfil pessoal e sem o agente digitar credenciais.
+
+- `tmp/fase41/mirror-bridge-evidence.json` comprova extensão 1.1.0 carregada e
+  pareada com a ponte temporária em `127.0.0.1:18746`.
+- Health, dataset, state e capabilities retornaram HTTP 200; dataset revisão
+  120, 51 registros, prefixo lógico SHA-256 `23cce5807c01`; state revision 0.
+- `real_send_enabled=false` e `pilot_enabled=false` permaneceram falsos.
+- `tmp/fase41/inspect-live-final.json` registra Área Restrita e e-Contas sem
+  sinal de login, com UI/controles estruturais autenticados; a coleta não
+  persistiu sessão, cookie, token, CPF ou DOM bruto.
+- O pacote live original não foi alterado. O mirror existe apenas para tornar
+  a leitura possível ao processo da ponte, pois a publicação live tem ACL que
+  recusou leitura ao usuário do serviço; os hashes dos sete arquivos copiados
+  foram conferidos como idênticos.
+
+### Retomada
+
+Tarefa 4.2 é o próximo passo: usar navegação manual no portal, selecionar três
+atos elegíveis de pelo menos duas famílias legais e condição de gênero ausente,
+comparar proposta em memória com as evidências e reler sem aplicar campos.
+Não iniciar Fase 5: qualquer envio exige autorização imediata ato a ato.

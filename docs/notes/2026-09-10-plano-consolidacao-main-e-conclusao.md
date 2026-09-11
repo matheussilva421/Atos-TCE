@@ -372,27 +372,30 @@ prévia, escopo e reconciliação.
   (comprovado em 2026-09-11 pela evidência sanitizada
   `tmp/fase41/mirror-bridge-evidence.json`: CDP `127.0.0.1:19231`,
   `Chrome/151.0.7922.34`; nenhuma alteração de navegador foi necessária.)
-- [ ] Preferir perfil de trabalho isolado; nunca fechar ou reutilizar perfil
+- [x] Preferir perfil de trabalho isolado; nunca fechar ou reutilizar perfil
   pessoal sem autorização.
-- [ ] Parar para login humano; não digitar credenciais.
-- [ ] Confirmar Área Restrita e e-Contas autenticados, extensão `fase11k` ou
+- [x] Parar para login humano; não digitar credenciais.
+- [x] Confirmar Área Restrita e e-Contas autenticados, extensão `fase11k` ou
   posterior carregada e ponte pareada.
-- [ ] Capturar somente DOM sanitizado necessário, sem sessão/CPF/token.
+- [x] Capturar somente DOM sanitizado necessário, sem sessão/CPF/token.
 
-> **Atualização rastreada — 2026-09-11 (status: parcial).** A evidência
-> sanitizada registra `portal_tab_present=true` e `e_contas_tab_present=true`,
-> além de ponte pareada na porta `18746` (`health_http=200`). Ela também
-> registra `/dataset` HTTP 200, revisão `120`, `record_count=51`, prefixo
-> lógico SHA-256 `23cce5807c01`, `/state` HTTP 200 e `/capabilities` HTTP 200.
-> Esses sinais confirmam a superfície e a ponte, mas não comprovam, sozinhos,
-> a origem do perfil isolado, a parada de login humano, a autenticação
-> estrutural dos dois portais nem uma captura DOM. Por isso os itens compostos
-> permanecem desmarcados.
+> **Atualização rastreada — 2026-09-11 (status: concluída).** A evidência
+> `tmp/fase41/mirror-bridge-evidence.json`, combinada com
+> `tmp/fase41/inspect-live-final.json` e o registro sanitizado da autenticação,
+> comprova CDP `127.0.0.1:19231` em perfil de trabalho isolado,
+> `Chrome/151.0.7922.34`, Área Restrita e e-Contas sem sinal de login e com
+> controles estruturais autenticados. A extensão `1.1.0` está carregada e
+> pareada; a ponte respondeu health, dataset, state e capabilities em HTTP 200.
+> O dataset é a revisão `120`, com `51` registros e prefixo lógico SHA-256
+> `23cce5807c01`. O login foi feito pelo usuário após o agente parar no
+> checkpoint; nenhuma credencial foi digitada pelo agente.
 >
 > O mirror é temporário e somente de evidência/ponte; o pacote live original
 > não foi alterado. `real_send_enabled=false` e `pilot_enabled=false` permanecem
-> registrados tanto em `/capabilities` quanto na saúde da ponte. Nenhum item de
-> 4.2 ou de Fase 5+ é antecipado por esta atualização.
+> registrados tanto em `/capabilities` quanto na saúde da ponte. A captura
+> guardou somente flags, contagens, origens e prefixos; não contém sessão,
+> cookie, token, CPF ou DOM bruto. Nenhum item de 4.2 ou de Fase 5+ é
+> antecipado por esta atualização.
 
 ### Tarefa 4.2 — executar preflight de três atos sem envio
 
