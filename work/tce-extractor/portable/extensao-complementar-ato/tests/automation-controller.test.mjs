@@ -214,6 +214,63 @@ test("analyzes every observed page into sanitized Area Restrita rows without fre
   assert.equal(controller.status().status, "stopped");
 });
 
+test("allows analyze retry after a guard pauses without a persisted run", async () => {
+  const bridge = bridgeMock();
+  const goodPage = {
+    ...markerSnapshot("list", 2, [
+      { ...identity("103401/2023", "ana da silva", "act-1"), needsComplement: true },
+    ], []),
+    source_scope: "sector_finalistic",
+  };
+  const badPage = {
+    ...snapshot("list", 1, [
+      { ...identity("103401/2023", "ana da silva", "act-1"), needsComplement: true },
+    ], []),
+    source_scope: "sector_finalistic",
+  };
+  const chromeApi = chromeMock([goodPage]);
+  const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
+  let firstSnapshot = true;
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    const response = await originalSendMessage(tabId, message, options);
+    if (message.type === "PORTAL_GET_SNAPSHOT" && firstSnapshot) {
+      firstSnapshot = false;
+      return { ...response, payload: structuredClone(badPage) };
+    }
+    return response;
+  };
+  const controller = createAutomationController({ chromeApi, bridge });
+  const spec = {
+    ...runSpec(),
+    marker: "PROFESSOR - IPERN - 2 RUBRICAS",
+    sourceScope: "sector_finalistic",
+    lotSize: 50,
+    acquisitionSource: "econtas",
+  };
+
+  const first = await controller.analyze({ spec, eventId: "analysis-guarded" });
+
+  assert.equal(first.ok, false);
+  assert.equal(controller.status().status, "paused");
+  assert.equal(controller.status().runId, null);
+
+  const retried = await controller.analyze({ spec, eventId: "analysis-retry" });
+
+  assert.equal(retried.rows.length, 1);
+  assert.deepEqual(retried.marker, { label: "PROFESSOR - IPERN - 2 RUBRICAS", value: "marker-2" });
+  assert.equal(controller.status().status, "stopped");
+
+  const pausedRunController = createAutomationController({
+    chromeApi: chromeMock([snapshot("unknown", 1)]),
+    bridge: bridgeMock(),
+  });
+  await pausedRunController.start({ spec: runSpec(), eventId: "start-paused" });
+  await assert.rejects(
+    () => pausedRunController.analyze({ spec: runSpec(), eventId: "analysis-blocked" }),
+    (error) => error.code === "ACTIVE_RUN",
+  );
+});
+
 test("applies the requested marker before discovering every page and freezes only the filtered queue", async () => {
   const target = { ...identity("103401/2023", "ana da silva", "act-1"), needsComplement: true };
   const filteredPage = markerSnapshot("list", 2, [target], [{ action: "next_page", enabled: true }]);

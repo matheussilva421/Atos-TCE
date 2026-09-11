@@ -1381,7 +1381,7 @@ export function createAutomationController({
   async function analyze(input) {
     const spec = input?.spec ?? input;
     validateAutomationRunSpec(spec);
-    if (ACTIVE_STATUSES.has(state.status)) {
+    if (ACTIVE_STATUSES.has(state.status) && state.runId) {
       const error = new Error("an automation run is already active");
       error.code = "ACTIVE_RUN";
       throw error;
