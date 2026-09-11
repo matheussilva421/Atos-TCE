@@ -83,6 +83,29 @@ The scan below records every task self-consistency check and every pair with a s
 - Task 0.2: implementation committed (`3d3535d`, `b69cf6d`, `c3d9a0c`) with focused GREEN 134/134; real-root manifest run aborted without output; independent review returned FAIL; fix round underway.
 - Portal, destructive, branch and release gates remain pending.
 
+### Current status snapshot — 2026-09-11
+
+- Task 4.1: partial. Read-only CDP discovery is proven at port `19231` with
+  `Chrome/151.0.7922.34`; the sanitized evidence also records portal and
+  e-Contas tabs present, bridge port `18746` paired/HTTP 200, `/dataset` HTTP
+  200 at revision `120` with `51` records and logical SHA-256 prefix
+  `23cce5807c01`, `/state` HTTP 200, and `/capabilities` HTTP 200.
+- Task 4.1 items not proven by the sanitized artifact remain unchecked:
+  isolated-profile provenance, human-login checkpoint, full authenticated
+  portal confirmation, and DOM capture. The mirror is temporary; the original
+  live package was not altered. `real_send_enabled=false` and
+  `pilot_enabled=false` remain enforced.
+- Task 4.2 and all Tasks 5+: pending. No preflight, APPLY_FIELDS, send,
+  qualification, pilot, rollout, release or purge was performed or marked.
+
+### Resume — Task 4.1 (2026-09-11)
+
+- Preserve the temporary mirror and the original live package unchanged.
+- Before any preflight, stop at the human checkpoint to establish the missing
+  isolated-profile, login/authentication and sanitized-DOM evidence.
+- Keep `real_send_enabled=false` and `pilot_enabled=false`; do not start Task
+  4.2 or any Task 5+ action from this evidence alone.
+
 ## Dispatch log
 
 - Task 0.1 dispatched to Luna xhigh agent `01a08c16-c332-7780-aeae-b1e6d5691465` (Franklin). Implementer report path: `task-0.1-report.md`. Awaiting implementation and self-review before task-scoped review.

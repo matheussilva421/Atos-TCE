@@ -368,13 +368,31 @@ prévia, escopo e reconciliação.
 
 ### Tarefa 4.1 — recuperar uma superfície controlável
 
-- [ ] Detectar Chrome/Edge/CDP existente somente por leitura.
+- [x] Detectar Chrome/Edge/CDP existente somente por leitura.
+  (comprovado em 2026-09-11 pela evidência sanitizada
+  `tmp/fase41/mirror-bridge-evidence.json`: CDP `127.0.0.1:19231`,
+  `Chrome/151.0.7922.34`; nenhuma alteração de navegador foi necessária.)
 - [ ] Preferir perfil de trabalho isolado; nunca fechar ou reutilizar perfil
   pessoal sem autorização.
 - [ ] Parar para login humano; não digitar credenciais.
 - [ ] Confirmar Área Restrita e e-Contas autenticados, extensão `fase11k` ou
   posterior carregada e ponte pareada.
 - [ ] Capturar somente DOM sanitizado necessário, sem sessão/CPF/token.
+
+> **Atualização rastreada — 2026-09-11 (status: parcial).** A evidência
+> sanitizada registra `portal_tab_present=true` e `e_contas_tab_present=true`,
+> além de ponte pareada na porta `18746` (`health_http=200`). Ela também
+> registra `/dataset` HTTP 200, revisão `120`, `record_count=51`, prefixo
+> lógico SHA-256 `23cce5807c01`, `/state` HTTP 200 e `/capabilities` HTTP 200.
+> Esses sinais confirmam a superfície e a ponte, mas não comprovam, sozinhos,
+> a origem do perfil isolado, a parada de login humano, a autenticação
+> estrutural dos dois portais nem uma captura DOM. Por isso os itens compostos
+> permanecem desmarcados.
+>
+> O mirror é temporário e somente de evidência/ponte; o pacote live original
+> não foi alterado. `real_send_enabled=false` e `pilot_enabled=false` permanecem
+> registrados tanto em `/capabilities` quanto na saúde da ponte. Nenhum item de
+> 4.2 ou de Fase 5+ é antecipado por esta atualização.
 
 ### Tarefa 4.2 — executar preflight de três atos sem envio
 

@@ -1,6 +1,6 @@
 # Handoff — consolidação na main e conclusão do fluxo automático
 
-Data: 2026-09-10
+Data: 2026-09-11 (última atualização)
 Plano: `docs/notes/2026-09-10-plano-consolidacao-main-e-conclusao.md`
 Especificação: `docs/notes/2026-09-10-consolidacao-main-e-conclusao-spec.md`
 
@@ -12,16 +12,16 @@ Especificação: `docs/notes/2026-09-10-consolidacao-main-e-conclusao-spec.md`
   cada tarefa.
 - Tip funcional consolidado: `f508cac`; commits documentais posteriores estão
   registrados no histórico Git desta branch.
-- Última medição desta sessão: `HEAD == origin/main ==
-  `f8b5444207eceadd26a48372743ccfec81f62a26`; worktree limpo; apenas a branch
-  `main` existe.
+- Última medição antes desta atualização: `HEAD == origin/main ==
+  1f3029b`; a branch `main` continua única. A atualização documental de
+  2026-09-11 estava em edição e deve ser validada/publicada com stage nominal.
 - A recuperação da fotografia inicial está em `tmp/fase0-recovery/` e deve ser
   preservada até a validação final. Ela contém `tracked.patch` de 196.257 bytes
   e 13 cópias verificadas por hash.
-- A quarentena física ainda não foi aplicada: `tmp/quarantine` não existe. O
-  `-Apply` ficou bloqueado pelo guard de navegador (falso positivo em
-  `work/chrome-html-qa/CrashpadMetrics-active.pma`), corrigido no hardening r2
-  da Tarefa 0.8 e ainda sujeito à revisão independente 4.
+- A quarentena física foi aplicada e permanece preservada para a Fase 9.3:
+  recibo `tmp/quarantine/20260911-012750-653/receipt.json`, com
+  `moved=16074`, `not_moved=0` e `moved_bytes=23126367618`; nenhum purge
+  definitivo foi executado.
 
 ## Tarefas
 
@@ -249,3 +249,34 @@ documento.
    documentação reconciliada.
 5. Fase 9.2 — decidir explicitamente se o benchmark histórico de 20 processos
    continua critério de release.
+
+## Atualização — Tarefa 4.1 (2026-09-11)
+
+Status: parcial; somente o item de detecção read-only de CDP foi marcado no
+plano. Fonte única desta atualização: `tmp/fase41/mirror-bridge-evidence.json`
+(sanitizada e temporária).
+
+### Evidência comprovada
+
+- CDP existente em `127.0.0.1:19231`, versão `Chrome/151.0.7922.34`.
+- `portal_tab_present=true` e `e_contas_tab_present=true`.
+- Ponte pareada na porta `18746`, `health_http=200`.
+- `/dataset` HTTP 200, revisão `120`, `record_count=51` e prefixo lógico
+  SHA-256 `23cce5807c01`.
+- `/state` HTTP 200 e `/capabilities` HTTP 200.
+- `real_send_enabled=false` e `pilot_enabled=false` tanto na ponte quanto nas
+  capacidades.
+
+### Limites e retomada
+
+- A presença das abas e o pareamento da ponte não são promovidos aqui a prova
+  de autenticação estrutural dos portais. O artefato também não comprova a
+  origem de um perfil de trabalho isolado, a parada de login humano ou captura
+  DOM; esses itens permanecem pendentes no plano.
+- O mirror deve ser tratado como temporário, apenas para observação/evidência.
+  O pacote live original não foi alterado, e nenhum dado live, ACL, navegador,
+  portal ou código foi modificado nesta atualização documental.
+- Não marcar 4.2 nem qualquer tarefa 5+. A retomada segura é obter, em
+  checkpoint humano e sem credenciais digitadas pelo agente, a prova faltante
+  de perfil/login/autenticação/DOM antes de qualquer preflight; manter envio e
+  piloto desabilitados.
