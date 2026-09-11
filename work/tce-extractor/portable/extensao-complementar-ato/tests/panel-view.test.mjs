@@ -68,6 +68,42 @@ test("uncertain run exposes reconciliation guidance without resend", () => {
   assert.match(model.banner.message, /confirmar|concilia/iu);
 });
 
+test("does not mark equivalent civil date representations as divergent", () => {
+  const base = snapshot();
+  const model = buildPanelViewModel({
+    record: record(),
+    snapshot: {
+      ...base,
+      fields: {
+        ...base.fields,
+        data_publicacao_doe: { ...base.fields.data_publicacao_doe, value: "2020-02-07" },
+        data_nascimento: { ...base.fields.data_nascimento, value: "1967-04-30" },
+      },
+    },
+  });
+
+  assert.equal(model.fields.find((field) => field.id === "data_publicacao_doe").divergent, false);
+  assert.equal(model.fields.find((field) => field.id === "data_nascimento").divergent, false);
+});
+
+test("keeps an invalid date divergent when its text is repeated", () => {
+  const invalid = "31.02.2020";
+  const current = snapshot();
+  const source = record();
+  source.fields.data_publicacao_doe = {
+    ...source.fields.data_publicacao_doe,
+    source_value: invalid,
+    form_value: invalid,
+  };
+  current.fields.data_publicacao_doe = {
+    ...current.fields.data_publicacao_doe,
+    value: invalid,
+  };
+  const model = buildPanelViewModel({ record: source, snapshot: current });
+
+  assert.equal(model.fields.find((field) => field.id === "data_publicacao_doe").divergent, true);
+});
+
 test("renderPanelView uses accessible tabs, text nodes, and field cards", () => {
   const root = {
     ownerDocument: {

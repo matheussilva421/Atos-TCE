@@ -62,10 +62,32 @@ e passou: 20/20 testes focais e 291/291 na suíte da extensão.
 ## Retomada
 
 - manter `real_send_enabled=false` e `pilot_enabled=false`;
-- não usar `APPLY_FIELDS` enquanto houver qualquer divergência, empate,
-  decisão provável ou evidência incompleta;
+- não usar `APPLY_FIELDS` enquanto houver divergência, empate que exija nova
+  escolha, decisão provável sem `option.value` seguro ou evidência incompleta;
 - obter âncora/hash documental suficiente para as datas e `option.value` único
   para os selects obrigatórios;
 - repetir a sessão controlada e só então reavaliar a Tarefa 4.2;
 - mesmo com três preflights verdes, qualquer envio exige autorização humana
   imediata ato a ato.
+
+## Correção aplicada antes da nova reavaliação (2026-09-11)
+
+O requisito foi reconciliado: uma fundamentação `similarity` selecionada pode
+ser usada como a opção mais parecida do catálogo, ainda exigindo value presente,
+contexto/hash válidos e decisão jurídica `selected`. O código não exige
+igualdade literal com o documento.
+
+Também foram publicados os seguintes hardenings TDD:
+
+- o resolvedor autenticado transporta os `optionValue` reais de modalidade e
+  fundamento legal;
+- o preflight mantém selects por value e permite preservar um `tie` somente
+  quando o portal já está exatamente no value escolhido e catalogado; empate
+  sem value existente ou que exigiria escrita continua bloqueado;
+- datas `DD/MM/YYYY`/`YYYY-MM-DD` são validadas e comparadas civilmente;
+- os dois previews usam essa comparação, sem normalizar selects por rótulo.
+
+Testes focados do bloco: 137/137 passaram. A suíte ampla e a repetição portal-
+real ainda são pendências desta retomada. A Tarefa 4.2 permanece **NÃO PASSA**
+até existirem três preflights reais verdes; nenhum `APPLY_FIELDS`, envio ou
+finalização foi executado.

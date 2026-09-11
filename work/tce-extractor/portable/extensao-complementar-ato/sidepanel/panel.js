@@ -1,5 +1,6 @@
 import { rankPortalOptions } from "../lib/matcher.js";
 import { createMessage, MESSAGE_TYPES } from "../lib/messages.js";
+import { sameValue } from "../lib/automation-preflight.js";
 import {
   ALLOWED_FIELDS,
   STORAGE_KEYS,
@@ -178,7 +179,9 @@ function createRows(record, snapshot, matches) {
       confidence: text(field?.confidence),
       citation: displayCitation(field?.citation),
       disabled: snapshot.fields?.[fieldName]?.disabled === true || snapshot.fields?.[fieldName]?.readOnly === true,
-      divergent: hasProposal && currentValue !== "" && currentValue !== text(proposedValue),
+      divergent: hasProposal
+        && currentValue !== ""
+        && !sameValue(fieldName, currentValue, text(proposedValue), snapshot.options?.[fieldName]),
       pending: !hasProposal,
       match,
     };

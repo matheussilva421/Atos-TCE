@@ -1124,6 +1124,43 @@ test("renders a preview from current portal options with exact green and approxi
   assert.equal(documentRef.getElementById("permanent-warning").textContent, PERMANENT_WARNING);
 });
 
+test("does not mark equivalent civil dates as divergent and compares select values by value", async () => {
+  const dataset = await makeDataset();
+  const { app, documentRef } = await startApp({
+    dataset,
+    snapshots: [snapshot({
+      options: currentOptions(),
+      fields: {
+        modalidade: "m-vol",
+        fundamento_legal: "f-general",
+        data_publicacao_doe: "2020-02-07",
+        data_nascimento: "1967-04-30",
+      },
+    })],
+    matches: [{ record: dataset.records[0], matches: fullMatches(), reviewed: false }],
+  });
+
+  assert.equal(app.getState().kind, PANEL_STATES.PREVIEW_READY);
+  assert.equal(app.getState().rows.find((row) => row.field === "modalidade").divergent, false);
+  assert.equal(app.getState().rows.find((row) => row.field === "fundamento_legal").divergent, false);
+  assert.equal(app.getState().rows.find((row) => row.field === "data_publicacao_doe").divergent, false);
+  assert.equal(app.getState().rows.find((row) => row.field === "data_nascimento").divergent, false);
+  assert.equal(documentRef.getElementById("preview-body").querySelector('[data-role="override"]'), null);
+});
+
+test("keeps an invalid date visible as a divergence even when its text is repeated", async () => {
+  const invalid = "31.02.2020";
+  const dataset = await makeDataset({ sourceOverrides: { data_publicacao_doe: invalid } });
+  const { app } = await startApp({
+    dataset,
+    snapshots: [snapshot({ options: currentOptions(), fields: { data_publicacao_doe: invalid } })],
+    matches: [{ record: dataset.records[0], matches: fullMatches(), reviewed: false }],
+  });
+
+  assert.equal(app.getState().kind, PANEL_STATES.EXISTING_DIVERGENCE);
+  assert.equal(app.getState().rows.find((row) => row.field === "data_publicacao_doe").divergent, true);
+});
+
 test("renders untrusted JSON values only as text, never as markup", async () => {
   const malicious = "<img src=x onerror=alert(1)>";
   const dataset = await makeDataset({ sourceOverrides: { cargo: malicious } });

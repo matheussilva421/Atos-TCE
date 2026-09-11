@@ -8,6 +8,7 @@ const AUTOMATION_FIELDS = Object.freeze([
   "genero",
 ]);
 const REQUIRED_AUTOMATION_FIELDS = Object.freeze(AUTOMATION_FIELDS.filter((field) => field !== "genero"));
+const SELECT_FIELDS = new Set(["modalidade", "fundamento_legal"]);
 
 const DATE_FIELDS = new Set(["data_publicacao_doe", "data_nascimento"]);
 const PROCESS_KEY_RE = /^\d+\/\d{4}$/u;
@@ -111,20 +112,34 @@ function expectedHashes(record, snapshot) {
 
 function parseCivilDate(value) {
   if (typeof value !== "string") return null;
-  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/u.exec(value);
+  const displayMatch = /^(\d{2})\/(\d{2})\/(\d{4})$/u.exec(value);
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
+  const match = displayMatch
+    ? { day: displayMatch[1], month: displayMatch[2], year: displayMatch[3] }
+    : isoMatch
+      ? { day: isoMatch[3], month: isoMatch[2], year: isoMatch[1] }
+      : null;
   if (!match) return null;
-  const day = Number(match[1]);
-  const month = Number(match[2]);
-  const year = Number(match[3]);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
-    return null;
-  }
+  const day = Number(match.day);
+  const month = Number(match.month);
+  const year = Number(match.year);
+  if (year < 1 || month < 1 || month > 12 || day < 1) return null;
+  const daysInMonth = [31, isLeapYear(year) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+  if (day > daysInMonth) return null;
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
+function isLeapYear(year) {
+  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+}
+
 function sameValue(field, current, proposed, options) {
-  if (DATE_FIELDS.has(field)) return parseCivilDate(current) === parseCivilDate(proposed);
+  if (typeof current !== "string" || typeof proposed !== "string") return false;
+  if (DATE_FIELDS.has(field)) {
+    const currentDate = parseCivilDate(current);
+    const proposedDate = parseCivilDate(proposed);
+    return currentDate !== null && proposedDate !== null && currentDate === proposedDate;
+  }
   if (Array.isArray(options)) return current === proposed;
   return normalizeText(current) === normalizeText(proposed);
 }
@@ -136,7 +151,25 @@ function optionValueExists(options, proposed) {
   });
 }
 
-function fieldProposal(field, recordField, legalDecision) {
+function isSafeSelectTie(field, snapshotFields, options, matchedValues) {
+  const currentState = isRecord(snapshotFields) && isRecord(snapshotFields[field])
+    ? snapshotFields[field]
+    : null;
+  const current = currentState?.value;
+  if (!safeString(current) || !current.trim()) return false;
+  if (!isRecord(matchedValues) || !Object.hasOwn(matchedValues, field)) return false;
+  const matchedValue = matchedValues[field];
+  return safeString(matchedValue)
+    && Boolean(matchedValue.trim())
+    && current === matchedValue
+    && optionValueExists(options[field], matchedValue);
+}
+
+function fieldProposal(field, recordField, legalDecision, matchedValues) {
+  if (SELECT_FIELDS.has(field) && isRecord(matchedValues) && Object.hasOwn(matchedValues, field)) {
+    const matchedValue = matchedValues[field];
+    return typeof matchedValue === "string" && matchedValue.trim() ? matchedValue : null;
+  }
   if (!isRecord(recordField) || typeof recordField.form_value !== "string" || !recordField.form_value.trim()) {
     return null;
   }
@@ -178,12 +211,15 @@ function result(eligible, fields, preserved, reasons, evidence) {
   return { eligible, fields, preserved, reasons, evidence };
 }
 
-export function prepareAutomaticAct({ record, context, snapshot, legalDecision } = {}) {
+export function prepareAutomaticAct({ record, context, snapshot, legalDecision, matchedValues, matchKinds } = {}) {
   const reasons = [];
   const identity = identityFromRecord(record);
   const snapshotIdentity = identityFromSnapshot(snapshot);
   const frame = readFrame(snapshot);
   const evidence = baseEvidence(identity, context, frame, legalDecision);
+  const recordFields = record?.fields;
+  const snapshotFields = snapshot?.fields;
+  const options = isRecord(snapshot?.options) ? snapshot.options : {};
 
   if (!identity) addReason(reasons, "RECORD_IDENTITY_INVALID");
   if (!snapshotIdentity || !sameIdentity(identity, snapshotIdentity)) addReason(reasons, "IDENTITY_MISMATCH");
@@ -239,9 +275,11 @@ export function prepareAutomaticAct({ record, context, snapshot, legalDecision }
     && context.rules_version !== legalDecision.rules_version) {
     addReason(reasons, "LEGAL_RULES_VERSION_MISMATCH");
   }
+  if ([...SELECT_FIELDS].some((field) => matchKinds?.[field] === "tie"
+    && !isSafeSelectTie(field, snapshotFields, options, matchedValues))) {
+    addReason(reasons, "SELECT_MATCH_TIE");
+  }
 
-  const recordFields = record?.fields;
-  const snapshotFields = snapshot?.fields;
   if (!isRecord(recordFields) || !isRecord(snapshotFields)) {
     addReason(reasons, "FIELDS_SNAPSHOT_INCOMPLETE");
   } else {
@@ -256,7 +294,6 @@ export function prepareAutomaticAct({ record, context, snapshot, legalDecision }
     }
   }
 
-  const options = isRecord(snapshot?.options) ? snapshot.options : {};
   if (!Array.isArray(options.fundamento_legal)) addReason(reasons, "OPTION_CATALOG_MISSING");
   if (Object.values(options).some((value) => !Array.isArray(value))) addReason(reasons, "OPTION_CATALOG_INVALID");
 
@@ -276,7 +313,7 @@ export function prepareAutomaticAct({ record, context, snapshot, legalDecision }
       continue;
     }
     const current = currentState.value;
-    const proposed = fieldProposal(field, source, legalDecision);
+    const proposed = fieldProposal(field, source, legalDecision, matchedValues);
     if (!safeString(current) || (proposed !== null && !safeString(proposed))) {
       addReason(reasons, "PRIVATE_DATA_REJECTED");
       unsafeInput = true;
@@ -336,4 +373,4 @@ export function prepareAutomaticAct({ record, context, snapshot, legalDecision }
   return result(true, fields, preserved, [], evidence);
 }
 
-export { AUTOMATION_FIELDS };
+export { AUTOMATION_FIELDS, sameValue };

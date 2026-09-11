@@ -506,6 +506,7 @@ export function createServiceWorker({
         record: null,
         context: null,
         legalDecision: null,
+        matchedValues: {},
         matchKinds: {},
       };
     }
@@ -531,6 +532,7 @@ export function createServiceWorker({
     }
 
     const matches = {};
+    const matchedValues = {};
     let legalDecision = null;
     for (const field of AUTOMATION_FIELDS) {
       const options = Array.isArray(formSnapshot?.options?.[field]) ? formSnapshot.options[field] : [];
@@ -545,6 +547,17 @@ export function createServiceWorker({
         context: field === "fundamento_legal" ? context : null,
       });
       if (field === "fundamento_legal") legalDecision = result?.legalDecision ?? null;
+      const optionValue = result?.optionValue;
+      const optionValueIsPresent = Array.isArray(options) && options.some((option) => (
+        isRecord(option) ? option.value === optionValue : option === optionValue
+      ));
+      if ((field === "modalidade" || field === "fundamento_legal")
+        && typeof optionValue === "string"
+        && optionValue.trim() !== ""
+        && optionValueIsPresent
+        && (field !== "fundamento_legal" || result?.legalDecision?.status === "selected")) {
+        matchedValues[field] = optionValue;
+      }
       const kind = result?.kind;
       matches[field] = kind === "exact" || kind === "probable" || kind === "tie"
         ? kind
@@ -557,6 +570,7 @@ export function createServiceWorker({
       },
       context: clone(context),
       legalDecision: clone(legalDecision),
+      matchedValues,
       matchKinds: matches,
     };
   }

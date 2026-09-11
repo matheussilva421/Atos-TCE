@@ -227,6 +227,57 @@ test("accepts valid civil dates and rejects impossible dates before preparing fi
   assert.ok(result.reasons.includes("INVALID_CIVIL_DATE"));
 });
 
+test("treats DD/MM/YYYY and ISO YYYY-MM-DD as the same civil date in either direction", () => {
+  const result = prepareAutomaticAct(input({
+    record: record({
+      fields: {
+        ...record().fields,
+        data_publicacao_doe: field("07/02/2020"),
+        data_nascimento: field("1967-04-30"),
+      },
+    }),
+    snapshot: snapshot({
+      fields: {
+        ...snapshot().fields,
+        data_publicacao_doe: { value: "2020-02-07", disabled: false, readOnly: false },
+        data_nascimento: { value: "30/04/1967", disabled: false, readOnly: false },
+      },
+    }),
+  }));
+
+  assert.equal(result.eligible, true);
+  assert.deepEqual(result.preserved, {
+    data_publicacao_doe: "2020-02-07",
+    data_nascimento: "30/04/1967",
+  });
+  assert.deepEqual(result.fields, Object.fromEntries(
+    Object.entries(values).filter(([fieldName]) => !["data_publicacao_doe", "data_nascimento"].includes(fieldName)),
+  ));
+});
+
+test("does not treat equal unknown or invalid date strings as equivalent", () => {
+  const invalid = "31.02.2020";
+  const result = prepareAutomaticAct(input({
+    record: record({
+      fields: {
+        ...record().fields,
+        data_publicacao_doe: field(invalid),
+      },
+    }),
+    snapshot: snapshot({
+      fields: {
+        ...snapshot().fields,
+        data_publicacao_doe: { value: invalid, disabled: false, readOnly: false },
+      },
+    }),
+  }));
+
+  assert.equal(result.eligible, false);
+  assert.ok(result.reasons.includes("INVALID_CIVIL_DATE"));
+  assert.ok(result.reasons.includes("CURRENT_CIVIL_DATE_INVALID"));
+  assert.ok(result.reasons.includes("EXISTING_VALUE_CONFLICT"));
+});
+
 test("requires every proposed select value to remain in the current catalog", () => {
   const result = prepareAutomaticAct(input({
     snapshot: snapshot({
@@ -240,6 +291,96 @@ test("requires every proposed select value to remain in the current catalog", ()
   assert.equal(result.eligible, false);
   assert.deepEqual(result.fields, {});
   assert.ok(result.reasons.includes("OPTION_VALUE_NOT_PRESENT"));
+});
+
+test("uses resolver-selected option values instead of documentary select labels", () => {
+  const result = prepareAutomaticAct(input({
+    record: record({
+      fields: {
+        ...record().fields,
+        modalidade: field("Especial"),
+        fundamento_legal: field("Regra do professor"),
+      },
+    }),
+    matchedValues: {
+      modalidade: values.modalidade,
+      fundamento_legal: values.fundamento_legal,
+    },
+    matchKinds: {
+      modalidade: "exact",
+      fundamento_legal: "exact",
+    },
+  }));
+
+  assert.equal(result.eligible, true);
+  assert.deepEqual(result.fields, values);
+});
+
+test("preserves a tied select match when the current value equals the matched catalog value", () => {
+  for (const fieldName of ["modalidade", "fundamento_legal"]) {
+    const result = prepareAutomaticAct(input({
+      snapshot: snapshot({
+        fields: {
+          ...snapshot().fields,
+          [fieldName]: { value: values[fieldName], disabled: false, readOnly: false },
+        },
+      }),
+      matchedValues: {
+        modalidade: values.modalidade,
+        fundamento_legal: values.fundamento_legal,
+      },
+      matchKinds: {
+        modalidade: "exact",
+        fundamento_legal: "exact",
+        [fieldName]: "tie",
+      },
+    }));
+
+    assert.equal(result.eligible, true, fieldName);
+    assert.equal(result.reasons.includes("SELECT_MATCH_TIE"), false, fieldName);
+    assert.equal(result.fields[fieldName], undefined, fieldName);
+    assert.equal(result.preserved[fieldName], values[fieldName], fieldName);
+  }
+});
+
+test("keeps an empty tied select field blocked", () => {
+  const result = prepareAutomaticAct(input({
+    matchedValues: {
+      modalidade: values.modalidade,
+      fundamento_legal: values.fundamento_legal,
+    },
+    matchKinds: {
+      modalidade: "tie",
+      fundamento_legal: "exact",
+    },
+  }));
+
+  assert.equal(result.eligible, false);
+  assert.deepEqual(result.fields, {});
+  assert.ok(result.reasons.includes("SELECT_MATCH_TIE"));
+});
+
+test("keeps a divergent tied select field blocked", () => {
+  const result = prepareAutomaticAct(input({
+    snapshot: snapshot({
+      fields: {
+        ...snapshot().fields,
+        modalidade: { value: "m-other", disabled: false, readOnly: false },
+      },
+    }),
+    matchedValues: {
+      modalidade: values.modalidade,
+      fundamento_legal: values.fundamento_legal,
+    },
+    matchKinds: {
+      modalidade: "tie",
+      fundamento_legal: "exact",
+    },
+  }));
+
+  assert.equal(result.eligible, false);
+  assert.deepEqual(result.fields, {});
+  assert.ok(result.reasons.includes("SELECT_MATCH_TIE"));
 });
 
 test("requires a complete context with a matching dataset hash", async (t) => {

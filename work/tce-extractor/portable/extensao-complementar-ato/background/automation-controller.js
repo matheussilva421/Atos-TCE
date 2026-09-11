@@ -761,6 +761,8 @@ export function createAutomationController({
       context: resolved?.context,
       snapshot: before,
       legalDecision: resolved?.legalDecision,
+      matchedValues: resolved?.matchedValues,
+      matchKinds: resolved?.matchKinds,
     });
     if (!preparation.eligible) {
       const persisted = await appendAutomationEvent(identity, "item_pending", {

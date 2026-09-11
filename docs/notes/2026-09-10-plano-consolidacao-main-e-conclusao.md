@@ -689,3 +689,40 @@ restrição foi removida.
   sendo validados pelo preflight;
 - teste focal: 20/20; suíte da extensão reportada por Luna: 291/291;
 - nenhum `APPLY_FIELDS`, envio ou finalização foi executado.
+
+## Hardening de reconciliação para retomada da Tarefa 4.2 (2026-09-11)
+
+A regra de negócio foi reconciliada com o requisito: `similarity` é uma
+proposta válida quando o matcher seleciona uma opção do catálogo, mesmo que a
+fundamentação documental não seja literalmente igual ao rótulo. A igualdade
+literal continua não sendo exigida para fundamentação; exigem-se decisão
+`selected`, `option.value` presente no catálogo atual, contexto/hash válidos e
+ausência de divergência real.
+
+O bloco TDD publicado também corrigiu os pontos de integração que impediam uma
+reavaliação honesta:
+
+- `resolveAutomaticAct` agora transporta `matchedValues` reais para
+  `modalidade` e `fundamento_legal`, somente quando o valor existe no catálogo;
+- o preflight compara selects pelo `value`, nunca tenta fabricar um value a
+  partir do rótulo documental;
+- um `tie` de select só é preservado quando o portal já contém exatamente o
+  `matchedValue` presente no catálogo; campo vazio, value ausente ou value
+  divergente continuam bloqueados por `SELECT_MATCH_TIE`/conflito;
+- datas civis `DD/MM/YYYY` e `YYYY-MM-DD` são comparadas por chave canônica,
+  com calendário validado; formato desconhecido ou data impossível não vira
+  igualdade;
+- sidepanel e preflight usam a mesma comparação segura, sem transformar
+  divergência textual de select em equivalência semântica.
+
+A triagem local independente dos dados confirmou 51 registros, 50 processos
+distintos, 41 registros completos nos seis campos obrigatórios e 10
+incompletos. `genero` está ausente em todos; 246/246 citações dos completos
+possuem processo, evento, página e documento com `found/high`. A duplicidade
+esperada é `104956/2025`, que possui dois interessados e não deve ser tratada
+como erro de processo.
+
+O conjunto focado após a integração passou em 137/137 testes. O gate real da
+Tarefa 4.2 ainda não foi marcado: é necessário repetir a sessão controlada,
+obter três preflights reais verdes e registrar a evidência sem executar envio.
+Nenhum `APPLY_FIELDS`, envio ou finalização foi executado neste bloco.

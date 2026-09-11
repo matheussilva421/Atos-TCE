@@ -1305,10 +1305,15 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
     data_nascimento: "30/04/1967",
     genero: "Feminino",
   };
+  const optionValues = {
+    modalidade: "modalidade-voluntaria",
+    fundamento_legal: "fundamento-art-40",
+  };
   const formValues = Object.fromEntries(Object.keys(values).map((field) => [field, ""]));
   let currentSurface = surfaces.list;
   const bridgeCalls = [];
   const rankCalls = [];
+  const applyCalls = [];
   const storage = storageMock();
   const ranker = (input) => {
     rankCalls.push(input);
@@ -1316,7 +1321,7 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
       return {
         kind: "exact",
         optionIndex: 0,
-        optionValue: input.options[0]?.value ?? values.fundamento_legal,
+        optionValue: input.options[0]?.value ?? optionValues.fundamento_legal,
         optionLabel: input.options[0]?.label ?? "Art. 40",
         score: 100,
         reasons: ["contextual-rule"],
@@ -1324,7 +1329,7 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
           status: "selected",
           method: "rule",
           rule_id: "EC41_COM_P5",
-          option_value: input.options[0]?.value ?? values.fundamento_legal,
+          option_value: input.options[0]?.value ?? optionValues.fundamento_legal,
           option_label: input.options[0]?.label ?? "Art. 40",
           rules_version: "legal-foundation-v1",
         },
@@ -1333,7 +1338,7 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
     return {
       kind: "exact",
       optionIndex: 0,
-      optionValue: values[input.field],
+      optionValue: input.field === "modalidade" ? optionValues.modalidade : values[input.field],
       optionLabel: values[input.field],
       score: 100,
       reasons: ["fixture"],
@@ -1386,8 +1391,8 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
           process: { number: "103439", year: "2023", key: PROCESS_KEY },
           interested: { original: "João da Silva", normalized: "joao da silva" },
           options: {
-            modalidade: [{ value: values.modalidade, label: values.modalidade }],
-            fundamento_legal: [{ value: values.fundamento_legal, label: values.fundamento_legal }],
+            modalidade: [{ value: optionValues.modalidade, label: values.modalidade }],
+            fundamento_legal: [{ value: optionValues.fundamento_legal, label: values.fundamento_legal }],
             genero: [{ value: values.genero, label: values.genero }],
           },
           fields: Object.fromEntries(Object.keys(values).map((field) => [field, {
@@ -1397,6 +1402,7 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
       };
     }
     if (message.type === MESSAGE_TYPES.APPLY_FIELDS) {
+      applyCalls.push(structuredClone(message));
       Object.assign(formValues, message.payload.fields);
       return { ok: true, frameId, payload: { changed: Object.keys(message.payload.fields), preserved: [], missing: [], disabled: [], errors: [] } };
     }
@@ -1425,6 +1431,19 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
   assert.equal(started.ok, true);
   assert.equal(bridgeCalls.some(([name]) => name === "context"), true);
   assert.equal(rankCalls.some((input) => input.field === "fundamento_legal" && input.context === legalContext), true);
-  assert.equal(formValues.fundamento_legal, values.fundamento_legal);
+  assert.equal(formValues.modalidade, optionValues.modalidade);
+  assert.equal(formValues.fundamento_legal, optionValues.fundamento_legal);
+  assert.equal(applyCalls.length, 1);
+  assert.deepEqual(applyCalls[0].payload.matchKinds, Object.fromEntries(Object.keys(values).map((field) => [field, "exact"])), "preserve matchKinds");
+  const preparedEvent = bridgeCalls.find(([name, , event]) => name === "event" && event.type === "item_prepared");
+  assert.ok(preparedEvent, "automatic resolver should preserve a valid legal decision");
+  assert.deepEqual(preparedEvent[2].payload.legalDecision, {
+    status: "selected",
+    method: "rule",
+    rule_id: "EC41_COM_P5",
+    option_value: optionValues.fundamento_legal,
+    rules_version: "legal-foundation-v1",
+  });
+  assert.deepEqual(preparedEvent[2].payload.matchKinds, Object.fromEntries(Object.keys(values).map((field) => [field, "exact"])));
   assert.equal(bridgeCalls.some(([name, , event]) => name === "event" && event.type === "fields_verified"), true);
 });

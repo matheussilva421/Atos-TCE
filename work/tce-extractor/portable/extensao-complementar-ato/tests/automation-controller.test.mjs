@@ -800,7 +800,7 @@ function preparationBridge({ failEventType = null } = {}) {
   return bridge;
 }
 
-function preparationResolverCalls(calls) {
+function preparationResolverCalls(calls, overrides = {}) {
   return async (resolvedIdentity, formSnapshot, portalSnapshot) => {
     calls.push({ resolvedIdentity, formSnapshot, portalSnapshot });
     return {
@@ -808,6 +808,7 @@ function preparationResolverCalls(calls) {
       context: preparationContext(),
       legalDecision: preparationLegalDecision(),
       matchKinds: Object.fromEntries(PREP_FIELDS.map((field) => [field, "exact"])),
+      ...overrides,
     };
   };
 }
@@ -870,6 +871,32 @@ test("fails closed when the integrated resolver cannot persist automation events
   assert.equal(result.status, "paused");
   assert.match(result.pausedReason, /event persistence/u);
   assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.APPLY_FIELDS), false);
+});
+
+test("blocks a tied modalidade match before issuing APPLY_FIELDS", async () => {
+  const bridge = preparationBridge();
+  const chromeApi = preparationChromeMock();
+  const controller = createAutomationController({
+    chromeApi,
+    bridge,
+    resolveAutomaticAct: preparationResolverCalls([], {
+      matchedValues: {
+        modalidade: PREP_VALUES.modalidade,
+        fundamento_legal: PREP_VALUES.fundamento_legal,
+      },
+      matchKinds: {
+        ...Object.fromEntries(PREP_FIELDS.map((field) => [field, "exact"])),
+        modalidade: "tie",
+      },
+    }),
+  });
+
+  await controller.start({ spec: runSpec(), eventId: "start-modalidade-tie" });
+
+  assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.APPLY_FIELDS), false);
+  const pendingEvent = bridge.calls.find(([name, , event]) => name === "event" && event.type === "item_pending");
+  assert.ok(pendingEvent);
+  assert.equal(pendingEvent[2].payload.reason, "SELECT_MATCH_TIE");
 });
 
 test("rejects a post-apply catalog or field-state change across all seven fields", async () => {

@@ -1,3 +1,5 @@
+import { sameValue } from "../lib/automation-preflight.js";
+
 const FIELD_ORDER = Object.freeze([
   "modalidade",
   "fundamento_legal",
@@ -64,7 +66,9 @@ function buildFields(record, snapshot, matches) {
       currentValue: text(currentValue),
       citation: field.citation ?? null,
       kind: fieldKind(field, match),
-      divergent: hasProposal && currentValue !== "" && text(currentValue) !== text(proposedValue),
+      divergent: hasProposal
+        && currentValue !== ""
+        && !sameValue(name, currentValue, text(proposedValue), snapshot?.options?.[name]),
       disabled: snapshot?.fields?.[name]?.disabled === true || snapshot?.fields?.[name]?.readOnly === true,
     };
   });

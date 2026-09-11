@@ -414,3 +414,38 @@ confirmação do usuário. O estado vigente é: `selected` com `exact`, `rule` o
 `similarity` pode prosseguir para o restante do preflight; `pending`/`tie`
 não. A mudança TDD passou em 20/20 testes focais e a suíte da extensão foi
 reportada em 291/291, sem portal/Chrome e sem commit/push pelo worker.
+
+## Atualização de retomada — matcher, datas e selects (2026-09-11)
+
+A reconciliação do requisito confirmou que `similarity` deve permanecer
+aceitável quando a fundamentação do documento for apenas a opção mais parecida
+do catálogo. O hardening foi ampliado sem liberar envio:
+
+- `service-worker.js` retorna `matchedValues` de catálogo para os selects; o
+  controller os encaminha ao preflight;
+- `automation-preflight.js` usa esses values, valida catálogo e preserva um
+  select empatado somente quando o value já selecionado no portal é exatamente
+  o value retornado pelo matcher;
+- empate que exige nova escolha, value ausente ou divergência permanece
+  bloqueado;
+- datas display/ISO equivalentes usam comparação civil estrita, e inválidos
+  continuam divergentes;
+- `panel.js` e `panel-view.js` compartilham a comparação, mantendo select por
+  value.
+
+Evidência TDD do bloco: RED reproduzido pelos novos casos e GREEN em 137/137
+testes focados, incluindo controller, service worker, preflight e os dois
+previews. A suíte anterior da extensão estava em 299/299 antes da regra de
+preservação de empate; a verificação ampla final deste bloco ainda precisa ser
+registrada antes do push documental.
+
+Triagem independente sanitizada: 51 registros/50 processos, 41 completos nos
+seis campos obrigatórios, 10 incompletos, gênero ausente em 51/51 e 246/246
+citações completas com chaves de processo/evento/página/documento. O par de
+interessados no processo `104956/2025` explica a contagem 51/50.
+
+Status operacional: Tarefa 4.2 continua **NÃO PASSA / pendente** até três
+preflights reais verdes. Não houve `APPLY_FIELDS`, envio, finalização ou
+alteração persistida no portal. A próxima retomada deve recarregar o pacote
+controlado, repetir identidade/ação/rádio/catálogo e registrar somente a
+qualificação sanitizada.
