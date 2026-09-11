@@ -40,6 +40,7 @@ versionamento como evidência sanitizada e temporária.
 ## GitHub
 
 - Commit nominal: `0427b71` — `docs: record authenticated phase 4.1`.
-- Push fast-forward para `origin/main` confirmado; `HEAD == origin/main ==
-  0427b7149b1bca9901ca9e057f7a21f0bf9d6b14`.
+- Push fast-forward do commit nominal para `origin/main` confirmado.
+- Fechamento do handoff: `2822ef2` — `docs: close phase 4.1 publication
+  record`, também publicado por fast-forward.
 - Worktree limpo após `git diff --check`; nenhum force push foi usado.
