@@ -378,3 +378,11 @@ correção verificável dentro do limite operacional. Não há alteração de c�
 pendente desta tentativa; ficam preservados os commits já publicados e a
 task de paginação continua explicitamente aberta. Não houve preenchimento,
 `APPLY_FIELDS`, envio ou finalização.
+
+## Publicação deste checkpoint (2026-09-11)
+
+O registro deste checkpoint foi publicado no commit `d63d3a2` em
+`origin/main`. A verificação posterior confirmou `HEAD == origin/main`,
+worktree limpo e `git diff --check` sem erros. O próximo agente deve retomar
+pela task de paginação/frame, repetir o preflight apenas no marcador `6189` do
+setor e não promover a descoberta parcial a PASS.
