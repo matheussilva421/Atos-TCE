@@ -841,3 +841,12 @@ retomada deve usar ponte pareada com código fresco, `autoSubmit=false` e
 - [x] Fetch confirmou `HEAD == origin/main`, worktree limpo e `git diff --check`
   sem erros.
 - [x] Diagnósticos temporários permaneceram fora do commit.
+
+## Checkpoint operacional: sessão humana necessária (2026-09-11)
+
+- [x] Runner oficial isolado e ponte local foram recriados.
+- [x] Endpoint confirmado disponível; resposta sem sessão: `401 Unauthorized`.
+- [ ] Login humano no Chrome isolado e confirmação de
+  `ProcessonoSetor.asp`/`sector_finalistic`.
+- [ ] Tarefa 4.2: três preflights reais verdes; sem `APPLY_FIELDS`, envio ou
+  finalização enquanto o checkpoint não for concluído.

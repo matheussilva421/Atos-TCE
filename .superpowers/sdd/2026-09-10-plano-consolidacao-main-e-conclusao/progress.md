@@ -257,3 +257,11 @@ The scan below records every task self-consistency check and every pair with a s
   the hardening block as commit `5ec4ae7181faa2412d235b0c86e4efa3214df916` to
   `origin/main` without force. Post-push fetch confirmed `HEAD == origin/main`,
   clean worktree and clean diff check; temporary diagnostics were not staged.
+
+- Environment checkpoint (2026-09-11): the official isolated runner and local
+  bridge were recreated, but the portal navigation ended at
+  `chrome-error://chromewebdata/`; an external read-only probe confirmed the
+  endpoint is alive and returns `401 Unauthorized` without an authenticated
+  session. Human login is now required in the isolated work Chrome before the
+  three real Task 4.2 preflights can resume. No credentials were typed by the
+  runner and no portal mutation occurred.

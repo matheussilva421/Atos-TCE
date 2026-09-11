@@ -286,3 +286,18 @@ A Luna publicou exatamente os oito arquivos rastreados deste bloco no commit
 concluído sem force; fetch posterior confirmou `HEAD == origin/main`,
 worktree limpo e `git diff --check` sem erros. Os diagnósticos em `tmp/` não
 foram incluídos.
+
+## Novo checkpoint de ambiente — login necessário (2026-09-11)
+
+Após a tentativa de recuperar a instância Chromium, o runner oficial criou uma
+janela isolada com a extensão corretamente carregada e a ponte local ativa, mas
+a navegação do portal terminou em `chrome-error://chromewebdata/`. A checagem
+HTTPS externa confirmou que o endpoint está disponível e responde `401
+Unauthorized` sem uma sessão autenticada. O runner registrou
+`credentials_typed_by_runner=false` e `submission_performed_by_runner=false`.
+
+O próximo passo depende de login humano no Chrome de trabalho isolado que está
+aberto. Depois do login, confirmar `ProcessonoSetor.asp` como
+`sector_finalistic`, manter `MeusProcessos.asp` como origem distinta e repetir
+o piloto de um item. Nenhum `APPLY_FIELDS`, preenchimento, envio ou
+finalização deve ser executado antes da retomada.
