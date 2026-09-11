@@ -317,3 +317,53 @@ Tarefa 4.2 é o próximo passo: usar navegação manual no portal, selecionar tr
 atos elegíveis de pelo menos duas famílias legais e condição de gênero ausente,
 comparar proposta em memória com as evidências e reler sem aplicar campos.
 Não iniciar Fase 5: qualquer envio exige autorização imediata ato a ato.
+
+## Correção de retomada — Tarefa 4.2 bloqueada por divergências (2026-09-11)
+
+O bloco acima era uma orientação de retomada anterior. O resultado observado
+mais recente é **NÃO PASSA** e deve ser usado como estado vigente.
+
+### Evidência sanitizada
+
+- Sessão observada após login manual do usuário em Chromium 151 isolado via
+  CDP `127.0.0.1:19231`; o agente não digitou credenciais.
+- Consultas exatas no `ProcessonoSetor` localizaram `100120/2026`,
+  `100273/2025` e `100065/2026`. Cada representante tinha uma única ação
+  semântica `Complementar Ato`, com a identidade processo/ano conferida.
+- Cada tela exibiu um único rádio de interessado. A seleção foi reversível e
+  revelou os sete controles de formulário esperados.
+- Catálogo observado: 13 modalidades, 35 fundamentos legais e 3 gêneros.
+- A sidepanel, após reload, exibiu `preview ready`, 7 cards, revisão `120`,
+  prefixo de dataset `23cce5807c01`; `send`/`pilot` permaneceram desabilitados.
+
+### Matriz de bloqueio
+
+| Processo/ano | Divergências de nomes de campo preview ↔ portal |
+| --- | --- |
+| `100120/2026` | `fundamento_legal`, `data_publicacao_doe` |
+| `100273/2025` | `modalidade`, `data_publicacao_doe`, `matricula` |
+| `100065/2026` | `data_publicacao_doe` |
+
+Os valores dos campos, nomes, CPF, tokens, cookies e DOM bruto não fazem parte
+deste handoff. A divergência em cada representante acionou STOP: não houve
+`APPLY_FIELDS`, envio, finalização ou persistência de alteração. As abas
+`Complementar Ato` abertas pelo agente foram fechadas; nenhuma mutação ocorreu.
+
+### Testes, limites e retomada
+
+- Esta atualização é documental e não altera código, pacote live, portal,
+  Chrome, `tmp`, branches ou quarentena.
+- Não foram executados testes de código nem qualquer ação de preenchimento ou
+  envio. A validação aplicável ao bloco é revisão do diff documental,
+  `git diff --check` e busca de conteúdo sensível antes da publicação.
+- 4.2 e 5+ continuam pendentes e desmarcadas. Não tratar esta evidência como
+  qualificação, piloto, release ou autorização de envio.
+- Retomar somente com nova sessão controlada, reconciliação das divergências e
+  repetição completa da conferência; manter `real_send_enabled=false` e
+  `pilot_enabled=false`.
+
+### GitHub
+
+O registro será publicado em `main` por commit documental nominal e push
+fast-forward para `origin/main`, sem force push. A SHA final e o estado
+pós-push devem ser conferidos no fechamento desta sessão.

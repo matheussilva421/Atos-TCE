@@ -575,3 +575,54 @@ Fase 0 organização/main única
 Nenhuma fase posterior reduz os gates de uma fase anterior. A quarentena só é
 apagada na Fase 9, e somente depois de a release final e `main` estarem
 verificadas.
+
+## Atualização — Tarefa 4.2: preflight real bloqueado (2026-09-11)
+
+**Status:** NÃO PASSA. Os checkboxes da Tarefa 4.2 e de todas as tarefas 5+
+permanecem desmarcados. Este bloco é a evidência mais recente e supersede a
+retomada genérica anterior que tratava 4.2 apenas como próximo passo.
+
+### Evidência sanitizada observada
+
+- Contexto: login manual já realizado pelo usuário em Chromium 151 isolado,
+  controlado por CDP `127.0.0.1:19231`; o agente não digitou credenciais.
+- No `ProcessonoSetor`, três representantes foram localizados por consulta
+  exata: `100120/2026`, `100273/2025` e `100065/2026`.
+- Em cada caso houve uma única ação semanticamente identificada como
+  `Complementar Ato`; a identidade processo/ano conferiu.
+- Cada tela apresentou um único rádio de interessado. A seleção foi apenas
+  reversível para inspeção; depois dela, os sete controles esperados estavam
+  presentes.
+- Catálogo atual observado: 13 opções de modalidade, 35 de fundamento legal e
+  3 de gênero.
+- Após reload da sidepanel, a extensão mostrou `preview ready` com 7 cards,
+  revisão `120` e prefixo de dataset `23cce5807c01`; `send` e `pilot` estavam
+  desabilitados.
+
+### Divergências que bloquearam o preflight
+
+Somente os nomes dos campos são registrados; valores de campos, nomes,
+documentos de identidade e demais dados pessoais não são publicados.
+
+| Processo/ano | Campos divergentes entre preview e portal |
+| --- | --- |
+| `100120/2026` | `fundamento_legal`, `data_publicacao_doe` |
+| `100273/2025` | `modalidade`, `data_publicacao_doe`, `matricula` |
+| `100065/2026` | `data_publicacao_doe` |
+
+Como houve divergência de campo em todos os três representantes, o protocolo
+parou antes de qualquer `APPLY_FIELDS`. Não houve envio, finalização ou outra
+mutação no portal. As abas `Complementar Ato` abertas pelo agente foram
+fechadas ao final da observação; nenhuma alteração foi persistida.
+
+### Limite e retomada
+
+- Não promover esta execução a PASS, qualificação, piloto ou release.
+- Não iniciar a Fase 5. `real_send_enabled=false` e `pilot_enabled=false`
+  continuam sendo a fronteira documentada.
+- Retomar somente após reconciliar a origem das divergências em nova sessão
+  controlada, repetir identidade/ação/rádio/catálogo, comparar novamente os
+  sete controles e obter igualdade completa do preview com o portal.
+- Mesmo com igualdade, qualquer preenchimento continuaria condicionado ao
+  protocolo reversível e a autorização humana imediata; envio e finalização
+  permanecem fora deste gate.
