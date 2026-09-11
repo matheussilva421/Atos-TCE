@@ -106,6 +106,15 @@ The scan below records every task self-consistency check and every pair with a s
 - Keep `real_send_enabled=false` and `pilot_enabled=false`; do not start Task
   4.2 or any Task 5+ action from this evidence alone.
 
+### Publication — Task 4.1 (2026-09-11)
+
+- Nominal commit `0427b71` (`docs: record authenticated phase 4.1`) was pushed
+  fast-forward to `origin/main`.
+- Post-push verification: `HEAD == origin/main ==
+  0427b7149b1bca9901ca9e057f7a21f0bf9d6b14`, worktree clean, and
+  `git diff --check` passed. The live package and all portal/browser state
+  remained untouched.
+
 ## Dispatch log
 
 - Task 0.1 dispatched to Luna xhigh agent `01a08c16-c332-7780-aeae-b1e6d5691465` (Franklin). Implementer report path: `task-0.1-report.md`. Awaiting implementation and self-review before task-scoped review.

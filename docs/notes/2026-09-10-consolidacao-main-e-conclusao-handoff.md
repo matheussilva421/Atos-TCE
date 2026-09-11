@@ -12,9 +12,9 @@ Especificação: `docs/notes/2026-09-10-consolidacao-main-e-conclusao-spec.md`
   cada tarefa.
 - Tip funcional consolidado: `f508cac`; commits documentais posteriores estão
   registrados no histórico Git desta branch.
-- Última medição antes desta atualização: `HEAD == origin/main ==
-  1f3029b`; a branch `main` continua única. A atualização documental de
-  2026-09-11 estava em edição e deve ser validada/publicada com stage nominal.
+- Última medição pós-publicação: `HEAD == origin/main ==
+  0427b7149b1bca9901ca9e057f7a21f0bf9d6b14`; a branch `main` continua única e
+  o worktree está limpo.
 - A recuperação da fotografia inicial está em `tmp/fase0-recovery/` e deve ser
   preservada até a validação final. Ela contém `tracked.patch` de 196.257 bytes
   e 13 cópias verificadas por hash.
@@ -280,3 +280,11 @@ plano. Fonte única desta atualização: `tmp/fase41/mirror-bridge-evidence.json
   checkpoint humano e sem credenciais digitadas pelo agente, a prova faltante
   de perfil/login/autenticação/DOM antes de qualquer preflight; manter envio e
   piloto desabilitados.
+
+### Publicação desta atualização
+
+- Commit nominal: `0427b71` — `docs: record authenticated phase 4.1`.
+- Push fast-forward para `origin/main` confirmado; `git ls-remote` retornou
+  `0427b7149b1bca9901ca9e057f7a21f0bf9d6b14 refs/heads/main`.
+- Verificação pós-push: `HEAD == origin/main`, worktree limpo e
+  `git diff --check` sem erros.
