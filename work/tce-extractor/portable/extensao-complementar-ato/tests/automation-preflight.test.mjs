@@ -285,14 +285,15 @@ test("requires a selected legal decision instead of pending or tied candidates",
   }
 });
 
-test("blocks a selected legal decision based on similarity", () => {
+test("prepares fields for a selected legal decision based on similarity", () => {
   const result = prepareAutomaticAct(input({
     legalDecision: { ...legalDecision, method: "similarity" },
   }));
 
-  assert.equal(result.eligible, false);
-  assert.deepEqual(result.fields, {});
-  assert.ok(result.reasons.includes("LEGAL_DECISION_METHOD_UNSAFE"));
+  assert.equal(result.eligible, true);
+  assert.deepEqual(result.fields, values);
+  assert.deepEqual(result.preserved, {});
+  assert.deepEqual(result.reasons, []);
 });
 
 test("does not return private keys, DOM nodes, or token values", () => {

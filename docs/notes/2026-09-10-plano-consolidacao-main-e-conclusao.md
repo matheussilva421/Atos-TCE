@@ -667,10 +667,25 @@ e não deve promover uma equivalência semântica não registrada. Os selects
   `100273/2025` continua diferente.
 - Não há correção de dados no portal. Não há `APPLY_FIELDS`, envio,
   finalização ou alteração persistida.
-- O preflight automático agora rejeita decisão jurídica por `similarity`; só
-  aceita métodos determinísticos (`exact`/`rule`) e registra
-  `LEGAL_DECISION_METHOD_UNSAFE`. A mudança foi validada por TDD (RED e
-  depois verde) sem liberar qualquer ação portal.
+- O preflight automático aceita `similarity` quando a decisão jurídica já está
+  `selected`; `pending` e `tie` continuam bloqueados antes de qualquer
+  preparação. A decisão selecionada ainda exige contexto/hash/valor da opção,
+  catálogo atual e ausência de divergência nos campos. O comportamento foi
+  ajustado por TDD (RED e depois verde) sem liberar qualquer ação portal.
 - A Tarefa 4.2 e todas as tarefas 5+ permanecem desmarcadas. A retomada exige
   fonte/âncora suficiente para as datas e `option.value` único para cada
   select obrigatório.
+
+## Correção de requisito — `similarity` permitido (2026-09-11)
+
+O hardening publicado no commit anterior restringia o método jurídico a
+`exact`/`rule`, mas isso contrariava o requisito operacional: o catálogo do
+portal pode não reproduzir literalmente a fundamentação documental. A
+restrição foi removida.
+
+- `LegalDecision.status=selected` com `method=similarity` é aceito;
+- `status=pending` e `status=tie` permanecem bloqueados;
+- contexto completo, hash, `option.value`, catálogo e divergência continuam
+  sendo validados pelo preflight;
+- teste focal: 20/20; suíte da extensão reportada por Luna: 291/291;
+- nenhum `APPLY_FIELDS`, envio ou finalização foi executado.

@@ -52,10 +52,12 @@ matrícula, pois uma comparação somente por dígitos poderia colidir registros
 
 ## Hardening identificado
 
-O preflight automático agora aceita somente `method=exact` ou `method=rule`
-quando a decisão está selecionada; `similarity` é bloqueado com
-`LEGAL_DECISION_METHOD_UNSAFE`. A mudança TDD ficou restrita aos arquivos do
-preflight e passou: 20/20 testes focais e 291/291 na suíte da extensão.
+Correção posterior de requisito: o preflight automático aceita também
+`method=similarity` quando a decisão está `selected`, porque a fundamentação
+documental pode não ser literalmente igual ao catálogo. `pending` e `tie`
+continuam bloqueados, junto com contexto/hash/valor da opção ausentes e
+divergências de campo. A mudança TDD ficou restrita aos arquivos do preflight
+e passou: 20/20 testes focais e 291/291 na suíte da extensão.
 
 ## Retomada
 

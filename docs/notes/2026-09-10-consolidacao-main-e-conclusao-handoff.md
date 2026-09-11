@@ -401,7 +401,16 @@ obrigatórios continuam sem mapeamento único. `100273/2025` mantém diferenças
 substantivas ou fonte desatualizada não resolvidas. O gate 4.2 continua
 **NÃO PASSA** e as fases 5+ continuam desmarcadas.
 
-Foi implementado o hardening de `prepareAutomaticAct`: a decisão com método
-`similarity` agora é bloqueada com `LEGAL_DECISION_METHOD_UNSAFE`; apenas
-`exact`/`rule` podem ser usados em automação. O ajuste ficou restrito ao
-preflight, passou por RED e verde, e não libera qualquer ação portal.
+Correção posterior de requisito: `prepareAutomaticAct` aceita decisão
+selecionada com método `similarity`, pois a fundamentação documental pode não
+ser textualmente idêntica ao catálogo. `pending` e `tie` continuam bloqueados,
+assim como contexto/hash/valor da opção ausentes ou divergência de campo.
+O teste que cobre `similarity` ficou verde e não libera qualquer ação portal.
+
+## Correção de requisito — `similarity` mantido (2026-09-11)
+
+O guard `LEGAL_DECISION_METHOD_UNSAFE` foi removido imediatamente após a
+confirmação do usuário. O estado vigente é: `selected` com `exact`, `rule` ou
+`similarity` pode prosseguir para o restante do preflight; `pending`/`tie`
+não. A mudança TDD passou em 20/20 testes focais e a suíte da extensão foi
+reportada em 291/291, sem portal/Chrome e sem commit/push pelo worker.
