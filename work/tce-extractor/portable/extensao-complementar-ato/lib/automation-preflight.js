@@ -232,6 +232,9 @@ export function prepareAutomaticAct({ record, context, snapshot, legalDecision }
     || legalDecision.method === "none") {
     addReason(reasons, "LEGAL_DECISION_NOT_SELECTED");
   }
+  if (legalDecision?.status === "selected" && !["exact", "rule"].includes(legalDecision.method)) {
+    addReason(reasons, "LEGAL_DECISION_METHOD_UNSAFE");
+  }
   if (!safeString(legalDecision?.option_value) || !legalDecision.option_value.trim()) {
     addReason(reasons, "LEGAL_DECISION_VALUE_MISSING");
   }

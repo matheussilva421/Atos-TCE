@@ -367,3 +367,41 @@ deste handoff. A divergência em cada representante acionou STOP: não houve
 O registro será publicado em `main` por commit documental nominal e push
 fast-forward para `origin/main`, sem force push. A SHA final e o estado
 pós-push devem ser conferidos no fechamento desta sessão.
+
+## Reconciliação efetiva da Tarefa 4.2 (2026-09-11)
+
+Foi feita uma nova leitura, em modo somente leitura, dos três candidatos já
+observados. A sessão confirmou consulta exata, uma ação `Complementar Ato`, um
+rádio de interessado, sete controles do formulário e catálogo 13/35/3. As
+abas de `Complementar Ato` foram fechadas ao final; `APPLY_FIELDS`, envio e
+finalização não foram chamados.
+
+### Resultado sanitizado
+
+- A auditoria independente confirmou 50 processos/51 registros, unicidade dos
+  três candidatos, hash lógico válido e os seis campos obrigatórios presentes
+  com confiança alta e citações completas em chave.
+- `genero` está ausente na fonte nos três registros e permanece opcional.
+- `100120/2026`: DOE é a mesma data civil em representação diferente; cargo,
+  matrícula e nascimento coincidem; modalidade e fundamento não possuem
+  correspondência exata e o matcher sinaliza empate.
+- `100273/2025`: modalidade permanece empatada; fundamento não produz
+  `option.value` seguro; DOE não é a mesma data civil; matrícula não coincide
+  nem com compactação conservadora; cargo/nascimento coincidem.
+- `100065/2026`: DOE é a mesma data civil em representação diferente; cargo,
+  matrícula e nascimento coincidem; modalidade/fundamento permanecem sem
+  proposta determinística (`tie`/`probable`).
+
+### Conclusão
+
+A hipótese de divergência puramente textual foi confirmada somente para os
+DOEs de `100120/2026` e `100065/2026`. Isso não basta para marcar o preflight
+como aprovado porque a sidepanel compara texto bruto e porque os selects
+obrigatórios continuam sem mapeamento único. `100273/2025` mantém diferenças
+substantivas ou fonte desatualizada não resolvidas. O gate 4.2 continua
+**NÃO PASSA** e as fases 5+ continuam desmarcadas.
+
+Foi implementado o hardening de `prepareAutomaticAct`: a decisão com método
+`similarity` agora é bloqueada com `LEGAL_DECISION_METHOD_UNSAFE`; apenas
+`exact`/`rule` podem ser usados em automação. O ajuste ficou restrito ao
+preflight, passou por RED e verde, e não libera qualquer ação portal.

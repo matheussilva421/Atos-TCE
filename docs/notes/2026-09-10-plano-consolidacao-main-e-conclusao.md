@@ -626,3 +626,51 @@ fechadas ao final da observação; nenhuma alteração foi persistida.
 - Mesmo com igualdade, qualquer preenchimento continuaria condicionado ao
   protocolo reversível e a autorização humana imediata; envio e finalização
   permanecem fora deste gate.
+
+## Reconciliação da Tarefa 4.2 — classificação canônica (2026-09-11)
+
+**Resultado:** a reconciliação foi executada novamente em sessão controlada,
+com consulta exata, ação única `Complementar Ato`, rádio único e releitura dos
+sete controles. Nenhum campo foi escrito e o status da Tarefa 4.2 continua
+**NÃO PASSA / bloqueado**.
+
+### Proveniência local
+
+- Auditoria independente confirmou 50 processos e 51 registros, com os três
+  candidatos presentes uma única vez e hash lógico do dataset conferente.
+- Os seis campos obrigatórios têm `source_value` e `form_value` presentes,
+  `status=found`, `confidence=high` e citações com processo, evento, página e
+  documento.
+- `genero` permanece ausente na fonte nos três casos e continua opcional.
+- As citações não carregam hash do PDF nem âncora textual suficiente para
+  reextrair automaticamente as datas; portanto a proveniência não autoriza
+  corrigir divergências no portal.
+
+### Classificação sanitizada
+
+| Processo/ano | Reconciliado | Classificação segura | Bloqueio remanescente |
+| --- | --- | --- | --- |
+| `100120/2026` | DOE tem mesma data civil após canonicalização; cargo, matrícula e nascimento coincidem; modalidade e fundamento não têm correspondência exata com o catálogo | DOE = formato/representação; selects = mapeamento indeterminado (`tie`) | `modalidade`/`fundamento_legal` sem `option.value` exato; não preparar |
+| `100273/2025` | modalidade permanece empatada; fundamento não resolve `option.value`; DOE não tem mesma data civil; matrícula não coincide nem após compactação conservadora; cargo/nascimento coincidem | modalidade/fundamento = evidência insuficiente; DOE/matrícula = diferença substantiva ou fonte desatualizada, não mera formatação | `modalidade`, `data_publicacao_doe`, `matricula` e fundamento sem decisão segura |
+| `100065/2026` | DOE tem mesma data civil após canonicalização; cargo, matrícula e nascimento coincidem; modalidade/fundamento continuam sem correspondência exata segura | DOE = formato/representação; selects = mapeamento indeterminado (`tie`/`probable`) | selects obrigatórios sem proposta determinística; não preparar |
+
+Nas três linhas, a identidade, a ação, o rádio único, o catálogo (13/35/3) e
+o frame foram confirmados. A diferença entre igualdade civil e o estado bruto
+`Divergente` da sidepanel é real para o contrato atual: a UI compara texto cru
+e não deve promover uma equivalência semântica não registrada. Os selects
+`tie`/`probable` não foram convertidos em escolha por normalização jurídica.
+
+### Decisão operacional
+
+- A reconciliação eliminou a hipótese de tratar todos os DOEs como divergência
+  substantiva, mas só dois são comprovadamente equivalentes por data civil;
+  `100273/2025` continua diferente.
+- Não há correção de dados no portal. Não há `APPLY_FIELDS`, envio,
+  finalização ou alteração persistida.
+- O preflight automático agora rejeita decisão jurídica por `similarity`; só
+  aceita métodos determinísticos (`exact`/`rule`) e registra
+  `LEGAL_DECISION_METHOD_UNSAFE`. A mudança foi validada por TDD (RED e
+  depois verde) sem liberar qualquer ação portal.
+- A Tarefa 4.2 e todas as tarefas 5+ permanecem desmarcadas. A retomada exige
+  fonte/âncora suficiente para as datas e `option.value` único para cada
+  select obrigatório.
