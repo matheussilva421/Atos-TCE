@@ -195,3 +195,14 @@ The scan below records every task self-consistency check and every pair with a s
 - Task 4.2 origin-separation hardening (2026-09-11): user screenshot and controlled navigation confirmed distinct `Proc./ Doc. Eletrônicos`/sector and `Meus Processos Eletrônicos` surfaces. Luna xhigh worker `01a090e4-d359-7840-b01c-d1735aef1d80` implemented the registered-list source filter in `automation-controller.js`; independent Luna review found and controller closed the remaining restore/form/hidden-frame risks. TDD RED/GREEN: controller 36/36, portal-navigation 27/27, panel 43/43, full extension 313/313. Live package was hash-synchronized and smoke-tested read-only with real send disabled. No APPLY_FIELDS/send/finalization. Task 4.2 remains open pending three real green preflights; Task 5+ unchanged.
 
 - Publication checkpoint (2026-09-11): hardening commit `eae3c161f23c7fe552e2a382a0d4e279d555cf2d` pushed fast-forward to `origin/main`; post-push `HEAD == origin/main`, `git diff --check` passed and worktree clean. Fase 4.2 remains open for three real green preflights; no APPLY_FIELDS/send/finalization.
+
+- Resume checkpoint (2026-09-11): a read-only exact lookup was attempted on the
+  correctly selected `sector_finalistic` / `ProcessonoSetor.asp` surface. The
+  portal expired the Area Restrita session and replaced that frame with
+  `SISTEMAS/PROCESSO/expirou.asp` during the query. No act was selected, no
+  field was changed, and no `APPLY_FIELDS`, send, or finalization occurred.
+  Task 4.2 remains **NÃO PASSA**; resume only after the user logs in again on
+  the isolated work Chrome, then re-confirm the two distinct process origins.
+  Diagnostic `tmp/fase41/query-sector-form-readonly.py` is retained for
+  controlled read-only resumption. Luna's independent Task 3.1 audit had not
+  returned before this checkpoint.

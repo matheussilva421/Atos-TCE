@@ -727,6 +727,20 @@ Tarefa 4.2 ainda não foi marcado: é necessário repetir a sessão controlada,
 obter três preflights reais verdes e registrar a evidência sem executar envio.
 Nenhum `APPLY_FIELDS`, envio ou finalização foi executado neste bloco.
 
+## Retomada da Tarefa 4.2 interrompida por expiração de sessão (2026-09-11)
+
+Uma consulta exata somente leitura foi iniciada na origem correta
+`ProcessonoSetor.asp` (`sector_finalistic`). Durante a consulta, a Área Restrita
+redirecionou essa moldura para `SISTEMAS/PROCESSO/expirou.asp`. Portanto a
+sessão autenticada deixou de estar disponível e o gate foi interrompido no
+checkpoint humano.
+
+Nenhum ato foi selecionado; nenhum interessado foi alterado; não houve
+`APPLY_FIELDS`, envio ou finalização. Os checkboxes da Tarefa 4.2 e das Fases
+5+ continuam desmarcados. A retomada requer novo login humano no Chrome isolado,
+seguido de confirmação das duas origens (`ProcessonoSetor.asp` e
+`MeusProcessos.asp`) antes de qualquer novo preflight.
+
 ## Atualização de tasks — separação das origens da Área Restrita (2026-09-11)
 
 - [x] Confirmar, por evidência visual e navegação controlada, a distinção entre

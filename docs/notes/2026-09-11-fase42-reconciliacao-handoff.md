@@ -125,3 +125,33 @@ Commit `eae3c161f23c7fe552e2a382a0d4e279d555cf2d` foi publicado em
 `origin/main` por fast-forward. Após a publicação, `HEAD == origin/main` e
 `git diff --check` passaram; o worktree estava limpo. A pendência operacional
 permanece somente a obtenção de três preflights reais verdes.
+
+## Retomada interrompida — sessão expirada (2026-09-11)
+
+Na retomada seguinte, a origem correta continuou sendo tratada como
+`sector_finalistic`/`ProcessonoSetor.asp`. A consulta exata foi preparada sem
+selecionar ato, interessado, ação `Complementar Ato`, preenchimento ou botão
+final. A submissão do formulário de consulta, porém, fez a moldura do setor
+redirecionar para `SISTEMAS/PROCESSO/expirou.asp`; a sessão da Área Restrita
+expirou durante a navegação.
+
+Não houve `APPLY_FIELDS`, envio, finalização, alteração de campo ou seleção de
+ato. Os testes locais permanecem verdes conforme a publicação anterior. A
+Tarefa 4.2 não muda de classificação: continua **NÃO PASSA** até três
+preflights reais verdes.
+
+### Retomada exigida
+
+- usuário deve autenticar novamente no Chrome de trabalho isolado;
+- depois confirmar que `ProcessonoSetor.asp` está visível e que
+  `MeusProcessos.asp` continua uma origem separada;
+- repetir a busca somente após o sinal autenticado, sem usar qualquer botão de
+  envio/finalização;
+- manter `real_send_enabled=false` e `pilot_enabled=true` apenas para o modo
+  controlado sem envio; nenhum piloto foi executado.
+
+O diagnóstico descartável `tmp/fase41/query-sector-form-readonly.py` ficou
+disponível para retomada, mas a próxima sessão deve preferir a interação
+visível de consulta se o portal voltar a exigir a sessão. O resultado da
+auditoria independente Luna da Tarefa 3.1 ainda não foi necessário para este
+checkpoint.
