@@ -345,3 +345,36 @@ O painel também descartava o erro interno retornado pelo controlador e exibia
 apenas uma mensagem genérica. Duas correções TDD independentes estão em curso;
 os guards de marcador, origem, geração, aba/frame, identidade e
 `real_send_enabled=false` permanecem obrigatórios.
+
+## Evidência live mais recente — paginação ainda bloqueada (2026-09-11)
+
+A sessão foi reaberta no Chrome isolado com o marcador do setor confirmado:
+`PROFESSOR - IPERN - 2 RUBRICAS (470)`, valor `6189`, `source_scope` igual a
+`sector_finalistic`. A ponte local respondeu capabilities HTTP 200 com
+`pilot_enabled=true` e `real_send_enabled=false`.
+
+O `AUTO_ANALYZE` seguro descobriu 32 identidades na primeira página, mas a
+execução terminou fail-closed em `portal frame unavailable` ao avançar para a
+segunda página. O resultado não é um preflight verde e não deve ser promovido
+a PASS. Não houve `APPLY_FIELDS`, preenchimento, envio ou finalização.
+
+Foi despachada uma Luna com ownership exclusivo de
+`content/portal-navigation.js` e seus testes para reproduzir e corrigir o
+rollover de frame da ação `next_page` em TDD. Depois da integração, repetir a
+verificação com o mesmo marcador e registrar o resultado antes de avaliar os
+três preflights exigidos pela Tarefa 4.2.
+
+## QA desta retomada (2026-09-11)
+
+- `npm test` na extensão: 325 testes executados, 325 aprovados, 0 falhas.
+- `tests/Test-TcePortable.ps1`: 114 testes executados, 114 aprovados, 0 falhas.
+- `git diff --check`: aprovado.
+- A tentativa live de `AUTO_ANALYZE` confirmou o marcador/escopo e descobriu
+  32 identidades, mas falhou de modo seguro em `portal frame unavailable` ao
+  executar `next_page`. Isso não fecha nenhum dos três preflights exigidos.
+
+A Luna adicional foi encerrada sem commit novo porque não devolveu uma
+correção verificável dentro do limite operacional. Não há alteração de código
+pendente desta tentativa; ficam preservados os commits já publicados e a
+task de paginação continua explicitamente aberta. Não houve preenchimento,
+`APPLY_FIELDS`, envio ou finalização.

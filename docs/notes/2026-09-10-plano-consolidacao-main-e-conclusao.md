@@ -868,3 +868,34 @@ retomada deve usar ponte pareada com código fresco, `autoSubmit=false` e
 
 O requisito do marcador não autoriza misturar processos da aba “Meus Processos”
 com a lista do setor. Nenhum campo, envio ou finalização foi executado.
+
+## Retomada live — marcador restrito e paginação (2026-09-11)
+
+- [x] Reabrir a sessão no Chrome de trabalho isolado, com a extensão carregada
+  a partir do diretório de saída live e sem `--ignore-certificate-errors`.
+- [x] Confirmar novamente `ProcessonoSetor.asp`, `source_scope=sector_finalistic`
+  e o marcador apresentado `PROFESSOR - IPERN - 2 RUBRICAS (470)` / valor
+  `6189`. A origem `MeusProcessos.asp` permaneceu fora do fluxo.
+- [x] Confirmar a ponte local: capabilities HTTP 200, `pilot_enabled=true` e
+  `real_send_enabled=false`.
+- [x] Executar descoberta somente leitura: 32 identidades descobertas na
+  primeira página; nenhuma alteração de formulário foi feita.
+- [ ] Fechar o preflight live da paginação. A tentativa controlada terminou
+  fail-closed com `portal frame unavailable` após a ação `next_page`; uma Luna
+  está corrigindo esse rollover com TDD.
+- [ ] Tarefa 4.2: três preflights reais verdes. A descoberta parcial não é PASS
+  e não autoriza `APPLY_FIELDS`, envio ou finalização.
+
+### QA e limite atual
+
+- [x] `npm test` na extensão: 325 testes, 325 aprovados, 0 falhas.
+- [x] `tests/Test-TcePortable.ps1`: 114 testes, 114 aprovados, 0 falhas.
+- [x] `git diff --check`: sem erro.
+- [ ] Preflight live completo: a sessão confirmou o marcador e descobriu 32
+  identidades, mas terminou fail-closed em `portal frame unavailable` durante
+  `next_page`. A Tarefa 4.2 continua bloqueada.
+
+O diagnóstico foi mantido honesto: o teste unitário da extensão está verde,
+mas isso não substitui a prova runtime das três preflights reais. O escopo
+permanece exclusivamente `sector_finalistic` e o marcador `6189`; nenhuma
+identidade de `MeusProcessos.asp` foi incluída.
