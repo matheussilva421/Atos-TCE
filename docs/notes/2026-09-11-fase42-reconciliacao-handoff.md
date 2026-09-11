@@ -278,3 +278,11 @@ formulário, parear a ponte com código fresco e repetir o piloto. Só depois de
 três preflights verdes, com identidade, catálogo, contexto e evidência
 documental conferidos, atualizar a Tarefa 4.2. Manter `autoSubmit=false` e
 `real_send_enabled=false`.
+
+## Publicação final deste bloco (2026-09-11)
+
+A Luna publicou exatamente os oito arquivos rastreados deste bloco no commit
+`5ec4ae7181faa2412d235b0c86e4efa3214df916`. O push para `origin/main` foi
+concluído sem force; fetch posterior confirmou `HEAD == origin/main`,
+worktree limpo e `git diff --check` sem erros. Os diagnósticos em `tmp/` não
+foram incluídos.

@@ -252,3 +252,8 @@ The scan below records every task self-consistency check and every pair with a s
   item remained `queued` and the run was stopped. No `APPLY_FIELDS`, fill, send
   or finalization occurred. Task 4.2 remains **NÃO PASSA / blocked** until
   three real green preflights; Tasks 5+ remain unchecked.
+
+- Publication checkpoint (2026-09-11): Luna pushed the eight tracked files of
+  the hardening block as commit `5ec4ae7181faa2412d235b0c86e4efa3214df916` to
+  `origin/main` without force. Post-push fetch confirmed `HEAD == origin/main`,
+  clean worktree and clean diff check; temporary diagnostics were not staged.

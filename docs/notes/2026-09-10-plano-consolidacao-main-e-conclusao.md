@@ -833,3 +833,11 @@ Tarefa 4.2 após três preflights reais verdes. Fases 5+ continuam desmarcadas.
 Nenhum `APPLY_FIELDS`, preenchimento, envio ou finalização foi executado. A
 retomada deve usar ponte pareada com código fresco, `autoSubmit=false` e
 `real_send_enabled=false`.
+
+## Publicação do bloco de hardening (2026-09-11)
+
+- [x] Commit `5ec4ae7181faa2412d235b0c86e4efa3214df916` publicado em
+  `origin/main` sem force.
+- [x] Fetch confirmou `HEAD == origin/main`, worktree limpo e `git diff --check`
+  sem erros.
+- [x] Diagnósticos temporários permaneceram fora do commit.
