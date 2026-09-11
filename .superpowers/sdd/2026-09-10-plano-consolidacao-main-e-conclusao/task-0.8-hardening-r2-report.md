@@ -116,6 +116,14 @@ fixtures e holders ficaram sob `%TEMP%` e foram limpos pelo harness.
 
 O outro agente deixou modificações não commitadas em
 `verify-project.ps1`, `Test-ProjectVerification.ps1` e `README.md`; elas devem
-ser preservadas ao fazer staging. Para retomar, confira `git status --short`,
-estagie somente os arquivos nominais desta entrega, rode novamente o harness
-focal e então conclua os commits/push registrados na resposta final.
+ser preservadas ao fazer staging. Os commits desta entrega são:
+
+```text
+5dee162 fix(cleanup): harden source and quarantine moves
+d179b59 test(cleanup): cover phase 0.8 review findings
+```
+
+O push para `origin main` foi concluído com sucesso; após `git fetch origin`,
+`HEAD` e `origin/main` são ambos
+`d179b59d696dcbef983ee63edb7bcd6184ec6fa3`. O worktree segue deliberadamente
+sujo somente pelas três modificações não staged do outro agente.
