@@ -164,3 +164,117 @@ portal. O resultado foi 982 casos/comandos agregados, 980 aprovados, 0 falhas e
 PowerShell em 555/555, os contratos do pacote em 71/73 com 2 skips esperados e
 `git diff --check` passou. Esta verificação não altera a classificação da
 Tarefa 4.2: ainda faltam três preflights reais verdes.
+
+## Retomada controlada após login — piloto de descoberta (2026-09-11)
+
+O usuário confirmou novo login no Chrome de trabalho isolado. A sessão foi
+validada novamente na Área Restrita, mantendo separadas as origens
+`ProcessonoSetor.asp` (`sector_finalistic`) e `MeusProcessos.asp`
+(`my_processes`). O candidato usado para o piloto foi `102390/2026`, localizado
+por consulta exata na lista do setor, com uma única ação `Complementar Ato` e
+um único rádio de interessado. A seleção do rádio foi reversível e feita para
+revisão; nenhum botão final foi acionado.
+
+A extensão 1.1.0 foi recarregada com o guard de tela não reconhecida já
+sincronizado no pacote live. A ponte temporária foi renovada e pareada no
+dataset correto: revisão `120`, 51 registros, SHA-256 lógico com prefixo
+`23cce5807c01`, `pilot_enabled=true`, `pilot_consumes_remaining=true` e
+`real_send_enabled=false`. O piloto foi configurado com origem
+`sector_finalistic`, lote de 1 e `autoSubmit=false`.
+
+O piloto comprovou a descoberta da identidade e congelou uma fila de 1 item,
+mas não alcançou preparação de campos: o run persistiu somente
+`queue_frozen` e, após a navegação para a aba irmã `Complementar Ato`, ficou
+com o item em `queued`. A integração perdeu os registros de frame durante a
+recriação/suspensão do service worker; o run foi encerrado pela ponte local
+sem `item_prepared`, `fields_verified`, `APPLY_FIELDS`, envio ou finalização.
+Esse resultado é **bloqueado/not-observed**, não é preflight verde.
+
+### Retomada
+
+- manter a sessão autenticada e as duas origens explicitamente distinguíveis;
+- corrigir/retestar a reidratação do run/frame antes de repetir o piloto;
+- repetir três preflights reais somente com decisão, catálogo, identidade e
+  evidência documental suficientes;
+- manter `real_send_enabled=false` e `autoSubmit=false`;
+- não iniciar Fase 5+ nem promover este piloto a PASS.
+
+## Implementação da reidratação do run/frame — TDD (2026-09-11)
+
+O bloqueio técnico observado no piloto foi corrigido em ciclo TDD. A Luna
+`Newton` escreveu o teste focal antes da implementação: a nova instância do
+service worker não podia recuperar um run remoto ativo e falhava com estado
+local nulo. O RED foi reproduzido com 0/1 teste aprovado.
+
+O controlador agora expõe `rehydrate(snapshot, spec)` e restaura somente
+snapshots v1 ativos, identidades canônicas, estados dos itens, revisão, origem,
+aba e frames registrados na `storage.session`. Itens em estados de envio,
+incerteza, falha ou conclusão não são recolocados na fila executável. A
+`service-worker` persiste a RunSpec validada junto do run id, compara a spec
+persistida com o snapshot remoto antes de reutilizá-la e reidrata antes de
+status, controle ou novo `AUTO_START`; assim um retry não cria um segundo run.
+Um run encerrado continua disponível ao painel como histórico, mas não bloqueia
+um novo start.
+
+Validação GREEN:
+
+- teste focal de reidratação/controle: 1/1;
+- regressão de retry e associação de spec: 2/2;
+- suíte da extensão: 317/317;
+- `git diff --check`: passou.
+
+O contrato de origem permanece explícito: a lista precisa confirmar
+`sector_finalistic` ou `my_processes`; somente a moldura derivada de
+`ComplementarAto.asp` pode chegar sem `source_scope`, e ainda exige identidade
+canônica, geração e frame compatíveis. O piloto real anterior não foi repetido
+neste bloco; não houve `APPLY_FIELDS`, envio ou finalização.
+
+### Retomada após esta implementação
+
+- sincronizar o pacote live com os dois módulos de background e recarregar a
+  extensão no Chrome isolado;
+- repetir somente o piloto de descoberta de um item na origem
+  `sector_finalistic`, com `autoSubmit=false`;
+- observar `item_prepared`/`fields_verified` sem promover a preflight verde se
+  houver divergência documental, de catálogo, contexto ou identidade;
+- manter `real_send_enabled=false` e não iniciar Fase 5+.
+
+## Hardening pós-revisão independente e piloto de lista — TDD (2026-09-11)
+
+A revisão independente Luna identificou quatro riscos concretos: duas partidas
+concorrentes poderiam criar runs simultâneos; `verify`/`consume` não reidratavam
+um worker recriado; a lista registrada como `unknown` não era sondada; e o
+snapshot remoto podia ter projeção parcial da RunSpec. Os dois primeiros foram
+corrigidos no worker, e o controlador passou a sondar frames registrados como
+`list` ou `unknown`, mantendo o filtro de `source_scope`.
+
+O ciclo TDD ficou verde nos focos: frame registrado desconhecido 1/1, partidas
+concorrentes 1/1, reidratação antes de verify/consume 1/1 e suíte da extensão
+321/321. O pacote live recebeu hashes idênticos nos dois módulos de background.
+
+Na repetição controlada, a lista `ProcessonoSetor.asp` foi reconhecida como
+`sector_finalistic`, a fila de um item foi congelada, mas o piloto permaneceu
+`queued` porque a instância Chromium perdeu a injeção dos content scripts após
+a recarga da extensão; foi observado `chrome.runtime` ausente nas abas novas e
+falha de inicialização do service worker no Chromium (`DidStartWorkerFail`). A
+ponte foi renovada/pareada, o run foi encerrado sem preparação. Não houve
+`APPLY_FIELDS`, preenchimento, envio ou finalização.
+
+### Tasks atualizadas
+
+- [x] Hardening TDD de mutex para `AUTO_START` concorrente.
+- [x] Hardening TDD de reidratação para verify/consume após recriação do worker.
+- [x] Sondagem de frame de lista persistido com papel `unknown`.
+- [x] Suíte da extensão: 321/321; hashes source/live conferidos.
+- [ ] Tarefa 4.2: três preflights reais verdes. O piloto atual é
+  **bloqueado/not-observed**, não conta como preflight.
+- [ ] Tarefas 5+ permanecem desmarcadas.
+
+### Retomada
+
+Reabrir a instância Chromium isolada com o service worker carregando sem erro,
+confirmar a injeção `TCEPortalNavigation`/`TCEFormDetector` na lista e no
+formulário, parear a ponte com código fresco e repetir o piloto. Só depois de
+três preflights verdes, com identidade, catálogo, contexto e evidência
+documental conferidos, atualizar a Tarefa 4.2. Manter `autoSubmit=false` e
+`real_send_enabled=false`.

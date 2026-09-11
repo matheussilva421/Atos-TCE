@@ -2,14 +2,39 @@ import { MESSAGE_TYPES, createMessage } from "../lib/messages.js";
 import {
   validateAutomationIdentity,
   validateAutomationRunSpec,
+  validateAutomationSnapshot,
 } from "../lib/automation-schema.js";
 import { AUTOMATION_FIELDS, prepareAutomaticAct } from "../lib/automation-preflight.js";
 
 export const PORTAL_FRAME_REGISTRATIONS_STORAGE_KEY = "portal-frame-registrations:v1";
 export const SUBMIT_FRAME_REGISTRATIONS_STORAGE_KEY = "portal-submit-frame-registrations:v1";
 const ACTIVE_STATUSES = new Set(["discovering", "running", "paused"]);
+const REHYDRATABLE_ITEM_STATES = new Set([
+  "queued",
+  "discovered",
+  "eligibility_confirmed",
+  "acquisition_pending",
+  "downloaded",
+  "ocr_pending",
+  "ocr_ready",
+  "ready_for_preflight",
+]);
+const TERMINAL_ITEM_STATES = new Set([
+  "prepared",
+  "filled",
+  "awaiting_send_confirmation",
+  "send_intent",
+  "send_issued",
+  "outcome_observed",
+  "confirmed",
+  "pending",
+  "failed",
+  "unconfirmed",
+  "blocked",
+]);
 const PROCESS_KEY_RE = /^\d+\/\d{4}$/u;
 const AUTO_SUBMIT_TTL_MS = 15_000;
+const UNRECOGNIZED_PORTAL_SCREEN_REASON = "portal screen not recognized; manual intervention required";
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -59,12 +84,16 @@ function statusToPublic(state) {
     totals: state.totals,
     frame: state.frame,
     submitFrame: state.submitFrame,
-    items: state.queue.map((identity, index) => ({
-      item_id: itemId(identity),
-      ordinal: index + 1,
-      identity: clone(identity),
-      state: index === 0 && state.currentIdentity ? "active" : "queued",
-    })),
+    items: state.queue.map((identity, index) => {
+      const knownState = state.itemStates?.get(identityKey(identity));
+      const isCurrent = state.currentIdentity && identityKey(state.currentIdentity) === identityKey(identity);
+      return {
+        item_id: itemId(identity),
+        ordinal: index + 1,
+        identity: clone(identity),
+        state: isCurrent ? "active" : knownState ?? "queued",
+      };
+    }),
     simulation: {
       is_simulated: state.autoSubmit !== true,
       real_send_enabled: state.autoSubmit === true,
@@ -80,6 +109,14 @@ function snapshotStatus(state, snapshot) {
   if (typeof snapshot.status === "string") state.status = snapshot.status;
   if (Number.isSafeInteger(snapshot.revision)) state.revision = snapshot.revision;
   if (typeof snapshot.run_id === "string") state.runId = snapshot.run_id;
+  if (Array.isArray(snapshot.items) && (snapshot.items.length > 0 || state.queue.length === 0)) {
+    const itemStates = new Map();
+    for (const item of snapshot.items) {
+      const identity = resolvedIdentity(item?.identity);
+      if (identity && typeof item?.state === "string") itemStates.set(identityKey(identity), item.state);
+    }
+    state.itemStates = itemStates;
+  }
 }
 
 function resolvedIdentity(candidate) {
@@ -99,6 +136,17 @@ function resolvedIdentity(candidate) {
   } catch {
     return null;
   }
+}
+
+function rehydratedIdentity(candidate) {
+  if (!isRecord(candidate)) return null;
+  return resolvedIdentity(Object.hasOwn(candidate, "process_key")
+    ? {
+      processKey: candidate.process_key,
+      interestedNormalized: candidate.interested_normalized,
+      portalActId: candidate.portal_act_id ?? null,
+    }
+    : candidate);
 }
 
 function identityFromAction(action) {
@@ -332,6 +380,7 @@ export function createAutomationController({
     frame: null,
     submitFrame: null,
     queue: [],
+    itemStates: new Map(),
     areaObservations: new Map(),
     seenIdentities: new Set(),
     completedIdentities: new Set(),
@@ -860,7 +909,7 @@ export function createAutomationController({
     const registeredFrameIds = Number.isSafeInteger(frameId) && frameId >= 0
       ? [frameId]
       : [...frames.values()]
-        .filter((entry) => entry.tabId === tabId && entry.role === "list"
+        .filter((entry) => entry.tabId === tabId && ["list", "unknown"].includes(entry.role)
           && (state.sourceScope == null || entry.source_scope === state.sourceScope))
         .sort((left, right) => (right.observedAt ?? 0) - (left.observedAt ?? 0) || right.frameId - left.frameId)
         .map((entry) => entry.frameId)
@@ -1107,6 +1156,129 @@ export function createAutomationController({
     }
   }
 
+  function rehydratedSpec(value) {
+    if (!isRecord(value)) return null;
+    const aliases = [
+      ["tabId", "tab_id"],
+      ["sector", "sector"],
+      ["datasetSha256", "dataset_sha256"],
+      ["rulesVersion", "rules_version"],
+      ["mode", "mode"],
+      ["marker", "marker"],
+      ["markerValue", "marker_value"],
+      ["autoSubmit", "auto_submit"],
+      ["sourceScope", "source_scope"],
+      ["acquisitionSource", "acquisition_source"],
+      ["lotSize", "lot_size"],
+      ["analysisId", "analysis_id"],
+      ["previewHash", "preview_hash"],
+      ["pilotIdentity", "pilot_identity"],
+    ];
+    const result = {};
+    for (const [camel, wire] of aliases) {
+      if (Object.hasOwn(value, camel)) result[camel] = clone(value[camel]);
+      else if (Object.hasOwn(value, wire)) result[camel] = clone(value[wire]);
+    }
+    if (isRecord(result.pilotIdentity)) {
+      result.pilotIdentity = rehydratedIdentity(result.pilotIdentity) ?? null;
+    }
+    return Object.keys(result).length > 0 ? result : null;
+  }
+
+  async function rehydrate(snapshot, specInput = null) {
+    try {
+      validateAutomationSnapshot(snapshot);
+    } catch (error) {
+      throw Object.assign(new Error(error instanceof Error ? error.message : "invalid automation snapshot"), {
+        code: error?.code ?? "INVALID_AUTOMATION_SNAPSHOT",
+      });
+    }
+    if (!ACTIVE_STATUSES.has(snapshot.status)) {
+      throw Object.assign(new Error("automation run is not active"), { code: "RUN_NOT_FOUND" });
+    }
+    const spec = rehydratedSpec(specInput) ?? rehydratedSpec(snapshot.spec);
+    const requiredSpecKeys = ["tabId", "sector", "datasetSha256", "rulesVersion"];
+    if (spec && requiredSpecKeys.every((key) => Object.hasOwn(spec, key))) {
+      try {
+        validateAutomationRunSpec(spec);
+      } catch (error) {
+        throw Object.assign(new Error(error instanceof Error ? error.message : "invalid automation run spec"), {
+          code: error?.code ?? "INVALID_AUTOMATION_SPEC",
+        });
+      }
+    }
+    const queue = [];
+    const itemStates = new Map();
+    const completedIdentities = new Set();
+    for (const item of snapshot.items) {
+      const identity = rehydratedIdentity(item.identity);
+      if (!identity) {
+        throw Object.assign(new Error("automation snapshot identity is invalid"), { code: "INVALID_AUTOMATION_SNAPSHOT" });
+      }
+      const key = identityKey(identity);
+      if (itemStates.has(key)) {
+        throw Object.assign(new Error("automation snapshot contains duplicate identities"), { code: "INVALID_AUTOMATION_SNAPSHOT" });
+      }
+      queue.push(identity);
+      itemStates.set(key, item.state);
+      if (TERMINAL_ITEM_STATES.has(item.state) || !REHYDRATABLE_ITEM_STATES.has(item.state)) {
+        completedIdentities.add(key);
+      }
+    }
+    state = {
+      runId: snapshot.run_id,
+      status: snapshot.status,
+      revision: snapshot.revision,
+      tabId: spec?.tabId ?? null,
+      sector: spec?.sector ?? null,
+      sourceScope: spec?.sourceScope ?? null,
+      mode: spec?.mode ?? "batch",
+      marker: spec?.marker ?? null,
+      autoSubmit: spec?.autoSubmit === true,
+      pilotIdentity: spec?.pilotIdentity ?? null,
+      queueFrozen: queue.length > 0,
+      currentIdentity: null,
+      pausedReason: snapshot.status === "paused"
+        ? "execution restored after service worker restart"
+        : null,
+      frame: null,
+      submitFrame: null,
+      queue,
+      itemStates,
+      areaObservations: new Map(),
+      seenIdentities: new Set(queue.map(identityKey)),
+      completedIdentities,
+      totals: {
+        discovered: queue.length,
+        unique: queue.length,
+        pending: queue.filter((identity) => {
+          const itemState = itemStates.get(identityKey(identity));
+          return ["pending", "failed", "unconfirmed", "blocked"].includes(itemState);
+        }).length,
+      },
+      eventPrefix: eventPrefix(snapshot.run_id),
+    };
+    await loadFrames();
+    if (Number.isSafeInteger(state.tabId)) {
+      const candidates = [...frames.values()]
+        .filter((entry) => entry.tabId === state.tabId
+          && (state.sourceScope === null || entry.source_scope === state.sourceScope))
+        .sort((left, right) => (right.observedAt ?? 0) - (left.observedAt ?? 0) || right.frameId - left.frameId);
+      const restored = candidates.find((entry) => entry.role === "list") ?? candidates[0];
+      if (restored) {
+        state.frame = {
+          frameId: restored.frameId,
+          role: restored.role,
+          generation: restored.generation,
+          sector: restored.sector ?? null,
+          source_scope: restored.source_scope ?? null,
+        };
+      }
+      refreshSubmitFrame(state.tabId);
+    }
+    return statusToPublic(state);
+  }
+
   async function start(input, suppliedEventId) {
     const spec = input?.spec ?? input;
     const startEventId = input?.eventId ?? suppliedEventId ?? eventId("start");
@@ -1135,6 +1307,7 @@ export function createAutomationController({
       frame: null,
       submitFrame: null,
       queue: [],
+      itemStates: new Map(),
       areaObservations: new Map(),
       seenIdentities: new Set(),
       completedIdentities: new Set(),
@@ -1231,6 +1404,7 @@ export function createAutomationController({
       frame: null,
       submitFrame: null,
       queue: [],
+      itemStates: new Map(),
       areaObservations: new Map(),
       seenIdentities: new Set(),
       completedIdentities: new Set(),
@@ -1464,6 +1638,10 @@ export function createAutomationController({
       setPaused("setor mudou durante a navegação");
       return statusToPublic(state);
     }
+    if (["discovering", "running"].includes(state.status)
+      && isPortalSnapshot(snapshot) && snapshot.role === "unknown") {
+      return pauseAndPersist(UNRECOGNIZED_PORTAL_SCREEN_REASON);
+    }
     if (isPortalSnapshot(snapshot)) {
       registerFrame(event.tabId, Number.isSafeInteger(event.frameId) ? event.frameId : 0, snapshot);
       await driveSnapshot(event.tabId, Number.isSafeInteger(event.frameId) ? event.frameId : 0, snapshot);
@@ -1542,6 +1720,7 @@ export function createAutomationController({
     consumeCommand,
     verifySubmitState,
     handleSubmitFrameReady,
+    rehydrate,
     status,
     handlePortalEvent,
     ranker,

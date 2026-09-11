@@ -721,6 +721,222 @@ test("automation control messages are restricted to extension pages and use the 
   assert.equal(calls[2][2].action, "pause");
 });
 
+test("serializes concurrent AUTO_START requests before creating a second run", async () => {
+  const storage = storageMock();
+  const session = storageMock();
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  let starts = 0;
+  const controller = {
+    async start() {
+      starts += 1;
+      await gate;
+      return { run_id: "run-concurrent", status: "running" };
+    },
+  };
+  const worker = createServiceWorker({
+    chromeApi: chromeMock(storage, undefined, session),
+    bridge: {},
+    automationController: controller,
+  });
+  const spec = {
+    tabId: 7,
+    sector: "aposentadorias",
+    datasetSha256: "a".repeat(64),
+    rulesVersion: "legal-foundation-v1",
+  };
+
+  const first = worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_START, { spec, eventId: "concurrent-1" }, "concurrent-1"),
+    extensionSender(),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  const secondPromise = worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_START, { spec, eventId: "concurrent-2" }, "concurrent-2"),
+    extensionSender(),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  release();
+  const [started, second] = await Promise.all([first, secondPromise]);
+  assert.equal(second.ok, false);
+  assert.equal(second.error.code, "ACTIVE_RUN");
+  assert.equal(starts, 1);
+  assert.equal(started.ok, true);
+  assert.equal(started.payload.run_id, "run-concurrent");
+});
+
+test("rehydrates an active remote run for status and controls after service worker recreation", async () => {
+  const remoteSpec = {
+    mode: "batch",
+    sector: "aposentadorias",
+    source_scope: "sector_finalistic",
+    acquisition_source: "econtas",
+    lot_size: 1,
+  };
+  const remoteItem = {
+    item_id: "act-remote",
+    ordinal: 1,
+    identity: {
+      processKey: PROCESS_KEY,
+      interestedNormalized: "joao da silva",
+      portalActId: "act-remote",
+    },
+    state: "queued",
+  };
+  const calls = [];
+
+  for (const scenario of [
+    { status: "running", control: MESSAGE_TYPES.AUTO_PAUSE, nextStatus: "paused" },
+    { status: "paused", control: MESSAGE_TYPES.AUTO_STOP, nextStatus: "stopped" },
+  ]) {
+    const runId = `run-remote-${scenario.status}`;
+    const remoteRun = {
+      api_version: 1,
+      run_id: runId,
+      revision: 4,
+      status: scenario.status,
+      spec: structuredClone(remoteSpec),
+      items: [structuredClone(remoteItem)],
+      last_confirmed_item_id: null,
+    };
+    const bridge = {
+      async createAutomationRun() {
+        throw new Error("a recreated worker must not create a second run");
+      },
+      async getAutomationRun(requestedRunId) {
+        calls.push(["status", requestedRunId]);
+        assert.equal(requestedRunId, runId);
+        return structuredClone(remoteRun);
+      },
+      async controlAutomationRun(requestedRunId, body) {
+        calls.push(["control", requestedRunId, body]);
+        assert.equal(requestedRunId, runId);
+        assert.equal(body.expectedRevision, remoteRun.revision);
+        remoteRun.status = scenario.nextStatus;
+        remoteRun.revision += 1;
+        return structuredClone(remoteRun);
+      },
+    };
+    const worker = createServiceWorker({ chromeApi: chromeMock(storageMock()), bridge });
+
+    const status = await worker.handleMessage(
+      createMessage(MESSAGE_TYPES.AUTO_STATUS, { runId }, `rehydrate-status-${scenario.status}`),
+      extensionSender(),
+    );
+    assert.equal(status.ok, true);
+    assert.equal(status.payload.run_id, runId);
+    assert.equal(status.payload.status, scenario.status);
+    assert.equal(status.payload.sector, remoteSpec.sector);
+    assert.deepEqual(status.payload.items, [remoteItem]);
+
+    const control = await worker.handleMessage(
+      createMessage(
+        scenario.control,
+        { runId, eventId: `rehydrate-${scenario.control.toLowerCase()}`, expectedRevision: 4 },
+        `rehydrate-control-${scenario.status}`,
+      ),
+      extensionSender(),
+    );
+    assert.equal(control.ok, true);
+    assert.equal(control.payload.run_id, runId);
+    assert.equal(control.payload.status, scenario.nextStatus);
+    assert.deepEqual(control.payload.items, [remoteItem]);
+  }
+
+  assert.deepEqual(calls.map(([name]) => name), ["status", "status", "control", "status", "status", "control"]);
+});
+
+test("does not create a second automation run when AUTO_START arrives after worker recreation", async () => {
+  const spec = {
+    tabId: 7,
+    sector: "aposentadorias",
+    sourceScope: "sector_finalistic",
+    datasetSha256: "a".repeat(64),
+    rulesVersion: "legal-foundation-v1",
+  };
+  const session = storageMock({
+    [STORAGE_KEYS.AUTOMATION_RUN_ID]: "run-existing",
+    [STORAGE_KEYS.AUTOMATION_SPEC]: spec,
+  });
+  const remote = {
+    api_version: 1,
+    run_id: "run-existing",
+    revision: 2,
+    status: "running",
+    spec: { sector: spec.sector, source_scope: spec.sourceScope },
+    items: [],
+    last_confirmed_item_id: null,
+  };
+  let createCalls = 0;
+  const bridge = {
+    async createAutomationRun() {
+      createCalls += 1;
+      return remote;
+    },
+    async controlAutomationRun() {
+      return remote;
+    },
+    async getAutomationRun() {
+      return structuredClone(remote);
+    },
+  };
+  const worker = createServiceWorker({
+    chromeApi: chromeMock(storageMock(), async () => ({ ok: true }), session),
+    bridge,
+  });
+
+  const response = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_START, { spec, eventId: "duplicate-start" }, "duplicate-start"),
+    extensionSender(),
+  );
+
+  assert.equal(response.ok, false);
+  assert.equal(response.error.code, "ACTIVE_RUN");
+  assert.equal(createCalls, 0);
+});
+
+test("does not apply a persisted spec from another run during rehydration", async () => {
+  const session = storageMock({
+    [STORAGE_KEYS.AUTOMATION_RUN_ID]: "run-current",
+    [STORAGE_KEYS.AUTOMATION_SPEC]: {
+      tabId: 99,
+      sector: "meus-processos",
+      sourceScope: "my_processes",
+      datasetSha256: "b".repeat(64),
+      rulesVersion: "legal-foundation-v1",
+    },
+  });
+  const bridge = {
+    async createAutomationRun() { throw new Error("must not start"); },
+    async controlAutomationRun() { throw new Error("must not control"); },
+    async getAutomationRun() {
+      return {
+        api_version: 1,
+        run_id: "run-current",
+        revision: 1,
+        status: "paused",
+        spec: { sector: "aposentadorias", source_scope: "sector_finalistic" },
+        items: [],
+        last_confirmed_item_id: null,
+      };
+    },
+  };
+  const worker = createServiceWorker({
+    chromeApi: chromeMock(storageMock(), async () => ({ ok: true }), session),
+    bridge,
+  });
+
+  const response = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_STATUS, { runId: "run-current" }, "rehydrate-current-spec"),
+    extensionSender(),
+  );
+
+  assert.equal(response.ok, true);
+  assert.equal(response.payload.sector, "aposentadorias");
+  assert.equal(response.payload.sourceScope, "sector_finalistic");
+  assert.equal(response.payload.tabId, null);
+});
+
 test("automation watchdog refreshes an active run and clears after an explicit stop", async () => {
   const storage = storageMock();
   const alarms = { created: [], cleared: [], listeners: [] };
@@ -927,6 +1143,78 @@ test("routes button-frame registration and sibling-form verification only from t
   );
   assert.equal(denied.ok, false);
   assert.equal(denied.error.code, "UNAUTHORIZED");
+});
+
+test("rehydrates before verifying and consuming a pending command after worker recreation", async () => {
+  const calls = [];
+  const session = storageMock({
+    [STORAGE_KEYS.AUTOMATION_RUN_ID]: "run-1",
+    [STORAGE_KEYS.AUTOMATION_SPEC]: { mode: "batch", sourceScope: "sector_finalistic" },
+  });
+  const bridge = {
+    async getAutomationRun(runId) {
+      calls.push(["status", runId]);
+      return {
+        api_version: 1,
+        run_id: runId,
+        revision: 4,
+        status: "running",
+        spec: { mode: "batch", source_scope: "sector_finalistic" },
+        items: [],
+        last_confirmed_item_id: null,
+      };
+    },
+  };
+  const controller = {
+    async rehydrate(snapshot, spec) { calls.push(["rehydrate", snapshot.run_id, spec]); },
+    async verifySubmitState(input) { calls.push(["verify", input.runId]); return { ok: true }; },
+    async consumeCommand(input) { calls.push(["consume", input.runId]); return { ok: true }; },
+  };
+  const worker = createServiceWorker({
+    chromeApi: chromeMock(storageMock(), undefined, session),
+    bridge,
+    automationController: controller,
+  });
+  const portalSender = { ...sender(7, 14), id: "test-extension" };
+  const command = {
+    command_id: "command-1",
+    state: "issued",
+    issued_at: 2_000,
+    expires_at: 17_000,
+    frame_id: 14,
+    form_frame_id: 12,
+    generation: 3,
+    identity: {
+      processKey: PROCESS_KEY,
+      interestedNormalized: "joao da silva",
+      portalActId: null,
+    },
+    expected_fields_hash: "a".repeat(64),
+  };
+
+  const verify = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_VERIFY_SUBMIT_STATE, {
+      runId: "run-1",
+      expectedRevision: 4,
+      command,
+      phase: "before_click",
+    }, "rehydrate-verify"),
+    portalSender,
+  );
+  const consume = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_CONSUME_COMMAND, {
+      runId: "run-1",
+      commandId: "command-1",
+      expectedRevision: 4,
+      generation: 3,
+      identity: command.identity,
+    }, "rehydrate-consume"),
+    portalSender,
+  );
+
+  assert.equal(verify.ok, true);
+  assert.equal(consume.ok, true);
+  assert.deepEqual(calls.map(([name]) => name), ["status", "rehydrate", "verify", "consume"]);
 });
 
 test("automation control rejects a content script even when its sender id is the extension", async () => {

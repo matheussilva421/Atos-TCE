@@ -213,3 +213,42 @@ The scan below records every task self-consistency check and every pair with a s
   555/555, package contracts 71/73 with 2 skips, and `git diff --check` all
   passed. This does not promote Task 4.2: three real green preflights still
   require a renewed Area Restrita session.
+
+- Resume after user login (2026-09-11): isolated Chrome authenticated again;
+  `ProcessonoSetor.asp` was confirmed as `sector_finalistic`, and exact
+  candidate `102390/2026` exposed one `Complementar Ato` action and one
+  interested-party radio. Temporary bridge was renewed against dataset
+  revision 120 (51 records, logical SHA prefix `23cce5807c01`) with
+  `pilot_enabled=true`, `pilot_consumes_remaining=true`, and
+  `real_send_enabled=false`. A one-item pilot with `autoSubmit=false` froze a
+  queue of one identity (`queue_frozen`) but remained `queued` after the
+  sibling Complementar Ato frame was created; the service-worker/frame state
+  was lost and the run was stopped via the local bridge. No item preparation,
+  field application, send, or finalization occurred. Task 4.2 remains
+  **NÃO PASSA / blocked**, and the next required implementation is tested run
+  and frame rehydration before repeating three real green preflights.
+
+- Task 4.2 rehydration TDD (2026-09-11): Luna `Newton` added the RED test for
+  recovering an active remote run after service-worker recreation (0/1), then
+  the controller/service-worker implementation restored v1 snapshots, item
+  states, validated persisted RunSpec, origin, tab and registered frames. The
+  worker now checks the stored run before `AUTO_START`, preventing a duplicate
+  active run; mismatched specs are not applied. Focused rehydration/retry/spec
+  tests passed 3/3, extension suite passed 317/317, and `git diff --check`
+  passed. The unscoped derived `ComplementarAto.asp` frame remains allowed only
+  after a scoped list/identity contract; `sector_finalistic` and `my_processes`
+  list origins remain distinct. This fixes the technical blocker but does not
+  promote Task 4.2: the live pilot was not repeated, no `APPLY_FIELDS`, send or
+  finalization occurred, and Tasks 5+ remain unchecked.
+
+- Task 4.2 hardening follow-up (2026-09-11): independent review findings were
+  addressed with TDD for concurrent `AUTO_START` serialization, rehydration
+  before `verify`/`consume`, and probing a scoped registered list frame whose
+  role was `unknown`. Focal tests passed 1/1, 1/1 and 1/1; the extension suite
+  passed 321/321; source/live background hashes matched. The controlled retry
+  confirmed the sector list and froze a one-item queue, but the Chromium
+  instance had no injected content scripts (`chrome.runtime` absent in fresh
+  portal tabs; service-worker startup reported `DidStartWorkerFail`), so the
+  item remained `queued` and the run was stopped. No `APPLY_FIELDS`, fill, send
+  or finalization occurred. Task 4.2 remains **NÃO PASSA / blocked** until
+  three real green preflights; Tasks 5+ remain unchecked.

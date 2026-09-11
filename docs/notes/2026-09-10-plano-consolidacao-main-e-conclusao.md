@@ -764,3 +764,72 @@ mas não substitui os três preflights reais exigidos pela Tarefa 4.2.
   bridge sem envio real.
 - [ ] Reexecutar três preflights reais verdes na origem correta. A Tarefa 4.2
   e todas as tarefas 5+ permanecem desmarcadas.
+
+## Retomada controlada da Tarefa 4.2 — piloto de descoberta (2026-09-11)
+
+Após novo login humano confirmado no Chrome isolado, a origem
+`ProcessonoSetor.asp` foi reaberta como `sector_finalistic` e o processo
+`102390/2026` foi consultado de forma exata. Foi observada uma única ação
+`Complementar Ato`, um único interessado e o catálogo de 13 modalidades, 35
+fundamentos e 3 gêneros. A seleção do rádio foi reversível. Nenhum botão de
+envio/finalização foi acionado.
+
+Foi executado um piloto de descoberta com lote 1, `autoSubmit=false`, usando a
+ponte temporária pareada ao dataset revisão 120 (51 registros; prefixo lógico
+`23cce5807c01`), com `pilot_enabled=true` e `real_send_enabled=false`. O run
+descobriu e congelou uma fila de uma identidade, mas permaneceu com o item em
+`queued` quando a navegação criou a aba/frame irmão de `Complementar Ato`. A
+reidratação do service worker/frame não conservou a execução ativa; o run foi
+parado localmente. O ledger contém `queue_frozen` e `run_stopped`, sem eventos
+de preparação, verificação, `APPLY_FIELDS`, envio ou finalização.
+
+**Classificação canônica:** piloto de descoberta bloqueado/not-observed; não é
+preflight verde. A Tarefa 4.2 continua sem checkbox, e as Tarefas 5+ não foram
+iniciadas. Próxima implementação obrigatória: reidratar run/frame com teste
+TDD, repetir o piloto e só então executar os três preflights reais exigidos.
+
+## Implementação da Tarefa 4.2 — reidratação do run/frame (2026-09-11)
+
+O teste RED da reidratação foi adicionado pela Luna `Newton` antes da mudança:
+uma nova instância do service worker não recuperava um run remoto ativo para
+status/controle. A implementação adicionou `rehydrate` ao controlador, persistiu
+a RunSpec validada em `storage.session` junto do run id e restaurou o snapshot
+v1 ativo, a fila canônica, estados dos itens, origem, aba e registros de frame.
+
+Antes de aceitar a spec persistida, o worker confirma que ela pertence ao mesmo
+run e que os campos públicos coincidem com o snapshot remoto. `AUTO_START`
+também reidrata o run salvo antes de criar outro; runs ativos retornam
+`ACTIVE_RUN`, enquanto runs encerrados permanecem apenas no histórico. Estados
+terminais ou incertos não voltam para a fila executável.
+
+Resultados GREEN: os testes focais de reidratação, retry e associação de spec
+passaram 3/3; a suíte completa da extensão passou 317/317; e
+`git diff --check` passou. A permissão de moldura `source_scope=null` foi
+mantida apenas para a tela derivada `ComplementarAto.asp`, conforme o contrato
+já coberto por teste de identidade, ação e retorno; a lista de origem continua
+obrigatória e separada entre setor e meus processos.
+
+Este bloco corrige o mecanismo técnico, mas não fecha a Tarefa 4.2: o piloto
+real anterior ficou `queued` e foi parado, não houve `item_prepared`,
+`fields_verified`, `APPLY_FIELDS`, envio ou finalização. A próxima ação segura é
+sincronizar o pacote live, repetir o piloto com `autoSubmit=false` e só marcar a
+Tarefa 4.2 após três preflights reais verdes. Fases 5+ continuam desmarcadas.
+
+## Hardening pós-revisão e reexecução controlada (2026-09-11)
+
+- [x] Serializar `AUTO_START` concorrente no service worker.
+- [x] Reidratar o controlador antes de `verify`/`consume` após recriação do
+  worker.
+- [x] Sondar registro de lista com papel `unknown`, limitado à origem
+  `sector_finalistic`/`my_processes` selecionada.
+- [x] Validar TDD focal: 1/1 + 1/1 + 1/1; suíte da extensão 321/321.
+- [x] Sincronizar os dois módulos de background no pacote live por SHA-256.
+- [ ] Revalidar a injeção dos content scripts no Chromium isolado; a instância
+  atual reportou `DidStartWorkerFail` e `chrome.runtime` ausente nas abas novas.
+- [ ] Tarefa 4.2: três preflights reais verdes. O piloto reexecutado descobriu
+  e congelou uma fila, mas ficou `queued` e foi encerrado; não conta como verde.
+- [ ] Fases 5+ permanecem fora de escopo até o gate 4.2.
+
+Nenhum `APPLY_FIELDS`, preenchimento, envio ou finalização foi executado. A
+retomada deve usar ponte pareada com código fresco, `autoSubmit=false` e
+`real_send_enabled=false`.

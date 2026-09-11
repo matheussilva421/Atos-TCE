@@ -113,6 +113,7 @@ export function createServiceWorker({
   let activeController = automationController;
   let activeAutomationSpec = null;
   let activeAutomationRunId = null;
+  let automationStartInFlight = false;
   const contextCache = new Map();
 
   function scheduleAutomationWatchdog() {
@@ -172,6 +173,86 @@ export function createServiceWorker({
       clock: () => now(),
     });
     return activeController;
+  }
+
+  async function storedAutomationSession() {
+    if (typeof frameStorage?.get !== "function") return {};
+    try {
+      return await frameStorage.get([
+        STORAGE_KEYS.AUTOMATION_RUN_ID,
+        STORAGE_KEYS.AUTOMATION_SPEC,
+      ]);
+    } catch {
+      return {};
+    }
+  }
+
+  async function persistAutomationSession(runId, spec) {
+    if (typeof frameStorage?.set !== "function") return;
+    try {
+      await frameStorage.set({
+        [STORAGE_KEYS.AUTOMATION_RUN_ID]: runId,
+        [STORAGE_KEYS.AUTOMATION_SPEC]: clone(spec),
+      });
+    } catch {
+      // The bridge remains the durable source of run state if session storage is unavailable.
+    }
+  }
+
+  async function clearAutomationSpec() {
+    if (typeof frameStorage?.set !== "function") return;
+    try {
+      await frameStorage.set({ [STORAGE_KEYS.AUTOMATION_SPEC]: null });
+    } catch {
+      // A historical run id may still be useful to the panel after a stop.
+    }
+  }
+
+  function specMatchesSnapshot(spec, snapshot) {
+    if (!isRecord(spec) || !isRecord(snapshot?.spec)) return true;
+    const aliases = [
+      ["mode", "mode"],
+      ["sector", "sector"],
+      ["marker", "marker"],
+      ["markerValue", "marker_value"],
+      ["autoSubmit", "auto_submit"],
+      ["sourceScope", "source_scope"],
+      ["acquisitionSource", "acquisition_source"],
+      ["lotSize", "lot_size"],
+      ["analysisId", "analysis_id"],
+      ["previewHash", "preview_hash"],
+    ];
+    return aliases.every(([camel, wire]) => {
+      if (!Object.hasOwn(snapshot.spec, wire) || !Object.hasOwn(spec, camel)) return true;
+      return JSON.stringify(snapshot.spec[wire]) === JSON.stringify(spec[camel]);
+    });
+  }
+
+  async function rehydrateAutomationState(currentBridge, requestedRunId) {
+    if (currentBridge === null || typeof currentBridge.getAutomationRun !== "function") return null;
+    const stored = await storedAutomationSession();
+    const runId = requestedRunId ?? stored?.[STORAGE_KEYS.AUTOMATION_RUN_ID];
+    if (typeof runId !== "string" || !runId) return null;
+    if (activeController !== null && activeAutomationRunId === runId) {
+      return { controller: activeController, snapshot: null };
+    }
+    const snapshot = await currentBridge.getAutomationRun(runId);
+    const active = ["discovering", "running", "paused"].includes(snapshot?.status);
+    if (!active) return { controller: null, snapshot };
+    let currentController = controllerFor(currentBridge);
+    if (currentController === null || typeof currentController.rehydrate !== "function") {
+      return { controller: currentController, snapshot };
+    }
+    const spec = stored?.[STORAGE_KEYS.AUTOMATION_RUN_ID] === snapshot.run_id
+      && isRecord(stored?.[STORAGE_KEYS.AUTOMATION_SPEC])
+      && specMatchesSnapshot(stored[STORAGE_KEYS.AUTOMATION_SPEC], snapshot)
+      ? stored[STORAGE_KEYS.AUTOMATION_SPEC]
+      : null;
+    await currentController.rehydrate(snapshot, spec);
+    activeAutomationRunId = snapshot.run_id;
+    activeAutomationSpec = spec;
+    scheduleAutomationWatchdog();
+    return { controller: currentController, snapshot };
   }
 
   function isStoredFrameRegistration(value) {
@@ -602,7 +683,9 @@ export function createServiceWorker({
       return errorResponse(message.requestId, "UNAUTHORIZED", "consumo deve vir do frame de botões autorizado");
     }
     const currentBridge = await loadBridge();
-    const currentController = controllerFor(currentBridge);
+    let currentController = controllerFor(currentBridge);
+    const restored = await rehydrateAutomationState(currentBridge, message.payload.runId);
+    if (restored?.controller) currentController = restored.controller;
     if (currentController === null || typeof currentController.consumeCommand !== "function") {
       return automationUnavailable(message);
     }
@@ -629,7 +712,9 @@ export function createServiceWorker({
       return errorResponse(message.requestId, "UNAUTHORIZED", "a verificação deve vir do frame de botões autorizado");
     }
     const currentBridge = await loadBridge();
-    const currentController = controllerFor(currentBridge);
+    let currentController = controllerFor(currentBridge);
+    const restored = await rehydrateAutomationState(currentBridge, message.payload.runId);
+    if (restored?.controller) currentController = restored.controller;
     if (currentController === null || typeof currentController.verifySubmitState !== "function") {
       return automationUnavailable(message);
     }
@@ -677,15 +762,39 @@ export function createServiceWorker({
       return errorResponse(message.requestId, "UNAUTHORIZED", "somente páginas da extensão podem controlar a execução");
     }
     const currentBridge = await loadBridge();
-    const currentController = controllerFor(currentBridge);
+    let currentController = controllerFor(currentBridge);
     if (currentBridge === null || currentController === null) return automationUnavailable(message);
     try {
       if (message.type === MESSAGE_TYPES.AUTO_START) {
-        activeAutomationSpec = clone(message.payload.spec);
-        const started = await currentController.start(message.payload.spec, message.payload.eventId);
-        activeAutomationRunId = typeof started?.run_id === "string" ? started.run_id : null;
-        scheduleAutomationWatchdog();
-        return successResponse(message, started);
+        if (automationStartInFlight) {
+          return errorResponse(message.requestId, "ACTIVE_RUN", "an automation run is already starting");
+        }
+        automationStartInFlight = true;
+        try {
+          const stored = await storedAutomationSession();
+          const existingRunId = stored?.[STORAGE_KEYS.AUTOMATION_RUN_ID];
+          if (typeof existingRunId === "string" && existingRunId) {
+            let restored = null;
+            try {
+              restored = await rehydrateAutomationState(currentBridge, existingRunId);
+            } catch (error) {
+              if (!new Set(["NOT_FOUND", "RUN_NOT_FOUND"]).has(error?.code)) throw error;
+            }
+            if (restored?.controller && activeAutomationRunId === existingRunId) {
+              return errorResponse(message.requestId, "ACTIVE_RUN", "an automation run is already active");
+            }
+          }
+          activeAutomationSpec = clone(message.payload.spec);
+          const started = await currentController.start(message.payload.spec, message.payload.eventId);
+          activeAutomationRunId = typeof started?.run_id === "string" ? started.run_id : null;
+          if (activeAutomationRunId !== null) {
+            await persistAutomationSession(activeAutomationRunId, activeAutomationSpec);
+          }
+          scheduleAutomationWatchdog();
+          return successResponse(message, started);
+        } finally {
+          automationStartInFlight = false;
+        }
       }
       if (message.type === MESSAGE_TYPES.AUTO_ANALYZE) {
         let spec = clone(message.payload.spec);
@@ -704,8 +813,13 @@ export function createServiceWorker({
         return successResponse(message, analyzed);
       }
       if (message.type === MESSAGE_TYPES.AUTO_STATUS) {
+        const restored = await rehydrateAutomationState(currentBridge, message.payload.runId);
+        if (restored?.controller) currentController = restored.controller;
+        else if (restored?.snapshot) return successResponse(message, restored.snapshot);
         return successResponse(message, await currentController.status({ refresh: true, runId: message.payload.runId }));
       }
+      const restored = await rehydrateAutomationState(currentBridge, message.payload.runId);
+      if (restored?.controller) currentController = restored.controller;
       const action = message.type.slice("AUTO_".length).toLowerCase();
       const control = currentController[action];
       if (typeof control !== "function") return automationUnavailable(message);
@@ -717,10 +831,14 @@ export function createServiceWorker({
       if (action === "stop") {
         activeAutomationSpec = null;
         activeAutomationRunId = null;
+        await clearAutomationSpec();
         clearAutomationWatchdog();
       }
       return successResponse(message, result);
     } catch (error) {
+      if (error?.code === "ACTIVE_RUN") {
+        return errorResponse(message.requestId, "ACTIVE_RUN", error instanceof Error ? error.message : "an automation run is already active");
+      }
       if (message.type === MESSAGE_TYPES.AUTO_START) {
         activeAutomationSpec = null;
         activeAutomationRunId = null;
@@ -752,7 +870,9 @@ export function createServiceWorker({
       return errorResponse(message.requestId, "INVALID_ORIGIN", "PORTAL_EVENT must come from an allowed portal frame");
     }
     const currentBridge = await loadBridge();
-    const currentController = controllerFor(currentBridge);
+    let currentController = controllerFor(currentBridge);
+    const restored = await rehydrateAutomationState(currentBridge);
+    if (restored?.controller) currentController = restored.controller;
     if (currentController === null || typeof currentController.handlePortalEvent !== "function") {
       return automationUnavailable(message);
     }

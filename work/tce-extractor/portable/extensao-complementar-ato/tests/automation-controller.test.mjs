@@ -642,6 +642,27 @@ test("selects the registered list frame from the requested Area Restrita source 
   assert.equal(started.pausedReason ?? null, null);
 });
 
+test("probes an unknown registered frame before declaring the scoped list unavailable", async () => {
+  const sectorPage = { ...PAGE_1, identities: [], actions: [], source_scope: "sector_finalistic" };
+  const chromeApi = chromeMock([sectorPage]);
+  chromeApi.storage.session.state["portal-frame-registrations:v1"] = [
+    { tabId: 7, frameId: 4, role: "unknown", source_scope: "sector_finalistic", observedAt: 200 },
+    { tabId: 7, frameId: 5, role: "form", source_scope: null, observedAt: 100 },
+  ];
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  const started = await controller.start({
+    spec: { ...runSpec(), sourceScope: "sector_finalistic" },
+    eventId: "start-unknown-scoped-frame",
+  });
+
+  const firstSnapshotCall = chromeApi.calls.find(([, message]) => message.type === "PORTAL_GET_SNAPSHOT");
+  assert.equal(firstSnapshotCall[2].frameId, 4);
+  assert.notEqual(started.status, "paused");
+  assert.equal(started.pausedReason ?? null, null);
+  assert.equal(controller.status().frame.frameId, 4);
+});
+
 test("does not restore a sole registered frame from the wrong Area Restrita source", async () => {
   const sectorPage = { ...PAGE_1, identities: [], actions: [], source_scope: "sector_finalistic" };
   const chromeApi = chromeMock([sectorPage]);
@@ -725,6 +746,82 @@ test("persists a pause when the initial portal snapshot is not a process list", 
   assert.equal(result.status, "paused");
   assert.equal(result.pausedReason, "manual navigation required: process list not visible");
   assert.equal(bridge.calls.some(([name]) => name === "pause"), true);
+});
+
+test("pauses and persists when an active run receives an unrecognized portal screen", async () => {
+  const bridge = bridgeMock();
+  const target = identity("103401/2023", "ana da silva", "act-1");
+  const activePage = snapshot("list", 1, [target], [
+    { action: "open_act", enabled: true, identity: target },
+  ]);
+  const chromeApi = activeChromeMock(activePage);
+  const controller = createAutomationController({ chromeApi, bridge });
+
+  const started = await controller.start({ spec: runSpec(), eventId: "start-expired-screen" });
+  assert.equal(started.status, "running");
+
+  const result = await controller.handlePortalEvent({
+    tabId: 7,
+    frameId: 0,
+    type: "snapshot",
+    snapshot: snapshot("unknown", 2),
+  });
+
+  assert.equal(result.status, "paused");
+  assert.equal(result.pausedReason, "portal screen not recognized; manual intervention required");
+  assert.equal(bridge.calls.some(([name, runId, body]) => name === "pause"
+    && runId === "run-1"
+    && body?.action === "pause"), true);
+});
+
+test("pauses and persists an unrecognized portal screen while discovering", async () => {
+  const bridge = bridgeMock();
+  const target = identity("103401/2023", "ana da silva", "act-1");
+  const activePage = snapshot("list", 1, [target], [
+    { action: "open_act", enabled: true, identity: target },
+  ]);
+  const chromeApi = activeChromeMock(activePage);
+  const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
+  let releaseInitialSnapshot;
+  const initialSnapshotGate = new Promise((resolve) => {
+    releaseInitialSnapshot = resolve;
+  });
+  let initialSnapshotEnteredResolve;
+  const initialSnapshotEntered = new Promise((resolve) => {
+    initialSnapshotEnteredResolve = resolve;
+  });
+  let blockInitialSnapshot = true;
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    if (blockInitialSnapshot && message.type === "PORTAL_GET_SNAPSHOT") {
+      blockInitialSnapshot = false;
+      initialSnapshotEnteredResolve();
+      await initialSnapshotGate;
+    }
+    return originalSendMessage(tabId, message, options);
+  };
+  const controller = createAutomationController({ chromeApi, bridge });
+
+  const starting = controller.start({ spec: runSpec(), eventId: "start-discovering-unknown-screen" });
+  await initialSnapshotEntered;
+  assert.equal(controller.status().status, "discovering");
+
+  const result = await controller.handlePortalEvent({
+    tabId: 7,
+    frameId: 0,
+    type: "snapshot",
+    snapshot: snapshot("unknown", 2),
+  });
+
+  assert.equal(result.status, "paused");
+  assert.equal(result.pausedReason, "portal screen not recognized; manual intervention required");
+  assert.equal(bridge.calls.some(([name, runId, body]) => name === "pause"
+    && runId === "run-1"
+    && body?.action === "pause"), true);
+
+  releaseInitialSnapshot();
+  const finished = await starting;
+  assert.equal(finished.status, "paused");
+  assert.equal(finished.pausedReason, "portal screen not recognized; manual intervention required");
 });
 
 test("does not replace a bound frame when another frame reports a snapshot", async () => {

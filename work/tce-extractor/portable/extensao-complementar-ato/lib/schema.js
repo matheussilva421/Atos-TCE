@@ -23,6 +23,7 @@ export const STORAGE_KEYS = Object.freeze({
   BRIDGE_REVISION: "bridge:revision:v1",
   PANEL_VIEW: "panel:view:v1",
   AUTOMATION_RUN_ID: "automation:run-id:v1",
+  AUTOMATION_SPEC: "automation:spec:v1",
 });
 
 const DATASET_KEYS = Object.freeze([
