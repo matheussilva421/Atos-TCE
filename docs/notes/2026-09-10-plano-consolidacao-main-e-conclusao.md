@@ -726,3 +726,19 @@ O conjunto focado após a integração passou em 137/137 testes. O gate real da
 Tarefa 4.2 ainda não foi marcado: é necessário repetir a sessão controlada,
 obter três preflights reais verdes e registrar a evidência sem executar envio.
 Nenhum `APPLY_FIELDS`, envio ou finalização foi executado neste bloco.
+
+## Atualização de tasks — separação das origens da Área Restrita (2026-09-11)
+
+- [x] Confirmar, por evidência visual e navegação controlada, a distinção entre
+  `Proc./ Doc. Eletrônicos`/processos no setor e `Meus Processos Eletrônicos`.
+- [x] Mapear `ProcessonoSetor.asp` para `sector_finalistic` e
+  `MeusProcessos.asp` para `my_processes`.
+- [x] Filtrar frames de lista pela origem solicitada e impedir a restauração de
+  frame persistido da origem errada.
+- [x] Permitir `source_scope` nulo somente em frame derivado
+  `ComplementarAto.asp` e ignorar iframe oculto como lista ativa.
+- [x] Atualizar rótulos da sidepanel, testes TDD e pacote controlado.
+- [x] QA: 313/313 na suíte da extensão; smoke read-only em Chromium isolado;
+  bridge sem envio real.
+- [ ] Reexecutar três preflights reais verdes na origem correta. A Tarefa 4.2
+  e todas as tarefas 5+ permanecem desmarcadas.

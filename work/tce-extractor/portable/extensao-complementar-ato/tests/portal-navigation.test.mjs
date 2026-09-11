@@ -58,6 +58,8 @@ class FakeElement {
   matches(selector) {
     const normalized = selector.trim();
     if (normalized.includes(",")) return normalized.split(",").some((part) => this.matches(part));
+    const hasMatch = normalized.match(/^(.+):has\((.+)\)$/u);
+    if (hasMatch) return this.matches(hasMatch[1]) && Boolean(this.querySelector(hasMatch[2]));
     const descendant = normalized.split(/\s+/u);
     if (descendant.length > 1) return this.matches(descendant.at(-1));
     const idMatch = normalized.match(/^#([\w-]+)$/u);
@@ -248,6 +250,25 @@ function buildFormDocument() {
   return documentRef;
 }
 
+function buildRestrictedListWithFormIdentityInputs() {
+  const documentRef = new FakeDocument({ screen: "list" });
+  const form = new FakeElement("form", { id: "process-filter" });
+  form.append(
+    new FakeElement("input", { id: "txtNumeroProcesso", value: "100271" }),
+    new FakeElement("input", { id: "txtAnoProcesso", value: "2026" }),
+  );
+  const table = new FakeElement("table", { id: "tbproc01" });
+  const row = new FakeElement("tr", { attrs: { "data-process-key": "100271/2026" } });
+  row.append(cell("100271/2026"), cell("JOSAFA INACIO DE LIMA"));
+  table.append(row);
+  const filterTable = new FakeElement("table");
+  const filterRow = new FakeElement("tr");
+  filterRow.append(new FakeElement("input", { attrs: { type: "radio", id: "txtDividaAtiva" } }));
+  filterTable.append(filterRow);
+  documentRef.body.append(form, table, filterTable);
+  return documentRef;
+}
+
 function buildRestrictedInitialActDocument({ selected = false, withTopClose = false } = {}) {
   const documentRef = buildFormDocument();
   const form = documentRef.getElementById("complementarAtoForm");
@@ -309,6 +330,27 @@ test("detects portal screens without requiring the seven form sentinels", () => 
   assert.equal(detectPortalScreen(buildFormDocument()), "form");
   assert.equal(detectPortalScreen(buildButtonsDocument()), "buttons");
   assert.equal(detectPortalScreen(new FakeDocument({ screen: "unknown" })), "unknown");
+});
+
+test("does not misclassify the restricted process list as a form when it reuses process inputs", () => {
+  assert.equal(detectPortalScreen(buildRestrictedListWithFormIdentityInputs()), "list");
+});
+
+test("recognizes the restricted addtabs action as Complementar Ato without an href", () => {
+  const documentRef = new FakeDocument({ screen: "list" });
+  const table = new FakeElement("table", { id: "tbproc01" });
+  const row = new FakeElement("tr", { attrs: { "data-process-key": "100271/2026" } });
+  row.append(cell("100271/2026"), cell("JOSAFA INACIO DE LIMA"));
+  row.append(new FakeElement("a"), new FakeElement("a"));
+  row.append(new FakeElement("a", {
+    attrs: { onclick: "addtabsinformacao('Complementar Ato', 'ComplementarAto.asp')" },
+  }));
+  table.append(row);
+  documentRef.body.append(table);
+
+  const snapshot = snapshotPortalScreen(documentRef);
+
+  assert.equal(snapshot.actions.some((action) => action.action === "open_act"), true);
 });
 
 test("detects the restricted portal's initial Complementar Ato screen as interested selection", () => {
@@ -418,6 +460,13 @@ test("identifies the selected Area Restrita process source from its legacy route
   const mine = buildListDocument(1, [{ processKey: "103401/2023", interested: "Ana da Silva" }], { hasNext: false });
   mine.defaultView.location.href = "https://novaarearestrita.tce.rn.gov.br/SISTEMAS/PROCESSO/MeusProcessos.asp";
   assert.equal(snapshotPortalScreen(mine).source_scope, "my_processes");
+});
+
+test("does not classify a hidden Area Restrita process frame as the active list", () => {
+  const hidden = buildListDocument(1, [{ processKey: "103401/2023", interested: "Ana da Silva" }], { hasNext: false });
+  hidden.defaultView.frameElement = { hidden: true };
+  assert.equal(detectPortalScreen(hidden), "unknown");
+  assert.equal(snapshotPortalScreen(hidden).role, "unknown");
 });
 
 test("selects the requested marker and clicks only the scoped Consultar control", async () => {

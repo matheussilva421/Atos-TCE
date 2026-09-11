@@ -112,8 +112,8 @@ function expectedHashes(record, snapshot) {
 
 function parseCivilDate(value) {
   if (typeof value !== "string") return null;
-  const displayMatch = /^(\d{2})\/(\d{2})\/(\d{4})$/u.exec(value);
-  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
+  const displayMatch = /^(\d{2})[./-](\d{2})[./-](\d{4})$/u.exec(value);
+  const isoMatch = /^(\d{4})[./-](\d{2})[./-](\d{2})$/u.exec(value);
   const match = displayMatch
     ? { day: displayMatch[1], month: displayMatch[2], year: displayMatch[3] }
     : isoMatch

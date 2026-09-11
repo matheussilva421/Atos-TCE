@@ -448,6 +448,24 @@ export function createAutomationController({
     state.pausedReason = reason;
   }
 
+  async function pauseAndPersist(reason, pauseEventId) {
+    setPaused(reason);
+    if (!state.runId || typeof bridge.controlAutomationRun !== "function") return statusToPublic(state);
+    try {
+      const result = await bridge.controlAutomationRun(state.runId, {
+        action: "pause",
+        eventId: pauseEventId ?? eventId("pause"),
+        expectedRevision: state.revision,
+      });
+      snapshotStatus(state, result);
+    } catch {
+      // Keep the local controller fail-closed if the persistence bridge is unavailable.
+    }
+    state.status = "paused";
+    state.pausedReason = reason;
+    return statusToPublic(state);
+  }
+
   function collectSnapshot(snapshot) {
     if (state.queueFrozen) return;
     for (const candidate of snapshot.identities ?? []) {
@@ -839,6 +857,29 @@ export function createAutomationController({
   }
 
   async function readPortalSnapshot(tabId, frameId = state.frame?.frameId ?? null) {
+    const registeredFrameIds = Number.isSafeInteger(frameId) && frameId >= 0
+      ? [frameId]
+      : [...frames.values()]
+        .filter((entry) => entry.tabId === tabId && entry.role === "list"
+          && (state.sourceScope == null || entry.source_scope === state.sourceScope))
+        .sort((left, right) => (right.observedAt ?? 0) - (left.observedAt ?? 0) || right.frameId - left.frameId)
+        .map((entry) => entry.frameId)
+        .filter((candidate, index, all) => all.indexOf(candidate) === index);
+    for (const registeredFrameId of registeredFrameIds) {
+      try {
+        const response = await sendPortalMessage(tabId, MESSAGE_TYPES.PORTAL_GET_SNAPSHOT, {}, registeredFrameId);
+        const snapshot = snapshotFromResponse(response);
+        const responseFrameId = Number.isSafeInteger(response?.frameId) && response.frameId >= 0 ? response.frameId : null;
+        // chrome.tabs.sendMessage targets the requested frame but does not
+        // echo that frame id in the content-script response. If a mock or a
+        // future bridge does echo it, reject an inconsistent value.
+        if (!snapshot || (responseFrameId !== null && responseFrameId !== registeredFrameId)) continue;
+        registerFrame(tabId, registeredFrameId, snapshot);
+        return { snapshot, frameId: registeredFrameId };
+      } catch {
+        // Try the next registered list frame before falling back to a broadcast.
+      }
+    }
     try {
       const response = await sendPortalMessage(tabId, MESSAGE_TYPES.PORTAL_GET_SNAPSHOT, {}, frameId);
       if (response?.ok !== true) {
@@ -1102,7 +1143,8 @@ export function createAutomationController({
     };
     eventSequence = 0;
     const storedFrames = [...frames.values()].filter((entry) => entry.tabId === spec.tabId);
-    if (storedFrames.length === 1) {
+    if (storedFrames.length === 1
+      && (!spec.sourceScope || storedFrames[0].source_scope === spec.sourceScope)) {
       const stored = storedFrames[0];
       state.frame = {
         frameId: stored.frameId,
@@ -1117,18 +1159,15 @@ export function createAutomationController({
     snapshotStatus(state, run);
     state.status = "discovering";
     const first = await readPortalSnapshot(spec.tabId);
-    if (!first) return statusToPublic(state);
+    if (!first) return pauseAndPersist("portal frame unavailable", `${startEventId}:pause-frame`);
     if (first.snapshot.sector && first.snapshot.sector !== spec.sector) {
-      setPaused("sector changed before discovery");
-      return statusToPublic(state);
+      return pauseAndPersist("sector changed before discovery", `${startEventId}:pause-sector`);
     }
     if (spec.sourceScope && first.snapshot.source_scope !== spec.sourceScope) {
-      setPaused("origem selecionada não corresponde à lista aberta; navegue para a tela escolhida antes de iniciar");
-      return statusToPublic(state);
+      return pauseAndPersist("origem selecionada não corresponde à lista aberta; navegue para a tela escolhida antes de iniciar", `${startEventId}:pause-source`);
     }
     if (first.snapshot.role !== "list") {
-      setPaused("manual navigation required: process list not visible");
-      return statusToPublic(state);
+      return pauseAndPersist("manual navigation required: process list not visible", `${startEventId}:pause-screen`);
     }
     const discovered = await discoverList(spec.tabId, first.snapshot, spec);
     if (!discovered) return statusToPublic(state);
@@ -1279,7 +1318,9 @@ export function createAutomationController({
         setPaused("setor mudou durante a navegação");
         return;
       }
-      if (state.sourceScope && snapshot.source_scope !== state.sourceScope) {
+      if (state.sourceScope
+        && (snapshot.role === "list" || snapshot.source_scope !== null)
+        && snapshot.source_scope !== state.sourceScope) {
         setPaused("a tela atual não corresponde à origem selecionada");
         return;
       }

@@ -535,6 +535,12 @@ test("optionally pairs with the local mesa and publishes the current selection w
   assert.equal(documentRef.getElementById("fill-button").disabled, false);
 });
 
+test("labels Area Restrita source scopes as distinct portal origins", () => {
+  const html = readFileSync(resolve(ROOT, "sidepanel/panel.html"), "utf8");
+  assert.match(html, /value="sector_finalistic"[^>]*>Proc\.\/ Doc\. Eletrônicos \(processos no setor \/ finalísticos\)</u);
+  assert.match(html, /value="my_processes"[^>]*>Meus Processos Eletrônicos</u);
+});
+
 test("automation view requires a compatible bridge, starts explicitly, and keeps manual fill blocked while active", async () => {
   const dataset = await makeDataset();
   const calls = [];

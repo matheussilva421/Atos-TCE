@@ -67,3 +67,17 @@ Esta entrega é somente documental. Não requer teste de código; a validação 
 `git diff --check`, revisão do diff nominal e busca de conteúdo sensível. O
 commit e o push desta atualização devem ser feitos somente com os três
 documentos listados no fechamento da sessão, em `main` e sem force push.
+
+## Reconciliacao de origem da Area Restrita (2026-09-11)
+
+A imagem da sessao confirma que `Proc./ Doc. Eletronicos` e `Meus Processos
+Eletronicos` sao origens distintas. O codigo passou a preservar essa separacao:
+`ProcessonoSetor.asp` e `sector_finalistic`; `MeusProcessos.asp` e
+`my_processes`; `ComplementarAto.asp` permanece um frame derivado da lista e
+nao precisa declarar `source_scope`.
+
+Foram adicionados guards para nao escolher frame de lista oculto ou persistido
+de outra origem. A sidepanel tambem rotula explicitamente as duas escolhas.
+Testes: 36/36 controlador, 27/27 navegacao, 43/43 sidepanel e 313/313 suite
+completa. Nenhum `APPLY_FIELDS`, envio ou finalizacao ocorreu; a Tarefa 4.2
+continua bloqueada pelos preflights reais ainda divergentes.

@@ -158,7 +158,9 @@ function isComplementActControl(control) {
   if (label.includes("complementar ato")) return true;
   const action = getAttribute(control, "data-action");
   if (action === "open-act" || action === "open_act") return true;
-  return getAttribute(control, "href").toLowerCase().includes("complementarato");
+  const signal = [getAttribute(control, "href"), getAttribute(control, "onclick")].join(" ").toLowerCase();
+  return signal.includes("complementarato")
+    && (signal.includes("addtabsinformacao") || getAttribute(control, "href").toLowerCase().includes("complementarato"));
 }
 
 function opensRestrictedComplementTab(control) {
@@ -301,8 +303,7 @@ function listRows(documentRef) {
 function interestedRows(documentRef) {
   const table = byId(documentRef, "PessoasAssocicadas")
     || byId(documentRef, "PessoasAssociadas")
-    || queryOne(documentRef, 'table[data-screen="interested"]')
-    || queryOne(documentRef, 'table:has(input[type="radio"])');
+    || queryOne(documentRef, 'table[data-screen="interested"]');
   const rows = queryAll(table, "tr");
   return rows.filter((row) => Boolean(queryOne(row, 'input[type="radio"]')));
 }
@@ -311,7 +312,17 @@ function isFormScreen(documentRef) {
   return Boolean(
     byId(documentRef, "complementarAtoForm")
     || byId(documentRef, "tbcomplementarato")
-    || (byId(documentRef, "txtNumeroProcesso") && byId(documentRef, "txtAnoProcesso")),
+    || (byId(documentRef, "txtNumeroProcesso")
+      && byId(documentRef, "txtAnoProcesso")
+      && [
+        "txtModalidade",
+        "txtFundamentoLegal",
+        "txtDataDOE",
+        "txtCargo",
+        "txtMatricula",
+        "txtDataNascimento",
+        "txtGenero",
+      ].some((id) => byId(documentRef, id))),
   );
 }
 
@@ -321,6 +332,23 @@ function hasSelectedInterested(documentRef) {
 
 function isInterestedScreen(documentRef) {
   return interestedRows(documentRef).length > 0;
+}
+
+function isVisibleDocument(documentRef) {
+  const frameElement = documentRef?.defaultView?.frameElement;
+  if (!frameElement) return true;
+  if (frameElement.hidden === true) return false;
+  const style = frameElement.style;
+  if (style?.display === "none"
+    || style?.visibility === "hidden"
+    || style?.visibility === "collapse") return false;
+  const computedStyle = documentRef.defaultView?.getComputedStyle?.(frameElement);
+  if (computedStyle?.display === "none"
+    || computedStyle?.visibility === "hidden"
+    || computedStyle?.visibility === "collapse") return false;
+  const rect = frameElement.getBoundingClientRect?.();
+  if (rect && (rect.width <= 0 || rect.height <= 0)) return false;
+  return true;
 }
 
 function isListScreen(documentRef) {
@@ -338,6 +366,7 @@ function isButtonsScreen(documentRef) {
 
 function detectPortalScreen(documentRef = globalThis.document) {
   if (!documentRef) return "unknown";
+  if (!isVisibleDocument(documentRef)) return "unknown";
   if (isFormScreen(documentRef)) {
     // The restricted portal renders the person radio and the form fields in
     // the same document. Before a radio is selected, automation must treat it

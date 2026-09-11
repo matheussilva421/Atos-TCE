@@ -255,6 +255,28 @@ test("treats DD/MM/YYYY and ISO YYYY-MM-DD as the same civil date in either dire
   ));
 });
 
+test("treats valid portal date separators as the same civil date", () => {
+  const result = prepareAutomaticAct(input({
+    record: record({
+      fields: {
+        ...record().fields,
+        data_publicacao_doe: field("10-09-2024"),
+      },
+    }),
+    snapshot: snapshot({
+      fields: {
+        ...snapshot().fields,
+        data_publicacao_doe: { value: "2024/09/10", disabled: false, readOnly: false },
+      },
+    }),
+  }));
+
+  assert.equal(result.eligible, true);
+  assert.equal(result.reasons.includes("EXISTING_VALUE_CONFLICT"), false);
+  assert.equal(result.preserved.data_publicacao_doe, "2024/09/10");
+  assert.equal(result.fields.data_publicacao_doe, undefined);
+});
+
 test("does not treat equal unknown or invalid date strings as equivalent", () => {
   const invalid = "31.02.2020";
   const result = prepareAutomaticAct(input({

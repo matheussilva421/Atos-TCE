@@ -716,7 +716,9 @@ test("automation control messages are restricted to extension pages and use the 
     extensionSender(),
   );
   assert.equal(status.ok, true);
-  assert.deepEqual(calls.map((call) => call[0]), ["start", "control", "status"]);
+  assert.deepEqual(calls.map((call) => call[0]), ["start", "control", "control", "status"]);
+  assert.equal(calls[1][2].action, "pause");
+  assert.equal(calls[2][2].action, "pause");
 });
 
 test("automation watchdog refreshes an active run and clears after an explicit stop", async () => {

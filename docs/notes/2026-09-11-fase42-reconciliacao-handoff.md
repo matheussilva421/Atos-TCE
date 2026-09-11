@@ -91,3 +91,30 @@ Testes focados do bloco: 137/137 passaram. A suíte ampla e a repetição portal
 real ainda são pendências desta retomada. A Tarefa 4.2 permanece **NÃO PASSA**
 até existirem três preflights reais verdes; nenhum `APPLY_FIELDS`, envio ou
 finalização foi executado.
+
+## Correção de origem da Área Restrita (2026-09-11)
+
+A evidência visual fornecida pelo usuário confirma duas origens distintas na
+Área Restrita: `Proc./ Doc. Eletrônicos` (processos no setor) e `Meus Processos
+Eletrônicos`. A inspeção controlada confirmou o mapeamento canônico:
+
+- `ProcessonoSetor.asp` -> `sector_finalistic`;
+- `MeusProcessos.asp` -> `my_processes`;
+- `ComplementarAto.asp` não declara origem própria; o frame interessado/form é
+  aceito somente como continuação da origem de lista já selecionada.
+
+O controlador agora filtra frames de lista pela origem selecionada, não restaura
+um único frame persistido de origem incompatível e mantém o caminho de frame
+explicitamente autorizado para navegações já vinculadas. O detector também
+ignora documentos/iframes ocultos como listas ativas. A sidepanel exibe as duas
+opções com rótulos distintos e envia o valor correspondente ao controlador.
+
+Validação TDD do hardening: RED reproduzido com duas origens, frame persistido
+incorreto, frame `ComplementarAto` sem origem e iframe oculto; GREEN em 36/36
+testes do controlador, 27/27 de navegação, 43/43 de sidepanel e 313/313 na
+suíte completa da extensão. O pacote controlado foi sincronizado por hash.
+
+No smoke read-only, o Chromium isolado abriu as duas abas, com
+`ProcessonoSetor.asp` visível e `MeusProcessos.asp` separado/oculto conforme a
+aba ativa. O bridge permaneceu sem envio real; nenhum preflight real foi
+promovido a PASS e a Tarefa 4.2 continua bloqueada até três preflights verdes.

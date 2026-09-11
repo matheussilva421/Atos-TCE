@@ -449,3 +449,22 @@ preflights reais verdes. Não houve `APPLY_FIELDS`, envio, finalização ou
 alteração persistida no portal. A próxima retomada deve recarregar o pacote
 controlado, repetir identidade/ação/rádio/catálogo e registrar somente a
 qualificação sanitizada.
+
+## Fase 4.2 — separação das origens da Área Restrita (2026-09-11)
+
+O requisito do usuário foi incorporado: `Proc./ Doc. Eletrônicos`/processos no
+setor e `Meus Processos Eletrônicos` não podem compartilhar implicitamente a
+mesma lista. A rota `ProcessonoSetor.asp` é mapeada para `sector_finalistic` e a
+rota `MeusProcessos.asp` para `my_processes`. O frame `ComplementarAto.asp` é
+tratado como tela derivada, aceitando `source_scope` nulo apenas após uma lista
+de origem válida.
+
+Hardening entregue: filtro de frames registrados por origem, restauração
+fail-closed de frame persistido incompatível, rejeição de iframe oculto como
+lista ativa e rótulos distintos na sidepanel. A evidência controlada abriu as
+duas abas e confirmou a alternância de visibilidade sem misturar as origens.
+
+Gates: 36/36 controlador, 27/27 portal-navigation, 43/43 panel e 313/313
+extensão completa. Pacote live sincronizado por SHA-256. Nenhum preenchimento,
+`APPLY_FIELDS`, envio ou finalização. A Tarefa 4.2 continua **NÃO PASSA** até
+três preflights reais verdes; Fase 5+ permanece desmarcada.

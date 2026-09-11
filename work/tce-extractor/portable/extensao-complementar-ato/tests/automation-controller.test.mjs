@@ -595,6 +595,138 @@ test("binds the discovered frame and pauses fail-closed on frame send errors", a
   assert.equal(failed.pausedReason, "portal frame unavailable");
 });
 
+test("prefers a registered list frame when the portal exposes multiple frames", async () => {
+  const chromeApi = chromeMock([PAGE_1]);
+  chromeApi.storage.session.state["portal-frame-registrations:v1"] = [
+    { tabId: 7, frameId: 3, role: "buttons", generation: 2 },
+    { tabId: 7, frameId: 4, role: "list", generation: 2 },
+  ];
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  await controller.start({ spec: runSpec(), eventId: "start-registered-list-frame" });
+
+  const firstSnapshotCall = chromeApi.calls.find(([, message]) => message.type === "PORTAL_GET_SNAPSHOT");
+  assert.equal(firstSnapshotCall[2].frameId, 4);
+  assert.equal(controller.status().frame.frameId, 4);
+});
+
+test("selects the registered list frame from the requested Area Restrita source scope", async () => {
+  const sectorPage = { ...PAGE_1, identities: [], actions: [], source_scope: "sector_finalistic" };
+  const myProcessesPage = { ...PAGE_1, identities: [], actions: [], source_scope: "my_processes" };
+  const chromeApi = chromeMock([sectorPage]);
+  chromeApi.storage.session.state["portal-frame-registrations:v1"] = [
+    { tabId: 7, frameId: 4, role: "list", source_scope: "sector_finalistic", observedAt: 200 },
+    { tabId: 7, frameId: 6, role: "list", source_scope: "my_processes", observedAt: 100 },
+  ];
+  const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    if (message.type === "PORTAL_GET_SNAPSHOT") {
+      const frameId = options?.frameId;
+      const payload = frameId === 6 ? myProcessesPage : sectorPage;
+      chromeApi.calls.push([tabId, message, options]);
+      return { ok: true, frameId, payload: structuredClone(payload) };
+    }
+    return originalSendMessage(tabId, message, options);
+  };
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  const started = await controller.start({
+    spec: { ...runSpec(), sourceScope: "my_processes" },
+    eventId: "start-source-scoped-frame",
+  });
+
+  const firstSnapshotCall = chromeApi.calls.find(([, message]) => message.type === "PORTAL_GET_SNAPSHOT");
+  assert.equal(firstSnapshotCall[2].frameId, 6);
+  assert.equal(started.sourceScope, "my_processes");
+  assert.notEqual(started.status, "paused");
+  assert.equal(started.pausedReason ?? null, null);
+});
+
+test("does not restore a sole registered frame from the wrong Area Restrita source", async () => {
+  const sectorPage = { ...PAGE_1, identities: [], actions: [], source_scope: "sector_finalistic" };
+  const chromeApi = chromeMock([sectorPage]);
+  chromeApi.storage.session.state["portal-frame-registrations:v1"] = [
+    { tabId: 7, frameId: 4, role: "list", source_scope: "sector_finalistic", observedAt: 200 },
+  ];
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  const started = await controller.start({
+    spec: { ...runSpec(), sourceScope: "my_processes" },
+    eventId: "start-wrong-restored-frame",
+  });
+
+  const firstSnapshotCall = chromeApi.calls.find(([, message]) => message.type === "PORTAL_GET_SNAPSHOT");
+  assert.equal(firstSnapshotCall[2]?.frameId ?? null, null);
+  assert.equal(started.status, "paused");
+  assert.match(started.pausedReason, /origem selecionada/iu);
+});
+
+test("allows the selected source scope to continue into an unscoped interested frame", async () => {
+  const target = identity("103401/2023", "ana da silva", "act-1");
+  const activePage = {
+    ...snapshot("list", 1, [target], [
+      { action: "open_act", enabled: true, identity: target },
+    ]),
+    source_scope: "sector_finalistic",
+  };
+  const interestedPage = {
+    ...snapshot("interested", 2, [target], [
+      { action: "select_interested", enabled: true, identity: target },
+    ]),
+    source_scope: null,
+  };
+  const chromeApi = activeChromeMock(activePage);
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  await controller.start({
+    spec: { ...runSpec(), sourceScope: "sector_finalistic" },
+    eventId: "start-interested-unscoped",
+  });
+  const result = await controller.handlePortalEvent({
+    tabId: 7,
+    frameId: 5,
+    type: "snapshot",
+    snapshot: interestedPage,
+  });
+
+  assert.notEqual(result.status, "paused");
+  assert.equal(result.sourceScope, "sector_finalistic");
+});
+
+test("trusts the explicitly targeted frame when Chrome omits a response frame echo", async () => {
+  const chromeApi = chromeMock([PAGE_1]);
+  chromeApi.storage.session.state["portal-frame-registrations:v1"] = [
+    { tabId: 7, frameId: 4, role: "list", generation: 2 },
+  ];
+  const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    const response = await originalSendMessage(tabId, message, options);
+    if (message.type !== "PORTAL_GET_SNAPSHOT") return response;
+    const { frameId: _frameId, ...withoutFrameEcho } = response;
+    return withoutFrameEcho;
+  };
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  await controller.start({ spec: runSpec(), eventId: "start-registered-list-no-echo" });
+
+  const snapshotCalls = chromeApi.calls.filter(([, message]) => message.type === "PORTAL_GET_SNAPSHOT");
+  assert.equal(snapshotCalls.length, 1);
+  assert.equal(snapshotCalls[0][2].frameId, 4);
+  assert.equal(controller.status().frame.frameId, 4);
+});
+
+test("persists a pause when the initial portal snapshot is not a process list", async () => {
+  const bridge = bridgeMock();
+  const chromeApi = chromeMock([snapshot("unknown", 1)]);
+  const controller = createAutomationController({ chromeApi, bridge });
+
+  const result = await controller.start({ spec: runSpec(), eventId: "start-non-list" });
+
+  assert.equal(result.status, "paused");
+  assert.equal(result.pausedReason, "manual navigation required: process list not visible");
+  assert.equal(bridge.calls.some(([name]) => name === "pause"), true);
+});
+
 test("does not replace a bound frame when another frame reports a snapshot", async () => {
   const activePage = snapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
     { action: "open_act", enabled: true, identity: identity("103401/2023", "ana da silva", "act-1") },
