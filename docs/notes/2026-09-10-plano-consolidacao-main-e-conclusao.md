@@ -208,16 +208,29 @@ prévia, escopo e reconciliação.
 
 ### Tarefa 0.10 — deixar somente main
 
-- [ ] Confirmar worktree limpo, `HEAD == main` e testes verdes.
-- [ ] Excluir `codex/transfer-quiescence` com `git branch -d`; usar `-D` somente
+- [x] Confirmar worktree limpo, `HEAD == main` e testes verdes.
+  (executado em 2026-09-10: `HEAD` e `main` no mesmo commit; o checkout estava
+  limpo exceto pelos arquivos então em edição pelos agentes das tarefas 0.8 e
+  1.2, commitados em seguida; gates verdes antes das exclusões.)
+- [x] Excluir `codex/transfer-quiescence` com `git branch -d`; usar `-D` somente
   se a equivalência de árvore estiver registrada e houver aprovação específica.
-- [ ] Excluir `codex/fundamentacao-automatico` com `git branch -d` após confirmar
+  (equivalência registrada e aprovada especificamente pelo usuário; executado
+  `git branch -D codex/transfer-quiescence` → `Deleted branch
+  codex/transfer-quiescence (was ef7d44b)`, exit 0. O commit `ef7d44b` tem tree
+  idêntica à de `6c88d2a` da `main` e `git diff 6c88d2a ef7d44b` é vazio.)
+- [x] Excluir `codex/fundamentacao-automatico` com `git branch -d` após confirmar
   que `main` contém seu tip.
-- [ ] Executar `git branch --format='%(refname:short)'`; esperado: uma linha,
+  (executado: `Deleted branch codex/fundamentacao-automatico (was d8e9b7d)`,
+  exit 0.)
+- [x] Executar `git branch --format='%(refname:short)'`; esperado: uma linha,
   `main`.
-- [ ] Executar `git worktree prune --dry-run`, revisar, e só então podar metadado
+  (medido: saída exata `main`.)
+- [x] Executar `git worktree prune --dry-run`, revisar, e só então podar metadado
   comprovadamente órfão.
-- [ ] Atualizar handoff da fase zero com árvore final, hashes e lista retida.
+  (medido: saída vazia; nenhum metadado órfão existia, nada foi podado.)
+- [x] Atualizar handoff da fase zero com árvore final, hashes e lista retida.
+  (handoff `docs/notes/2026-09-10-consolidacao-main-e-conclusao-handoff.md`
+  atualizado com árvore de branch única, hashes e estado do remoto.)
 
 ---
 
@@ -256,12 +269,23 @@ prévia, escopo e reconciliação.
 - Criar/Modificar: `work/tce-extractor/tests/Test-ProjectVerification.ps1`
 - Modificar: `README.md`
 
-- [ ] Testar que o verificador executa extensão, web, Python ampla, PowerShell,
+- [x] Testar que o verificador executa extensão, web, Python ampla, PowerShell,
   empacotamento/auditoria e `git diff --check`, preservando códigos distintos.
-- [ ] Exigir resumo final com comando, executados, aprovados, falhos e skips.
-- [ ] Não iniciar Chrome autenticado, coleta ou envio nesse comando.
-- [ ] Rodar em checkout limpo; expected exit 0.
-- [ ] Commit `test: add reproducible project verification gate`.
+  (43/43 em `Test-ProjectVerification.ps1`, no Windows PowerShell 5.1 e no
+  PowerShell 7, cobrindo códigos distintos por etapa, timeout, encerramento de
+  PID e recusa de `Authenticated`, `Collect` e `Send`.)
+- [x] Exigir resumo final com comando, executados, aprovados, falhos e skips.
+  (duas execuções completas: `Executed: 959`, `Passed: 957`, `Failed: 0`,
+  `Skips: 2`, exit 0, 108,97 s e 108,12 s; repetição pós-push em 112,07 s com
+  o mesmo resultado.)
+- [x] Não iniciar Chrome autenticado, coleta ou envio nesse comando.
+  (verificado: o gate não abre Chrome autenticado, não coleta/baixa, não roda
+  OCR e não envia ou finaliza atos.)
+- [x] Rodar em checkout limpo; expected exit 0.
+  (executado com a árvore limpa antes do commit; exit 0 nas duas rodadas.)
+- [x] Commit `test: add reproducible project verification gate`.
+  (`0cc3680`; handoff de fechamento em `f8b5444`; `HEAD == origin/main ==
+  `f8b5444207eceadd26a48372743ccfec81f62a26`.)
 
 ---
 

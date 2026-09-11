@@ -6,15 +6,22 @@ Especificação: `docs/notes/2026-09-10-consolidacao-main-e-conclusao-spec.md`
 
 ## Estado atual
 
-- Execução SDD ativa em `main`, avançada por fast-forward até `d8e9b7d`.
+- Execução SDD ativa em `main`. Em 2026-09-10 o remoto privado
+  `https://github.com/matheussilva421/Atos-TCE.git` foi conectado e a `main`
+  vem sendo publicada a cada bloco concluído; `HEAD == origin/main` no fim de
+  cada tarefa.
 - Tip funcional consolidado: `f508cac`; commits documentais posteriores estão
   registrados no histórico Git desta branch.
-- Worktree continua sujo por desenho: alterações locais anteriores preservadas,
-  além dos novos documentos de execução; nenhum arquivo funcional foi revertido.
-- Não há remoto Git configurado; nenhum push foi executado.
+- Última medição desta sessão: `HEAD == origin/main ==
+  `f8b5444207eceadd26a48372743ccfec81f62a26`; worktree limpo; apenas a branch
+  `main` existe.
 - A recuperação da fotografia inicial está em `tmp/fase0-recovery/` e deve ser
   preservada até a validação final. Ela contém `tracked.patch` de 196.257 bytes
   e 13 cópias verificadas por hash.
+- A quarentena física ainda não foi aplicada: `tmp/quarantine` não existe. O
+  `-Apply` ficou bloqueado pelo guard de navegador (falso positivo em
+  `work/chrome-html-qa/CrashpadMetrics-active.pma`), corrigido no hardening r2
+  da Tarefa 0.8 e ainda sujeito à revisão independente 4.
 
 ## Tarefas
 
@@ -23,19 +30,31 @@ Especificação: `docs/notes/2026-09-10-consolidacao-main-e-conclusao-spec.md`
   o texto do plano mencionasse 10; todos foram preservados.
 - [x] Tarefa 0.2 — analisador read-only implementado; 174/174 testes verdes;
   manifesto real em geração sobre 109.050 arquivos/45,3 GB.
-- [ ] Tarefa 0.3 — classificação concluída; falta aprovação humana da tabela
-  antes da Tarefa 0.8.
+- [x] Tarefa 0.3 — classificação concluída e aprovada pelo usuário antes do
+  WhatIf da Tarefa 0.8.
 - [x] Tarefa 0.4 — reconciliação documental; 19/19 testes verdes em Windows
   PowerShell 5.1 e PowerShell 7.
 - [x] Tarefa 0.5 — bloco local revisado, testado e dividido em commits nominais.
 - [x] Tarefa 0.6 — branch de transferência comprovada como duplicata de patch;
   nenhum merge foi feito.
 - [x] Tarefa 0.7 — fast-forward de `main`; tips conferidos e gates repetidos.
-- [ ] Tarefa 0.8 — limpador por manifesto (checkpoint humano antes de Apply).
-- [ ] Tarefa 0.9 — quarentena e validação.
-- [ ] Tarefa 0.10 — somente `main` (checkpoint humano antes de exclusões).
-- [ ] Fases 1–9 — pendentes; gates portal-real, envio, qualificação, piloto,
-  release e purge não foram antecipados.
+- [x] Tarefa 0.8 — limpador por manifesto implementado, validado por suíte
+  focada (307/307) e hardening r2 publicado (`5dee162`, `d179b59`) após laudo
+  FAIL da revisão 3; WhatIf real aprovado pelo usuário. `-Apply` aguarda a
+  revisão independente 4.
+- [ ] Tarefa 0.9 — quarentena física pendente do `-Apply`; pacote `fase11k` já
+  rodou em extração limpa com os seis gates públicos verdes.
+- [x] Tarefa 0.10 — somente `main`: branch única, `worktree prune --dry-run`
+  vazio e handoff atualizado.
+- [x] Tarefa 1.1 — baseline da suíte Python registrado em
+  `docs/notes/2026-09-10-python-suite-baseline.md` (409 executados, 401
+  aprovados, 8 skips; focal 3/3).
+- [x] Tarefa 1.2 — `verify-project.ps1` publicado como comando único de
+  verificação (`0cc3680`, `f8b5444`): 959 executados, 957 aprovados, 0 falhas,
+  2 skips, exit 0 em duas rodadas completas.
+- [ ] Fases 4–9 — pendentes; dependem de login humano no e-Contas/Área Restrita
+  e de autorização explícita por envio. Nenhum gate portal-real, envio,
+  qualificação, piloto, release ou purge foi antecipado.
 
 ## Evidência da Tarefa 0.1
 
@@ -93,6 +112,10 @@ Especificação: `docs/notes/2026-09-10-consolidacao-main-e-conclusao-spec.md`
 4. Parar antes de qualquer Apply, purge, troca/exclusão de branch ou gate portal
    que exija login/autorização imediata.
 
+Atualização: os itens 1–3 do bloco acima foram concluídos nas tarefas 0.1–0.7 e
+0.10. A retomada vigente é a lista “Pendências imediatas” da última seção deste
+documento.
+
 ## Atualização — Tarefa 3.1 (2026-09-10)
 
 - Gate fallback OCR real: `not-observed`.
@@ -140,3 +163,72 @@ Especificação: `docs/notes/2026-09-10-consolidacao-main-e-conclusao-spec.md`
 - Nenhum commit, stage, push, portal, Chrome ou rede foi usado nesta tarefa;
   o controlador deve revisar e consolidar os arquivos alterados. Os arquivos
   concorrentes de limpeza e reconciliação foram preservados.
+
+## Atualização — sessão subagent-driven de 2026-09-10 (tarde/noite)
+
+### Remoto e publicação
+
+- Remoto privado conectado: `https://github.com/matheussilva421/Atos-TCE.git`.
+  Cada bloco concluído foi publicado; `HEAD == origin/main` ao fim de cada
+  tarefa. Commits desta sessão: `1956d8b`, `4b551ec`, `21054a4`, `1b60543`,
+  `99f63ca`, `2a20d74`, `5dee162`, `d179b59`, `bbd6b70`, `0cc3680`, `f8b5444`.
+- Nota operacional: a escalação de sandbox do controlador está quebrada
+  (auto-revisor retorna erro de provider). Toda escrita Git foi executada por
+  agente Luna com `require_escalated`; o controlador permaneceu somente leitura.
+
+### Tarefa 0.8 — hardening r2
+
+- Laudo da revisão 3: FAIL com três bloqueantes (N1 TOCTOU entre validação e
+  `Move-Item`; N2 recibo parcial sem fallback de journal no `Resume`; N3
+  enumeração de processos de navegador fail-open) e três não-bloqueantes
+  (N4 preflight de reparse no purge, N5 `-WhatIf` explícito, N6 raiz com
+  separador final).
+- Hardening aplicado com RED→GREEN: baseline 279 aprovados; RED 282/15; GREEN
+  307 aprovados, 0 falhas, em duas execuções consecutivas.
+- Contratos implementados: pin por `FileStream` (share `Read|Delete`) com hash
+  pelo mesmo stream e erro `source file is in use`; `Write-Receipt` atômico com
+  fallback de journal no `Resume` (purge segue estrito); `Get-CleanupProcessNames`
+  fail-closed com `-TestDenyProcessEnumeration`; `Get-BrowserProcesses` com
+  `user_data_dir` via CIM e blocker por item com prova de exclusividade
+  (`FileShare::None`).
+- Evidência do controlador sobre o manifesto r2: 16.074 aprovados,
+  23.126.367.618 bytes; 794 itens em área de navegador, 0 possuídos por
+  processos em execução, 794 abrem em modo exclusivo, 0 travados, 0 ausentes.
+  Portanto o falso positivo que abortou o `-Apply` anterior não se repete.
+- A quarentena física continua NÃO aplicada: `tmp/quarantine` não existe.
+
+### Tarefa 0.9 — parcial
+
+- Pacote `fase11k` executado em extração limpa (`%TEMP%`), seis gates públicos
+  6/6 PASSOU, exit 0; a pasta foi preservada de propósito.
+- Quarentena e revalidação seguem pendentes do `-Apply`.
+
+### Tarefa 0.10 — concluída
+
+- `git branch -D codex/transfer-quiescence` (árvore idêntica a `6c88d2a` da
+  `main`, aprovada especificamente pelo usuário) e
+  `git branch -d codex/fundamentacao-automatico`.
+- `git branch --format='%(refname:short)'` → apenas `main`;
+  `git worktree prune --dry-run` → saída vazia.
+
+### Tarefa 1.2 — concluída
+
+- Causa raiz das falhas: `CreateNoWindow=true` fazia Python 3.14 retornar
+  `WinError 87` em `os.kill(pid, 0)`, tratando processos vivos como mortos e
+  derrubando os três cenários de `TransferBusyError`. Correção mínima em
+  `verify-project.ps1`.
+- Gate completo: 959 executados, 957 aprovados, 0 falhas, 2 skips, exit 0 em
+  duas rodadas (108,97 s e 108,12 s) e repetição pós-push em 112,07 s.
+- `Test-ProjectVerification.ps1` 43/43 em PowerShell 5.1 e 7;
+  `test_prepare_transfer` 10/10.
+
+### Pendências imediatas
+
+1. Revisão independente 4 da Tarefa 0.8 (agente Luna xhigh, somente leitura).
+2. `-Apply` da quarentena aprovada (autorização do usuário já dada), com
+   recibo esperado `moved=16074`, `not_moved=0`, `moved_bytes=23126367618`.
+3. Reexecutar analisador e verificação pós-quarentena esperando
+   `preserved_missing=0 preserved_hash_changed=0 approved_still_present=0
+   not_moved=0`.
+4. Fases 4–9: parada humana obrigatória para login no e-Contas e Área Restrita;
+   nenhum envio sem autorização imediata.
