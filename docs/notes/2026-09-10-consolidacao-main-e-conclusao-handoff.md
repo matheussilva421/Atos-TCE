@@ -195,13 +195,26 @@ documento.
   23.126.367.618 bytes; 794 itens em área de navegador, 0 possuídos por
   processos em execução, 794 abrem em modo exclusivo, 0 travados, 0 ausentes.
   Portanto o falso positivo que abortou o `-Apply` anterior não se repete.
-- A quarentena física continua NÃO aplicada: `tmp/quarantine` não existe.
+- A quarentena física está aplicada em `tmp/quarantine/20260911-012750-653`
+  (recibo `moved=16074`, `not_moved=0`, `moved_bytes=23126367618`); nada foi
+  purgado.
 
-### Tarefa 0.9 — parcial
+### Tarefa 0.9 — concluída
 
 - Pacote `fase11k` executado em extração limpa (`%TEMP%`), seis gates públicos
   6/6 PASSOU, exit 0; a pasta foi preservada de propósito.
-- Quarentena e revalidação seguem pendentes do `-Apply`.
+- Revisão independente 4 (Luna xhigh, somente leitura): PASS, com suíte 307/307
+  duas vezes, reprodução de N1–N6 e mutation testing de N1–N3
+  (`task-0.8-review-4.md`).
+- `-Apply` executado em 2026-09-10 (22:13–22:36, PowerShell 5.1): recibo
+  `tmp/quarantine/20260911-012750-653/receipt.json` com `items=16074`,
+  `moved=16074`, `not_moved=0`, `moved_bytes=23126367618`; purge nunca executado.
+- Reanálise r3 (read-only) exit 0, `entries=31721`; verificação pós-quarentena:
+  `preserved_checked=13485`, `preserved_missing=0`, `approved_still_present=0`,
+  `not_moved=0`. Os 58 divergentes de hash foram auditados item a item (38
+  `.pyc`, 19 rastreados limpos frente ao Git, 1 log ignorado; mtime máxima
+  21:27, anterior ao `-Apply`): nenhum efeito da quarentena.
+- `Test-WorkspaceCleanup.ps1` 307/307 exit 0 em duas execuções pós-quarentena.
 
 ### Tarefa 0.10 — concluída
 
@@ -222,13 +235,17 @@ documento.
 - `Test-ProjectVerification.ps1` 43/43 em PowerShell 5.1 e 7;
   `test_prepare_transfer` 10/10.
 
-### Pendências imediatas
+### Pendências imediatas (atualizada em 2026-09-10 23:10)
 
-1. Revisão independente 4 da Tarefa 0.8 (agente Luna xhigh, somente leitura).
-2. `-Apply` da quarentena aprovada (autorização do usuário já dada), com
-   recibo esperado `moved=16074`, `not_moved=0`, `moved_bytes=23126367618`.
-3. Reexecutar analisador e verificação pós-quarentena esperando
-   `preserved_missing=0 preserved_hash_changed=0 approved_still_present=0
-   not_moved=0`.
-4. Fases 4–9: parada humana obrigatória para login no e-Contas e Área Restrita;
-   nenhum envio sem autorização imediata.
+1. Fase 0 encerrada: 0.8, 0.9 e 0.10 concluídas; quarentena preservada para a
+   Fase 9.3 (purge somente depois da release final verificada e de aprovação
+   específica de exclusão).
+2. Fase 4.1 — parada humana obrigatória: login no e-Contas e na Área Restrita em
+   navegador controlado com perfil de trabalho isolado (nunca reutilizar ou
+   fechar o perfil pessoal), extensão `fase11k` carregada e ponte pareada.
+3. Fases 4.2 e 5–7 — preflights, envio supervisionado e ondas exigem
+   autorização humana imediata, ato a ato; autorização genérica não vale.
+4. Fase 8 — release final: ZIP candidato, gates públicos em extração limpa e
+   documentação reconciliada.
+5. Fase 9.2 — decidir explicitamente se o benchmark histórico de 20 processos
+   continua critério de release.

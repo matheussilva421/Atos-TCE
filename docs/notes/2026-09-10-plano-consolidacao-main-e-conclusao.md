@@ -198,13 +198,28 @@ prévia, escopo e reconciliação.
 
 ### Tarefa 0.9 — quarentenar e validar a pasta organizada
 
-- [ ] Aplicar somente itens `quarentenar` aprovados; desconhecidos permanecem.
-- [ ] Reexecutar analisador e confirmar que fontes, docs, entregas, lote live e
+- [x] Aplicar somente itens `quarentenar` aprovados; desconhecidos permanecem.
+  (executada em 2026-09-10 22:13–22:36: `-Apply` exit 0 contra o manifesto r2
+  `A7994FF698DFABC690A0A50654D0C3A68996677DE4E336FF0AF6075DA11E492F`;
+  recibo `tmp/quarantine/20260911-012750-653/receipt.json` com `moved=16074`,
+  `not_moved=0` e `moved_bytes=23126367618`; nenhum purge executado.)
+- [x] Reexecutar analisador e confirmar que fontes, docs, entregas, lote live e
   recuperação continuam presentes com hashes iguais.
+  (executada em 2026-09-10: reanálise r3 exit 0 com `entries=31721`;
+  `preserved_missing=0`, `approved_still_present=0`, `not_moved=0`. Os 58
+  hashes alterados foram auditados um a um: 38 caches `.pyc` regenerados por
+  execuções de teste, 19 arquivos rastreados e limpos frente ao Git (edições do
+  próprio dia já commitadas) e 1 log ignorado do analisador; mtime máxima
+  `21:27:00`, anterior ao início do `-Apply` às `22:13:39`, então nenhuma
+  alteração é efeito da quarentena.)
 - [x] Rodar pacote `fase11k` em extração limpa e os seis gates públicos.
-- [ ] Rodar os testes focais novamente.
-- [ ] Preservar a quarentena durante todas as fases de qualificação; não fazer
+- [x] Rodar os testes focais novamente.
+  (executada em 2026-09-10: `Test-WorkspaceCleanup.ps1` 307/307, 0 falhas,
+  exit 0 em duas execuções pós-quarentena.)
+- [x] Preservar a quarentena durante todas as fases de qualificação; não fazer
   purge definitivo nesta tarefa.
+  (executada em 2026-09-10: quarentena preservada em
+  `tmp/quarantine/20260911-012750-653`; `-PurgeQuarantine` nunca executado.)
 
 ### Tarefa 0.10 — deixar somente main
 
