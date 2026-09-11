@@ -6,7 +6,8 @@
   "permissions": [
     "storage",
     "sidePanel",
-    "alarms"
+    "alarms",
+    "webNavigation"
   ],
   "host_permissions": [
     "https://novaarearestrita.tce.rn.gov.br/*",

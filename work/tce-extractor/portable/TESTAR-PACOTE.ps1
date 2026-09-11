@@ -137,7 +137,7 @@ function Get-TcePortableExtensionManifestStatus {
     if ((Get-TceJsonProperty $manifest 'manifest_version') -ne 3) { Add-TcePortableError $errors 'manifest da extensao nao usa Manifest V3' }
     $permissions = @((Get-TceJsonProperty $manifest 'permissions') | ForEach-Object { [string]$_ })
     $hostPermissions = @((Get-TceJsonProperty $manifest 'host_permissions') | ForEach-Object { [string]$_ })
-    if (($permissions -join '|') -ne 'storage|sidePanel|alarms') { Add-TcePortableError $errors 'permissoes devem ser exatamente storage, sidePanel e alarms' }
+    if (($permissions -join '|') -ne 'storage|sidePanel|alarms|webNavigation') { Add-TcePortableError $errors 'permissoes devem ser exatamente storage, sidePanel, alarms e webNavigation' }
     if (($hostPermissions -join '|') -ne 'https://novaarearestrita.tce.rn.gov.br/*|http://127.0.0.1/*') { Add-TcePortableError $errors 'hosts permitidos devem ser o portal e o bridge loopback' }
     $background = Get-TceJsonProperty $manifest 'background'
     Add-TcePortableManifestReference $extensionRoot $declared $errors (Get-TceJsonProperty $background 'service_worker') 'background.service_worker'

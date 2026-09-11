@@ -601,7 +601,7 @@ if ($null -ne (Get-Command Get-TcePortableRuntimeLayout -ErrorAction SilentlyCon
 if ($null -ne (Get-Command Get-TcePortableExtensionManifestStatus -ErrorAction SilentlyContinue)) {
     $extensionStatus = Get-TcePortableExtensionManifestStatus -PackageRoot (Split-Path -Parent $diagnosticPath)
     Assert-True $extensionStatus.IsValid 'manifest da extensão e arquivos declarados estão válidos'
-    Assert-Equal $extensionStatus.Permissions @('storage', 'sidePanel', 'alarms') 'manifest usa somente permissões permitidas'
+    Assert-Equal $extensionStatus.Permissions @('storage', 'sidePanel', 'alarms', 'webNavigation') 'manifest usa somente permissões permitidas'
     Assert-Equal $extensionStatus.HostPermissions @('https://novaarearestrita.tce.rn.gov.br/*', 'http://127.0.0.1/*') 'manifest usa somente portal e bridge loopback'
 }
 
