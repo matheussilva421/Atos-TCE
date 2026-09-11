@@ -222,7 +222,10 @@ function Invoke-VerificationProcess {
     $startInfo.Arguments = ConvertTo-ProcessArguments $Command.Arguments
     $startInfo.WorkingDirectory = $Command.WorkingDirectory
     $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
+    # CREATE_NO_WINDOW faz o Python 3.14 retornar WinError 87 em
+    # os.kill(pid, 0) no Windows. Sem esse flag, o processo herda o console
+    # do gate (sem abrir uma janela nova) e a detecção de PID permanece válida.
+    $startInfo.CreateNoWindow = $false
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
     $process = New-Object System.Diagnostics.Process

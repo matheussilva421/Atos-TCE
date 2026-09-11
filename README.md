@@ -59,6 +59,10 @@ comando, executados, aprovados, falhos e skips. Logs brutos ficam em uma pasta
 temporária fora do repositório. O verificador é somente offline: não abre
 Chrome autenticado, não coleta dados e não envia atos.
 
+No Windows, o runner preserva a semântica de liveness de PID necessária aos
+testes de transferência e mantém stdout/stderr nos logs; isso evita interpretar
+um runtime local vivo como encerrado.
+
 ## Segurança
 
 - Repositório local: nenhum upload ao GitHub é feito automaticamente.

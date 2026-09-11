@@ -139,6 +139,30 @@ exit $ExitCode
     Assert-Contains $green.Output 'Command:' 'green summary includes command field'
     Assert-True ((Get-Content -LiteralPath $markerPath).Count -eq 6) 'all six command doubles executed once'
 
+    # Python em Windows precisa de um processo com console herdado para que
+    # os.kill(pid, 0) consiga validar marcadores de runtime. O runner não pode
+    # usar o modo CREATE_NO_WINDOW nesse caminho: Python 3.14 retorna
+    # WinError 87 e a transferência passa a interpretar um processo vivo como
+    # morto.
+    $pidProbePath = Join-Path $fixtureRoot 'pid-liveness-probe.py'
+    $pidProbeText = @'
+import os
+os.kill(os.getpid(), 0)
+print("1 passed, 0 failed, 0 skipped")
+'@
+    [IO.File]::WriteAllText($pidProbePath, $pidProbeText, (New-Object Text.UTF8Encoding($false)))
+    $pidProbeOverrides = New-TestCommandOverrides -FixturePath $fixturePath -Root $projectRoot
+    $pidProbeOverrides['python'] = [ordered]@{
+        filePath = (Get-Command python.exe -ErrorAction Stop).Source
+        arguments = @($pidProbePath)
+        workingDirectory = $fixtureRoot
+        displayCommand = 'python PID liveness probe'
+    }
+    $pidProbeOverrides | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $overridePath -Encoding UTF8
+    $pidProbe = Invoke-TestScript -FilePath $verifierPath -Arguments @('-CommandOverridesPath', $overridePath, '-LogRoot', (Join-Path $fixtureRoot 'pid-probe-logs'))
+    Assert-Equal $pidProbe.ExitCode 0 'python PID liveness probe passes through the verification runner'
+    Assert-Contains $pidProbe.Output 'Failed: 0' 'python PID liveness probe does not create a runner failure'
+
     $expectedCodes = [ordered]@{
         extension = 10
         web = 11
