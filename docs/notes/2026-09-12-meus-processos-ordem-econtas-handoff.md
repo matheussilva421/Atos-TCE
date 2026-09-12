@@ -173,3 +173,11 @@
 - Checkpoint humano vigente: aguardar `Todos` ou `Um lote` com número e tamanho
   (padrão 50). Até essa escolha, não iniciar aquisição, OCR ou nova geração de
   dados para os 156 pendentes congelados.
+
+### GitHub após o fechamento
+
+- Commit de implementação: `565f446` (`feat: implementar fluxo por marcador da
+  area restrita`).
+- Push confirmado: `main` avançou de `3d5e90b` para `565f446` em
+  `origin/main` (`https://github.com/matheussilva421/Atos-TCE.git`).
+- Working tree esperado após o commit documental final: limpo e sincronizado.
