@@ -1191,6 +1191,59 @@ test("renders a preview from current portal options with exact green and approxi
   assert.equal(documentRef.getElementById("permanent-warning").textContent, PERMANENT_WARNING);
 });
 
+test("forwards the validated legal context and available bindings to the read-only preview match", async () => {
+  const dataset = await makeDataset();
+  const legalContext = {
+    schema_version: 1,
+    dataset_sha256: dataset.batch.logical_sha256,
+    process_key: "103439/2023",
+    interested_normalized: "maria de souza",
+    resolution_status: "complete",
+    operative_text: "RESOLVE: Art. 40, § 1º.",
+    pages: [],
+    context_revision: 12,
+    rules_version: "legal-foundation-v1",
+  };
+  const contextCalls = [];
+  const bridge = {
+    async getLegalContext(identity) {
+      contextCalls.push(identity);
+      return { api_version: 1, context: legalContext };
+    },
+  };
+  const storageArea = makeStorageArea({
+    [STORAGE_KEYS.DATASET]: dataset,
+    [STORAGE_KEYS.BRIDGE_BASE_URL]: "http://127.0.0.1:18743",
+    [STORAGE_KEYS.BRIDGE_TOKEN]: "session-token",
+  });
+  const started = await startApp({
+    storageArea,
+    snapshots: [snapshot({ options: currentOptions() })],
+    matches: [{ record: dataset.records[0], matches: fullMatches(), reviewed: false }],
+    bridgeClientFactory: () => bridge,
+    pairingFactory: async () => "session-token",
+  });
+  const { app, documentRef, chromeApi } = started;
+  chromeApi.storage.session = storageArea;
+  documentRef.getElementById("bridge-base-url").value = "http://127.0.0.1:18743";
+  documentRef.getElementById("bridge-pairing-code").value = "12345678";
+  documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
+  await waitUntil(
+    () => documentRef.getElementById("bridge-status").textContent.startsWith("Mesa local conectada."),
+    "bridge did not connect for contextual preview",
+  );
+  await app.refresh();
+
+  const matchRequest = chromeApi.calls.filter((message) => message.type === MESSAGE_TYPES.GET_MATCH).at(-1);
+  assert.deepEqual(contextCalls, [{ processKey: "103439/2023", interestedNormalized: "maria de souza" }]);
+  assert.deepEqual(matchRequest.payload.context, legalContext);
+  assert.equal(matchRequest.payload.datasetSha256, dataset.batch.logical_sha256);
+  assert.equal(matchRequest.payload.rulesVersion, "legal-foundation-v1");
+  assert.equal(matchRequest.payload.contextRevision, 12);
+  assert.equal(chromeApi.calls.some((message) => message.type === MESSAGE_TYPES.APPLY_FIELDS), false);
+  assert.equal(chromeApi.calls.some((message) => message.type === MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO), false);
+});
+
 test("does not mark equivalent civil dates as divergent and compares select values by value", async () => {
   const dataset = await makeDataset();
   const { app, documentRef } = await startApp({

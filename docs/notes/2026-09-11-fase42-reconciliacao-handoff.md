@@ -444,3 +444,91 @@ preflight verde acima é apenas o gate técnico da paginação.
   enviado.
 - [ ] Fases 5+ continuam bloqueadas pelo gate funcional 4.2 e pelo checkpoint
   humano obrigatório para qualquer primeiro envio.
+
+## Estado vigente — três prévias read-only reconciliadas (2026-09-11)
+
+### Escopo confirmado
+
+- Área Restrita: `ProcessonoSetor.asp` / `sector_finalistic`.
+- Marcador: `PROFESSOR - IPERN - 2 - RUBRICAS`; apresentação live observada:
+  `PROFESSOR - IPERN - 2 RUBRICAS (470)`, valor `6189`.
+- `MeusProcessos.asp` / `my_processes`: fora do escopo; nenhuma identidade
+  dessa origem foi usada.
+- Ponte: dataset revisão 120; extensão live com `panel.js` sincronizado pelo
+  mesmo SHA-256 do source; `real_send_enabled=false`.
+
+### Prévia read-only observada
+
+Foram feitos três ciclos separados. Em cada ciclo, a aba derivada antiga foi
+fechada antes do próximo candidato e o frame foi selecionado por processo/ano,
+evitando misturar uma tela stale com a identidade ativa.
+
+| Candidato | Método | Campos obrigatórios | Selects | Gênero | Resultado |
+| --- | --- | --- | --- | --- | --- |
+| `100065/2026` | `Por regra` | 6/6 sem divergência | value atual coincide com proposta | ausente/opcional | read-only verde |
+| `102380/2026` | `Por regra` | 6/6 sem divergência | value atual coincide com proposta | ausente/opcional | read-only verde |
+| `100455/2025` | `Por regra` | 6/6 sem divergência | value atual coincide com proposta | ausente/opcional | read-only verde |
+
+O conjunto cobre pelo menos duas famílias legais. `tie` de modalidade e
+`aproximado` de fundamento não foram tratados como igualdade textual: a
+preservação é segura somente porque o valor já selecionado coincide com o
+`matchedValue` validado no catálogo, conforme o preflight TDD. Nenhum valor
+documental bruto, nome, CPF, token, cookie ou DOM foi incluído neste handoff.
+
+### Correção operacional registrada
+
+Os auxiliares de observação estavam selecionando o primeiro frame histórico de
+`ComplementarAto.asp` depois de várias consultas. Isso explicava a prévia
+mostrar uma identidade anterior mesmo quando o portal acabara de abrir outra.
+Os auxiliares passaram a selecionar pelo processo/ano e a rotina fecha a aba
+derivada entre ciclos. Trata-se de ferramenta ignorada em `tmp/`; o código de
+produção apenas recebeu a correção já descrita de encaminhamento do contexto
+legal pela sidepanel.
+
+### Tasks e fronteiras
+
+- [x] Confirmar três candidatos do setor e do marcador restrito em prévia
+  read-only, com identidade, rádio, catálogo e seis campos conferidos.
+- [x] Confirmar duas famílias legais e gênero ausente/opcional.
+- [x] Corrigir a seleção de frame stale nos auxiliares e registrar a causa.
+- [x] Executar QA da extensão: 45/45 focado no painel e 336/336 na suíte
+  completa, sem falhas.
+- [ ] Tarefa 4.2 formal: `APPLY_FIELDS` e releitura pós-escrita ainda não
+  executados; portanto a preparação persistida não foi marcada como concluída.
+- [ ] Fases 5+ continuam bloqueadas; nenhum envio/finalização pode ser
+  inferido da prévia read-only.
+
+Não houve escrita de campos, `APPLY_FIELDS`, salvar, enviar, concluir ou
+finalizar. Para retomar, manter a rota do setor, confirmar novamente o valor
+`6189`, abrir um candidato por vez, parear a ponte com código fresco após
+reload da extensão e parar antes de qualquer ação externa.
+
+## QA amplo e estado de publicação (2026-09-11)
+
+O primeiro `verify-project.ps1` do bloco encontrou 22 falhas derivadas de uma
+única causa: `portable/app/package_audit.py` não acompanhava a permissão
+`webNavigation` já exigida pelo manifest e pelo validador portátil. A Luna
+corrigiu somente o auditor e seu teste. O RED foi reproduzido removendo
+temporariamente essa permissão da allowlist; o novo teste falhou com
+`extension_permissions`; a allowlist foi restaurada e o teste passou.
+
+O commit local da correção é `10f4b68` (`fix: align extension permission
+audit`). A verificação ampla posterior passou:
+
+- 1006 execuções;
+- 1004 aprovadas;
+- 0 falhas;
+- 2 skips explícitos;
+- extensão 336/336, web 6/6, Python 34/34, PowerShell 555/555;
+- pacote 74 testes, 72 aprovados e 2 skips;
+- `git diff --check` verde.
+
+### Publicação pendente
+
+`main` está um commit à frente de `origin/main` por causa do commit da Luna;
+as alterações não commitadas deste bloco são `panel.js`, seu teste e os dois
+documentos de task/handoff. Próximo passo: revisar/stagear somente esses
+quatro caminhos, criar um commit nominal e executar `git push` fast-forward.
+Depois conferir `HEAD == origin/main` e worktree limpo. Os diagnósticos
+ignorados em `tmp/` e o sidecar de contexto gerado no output live não entram
+no commit.

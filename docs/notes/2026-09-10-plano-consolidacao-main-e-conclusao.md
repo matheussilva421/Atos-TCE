@@ -941,3 +941,70 @@ como critério: o controller devolve diretamente o payload de análise.
 - [x] Três execuções live read-only verdes na origem e marcador restritos.
 - [x] Nenhum token, cookie, CPF bruto, DOM bruto, preenchimento ou envio foi
   registrado no repositório.
+
+## Reconciliação live — três prévias read-only no marcador restrito (2026-09-11)
+
+O ciclo live foi repetido exclusivamente em `ProcessonoSetor.asp`, com
+`source_scope=sector_finalistic` e o marcador canônico `value=6189`, exibido
+na Área Restrita como `PROFESSOR - IPERN - 2 RUBRICAS (470)`. A origem
+`MeusProcessos.asp` não foi consultada nem misturada.
+
+### Tasks atualizadas
+
+- [x] Corrigir os auxiliares de inspeção para selecionar o frame
+  `ComplementarAto.asp` pela identidade processo/ano e fechar a aba derivada
+  entre candidatos; isso eliminou a leitura stale de uma prévia anterior.
+- [x] Confirmar, em três ciclos independentes, processo/ano, ação única,
+  rádio único, sete controles do formulário e catálogos atuais 13/35/3.
+- [x] Confirmar três prévias read-only com contexto legal encaminhado pela
+  sidepanel: `100065/2026`, `102380/2026` e `100455/2025`. As três apresentaram
+  método `Por regra`, seis campos obrigatórios sem divergência na prévia,
+  gênero ausente/opcional e seleção de catálogo preservável pelo `value`
+  atualmente selecionado. O conjunto cobre as famílias EC47/Art. 3º e EC41.
+- [x] Registrar que `100120/2026`, `100273/2025` e `102262/2026` foram
+  bloqueados por conflito de família, fundamento/valor ausente ou divergência
+  substantiva; não foram promovidos a elegíveis.
+- [x] Sincronizar `sidepanel/panel.js` no pacote live por SHA-256 após o teste
+  TDD de encaminhamento de `context`, `datasetSha256`, `rulesVersion` e
+  `contextRevision` para `GET_MATCH`.
+- [x] Revalidar a extensão: teste focal do painel 45/45 e suíte completa
+  336/336, sem falhas; a revisão Luna independente confirmou o mesmo limite
+  e não editou arquivos.
+- [ ] Tarefa 4.2 formal: ainda não executar `APPLY_FIELDS` nem a releitura
+  pós-escrita. O resultado atual é prévia read-only verde, não preparação
+  persistida; envio, finalização e Fases 5+ continuam desmarcados.
+
+### Limite de segurança e retomada
+
+`tie` somente pode ser preservado quando o valor já selecionado no portal é o
+`matchedValue` presente no catálogo atual; `pending`, value ausente,
+divergência de valor, identidade, contexto ou frame interrompem o ciclo. A
+fundamentação documental não precisa ser textualmente idêntica ao rótulo do
+catálogo: a decisão por `similarity` continua aceita quando `selected`, com
+`option.value` verificável e contexto/hash válidos.
+
+Nenhum campo foi escrito, nenhum `APPLY_FIELDS` foi emitido e nenhum botão de
+salvar, enviar, concluir ou finalizar foi acionado. A próxima etapa formal só
+deve ocorrer com checkpoint humano imediato para um ato escolhido, mantendo
+`real_send_enabled=false` até autorização específica de envio.
+
+## QA amplo e correção do contrato do pacote (2026-09-11)
+
+O verificador amplo encontrou inicialmente a inconsistência histórica entre o
+manifest que declara `webNavigation` e o auditor que ainda aceitava somente
+`storage`, `sidePanel` e `alarms`. A Luna corrigiu o contrato com ownership
+isolado e teste de regressão; o teste novo reproduziu RED quando
+`webNavigation` foi removida da allowlist e voltou a GREEN após a correção.
+
+- [x] Atualizar `portable/app/package_audit.py` para aceitar exatamente as
+  quatro permissões do manifest: `storage`, `sidePanel`, `alarms` e
+  `webNavigation`.
+- [x] Adicionar teste de contrato para a permissão exigida pela recuperação de
+  frames.
+- [x] Publicar localmente a correção no commit `10f4b68`.
+- [x] Reexecutar o verificador amplo: 1006 execuções, 1004 aprovadas, 0
+  falhas e 2 skips; extensão 336/336, web 6/6, Python 34/34, PowerShell
+  555/555, pacote 74 com 72 aprovados e 2 skips, diff verde.
+- [ ] Push do commit `10f4b68` junto com o bloco atual de sidepanel e
+  documentação; a publicação deve ser fast-forward e deixar
+  `HEAD == origin/main`.
