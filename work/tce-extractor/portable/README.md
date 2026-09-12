@@ -164,18 +164,19 @@ clique **Preencher campos disponíveis** continuam deliberados.
 
 ## Fluxo híbrido por marcador e lotes
 
-1. Mantenha a Área Restrita autenticada e abra, na extensão, a origem desejada:
-   **Processos no setor / finalísticos / Proc./Doc. Eletrônicos** ou **Meus
-   Processos Eletrônicos**.
-2. Informe o marcador no painel e escolha lote de 50 ou 100. **Analisar
-   pendências no portal** percorre a lista autenticada em modo somente leitura,
-   calcula a prévia e congela a ordem; **Criar lotes da análise** grava o snapshot
-   em `acervo-tce\automacao\analises`.
-3. Após revisar a contagem, selecione o lote e use **Baixar e preparar OCR do
-   lote**. A ponte chama o coletor local com a fila congelada, baixa do e-Contas
-   e executa OCR/preparação incremental. O `source_scope` congelado também
-   escolhe a lista e-Contas correspondente: `sector_finalistic` usa
-   **Processos no setor/finalísticos** e `my_processes` usa **Meus Processos**.
+1. Mantenha a Área Restrita autenticada em **Processos no setor / finalísticos /
+   Proc./Doc. Eletrônicos** e selecione manualmente o marcador desejado no próprio
+   portal. A extensão lê esse marcador; não é preciso digitá-lo nem importar um
+   dataset anterior.
+2. **Analisar pendências no portal** percorre todas as páginas em modo somente
+   leitura, pausa se origem, marcador ou paginação mudarem e considera pendente
+   somente a linha com o ícone vermelho **Complementar Ato**. A prévia congela a
+   ordem e **Criar lotes da análise** grava o snapshot em
+   `acervo-tce\automacao\analises`.
+3. Após revisar a contagem, escolha **Todos os lotes** ou **Um lote** (padrão de
+   50 itens) e use **Baixar, aplicar OCR e atualizar a mesa**. A ponte chama o
+   coletor local com a fila congelada, localiza os processos no e-Contas e
+   executa OCR/preparação incremental.
    O estado do job fica visível no painel;
    nenhum ato é preenchido ou enviado por essa etapa.
 4. Como fallback, a opção **10 — Baixar e preparar OCR de lote congelado** em
@@ -187,6 +188,12 @@ Processos sem documento/OCR entram como `acquisition_pending`: eles contam na
 prévia de aquisição e no lote, mas não são apresentados como prontos para
 preflight. Identidade ambígua, ausência da ação observada e processos já
 complementados ficam fora da fila de aquisição.
+
+Para abrir a mesa entregue no ZIP, primeiro extraia o pacote inteiro e dê duplo
+clique em `ABRIR-MESA.cmd` (equivalente a `INICIAR.cmd abrir-mesa`). O iniciador
+valida dados, serviço e assets do PDF.js, inicia `/review` por HTTP local e mostra
+um erro objetivo quando a extração estiver incompleta. Não abra o HTML diretamente
+dentro do ZIP: módulos do PDF.js não são suportados em `file://`.
 
 `TESTAR-PACOTE.ps1` verifica offline Python/Tesseract, idiomas `por`, `eng` e
 `osd`, manifest e todos os arquivos declarados, permissões exatas, ausência de

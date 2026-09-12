@@ -96,6 +96,21 @@ test("validates the closed automation RunSpec and rejects a swapped hash or extr
   );
 });
 
+test("allows a read-only marker analysis before a dataset exists", () => {
+  const analysis = runSpec({
+    datasetSha256: null,
+    analysisOnly: true,
+    sourceScope: "sector_finalistic",
+    acquisitionSource: "econtas",
+    lotSize: 50,
+  });
+  assert.deepEqual(validateAutomationRunSpec(analysis), analysis);
+  assert.throws(
+    () => validateAutomationRunSpec(runSpec({ datasetSha256: null })),
+    (error) => error instanceof AutomationSchemaError && error.code === "INVALID_DATASET_HASH",
+  );
+});
+
 test("accepts an optional exact marker criterion and rejects unsafe marker values", () => {
   const withMarker = runSpec({ marker: "PROFESSOR - IPERN - 2 RUBRICAS" });
   assert.deepEqual(validateAutomationRunSpec(withMarker), withMarker);
@@ -399,6 +414,18 @@ test("automation messages are typed and reject payload extras", () => {
     },
     eventId: "analysis-1",
   }, "analysis-message-1"));
+  assert.doesNotThrow(() => createMessage(MESSAGE_TYPES.AUTO_ANALYZE, {
+    spec: {
+      sector: "*",
+      datasetSha256: null,
+      analysisOnly: true,
+      rulesVersion: "legal-foundation-v1",
+      sourceScope: "sector_finalistic",
+      lotSize: 50,
+      acquisitionSource: "econtas",
+    },
+    eventId: "analysis-selected-marker-1",
+  }, "analysis-message-selected-marker-1"));
   assert.doesNotThrow(() => createMessage(MESSAGE_TYPES.PORTAL_NAVIGATE, {
     action: "filter_marker",
     marker: "PROFESSOR - IPERN - 2 RUBRICAS",

@@ -69,6 +69,7 @@ const ELEMENT_IDS = Object.freeze([
   "analysis-preview-button",
   "analysis-lots-button",
   "analysis-lot-number",
+  "analysis-selection-mode",
   "analysis-acquisition-button",
   "analysis-acquisition-status",
   "analysis-status",
@@ -377,7 +378,7 @@ export function createPanelApp({
     elements["complement-button"].disabled = !canFill;
     elements["automation-auto-submit"].disabled = state.automationCapabilities?.real_send_enabled !== true
       && state.automationCapabilities?.pilot_enabled !== true;
-    elements["analysis-preview-button"].disabled = !state.bridgeClient || !state.dataset;
+    elements["analysis-preview-button"].disabled = !state.bridgeClient;
     elements["analysis-lots-button"].disabled = !state.analysis?.analysis_id;
     const lots = Array.isArray(state.analysis?.lots) ? state.analysis.lots : [];
     const lotSelect = elements["analysis-lot-number"];
@@ -1069,25 +1070,19 @@ export function createPanelApp({
 
   async function startAnalysis() {
     if (state.bridgeConnectionPromise) await state.bridgeConnectionPromise;
-    if (!state.bridgeClient || !state.dataset) {
-      setMessage("Conecte a mesa local e importe um dataset antes de analisar.", true);
+    if (!state.bridgeClient) {
+      setMessage("Conecte a mesa local antes de analisar.", true);
       render();
       return false;
     }
-    const marker = text(elements["automation-marker"]?.value).trim();
-    if (!marker) {
-      setMessage("Informe o marcador antes de iniciar a análise.", true);
-      render();
-      return false;
-    }
-    const sourceScope = text(elements["automation-source-scope"]?.value).trim();
+    const sourceScope = "sector_finalistic";
     const lotSize = Number.parseInt(text(elements["automation-lot-size"]?.value).trim(), 10);
     const context = state.snapshot?.bridgeContext;
     const spec = {
       sector: context?.sector ?? "*",
-      datasetSha256: state.dataset.batch.logical_sha256,
+      datasetSha256: null,
+      analysisOnly: true,
       rulesVersion: state.automationCapabilities?.rules_version ?? "legal-foundation-v1",
-      marker,
       sourceScope,
       lotSize,
       acquisitionSource: "econtas",
@@ -1112,7 +1107,8 @@ export function createPanelApp({
         analysis_only: true,
         auto_prepare: false,
         auto_submit: false,
-        dataset_sha256: state.dataset.batch.logical_sha256,
+        dataset_sha256: null,
+        area_snapshot_sha256: forwarded.payload.area_snapshot_sha256,
       };
       const snapshot = await state.bridgeClient.createAnalysisPreview({
         spec: analysisSpec,
@@ -1147,15 +1143,19 @@ export function createPanelApp({
 
   async function startAnalysisAcquisition() {
     if (!state.bridgeClient?.startAnalysisAcquisition || !state.analysis?.analysis_id) return false;
+    const selectionMode = text(elements["analysis-selection-mode"]?.value).trim() || "all";
     const lotNumber = Number.parseInt(text(elements["analysis-lot-number"]?.value).trim(), 10);
-    if (!Number.isSafeInteger(lotNumber) || lotNumber < 1) {
+    if (selectionMode === "lot" && (!Number.isSafeInteger(lotNumber) || lotNumber < 1)) {
       setMessage("Selecione um lote congelado antes de iniciar a aquisição.", true);
       render();
       return false;
     }
     try {
-      state.acquisitionJob = await state.bridgeClient.startAnalysisAcquisition(state.analysis.analysis_id, lotNumber);
-      setMessage(`Aquisição/OCR do lote ${lotNumber} iniciada; nenhum ato foi enviado.`);
+      const selection = selectionMode === "lot" ? { selection: "lot", lotNumber } : { selection: "all" };
+      state.acquisitionJob = await state.bridgeClient.startAnalysisAcquisition(state.analysis.analysis_id, selection);
+      setMessage(selectionMode === "lot"
+        ? `Aquisição/OCR do lote ${lotNumber} iniciada; nenhum ato foi enviado.`
+        : "Aquisição/OCR de todos os lotes iniciada; nenhum ato foi enviado.");
       render();
       return true;
     } catch (error) {

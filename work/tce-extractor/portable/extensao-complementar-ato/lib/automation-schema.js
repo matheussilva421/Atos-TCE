@@ -215,10 +215,15 @@ export function validateAutomationRunSpec(value) {
     "lotSize",
     "analysisId",
     "previewHash",
+    "analysisOnly",
   ]);
   if (!Number.isSafeInteger(value.tabId) || value.tabId < 0) invalid("tabId is invalid", "INVALID_TAB_ID");
   nonEmptyString(value.sector, "sector");
-  if (typeof value.datasetSha256 !== "string" || !SHA256_RE.test(value.datasetSha256)) {
+  const datasetMayBeAbsent = value.analysisOnly === true && value.autoSubmit !== true;
+  if (value.datasetSha256 !== null && (typeof value.datasetSha256 !== "string" || !SHA256_RE.test(value.datasetSha256))) {
+    invalid("datasetSha256 is invalid", "INVALID_DATASET_HASH");
+  }
+  if (value.datasetSha256 === null && !datasetMayBeAbsent) {
     invalid("datasetSha256 is invalid", "INVALID_DATASET_HASH");
   }
   nonEmptyString(value.rulesVersion, "rulesVersion");
@@ -250,6 +255,9 @@ export function validateAutomationRunSpec(value) {
   }
   if (Object.hasOwn(value, "autoSubmit") && typeof value.autoSubmit !== "boolean") {
     invalid("autoSubmit must be boolean", "INVALID_VALUE");
+  }
+  if (Object.hasOwn(value, "analysisOnly") && typeof value.analysisOnly !== "boolean") {
+    invalid("analysisOnly must be boolean", "INVALID_VALUE");
   }
   if (Object.hasOwn(value, "pilotIdentity")) {
     if (value.pilotIdentity === null) invalid("pilotIdentity is required when present", "INVALID_IDENTITY");

@@ -117,7 +117,11 @@ function validateAcquisitionEnvelope(payload, expectedAnalysisId, expectedJobId 
     || (expectedJobId !== null && payload.job_id !== expectedJobId)) {
     throw invalidResponse('acquisition.job_id inválido');
   }
-  if (!Number.isSafeInteger(payload.lot_number) || payload.lot_number < 1 || payload.lot_number > 1000) {
+  const selection = payload.selection ?? 'lot';
+  if (!['all', 'lot'].includes(selection)
+    || !Number.isSafeInteger(payload.lot_number)
+    || (selection === 'all' ? payload.lot_number !== 0 : payload.lot_number < 1)
+    || payload.lot_number > 1000) {
     throw invalidResponse('acquisition.lot_number inválido');
   }
   if (!['started', 'running', 'completed', 'failed'].includes(payload.status)) {
@@ -144,6 +148,7 @@ function validateAnalysisSpec(spec) {
     'auto_prepare',
     'auto_submit',
     'dataset_sha256',
+    'area_snapshot_sha256',
   ];
   const keys = Object.keys(spec);
   if (keys.length !== expected.length || expected.some((key) => !Object.hasOwn(spec, key))) {
@@ -167,6 +172,9 @@ function validateAnalysisSpec(spec) {
   }
   if (spec.dataset_sha256 !== null && (typeof spec.dataset_sha256 !== 'string' || !/^[0-9a-f]{64}$/u.test(spec.dataset_sha256))) {
     throw bridgeError('hash do dataset da análise inválido', 'INVALID_ANALYSIS');
+  }
+  if (typeof spec.area_snapshot_sha256 !== 'string' || !/^[0-9a-f]{64}$/u.test(spec.area_snapshot_sha256)) {
+    throw bridgeError('hash da fotografia da Área Restrita inválido', 'INVALID_ANALYSIS');
   }
   return spec;
 }
@@ -502,14 +510,19 @@ export function createBridgeClient({ fetchImpl = globalThis.fetch, baseUrl, toke
         validate: validateAnalysisEnvelope,
       });
     },
-    async startAnalysisAcquisition(analysisId, lotNumber) {
+    async startAnalysisAcquisition(analysisId, selection) {
       const normalizedAnalysisId = validateAnalysisId(analysisId);
-      if (!Number.isSafeInteger(lotNumber) || lotNumber < 1 || lotNumber > 1000) {
-        throw bridgeError('lotNumber inválido', 'INVALID_LOT_NUMBER');
+      if (selection?.selection !== 'all'
+        && (selection?.selection !== 'lot' || !Number.isSafeInteger(selection.lotNumber)
+          || selection.lotNumber < 1 || selection.lotNumber > 1000)) {
+        throw bridgeError('seleção de aquisição inválida', 'INVALID_ACQUISITION_SELECTION');
       }
+      const body = selection.selection === 'all'
+        ? { selection: 'all' }
+        : { selection: 'lot', lot_number: selection.lotNumber };
       return request(`/analysis/${encodeURIComponent(normalizedAnalysisId)}/acquire`, {
         method: 'POST',
-        body: { lot_number: lotNumber },
+        body,
         validate: (payload) => validateAcquisitionEnvelope(payload, normalizedAnalysisId),
       });
     },

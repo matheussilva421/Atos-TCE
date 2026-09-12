@@ -1214,6 +1214,41 @@ class AnalysisPipelineTests(unittest.TestCase):
         self.assertEqual(manifest["processes"][0]["documents"][0]["event"], "9")
         self.assertEqual(manifest["processes"][0]["documents"][0]["pdf_path"], "C:/archive/event-9.pdf")
 
+    def test_target_manifest_can_publish_archive_relative_pdf_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            pdf = root / "processos" / "103439-2023" / "evento-0009" / "resolucao.pdf"
+            pdf.parent.mkdir(parents=True)
+            pdf.write_bytes(b"%PDF-fixture")
+            classified = {
+                "processes": [
+                    {
+                        "key": "103439/2023",
+                        "events": [
+                            {
+                                "event": 9,
+                                "documents": [
+                                    {
+                                        "title": "Resolução",
+                                        "classification": "resolucao_administrativa",
+                                        "automatic_source": True,
+                                        "absolute_path": str(pdf),
+                                        "relative_path": "processos/103439-2023/evento-0009/resolucao.pdf",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+
+            manifest = build_target_manifest(classified, archive_root=root)
+
+        self.assertEqual(
+            manifest["processes"][0]["documents"][0]["pdf_path"],
+            "processos/103439-2023/evento-0009/resolucao.pdf",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

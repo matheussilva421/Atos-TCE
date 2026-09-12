@@ -54,9 +54,11 @@ _SPEC_KEYS = frozenset(
         "auto_prepare",
         "auto_submit",
         "dataset_sha256",
+        "area_snapshot_sha256",
     }
 )
 _MARKER_KEYS = frozenset({"label", "value"})
+_ACTION_SIGNATURE_KEYS = frozenset({"kind", "alt", "title", "src"})
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _MATCHES = frozenset({"pending", "exact", "missing", "ambiguous", "conflict"})
 _OCR_STATES = frozenset({"not_run", "pending", "ready", "inconclusive", "failed"})
@@ -137,6 +139,7 @@ def validate_batch_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
             raise _error(f"{name} deve ser booleano")
 
     dataset_sha256 = _sha(spec["dataset_sha256"], "dataset_sha256", allow_none=True)
+    area_snapshot_sha256 = _sha(spec["area_snapshot_sha256"], "area_snapshot_sha256")
     return {
         "schema_version": SCHEMA_VERSION,
         "source_scope": source_scope,
@@ -147,6 +150,7 @@ def validate_batch_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
         "auto_prepare": spec["auto_prepare"],
         "auto_submit": spec["auto_submit"],
         "dataset_sha256": dataset_sha256,
+        "area_snapshot_sha256": area_snapshot_sha256,
     }
 
 
@@ -179,6 +183,20 @@ def _normalize_observation(raw: Mapping[str, Any], expected: Mapping[str, Any]) 
     action = area.get("action_observed")
     if action is not None:
         action = _text(action, "area_restrita.action_observed", max_length=256)
+    action_signature = area.get("action_signature")
+    if action_signature is not None:
+        if not isinstance(action_signature, Mapping) or set(action_signature) != _ACTION_SIGNATURE_KEYS:
+            raise _error("area_restrita.action_signature possui chaves inválidas")
+        action_signature = {
+            "kind": _text(action_signature.get("kind"), "area_restrita.action_signature.kind", max_length=64),
+            "alt": str(action_signature.get("alt", ""))[:256],
+            "title": str(action_signature.get("title", ""))[:256],
+            "src": _text(action_signature.get("src"), "area_restrita.action_signature.src", max_length=512),
+        }
+        if action_signature["kind"] != "red_complement_icon":
+            raise _error("area_restrita.action_signature.kind inválido")
+    if area.get("needs_complement") is True and action_signature is None:
+        raise _error("pendência exige assinatura do ícone vermelho Complementar Ato")
     snapshot_hash = _sha(area.get("snapshot_hash"), "area_restrita.snapshot_hash")
 
     econtas = raw.get("econtas")
@@ -206,6 +224,7 @@ def _normalize_observation(raw: Mapping[str, Any], expected: Mapping[str, Any]) 
             "marker_value": marker_value,
             "needs_complement": area["needs_complement"],
             "action_observed": action,
+            "action_signature": action_signature,
             "snapshot_hash": snapshot_hash,
         },
         "econtas": {

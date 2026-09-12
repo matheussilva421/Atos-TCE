@@ -622,6 +622,7 @@ export function createAutomationController({
           marker_value: marker.value,
           needs_complement: candidate.needsComplement === true,
           action_observed: candidate.needsComplement === true ? "Complementar Ato" : "Complementar Ato já concluído",
+          action_signature: isRecord(candidate.actionSignature) ? clone(candidate.actionSignature) : null,
           snapshot_hash: snapshotHash,
         },
       });
@@ -629,10 +630,11 @@ export function createAutomationController({
     return rows;
   }
 
-  function markerMatches(snapshot, expectedMarker) {
+  function markerMatches(snapshot, expectedMarker, expectedValue = null) {
     return typeof expectedMarker === "string"
       && expectedMarker.trim() !== ""
-      && normalizeInterested(snapshot?.marker?.label) === normalizeInterested(expectedMarker);
+      && normalizeInterested(snapshot?.marker?.label) === normalizeInterested(expectedMarker)
+      && (expectedValue === null || snapshot?.marker?.value === expectedValue);
   }
 
   async function sendPortalMessage(tabId, type, payload, frameId = null, requestId = null) {
@@ -1240,7 +1242,7 @@ export function createAutomationController({
         response = await send(liveGeneration);
       }
       if (response?.ok !== true) {
-        if (action === "next_page" && isRecord(options.beforeSnapshot)) {
+        if (["first_page", "next_page"].includes(action) && isRecord(options.beforeSnapshot)) {
           // The legacy portal can finish replacing the list iframe while its
           // navigation promise is already reporting a timeout/error. Probe
           // the current frames before pausing; a progressed snapshot is the
@@ -1265,7 +1267,7 @@ export function createAutomationController({
       }
       const snapshot = snapshotFromResponse(response);
       if (snapshot) registerFrame(tabId, frameId, snapshot);
-      if (action === "next_page"
+      if (["first_page", "next_page"].includes(action)
         && !snapshot
         && isRecord(options.beforeSnapshot)) {
         const eventSnapshot = takeExpectedProgressedPaginationSnapshot(tabId, options.beforeSnapshot);
@@ -1281,7 +1283,7 @@ export function createAutomationController({
       }
       return { ok: true, snapshot };
     } catch (error) {
-      if (action === "next_page" && isRecord(options.beforeSnapshot)) {
+      if (["first_page", "next_page"].includes(action) && isRecord(options.beforeSnapshot)) {
         const recovered = await recoverPaginatedSnapshot(tabId, frameId, options.beforeSnapshot);
         if (recovered) {
           if (expectedNavigation === navigation) expectedNavigation = null;
@@ -1321,6 +1323,21 @@ export function createAutomationController({
   async function discoverList(tabId, initial, spec = {}) {
     let current = await ensureMarkerFilter(tabId, initial, spec.marker);
     if (!current) return null;
+    const firstPage = actionFor(current, "first_page");
+    if (firstPage) {
+      const frameId = state.frame?.frameId ?? 0;
+      const moved = await navigate(tabId, frameId, "first_page", null, current.generation, { beforeSnapshot: current });
+      if (!moved.ok) {
+        if (state.status !== "paused") setPaused("não foi possível retornar à primeira página da lista");
+        return current;
+      }
+      current = moved.snapshot ?? (await readPortalSnapshot(tabId, frameId))?.snapshot ?? null;
+      if (!current || current.role !== "list"
+        || !markerMatches(current, spec.marker, spec.markerValue ?? null)) {
+        setPaused("a primeira página não confirmou origem e marcador selecionados");
+        return current;
+      }
+    }
     const pageSignatures = new Set();
     let refreshBeforeAction = false;
     for (let index = 0; index < 100; index += 1) {
@@ -1328,7 +1345,7 @@ export function createAutomationController({
         current = await refreshListGeneration(tabId, current);
         refreshBeforeAction = false;
       }
-      if (spec.marker && !markerMatches(current, spec.marker)) {
+      if (spec.marker && !markerMatches(current, spec.marker, spec.markerValue ?? null)) {
         setPaused("o resultado da paginação perdeu o marcador solicitado");
         return current;
       }
@@ -1365,7 +1382,7 @@ export function createAutomationController({
         setPaused("list navigation did not produce a list screen");
         return current;
       }
-      if (spec.marker && !markerMatches(nextSnapshot, spec.marker)) {
+      if (spec.marker && !markerMatches(nextSnapshot, spec.marker, spec.markerValue ?? null)) {
         setPaused("a próxima página não confirmou o marcador solicitado");
         return current;
       }
@@ -1631,7 +1648,8 @@ export function createAutomationController({
   }
 
   async function analyze(input) {
-    const spec = input?.spec ?? input;
+    const requestedSpec = input?.spec ?? input;
+    let spec = requestedSpec;
     validateAutomationRunSpec(spec);
     if (ACTIVE_STATUSES.has(state.status) && state.runId) {
       const error = new Error("an automation run is already active");
@@ -1677,6 +1695,23 @@ export function createAutomationController({
       setPaused("manual navigation required: process list not visible");
       return { ok: false, error: state.pausedReason, totals: state.totals };
     }
+    const selectedMarker = first.snapshot.marker;
+    if (!isRecord(selectedMarker)
+      || typeof selectedMarker.label !== "string" || selectedMarker.label.trim() === ""
+      || typeof selectedMarker.value !== "string" || selectedMarker.value.trim() === "") {
+      setPaused("nenhum marcador específico está selecionado na Área Restrita");
+      return { ok: false, error: state.pausedReason, totals: state.totals };
+    }
+    if (spec.marker && !markerMatches(first.snapshot, spec.marker, spec.markerValue ?? null)) {
+      setPaused("o marcador selecionado na Área Restrita mudou antes da análise");
+      return { ok: false, error: state.pausedReason, totals: state.totals };
+    }
+    spec = {
+      ...spec,
+      marker: selectedMarker.label,
+      markerValue: selectedMarker.value,
+    };
+    state.marker = selectedMarker.label;
     const discovered = await discoverList(spec.tabId, first.snapshot, spec);
     if (!discovered || state.status === "paused") {
       return { ok: false, error: state.pausedReason ?? "analysis paused", totals: state.totals };
@@ -1684,10 +1719,16 @@ export function createAutomationController({
     const rows = await analysisRows(spec);
     const marker = rows[0]?.area_restrita
       ? { label: rows[0].area_restrita.marker_label, value: rows[0].area_restrita.marker_value }
-      : null;
+      : { label: selectedMarker.label, value: selectedMarker.value };
+    const areaSnapshotSha256 = await sha256Hex({
+      source_scope: spec.sourceScope,
+      marker,
+      rows,
+    });
     const result = {
       source_scope: spec.sourceScope,
       marker,
+      area_snapshot_sha256: areaSnapshotSha256,
       rows,
       totals: clone(state.totals),
       tab_id: spec.tabId,

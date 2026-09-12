@@ -40,7 +40,7 @@ export const MESSAGE_TYPES = Object.freeze({
 const MESSAGE_TYPE_SET = new Set(Object.values(MESSAGE_TYPES));
 const MESSAGE_KEYS = ["schemaVersion", "type", "requestId", "payload"];
 const MATCH_KIND_SET = new Set(["exact", "probable", "tie"]);
-const PORTAL_ACTION_SET = new Set(["next_page", "open_act", "select_interested", "return_list", "filter_marker"]);
+const PORTAL_ACTION_SET = new Set(["first_page", "next_page", "open_act", "select_interested", "return_list", "filter_marker"]);
 const PORTAL_ROLE_SET = new Set(["list", "interested", "form", "buttons", "unknown"]);
 const PORTAL_SOURCE_SCOPE_SET = new Set(["sector_finalistic", "my_processes"]);
 const PORTAL_EVENT_SET = new Set(["snapshot", "navigation", "manual_navigation", "sector_changed", "frame_unavailable"]);
@@ -326,15 +326,18 @@ function validatePayload(type, payload) {
       if (!isRecord(spec)) invalid("AUTO_ANALYZE spec must be an object");
       exactKeysFrom(
         spec,
-        ["sector", "datasetSha256", "rulesVersion", "marker", "sourceScope", "lotSize", "acquisitionSource"],
-        ["tabId"],
+        ["sector", "datasetSha256", "rulesVersion", "sourceScope", "lotSize", "acquisitionSource"],
+        ["tabId", "marker", "analysisOnly"],
         "AUTO_ANALYZE spec",
       );
       nonEmptyString(spec.sector, "AUTO_ANALYZE sector");
-      if (typeof spec.datasetSha256 !== "string" || !/^[0-9a-f]{64}$/u.test(spec.datasetSha256)) invalid("AUTO_ANALYZE datasetSha256 is invalid");
+      if (spec.datasetSha256 !== null && (typeof spec.datasetSha256 !== "string" || !/^[0-9a-f]{64}$/u.test(spec.datasetSha256))) invalid("AUTO_ANALYZE datasetSha256 is invalid");
+      if (spec.datasetSha256 === null && spec.analysisOnly !== true) invalid("AUTO_ANALYZE datasetSha256 is invalid");
       nonEmptyString(spec.rulesVersion, "AUTO_ANALYZE rulesVersion");
-      nonEmptyString(spec.marker, "AUTO_ANALYZE marker");
+      if (Object.hasOwn(spec, "marker")) nonEmptyString(spec.marker, "AUTO_ANALYZE marker");
+      if (Object.hasOwn(spec, "analysisOnly") && typeof spec.analysisOnly !== "boolean") invalid("AUTO_ANALYZE analysisOnly is invalid");
       if (!new Set(["sector_finalistic", "my_processes"]).has(spec.sourceScope)) invalid("AUTO_ANALYZE sourceScope is invalid");
+      if (spec.analysisOnly === true && spec.sourceScope !== "sector_finalistic") invalid("AUTO_ANALYZE analysis sourceScope is invalid");
       if (!Number.isSafeInteger(spec.lotSize) || spec.lotSize < 1 || spec.lotSize > 1000) invalid("AUTO_ANALYZE lotSize is invalid");
       if (spec.acquisitionSource !== "econtas") invalid("AUTO_ANALYZE acquisitionSource is invalid");
       if (Object.hasOwn(spec, "tabId") && (!Number.isSafeInteger(spec.tabId) || spec.tabId < 0)) invalid("AUTO_ANALYZE tabId is invalid");

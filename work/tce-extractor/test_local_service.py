@@ -113,6 +113,7 @@ class LocalServiceTests(unittest.TestCase):
                     "auto_prepare": True,
                     "auto_submit": False,
                     "dataset_sha256": None,
+                    "area_snapshot_sha256": "b" * 64,
                 },
                 "observed_at": "2026-09-10T12:00:00+00:00",
                 "rows": [{
@@ -124,6 +125,7 @@ class LocalServiceTests(unittest.TestCase):
                         "marker_value": "m-1",
                         "needs_complement": True,
                         "action_observed": "Complementar Ato",
+                        "action_signature": {"kind": "red_complement_icon", "alt": "Complementar Ato", "title": "Complementar Ato", "src": "icone-vermelho.png"},
                         "snapshot_hash": "a" * 64,
                     },
                     "econtas": {
@@ -186,6 +188,7 @@ class LocalServiceTests(unittest.TestCase):
                     "auto_prepare": True,
                     "auto_submit": False,
                     "dataset_sha256": None,
+                    "area_snapshot_sha256": "b" * 64,
                 },
                 "observed_at": "2026-09-10T12:00:00+00:00",
                 "rows": [{
@@ -197,6 +200,7 @@ class LocalServiceTests(unittest.TestCase):
                         "marker_value": "m-1",
                         "needs_complement": True,
                         "action_observed": "Complementar Ato",
+                        "action_signature": {"kind": "red_complement_icon", "alt": "Complementar Ato", "title": "Complementar Ato", "src": "icone-vermelho.png"},
                         "snapshot_hash": "a" * 64,
                     },
                     "econtas": {
@@ -231,7 +235,7 @@ class LocalServiceTests(unittest.TestCase):
                 status, _headers, body = json_request(
                     f"{base}/api/v1/analysis/{analysis_id}/acquire",
                     method="POST",
-                    payload={"lot_number": 1},
+                    payload={"selection": "lot", "lot_number": 1},
                     token=token,
                     origin="chrome-extension://test-extension",
                 )

@@ -1,4 +1,4 @@
-const ALLOWED_ACTIONS = new Set(["next_page", "open_act", "select_interested", "return_list", "filter_marker"]);
+const ALLOWED_ACTIONS = new Set(["first_page", "next_page", "open_act", "select_interested", "return_list", "filter_marker"]);
 const NAVIGATION_TIMEOUT_MS = 30_000;
 const LATE_SNAPSHOT_OBSERVER_TIMEOUT_MS = 30_000;
 const DOCUMENT_STATE = new WeakMap();
@@ -176,6 +176,29 @@ function isComplementActControl(control) {
   const signal = [getAttribute(control, "href"), getAttribute(control, "onclick")].join(" ").toLowerCase();
   return signal.includes("complementarato")
     && (signal.includes("addtabsinformacao") || getAttribute(control, "href").toLowerCase().includes("complementarato"));
+}
+
+function pendingComplementIconSignature(control) {
+  if (!isComplementActControl(control)) return null;
+  const images = queryAll(control, "img");
+  const image = images.find((candidate) => {
+    const semantic = normalizeInterested([
+      getAttribute(candidate, "alt"),
+      getAttribute(candidate, "title"),
+      getAttribute(candidate, "src"),
+      getAttribute(candidate, "class"),
+    ].join(" "));
+    return semantic.includes("complementar ato")
+      || semantic.includes("complementarato")
+      || (semantic.includes("complement") && (semantic.includes("vermelh") || semantic.includes("red") || semantic.includes("pendente")));
+  }) ?? null;
+  if (!image) return null;
+  return {
+    kind: "red_complement_icon",
+    alt: getAttribute(image, "alt"),
+    title: getAttribute(image, "title"),
+    src: getAttribute(image, "src"),
+  };
 }
 
 function opensRestrictedComplementTab(control) {
@@ -407,7 +430,11 @@ function listIdentityEntries(documentRef) {
     const fallback = control ?? (candidates.length === 1 ? candidates[0] : null);
     const selectedControl = fallback && (candidates.length === 1 || isComplementActControl(fallback)) ? fallback : null;
     const identity = identityFromRow(row, { processKey: processKeyFromText(textOf(row)) });
-    if (hasCanonicalIdentity(identity)) identity.needsComplement = Boolean(selectedControl);
+    const actionSignature = selectedControl ? pendingComplementIconSignature(selectedControl) : null;
+    if (hasCanonicalIdentity(identity)) {
+      identity.needsComplement = Boolean(actionSignature);
+      identity.actionSignature = actionSignature;
+    }
     return {
       identity,
       row,
@@ -467,6 +494,20 @@ function findNextNavigation(documentRef) {
 
 function findNextControl(documentRef) {
   return findNextNavigation(documentRef)?.control ?? null;
+}
+
+function findFirstControl(documentRef) {
+  const controls = queryAll(documentRef, "nav a, nav button, a, button");
+  const explicit = controls.find((control) => (
+    getAttribute(control, "data-action") === "first-page"
+    || getAttribute(control, "data-action") === "first_page"
+  ));
+  if (explicit) return explicit;
+  const legacy = controls.find((control) => (
+    /NumeroPagina\.value\s*=\s*['"]?1(?:\D|$)/iu.test(getAttribute(control, "href"))
+    && /primeira|first|<<|NumeroPagina/iu.test(`${textOf(control)} ${getAttribute(control, "href")}`)
+  ));
+  return legacy ?? null;
 }
 
 function formField(form, name) {
@@ -651,6 +692,7 @@ function actionSnapshot(documentRef, role) {
       if (entry.control && hasCanonicalIdentity(entry.identity)) actions.push({ action: "open_act", enabled: true, identity: entry.identity });
     }
     const next = findNextNavigation(documentRef);
+    if (findFirstControl(documentRef)) actions.push({ action: "first_page", enabled: true, direction: "first" });
     if (next) actions.push({ action: "next_page", enabled: true, direction: next.direction });
     if (markerFilterControls(documentRef)?.submit) actions.push({ action: "filter_marker", enabled: true });
   }
@@ -740,7 +782,7 @@ function actionIdentity(identity) {
 
 function isProgress(documentRef, before, after, action, identity, requestedMarker = "") {
   if (after.role === "unknown") return false;
-  if (action === "next_page") {
+  if (action === "next_page" || action === "first_page") {
     const beforeKeys = new Set(before.identities.map(({ processKey, interestedNormalized }) => `${processKey}\u0000${interestedNormalized}`));
     return after.role === "list"
       && after.generation !== before.generation
@@ -765,6 +807,7 @@ function navigationError(code, message, extra = {}) {
 }
 
 function resolveControl(documentRef, action, identity) {
+  if (action === "first_page") return findFirstControl(documentRef);
   if (action === "next_page") return findNextControl(documentRef);
   if (action === "return_list") return findReturnControl(documentRef);
   if (action === "open_act") {
@@ -867,7 +910,7 @@ async function executeNavigation(documentRef = globalThis.document, request = {}
     control.click?.();
     return { ok: true, action, snapshot: null, waitingForFrame: true };
   }
-  const legacyPlan = action === "next_page" ? legacyPaginationPlan(documentRef, control) : null;
+  const legacyPlan = (action === "next_page" || action === "first_page") ? legacyPaginationPlan(documentRef, control) : null;
   if (legacyPlan?.error) return navigationError(legacyPlan.error.code, legacyPlan.error.message);
   if (action === "return_list") {
     const topReturn = await closeRestrictedActTab(
@@ -877,7 +920,7 @@ async function executeNavigation(documentRef = globalThis.document, request = {}
     );
     if (topReturn) return topReturn;
   }
-  if (action === "next_page" && legacyPlan) {
+  if ((action === "next_page" || action === "first_page") && legacyPlan) {
     if (!submitLegacyPagination(documentRef, legacyPlan)) {
       return navigationError("PAGINATION_SUBMIT_FAILED", "the legacy pagination form could not be submitted");
     }

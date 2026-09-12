@@ -927,11 +927,11 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
         self._acquisition_jobs: dict[str, dict[str, object]] = {}
         self.service_revision = self.workflow_state.snapshot()["revision"]
 
-    def start_analysis_acquisition(self, analysis_id: str, lot_number: int) -> dict[str, object]:
+    def start_analysis_acquisition(self, analysis_id: str, selection: dict[str, object]) -> dict[str, object]:
         if not ANALYSIS_ID_RE.fullmatch(analysis_id):
             raise _ApiProblem(404, "ANALYSIS_NOT_FOUND", "análise não encontrada")
         try:
-            request = validate_acquisition_request({"lot_number": lot_number})
+            request = validate_acquisition_request(selection)
             snapshot = self.analysis_previews.load(analysis_id)
         except ValueError as error:
             if "lot_number" in str(error):
@@ -940,12 +940,12 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
         lots = snapshot.get("lots")
         if not isinstance(lots, list):
             raise _ApiProblem(409, "LOTS_REQUIRED", "crie os lotes da análise antes da aquisição")
-        lot = next(
+        lot = None if request["selection"] == "all" else next(
             (candidate for candidate in lots
              if isinstance(candidate, dict) and candidate.get("lot_number") == request["lot_number"]),
             None,
         )
-        if lot is None:
+        if request["selection"] == "lot" and lot is None:
             raise _ApiProblem(404, "LOT_NOT_FOUND", "lote não encontrado na análise")
         spec = snapshot.get("spec")
         try:
@@ -956,6 +956,7 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
             for job in self._acquisition_jobs.values():
                 if (
                     job["analysis_id"] == analysis_id
+                    and job["selection"] == request["selection"]
                     and job["lot_number"] == request["lot_number"]
                     and job["process"].poll() is None  # type: ignore[union-attr]
                 ):
@@ -985,6 +986,7 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
                 )
             self._acquisition_jobs[job_id] = {
                 "analysis_id": analysis_id,
+                "selection": request["selection"],
                 "lot_number": request["lot_number"],
                 "process": process,
                 "pid": process.pid,
@@ -994,7 +996,8 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
             "api_version": API_VERSION,
             "analysis_id": analysis_id,
             "job_id": job_id,
-            "lot_number": request["lot_number"],
+            "selection": request["selection"],
+            "lot_number": request["lot_number"] or 0,
             "status": "started",
             "pid": process.pid,
         }
@@ -1012,7 +1015,8 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
                 "api_version": API_VERSION,
                 "analysis_id": analysis_id,
                 "job_id": job_id,
-                "lot_number": job["lot_number"],
+                "selection": job["selection"],
+                "lot_number": job["lot_number"] or 0,
                 "status": status,
                 "pid": job["pid"],
             }
@@ -1357,7 +1361,7 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
         try:
             payload = self._read_json()
             request = validate_acquisition_request(payload)
-            result = self.server_state.start_analysis_acquisition(analysis_id, request["lot_number"])
+            result = self.server_state.start_analysis_acquisition(analysis_id, request)
         except _BodyTooLarge as problem:
             self._error(problem.status, problem.code, str(problem))
             return

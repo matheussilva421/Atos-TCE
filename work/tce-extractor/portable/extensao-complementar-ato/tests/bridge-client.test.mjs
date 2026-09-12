@@ -411,6 +411,7 @@ test('bridge exposes authenticated analysis preview and deterministic lot method
     auto_prepare: true,
     auto_submit: false,
     dataset_sha256: null,
+    area_snapshot_sha256: 'b'.repeat(64),
   };
 
   await bridge.createAnalysisPreview({ spec, rows: [], observedAt: '2026-09-10T12:00:00Z' });
@@ -442,14 +443,32 @@ test('bridge exposes authenticated acquisition start and status for a frozen ana
     },
   });
 
-  const started = await bridge.startAnalysisAcquisition(analysisId, 2);
+  const started = await bridge.startAnalysisAcquisition(analysisId, { selection: 'lot', lotNumber: 2 });
   const observed = await bridge.getAnalysisAcquisition(analysisId, jobId);
 
   assert.equal(started.job_id, jobId);
   assert.equal(observed.status, 'running');
   assert.equal(calls[0].options.method, 'POST');
-  assert.deepEqual(JSON.parse(calls[0].options.body), { lot_number: 2 });
+  assert.deepEqual(JSON.parse(calls[0].options.body), { selection: 'lot', lot_number: 2 });
   assert.match(calls[1].url, /\/analysis\/analysis-aaaaaaaaaaaaaaaaaaaaaaaa\/acquire\/acq-bbbbbbbbbbbbbbbbbbbbbbbb$/u);
+});
+
+test('bridge starts acquisition for every frozen lot with the typed all selection', async () => {
+  const calls = [];
+  const analysisId = `analysis-${'a'.repeat(24)}`;
+  const bridge = createBridgeClient({
+    baseUrl: 'http://127.0.0.1:18743',
+    token: 'test',
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return { ok: true, status: 202, json: async () => ({ api_version: 1, analysis_id: analysisId, job_id: `acq-${'c'.repeat(24)}`, selection: 'all', lot_number: 0, status: 'started', pid: 4321 }) };
+    },
+  });
+
+  const started = await bridge.startAnalysisAcquisition(analysisId, { selection: 'all' });
+
+  assert.equal(started.selection, 'all');
+  assert.deepEqual(JSON.parse(calls[0].options.body), { selection: 'all' });
 });
 
 test('new automation client falls back to manual mode when an old service lacks capabilities', async () => {

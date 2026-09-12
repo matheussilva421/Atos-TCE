@@ -216,6 +216,80 @@ test("analyzes every observed page into sanitized Area Restrita rows without fre
   assert.equal(controller.status().status, "stopped");
 });
 
+test("reads and locks the marker already selected in the Area Restrita without a typed marker or dataset", async () => {
+  const bridge = bridgeMock();
+  const actionSignature = {
+    kind: "red_complement_icon",
+    alt: "Complementar Ato",
+    title: "Complementar Ato",
+    src: "../../images/icone-complementar-ato-vermelho.png",
+  };
+  const firstPage = {
+    ...markerSnapshot("list", 1, [
+      { ...identity("103401/2023", "ana da silva", "act-1"), needsComplement: true, actionSignature },
+    ], [{ action: "next_page", enabled: true }]),
+    source_scope: "sector_finalistic",
+  };
+  const lastPage = {
+    ...markerSnapshot("list", 2, [
+      { ...identity("103402/2023", "bruno de souza", "act-2"), needsComplement: false, actionSignature: null },
+    ], []),
+    source_scope: "sector_finalistic",
+  };
+  const chromeApi = chromeMock([firstPage, lastPage]);
+  const controller = createAutomationController({ chromeApi, bridge });
+
+  const result = await controller.analyze({
+    spec: {
+      ...runSpec(),
+      datasetSha256: null,
+      analysisOnly: true,
+      sourceScope: "sector_finalistic",
+      lotSize: 50,
+      acquisitionSource: "econtas",
+    },
+    eventId: "analysis-selected-marker",
+  });
+
+  assert.deepEqual(result.marker, { label: "PROFESSOR - IPERN - 2 RUBRICAS", value: "marker-2" });
+  assert.equal(result.area_snapshot_sha256.length, 64);
+  assert.deepEqual(result.rows[0].area_restrita.action_signature, actionSignature);
+  assert.equal(chromeApi.calls.some(([, message]) => message.payload?.action === "filter_marker"), false);
+});
+
+test("resets a marker analysis to the first page before collecting every page", async () => {
+  const middle = {
+    ...markerSnapshot("list", 6, [identity("106/2026", "middle", "act-6")], [
+      { action: "first_page", enabled: true, direction: "first" },
+      { action: "next_page", enabled: true, direction: "next" },
+    ]),
+    source_scope: "sector_finalistic",
+  };
+  const first = {
+    ...markerSnapshot("list", 1, [identity("101/2026", "first", "act-1")], [
+      { action: "next_page", enabled: true, direction: "next" },
+    ]),
+    source_scope: "sector_finalistic",
+  };
+  const last = {
+    ...markerSnapshot("list", 2, [identity("102/2026", "last", "act-2")], []),
+    source_scope: "sector_finalistic",
+  };
+  const chromeApi = chromeMock([middle, first, last]);
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  const result = await controller.analyze({ spec: {
+    ...runSpec(), datasetSha256: null, analysisOnly: true,
+    sourceScope: "sector_finalistic", lotSize: 50, acquisitionSource: "econtas",
+  }, eventId: "analysis-middle-page" });
+
+  assert.deepEqual(result.rows.map((row) => row.process_key), ["101/2026", "102/2026"]);
+  const navigations = chromeApi.calls
+    .filter(([, message]) => message.type === "PORTAL_NAVIGATE")
+    .map(([, message]) => message.payload.action);
+  assert.deepEqual(navigations, ["first_page", "next_page"]);
+});
+
 test("allows analyze retry after a guard pauses without a persisted run", async () => {
   const bridge = bridgeMock();
   const goodPage = {
@@ -721,7 +795,7 @@ test("fails closed when a broadcast snapshot does not identify its responding fr
 
 test("recovers the scoped list frame after reload when an unknown frame precedes it", async () => {
   const unknownPage = snapshot("unknown", 1);
-  const sectorPage = { ...PAGE_1, actions: [], source_scope: "sector_finalistic" };
+  const sectorPage = { ...PAGE_1, actions: [], marker: { label: "PROFESSOR - IPERN - 2 RUBRICAS", value: "marker-2" }, source_scope: "sector_finalistic" };
   const myProcessesPage = { ...PAGE_1, actions: [], source_scope: "my_processes" };
   const chromeApi = chromeMock([unknownPage]);
   chromeApi.webNavigation = {

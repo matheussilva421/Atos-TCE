@@ -195,7 +195,7 @@ class HtmlGeneratorTests(unittest.TestCase):
             self.assertEqual(documents[0]["event"], "9")
             self.assertEqual(documents[2]["event"], "0")
 
-    def test_processes_with_priority_documents_appear_before_empty_processes(self):
+    def test_processes_follow_portal_order_even_when_document_priority_differs(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             pdf = root / "resolucao.pdf"
@@ -235,11 +235,24 @@ class HtmlGeneratorTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            payload = build_interface_payload(manifest, checkpoint)
+            archive_index = root / "archive-index.json"
+            archive_index.write_text(
+                json.dumps(
+                    {
+                        "process_keys": ["100064/2022", "103487/2023"],
+                        "processes": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_interface_payload(
+                manifest, checkpoint, archive_index_path=archive_index
+            )
 
             self.assertEqual(
                 [item["process"] for item in payload["processes"]],
-                ["103487/2023", "100064/2022"],
+                ["100064/2022", "103487/2023"],
             )
 
     def test_rendered_html_has_document_badges_counters_and_preserves_controls(self):

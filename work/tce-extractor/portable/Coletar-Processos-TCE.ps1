@@ -11,6 +11,7 @@ param(
     [switch]$ManterNavegadorAberto,
     [switch]$NaoInterativo,
     [switch]$ServiceChild,
+    [switch]$ReutilizarOrdemPortal,
     [ValidateSet('sector_finalistic','my_processes')][string]$EscopoPortal = 'sector_finalistic',
     [ValidateSet('progressivo','completo')][string]$ModoPreparacao = 'progressivo',
     [ValidateRange(1,2)][int]$MaxDownloads = 2,
@@ -30,6 +31,7 @@ Import-Module (Join-Path $scriptRoot 'TceFrozenQueue.psm1') -Force
 $script:CdpSequence = 0
 $script:CdpSocket = $null
 $script:AreaCdpSocket = $null
+$script:PortalToken = $null
 $script:BrowserProcess = $null
 $portalUrl = if ($EscopoPortal -eq 'sector_finalistic') {
     'https://processos.tce.rn.gov.br/#/dashboard/processos-no-setor/no-setor?ProcessosFinalisticosNoSetor=true&setor=CBP'
@@ -68,11 +70,13 @@ function Start-TceBrowser {
         Write-Host "Reutilizando navegador autenticado já aberto." -ForegroundColor Green
         return $existingPort
     }
+    $devToolsPort = Get-TceFreeDevToolsPort
     $portFile = Join-Path $profile 'DevToolsActivePort'
     if (Test-Path -LiteralPath $portFile) { Remove-Item -LiteralPath $portFile -Force }
     $arguments = @(
         "--user-data-dir=`"$profile`"",
-        '--remote-debugging-port=0',
+        "--remote-debugging-port=$devToolsPort",
+        '--remote-allow-origins=*',
         '--no-first-run',
         '--no-default-browser-check',
         '--new-window',
@@ -80,12 +84,14 @@ function Start-TceBrowser {
     )
     $script:BrowserProcess = Start-Process -FilePath $browserExe -ArgumentList $arguments -PassThru
     $limit = [DateTime]::UtcNow.AddSeconds(30)
-    while (-not (Test-Path -LiteralPath $portFile)) {
+    while ($true) {
+        try {
+            $targets = @(Invoke-RestMethod -Uri "http://127.0.0.1:$devToolsPort/json/list" -UseBasicParsing -TimeoutSec 2)
+            if ($targets.Count -gt 0) { return $devToolsPort }
+        } catch { }
         if ([DateTime]::UtcNow -gt $limit) { throw 'O navegador não abriu a porta de automação em 30 segundos.' }
         Start-Sleep -Milliseconds 200
     }
-    $lines = Get-Content -LiteralPath $portFile
-    return [int]$lines[0]
 }
 
 function Connect-TceCdpTarget {
@@ -162,43 +168,8 @@ function Invoke-TceBrowserDownload {
         [Parameter(Mandatory)][string]$Destination,
         [AllowNull()][object]$Context = $null
     )
-    $documentId = [string](Get-TceObjectPropertyValue -InputObject $Document -Name 'id' -Default 'sem-id')
-    $documentUrl = [string](Get-TceObjectPropertyValue -InputObject $Document -Name 'url' -Default '')
-    if (-not $documentUrl) { throw "Documento $documentId não possui endereço de download." }
-    $absoluteUri = [Uri]::new([Uri]'https://processos.tce.rn.gov.br/', $documentUrl)
-    $socket = $script:CdpSocket
-    if ($absoluteUri.Host -eq 'novaarearestrita.tce.rn.gov.br') {
-        if (-not $script:AreaCdpSocket) {
-            $script:AreaCdpSocket = Connect-TceCdpTarget -Port $port -UrlPattern 'novaarearestrita\.tce\.rn\.gov\.br'
-        }
-        $socket = $script:AreaCdpSocket
-    }
-    $urlJson = $absoluteUri.AbsoluteUri | ConvertTo-Json -Compress
-    $expression = @"
-(async()=>{
-  const response = await fetch($urlJson, { credentials: 'include' });
-  if (!response.ok) return { ok: false, status: response.status };
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  let binary = '';
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.length)));
-  }
-  return { ok: true, status: response.status, base64: btoa(binary) };
-})()
-"@
-    $result = Send-TceCdpSocket -Socket $socket -Method 'Runtime.evaluate' -Params @{ expression = $expression; awaitPromise = $true; returnByValue = $true }
-    if ($result.exceptionDetails) {
-        $description = $result.exceptionDetails.exception.description
-        if (-not $description) { $description = $result.exceptionDetails.text }
-        throw "Download no contexto autenticado do Chrome falhou: $description"
-    }
-    $value = $result.result.value
-    if (-not $value.ok) { throw "Download no contexto autenticado do Chrome retornou HTTP $($value.status)." }
-    if ([string]::IsNullOrWhiteSpace([string]$value.base64)) { throw 'O arquivo baixado pelo Chrome veio vazio.' }
-    [IO.File]::WriteAllBytes($Destination, [Convert]::FromBase64String([string]$value.base64))
-    if (-not [IO.File]::Exists($Destination) -or (Get-Item -LiteralPath $Destination).Length -eq 0) {
-        throw 'O arquivo baixado pelo Chrome veio vazio.'
-    }
+    $token = if ($null -ne $Context) { [string]$Context } else { [string]$script:PortalToken }
+    Invoke-TceDownload -Document $Document -Destination $Destination -Token $token
 }
 
 function Wait-TcePage {
@@ -224,6 +195,37 @@ function Show-ProcessList {
     Write-Host 'Comandos: 1,4,8-12 | todos | novos | buscar NOME/PROCESSO' -ForegroundColor Cyan
 }
 
+function Read-TcePersistedPortalProcessOrder {
+    param([Parameter(Mandatory)][string]$ArchiveRoot)
+    $path = Join-Path $ArchiveRoot 'ordem-portal.json'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "Ordem persistida do portal ausente: $path"
+    }
+    try {
+        $order = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+    } catch {
+        throw "Ordem persistida do portal inválida: $($_.Exception.Message)"
+    }
+    if ($order.schema_version -ne 1 -or [string]::IsNullOrWhiteSpace([string]$order.captured_at) -or $null -eq $order.process_keys) {
+        throw "Ordem persistida do portal inválida: $path"
+    }
+    $items = New-Object Collections.ArrayList
+    $seen = @{}
+    foreach ($rawKey in @($order.process_keys)) {
+        $key = ConvertTo-TceCanonicalProcessKey -Process ([pscustomobject]@{ key = [string]$rawKey }) -Context 'ordem persistida do portal'
+        if ($seen.ContainsKey($key)) { throw "ordem persistida do portal: processo duplicado: $key" }
+        $seen[$key] = $true
+        $parts = $key -split '/'
+        [void]$items.Add([pscustomobject]@{
+            key = $key
+            number = $parts[0]
+            year = [int]$parts[1]
+            label = $key
+        })
+    }
+    return @($items.ToArray())
+}
+
 function Invoke-TceDownload {
     param($Document, [string]$Destination, [string]$Token)
     $documentId = [string](Get-TceObjectPropertyValue -InputObject $Document -Name 'id' -Default 'sem-id')
@@ -232,7 +234,8 @@ function Invoke-TceDownload {
     $uri = [Uri]::new([Uri]'https://processos.tce.rn.gov.br/', $documentUrl)
     $headers = @{ 'User-Agent' = 'TCE-Processos-Portatil/1.0' }
     $requiresAuth = [bool](Get-TceObjectPropertyValue -InputObject $Document -Name 'requires_auth' -Default $false)
-    if ($requiresAuth -or $uri.Host -eq 'processos.tce.rn.gov.br') {
+    $trustedTceHosts = @('processos.tce.rn.gov.br', 'novaarearestrita.tce.rn.gov.br')
+    if ($requiresAuth -or $trustedTceHosts -contains $uri.Host) {
         if (-not $Token) { throw 'Sessão sem token para baixar um arquivo autenticado.' }
         $headers.Authorization = $Token
     }
@@ -413,6 +416,7 @@ try {
 
     $session = Invoke-TceJavaScript -Payload @{ operation = 'session' }
     if (-not $session.authenticated) { throw 'Login não detectado. Entre no e-Contas e execute novamente.' }
+    $script:PortalToken = [string]$session.token
     Write-Host "Sessão confirmada. Escopo e-Contas: $EscopoPortal. Setor: $($session.sector)" -ForegroundColor Green
 
     if (-not [string]::IsNullOrWhiteSpace($FilaCongelada) -and -not [string]::IsNullOrWhiteSpace($Selecao)) {
@@ -424,13 +428,21 @@ try {
         $frozen = Read-TceFrozenQueue -Path $FilaCongelada -LotNumber $requestedLot
     }
 
-    [void](Send-TceCdp -Method 'Page.navigate' -Params @{ url = $portalUrl })
-    Wait-TcePage
-    Start-Sleep -Seconds 2
-    $targetKeys = if ($frozen) { @($frozen.items | ForEach-Object process_key) } else { @() }
-    $targetMarker = if ($frozen) { $frozen.marker } else { $null }
-    $allProcesses = @(Invoke-TceJavaScript -Payload @{ operation = 'enumerateProcesses'; targetKeys = $targetKeys; marker = $targetMarker })
-    if (-not $allProcesses.Count) { throw 'Nenhum processo foi encontrado na lista atual.' }
+    if ($ReutilizarOrdemPortal) {
+        $allProcesses = @(Read-TcePersistedPortalProcessOrder -ArchiveRoot $Destino)
+        if (-not $allProcesses.Count) { throw 'A ordem persistida do portal não contém processos.' }
+        Write-Host "Reutilizando ordem do portal já capturada: $($allProcesses.Count) processo(s)." -ForegroundColor Green
+    } else {
+        [void](Send-TceCdp -Method 'Page.navigate' -Params @{ url = $portalUrl })
+        Wait-TcePage
+        Start-Sleep -Seconds 2
+        $targetKeys = if ($frozen) { @($frozen.items | ForEach-Object process_key) } else { @() }
+        $targetMarker = if ($frozen) { $frozen.marker } else { $null }
+        $allProcesses = @(Invoke-TceJavaScript -Payload @{ operation = 'enumerateProcesses'; targetKeys = $targetKeys; marker = $targetMarker })
+        if (-not $allProcesses.Count) { throw 'Nenhum processo foi encontrado na lista atual.' }
+        $portalOrder = Write-TcePortalOrder -ArchiveRoot $Destino -Processes $allProcesses
+        Write-Host "Ordem do portal persistida: $($portalOrder.process_keys.Count) processo(s)." -ForegroundColor Green
+    }
 
     if ($frozen) {
         $byKey = @{}

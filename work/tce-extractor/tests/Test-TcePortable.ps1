@@ -26,6 +26,7 @@ function Assert-True {
 $collectorScriptPath = Join-Path $testDirectory '..\portable\Coletar-Processos-TCE.ps1'
 $collectorText = Get-Content -LiteralPath $collectorScriptPath -Raw -Encoding UTF8
 Assert-True ($collectorText -match "ValidateSet\('progressivo','completo'\).*ModoPreparacao") 'coletor oferece modo progressivo ou completo'
+Assert-True ($collectorText -match '\[switch\]\$ReutilizarOrdemPortal') 'coletor permite retomar usando uma ordem do portal já capturada'
 Assert-True ($collectorText -match 'MaxDownloads') 'coletor expõe limite de downloads'
 Assert-True ($collectorText -match 'Sync-TceProcessManifest[\s\S]*MaxDownloads') 'coletor encaminha limite ao coordenador'
 Assert-True ($collectorText -match 'DownloaderContext') 'coletor separa contexto efêmero do worker de download'
@@ -55,6 +56,42 @@ function Assert-Throws {
             Write-Host "FALHOU: $Name`n  mensagem recebida: $($_.Exception.Message)" -ForegroundColor Red
         }
     }
+}
+
+$portalOrderTestRoot = Join-Path ([IO.Path]::GetTempPath()) ("tce-portal-order-test-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $portalOrderTestRoot -Force | Out-Null
+try {
+    $portalProcesses = @(
+        [pscustomobject]@{ key = '100064 / 2022' },
+        [pscustomobject]@{ key = '103487/2023' }
+    )
+    try {
+        $portalOrder = Write-TcePortalOrder -ArchiveRoot $portalOrderTestRoot -Processes $portalProcesses
+        $persistedPortalOrder = Get-Content -LiteralPath (Join-Path $portalOrderTestRoot 'ordem-portal.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        Assert-Equal @($portalOrder.process_keys) @('100064/2022', '103487/2023') 'ordem do portal normaliza e preserva a sequência capturada'
+        Assert-Equal @($persistedPortalOrder.process_keys) @('100064/2022', '103487/2023') 'ordem do portal é persistida no acervo'
+        Assert-Throws -Action {
+            Write-TcePortalOrder -ArchiveRoot $portalOrderTestRoot -Processes @(
+                [pscustomobject]@{ key = '100064/2022' },
+                [pscustomobject]@{ key = '100064 / 2022' }
+            )
+        } -MessagePattern 'duplicad' -Name 'ordem do portal rejeita processos duplicados'
+    } catch {
+        Assert-True $false ("ordem do portal gravação e validação: $($_.Exception.Message)")
+    }
+} finally {
+    if (Test-Path -LiteralPath $portalOrderTestRoot) { Remove-Item -LiteralPath $portalOrderTestRoot -Recurse -Force }
+}
+
+try {
+    $freeDevToolsPort = Get-TceFreeDevToolsPort
+    $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, [int]$freeDevToolsPort)
+    $listener.Start()
+    $listener.Stop()
+    Assert-True ($freeDevToolsPort -ge 1 -and $freeDevToolsPort -le 65535) 'launcher reserva uma porta DevTools local válida'
+} catch {
+    if ($null -ne $listener) { $listener.Stop() }
+    Assert-True $false ("launcher reserva porta DevTools: $($_.Exception.Message)")
 }
 
 if ($null -eq ('TceSyntheticWebResponse' -as [type])) {
@@ -393,6 +430,8 @@ $launcherText = Get-Content (Join-Path $PSScriptRoot '..\portable\Coletar-Proces
 $driverText = Get-Content (Join-Path $PSScriptRoot '..\portable\TcePortal.Driver.js') -Raw
 Assert-True (-not ($launcherText -match '103439|582647')) 'launcher nao fixa numeros de processos antigos'
 Assert-True ($launcherText -match '\[void\]\(\$socket\.ConnectAsync') 'conexão CDP não despeja objeto técnico no terminal'
+Assert-True (-not ($launcherText -match 'window\.open')) 'downloader não abre a área restrita para baixar documentos'
+Assert-True ($launcherText -match 'Invoke-TceDownload[\s\S]*\$session\.token') 'downloader usa o token da sessão do portal'
 Assert-True ($driverText -match '/api/Processo/.*?/eventos' -and $driverText -match '/api/informacao/') 'driver usa APIs de eventos e arquivos'
 
 $baselineTestRoot = Join-Path ([IO.Path]::GetTempPath()) ("tce-portable-baseline-test-" + [guid]::NewGuid().ToString('N'))

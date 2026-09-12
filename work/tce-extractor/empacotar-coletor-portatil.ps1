@@ -231,6 +231,7 @@ try {
     foreach ($name in @(
         'INICIAR.bat',
         'INICIAR.cmd',
+        'ABRIR-MESA.cmd',
         'Coletar-Processos-TCE.ps1',
         'TcePortable.Core.psm1',
         'TceFrozenQueue.psm1',

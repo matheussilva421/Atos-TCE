@@ -107,6 +107,23 @@ function Get-TceExistingPortalDevToolsPort {
     return $null
 }
 
+function Get-TceFreeDevToolsPort {
+    param([int[]]$Ports = (9222..9242))
+    foreach ($candidate in $Ports) {
+        if ($candidate -lt 1 -or $candidate -gt 65535) { continue }
+        $listener = $null
+        try {
+            $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $candidate)
+            $listener.Start()
+            return $candidate
+        } catch {
+        } finally {
+            if ($null -ne $listener) { $listener.Stop() }
+        }
+    }
+    throw 'Nenhuma porta DevTools local disponível no intervalo configurado.'
+}
+
 function Search-TceProcesses {
     param(
         [Parameter(Mandatory)][object[]]$Processes,
@@ -176,6 +193,30 @@ function Write-TceJsonAtomic {
     } finally {
         if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
     }
+}
+
+function Write-TcePortalOrder {
+    param(
+        [Parameter(Mandatory)][string]$ArchiveRoot,
+        [Parameter(Mandatory)][object[]]$Processes
+    )
+    $canonicalKeys = New-Object 'Collections.Generic.List[string]'
+    $seen = @{}
+    foreach ($process in @($Processes)) {
+        $key = ConvertTo-TceCanonicalProcessKey -Process $process -Context 'ordem do portal'
+        if ($seen.ContainsKey($key)) {
+            throw "ordem do portal: processo duplicado: $key"
+        }
+        $seen[$key] = $true
+        [void]$canonicalKeys.Add($key)
+    }
+    $payload = [ordered]@{
+        schema_version = 1
+        captured_at = [DateTime]::UtcNow.ToString('o')
+        process_keys = [object[]]$canonicalKeys.ToArray()
+    }
+    Write-TceJsonAtomic -Path (Join-Path $ArchiveRoot 'ordem-portal.json') -Value $payload
+    return [pscustomobject]$payload
 }
 
 function Add-TceFailure {
@@ -861,4 +902,4 @@ function Sync-TceProcessManifest {
     }
 }
 
-Export-ModuleMember -Function ConvertTo-TceSafeName, ConvertTo-TceSafeText, Get-TceObjectPropertyValue, Get-TceLiveDevToolsPort, Get-TceExistingPortalDevToolsPort, Search-TceProcesses, Resolve-TceSelection, Write-TceJsonAtomic, Add-TceFailure, Get-TceCheckpoint, Get-TceCheckpointFromSource, Get-TceCompletedProcessKeys, ConvertTo-TceCanonicalProcessKey, Get-TceSha256, Sync-TceProcessManifest
+Export-ModuleMember -Function ConvertTo-TceSafeName, ConvertTo-TceSafeText, Get-TceObjectPropertyValue, Get-TceLiveDevToolsPort, Get-TceExistingPortalDevToolsPort, Get-TceFreeDevToolsPort, Search-TceProcesses, Resolve-TceSelection, Write-TceJsonAtomic, Write-TcePortalOrder, Add-TceFailure, Get-TceCheckpoint, Get-TceCheckpointFromSource, Get-TceCompletedProcessKeys, ConvertTo-TceCanonicalProcessKey, Get-TceSha256, Sync-TceProcessManifest

@@ -2,7 +2,8 @@
     [string]$MenuRoot = '',
     [switch]$LaunchLocalService,
     [switch]$StopLocalService,
-    [switch]$BridgeStatusOnly
+    [switch]$BridgeStatusOnly,
+    [switch]$OpenReview
 )
 
 Set-StrictMode -Version 2.0
@@ -389,7 +390,7 @@ function Invoke-TceMenuAction {
 }
 
 function Start-TcePortableMenu {
-    param([switch]$LaunchLocalService, [switch]$StopLocalService, [switch]$BridgeStatusOnly)
+    param([switch]$LaunchLocalService, [switch]$StopLocalService, [switch]$BridgeStatusOnly, [switch]$OpenReview)
     $appRoot = $script:TceMenuAppRoot
     $codes = Get-TceExitCodes
     $packageRoot = Split-Path -Parent $appRoot
@@ -409,6 +410,21 @@ function Start-TcePortableMenu {
     $extensionExporterPath = Join-Path $appRoot 'extension_exporter.py'
     $resetArchivePath = Join-Path $appRoot 'reset_archive.py'
     $htmlPath = Join-Path $archiveRoot 'complementar-ato.html'
+
+    if ($OpenReview) {
+        $requiredReviewFiles = @(
+            $htmlPath,
+            (Join-Path $archiveRoot 'dados-complementar-ato.json'),
+            (Join-Path $appRoot 'local_service.py'),
+            (Join-Path $appRoot 'web\vendor\pdfjs\pdf.mjs'),
+            (Join-Path $appRoot 'web\vendor\pdfjs\pdf.worker.mjs')
+        )
+        $missingReviewFiles = @($requiredReviewFiles | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
+        if ($missingReviewFiles.Count) {
+            throw "Mesa incompleta. Extraia o ZIP inteiro antes de abrir. Ausente: $([IO.Path]::GetFileName($missingReviewFiles[0]))"
+        }
+        $LaunchLocalService = $true
+    }
 
     $preparationMode = 'progressivo'
     $analyzer = {
@@ -461,6 +477,7 @@ function Start-TcePortableMenu {
         return $LASTEXITCODE
     }.GetNewClosure()
 
+    $service = $null
     if ($LaunchLocalService) {
         try {
             $service = Start-TceLocalService -PackageRoot $packageRoot -ArchiveRoot $archiveRoot -Python $runtime.Python
@@ -472,6 +489,13 @@ function Start-TcePortableMenu {
         } catch {
             Write-Warning 'Serviço local indisponível; continue pelo HTML/JSON manual.'
         }
+    }
+
+    if ($OpenReview) {
+        if ($null -eq $service -or -not $service.review_url) {
+            throw 'Serviço HTTP da mesa não iniciou. Execute DIAGNOSTICAR.cmd e tente novamente.'
+        }
+        return Invoke-TceMenuStep $open $htmlPath $codes.Html
     }
 
     if ($BridgeStatusOnly) {
@@ -531,5 +555,5 @@ function Start-TcePortableMenu {
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
-    exit (Start-TcePortableMenu -LaunchLocalService:$LaunchLocalService -StopLocalService:$StopLocalService -BridgeStatusOnly:$BridgeStatusOnly)
+    exit (Start-TcePortableMenu -LaunchLocalService:$LaunchLocalService -StopLocalService:$StopLocalService -BridgeStatusOnly:$BridgeStatusOnly -OpenReview:$OpenReview)
 }

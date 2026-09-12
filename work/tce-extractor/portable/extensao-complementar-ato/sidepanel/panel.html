@@ -77,9 +77,14 @@
         <button id="analysis-preview-button" type="button" disabled>Analisar pendências no portal</button>
         <button id="analysis-lots-button" type="button" disabled>Criar lotes da análise</button>
         <p id="analysis-status" role="status" aria-live="polite">Nenhuma análise da lista autenticada foi criada.</p>
-        <label for="analysis-lot-number">Lote para baixar e preparar OCR</label>
+        <label for="analysis-selection-mode">Aquisição congelada</label>
+        <select id="analysis-selection-mode" aria-label="Aquisição congelada">
+          <option value="all" selected>Todos os lotes</option>
+          <option value="lot">Um lote</option>
+        </select>
+        <label for="analysis-lot-number">Número do lote (quando escolher um lote)</label>
         <select id="analysis-lot-number" disabled aria-label="Lote para baixar e preparar OCR"></select>
-        <button id="analysis-acquisition-button" type="button" disabled>Baixar e preparar OCR do lote</button>
+        <button id="analysis-acquisition-button" type="button" disabled>Baixar, aplicar OCR e atualizar a mesa</button>
         <p id="analysis-acquisition-status" role="status" aria-live="polite">Nenhuma aquisição de lote iniciada.</p>
         <label><input id="automation-auto-submit" type="checkbox"> Concluir automaticamente os atos elegíveis</label>
         <p class="manual-mode-note">Disponível somente com qualificação de envio ativa. Ao marcar, o portal será preenchido e o botão Complementar Ato será clicado após a confirmação acima.</p>

@@ -164,7 +164,14 @@ function buildListDocument(page, rows, { hasNext = true } = {}) {
   table.append(tbody);
   for (const rowData of rows) {
     const row = new FakeElement("tr", { attrs: { "data-process-key": rowData.processKey } });
-    const link = new FakeElement("a", { text: "Complementar Ato", attrs: { href: `/act/${rowData.processKey}` } });
+    const link = new FakeElement("a", { attrs: { href: `/act/${rowData.processKey}` } });
+    link.append(new FakeElement("img", {
+      attrs: {
+        alt: "Complementar Ato",
+        title: "Complementar Ato",
+        src: "../../images/icone-complementar-ato-vermelho.png",
+      },
+    }));
     link.onClick = () => {
       documentRef.setSurface(buildInterestedSurface(documentRef, rowData));
     };
@@ -1134,6 +1141,54 @@ test("chooses the semantic Complementar Ato icon when a process row has multiple
   assert.equal(result.ok, true);
   assert.equal(details.clickCount, 0);
   assert.equal(complement.clickCount, 1);
+});
+
+test("marks only a row-local red Complementar Ato icon as pending", () => {
+  const documentRef = new FakeDocument({ screen: "list", page: "1" });
+  const table = new FakeElement("table", { id: "tbproc01" });
+  const tbody = new FakeElement("tbody");
+
+  const pendingRow = new FakeElement("tr", { attrs: { "data-process-key": "103401/2023" } });
+  pendingRow.append(cell("103401/2023"), cell("Ana da Silva"));
+  const pendingAction = new FakeElement("a", {
+    attrs: {
+      href: "/SISTEMAS/PROCESSO/ComplementarAto.asp",
+      onclick: "ComplementarAto('103401','2023')",
+    },
+  });
+  pendingAction.append(new FakeElement("img", {
+    attrs: {
+      alt: "Complementar Ato",
+      title: "Complementar Ato",
+      src: "../../images/icone-complementar-ato-vermelho.png",
+    },
+  }));
+  pendingRow.append(pendingAction);
+
+  const completedRow = new FakeElement("tr", { attrs: { "data-process-key": "103402/2023" } });
+  completedRow.append(cell("103402/2023"), cell("Bruno de Souza"));
+  const completedAction = new FakeElement("a", {
+    text: "Complementar Ato",
+    attrs: { href: "/SISTEMAS/PROCESSO/ComplementarAto.asp" },
+  });
+  completedRow.append(completedAction);
+
+  tbody.append(pendingRow, completedRow);
+  table.append(tbody);
+  documentRef.body.append(table);
+
+  const snapshot = snapshotPortalScreen(documentRef);
+  const pending = snapshot.identities.find((candidate) => candidate.processKey === "103401/2023");
+  const completed = snapshot.identities.find((candidate) => candidate.processKey === "103402/2023");
+  assert.equal(pending.needsComplement, true);
+  assert.deepEqual(pending.actionSignature, {
+    kind: "red_complement_icon",
+    alt: "Complementar Ato",
+    title: "Complementar Ato",
+    src: "../../images/icone-complementar-ato-vermelho.png",
+  });
+  assert.equal(completed.needsComplement, false);
+  assert.equal(completed.actionSignature, null);
 });
 
 test("reads Interessado from its headed column when legacy action icons precede it", () => {

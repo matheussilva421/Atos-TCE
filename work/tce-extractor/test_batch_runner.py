@@ -556,7 +556,7 @@ class BatchRunnerTests(unittest.TestCase):
                 root / "runtime" / "tessdata",
                 geometry_cache_path=root / "cache-ocr-geometria.json",
             )
-            build.assert_called_once_with(classified)
+            build.assert_called_once_with(classified, archive_root=root)
             extract.assert_called_once_with(
                 root / "pdfs-alvo-manifest.json",
                 root / "doc.md",

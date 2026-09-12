@@ -1410,11 +1410,18 @@ def audit_package(root: Path, *, distribution: str = "public") -> AuditReport:
     trusted_vendor_files = _audit_manifest_entries(root, report, entries, audited_files)
     for path, _info in audited_files:
         relative = _relative_name(root, path)
+        is_ocr_classification_index = (
+            distribution == "private"
+            and relative.casefold() == f"{_ACERVO_DIRECTORY}/indice-classificado.json"
+        )
         _audit_content(
             report,
             path,
             relative,
-            scan_credentials=relative.casefold() not in trusted_vendor_files,
+            scan_credentials=(
+                relative.casefold() not in trusted_vendor_files
+                and not is_ocr_classification_index
+            ),
         )
     if distribution == "private":
         _audit_progress_snapshot(root, report)

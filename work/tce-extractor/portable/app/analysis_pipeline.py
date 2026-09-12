@@ -922,8 +922,28 @@ def _manifest_page_count(value: object) -> int | None:
     return None
 
 
-def _target_document(document: Mapping[str, object], event: object) -> dict[str, object]:
+def _target_document(
+    document: Mapping[str, object],
+    event: object,
+    *,
+    archive_root: Path | None = None,
+) -> dict[str, object]:
     classification = str(document.get("classification", ""))
+    raw_pdf_path = str(
+        document.get("absolute_path")
+        or document.get("pdf_path")
+        or document.get("relative_path")
+        or ""
+    )
+    if archive_root is not None:
+        root = Path(archive_root).resolve()
+        candidate = Path(raw_pdf_path).expanduser()
+        try:
+            raw_pdf_path = candidate.resolve().relative_to(root).as_posix()
+        except (OSError, ValueError):
+            raw_pdf_path = str(
+                document.get("relative_path") or document.get("pdf_path") or ""
+            ).replace("\\", "/")
     target = {
         "event": str(event),
         "date": str(document.get("date", "")),
@@ -934,12 +954,7 @@ def _target_document(document: Mapping[str, object], event: object) -> dict[str,
         "sha256": document.get("sha256"),
         "page_count": _manifest_page_count(document.get("page_count")),
         "relative_path": document.get("relative_path"),
-        "pdf_path": str(
-            document.get("absolute_path")
-            or document.get("pdf_path")
-            or document.get("relative_path")
-            or ""
-        ),
+        "pdf_path": raw_pdf_path,
     }
     for key in (
         "card_id",
@@ -954,7 +969,11 @@ def _target_document(document: Mapping[str, object], event: object) -> dict[str,
     return target
 
 
-def build_target_manifest(classified: Mapping[str, object]) -> dict[str, object]:
+def build_target_manifest(
+    classified: Mapping[str, object],
+    *,
+    archive_root: Path | None = None,
+) -> dict[str, object]:
     """Build the extraction manifest without discarding non-target classifications."""
     processes: list[dict[str, object]] = []
     if isinstance(classified.get("processes"), list):
@@ -977,7 +996,11 @@ def build_target_manifest(classified: Mapping[str, object]) -> dict[str, object]
                         and document.get("classification") in TARGET_CLASSIFICATIONS
                     ):
                         documents.append(
-                            _target_document(document, event.get("event", ""))
+                            _target_document(
+                                document,
+                                event.get("event", ""),
+                                archive_root=archive_root,
+                            )
                         )
             processes.append({"process": process_name, "documents": documents})
     else:
@@ -993,7 +1016,9 @@ def build_target_manifest(classified: Mapping[str, object]) -> dict[str, object]
                 and document.get("automatic_source") is True
                 and document.get("classification") in TARGET_CLASSIFICATIONS
             ):
-                documents.append(_target_document(document, event))
+                documents.append(
+                    _target_document(document, event, archive_root=archive_root)
+                )
         processes.append(
             {"process": str(classified.get("process", "")), "documents": documents}
         )
@@ -1041,7 +1066,7 @@ def run_local_pipeline(
         geometry_cache_path=geometry_cache_path,
     )
     _write_json_atomic(classified_index_path, classified)
-    manifest = build_target_manifest(classified)
+    manifest = build_target_manifest(classified, archive_root=root)
     _write_json_atomic(manifest_path, manifest)
     extraction = run_manifest(
         manifest_path,

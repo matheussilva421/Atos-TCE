@@ -115,6 +115,12 @@ Assert-True ($launcherText -match '(?i)parar') 'iniciador oferece comando explí
 Assert-True ($launcherText -match '(?i)Hidden') 'iniciador solicita helper oculto'
 Assert-True ($launcherText -match '(?i)LaunchLocalService') 'iniciador inicia a ponte local antes do menu híbrido'
 Assert-True ($launcherText -notmatch '(?i)netsh|firewall|RunOnce|Startup') 'iniciador não cria firewall nem inicialização automática'
+Assert-True ($launcherText -match '(?i)abrir-mesa') 'iniciador oferece comando público abrir-mesa'
+Assert-True ($launcherText -match '(?i)OpenReview') 'abrir-mesa delega para a validação HTTP da mesa'
+$reviewLauncher = Join-Path $PSScriptRoot '..\portable\ABRIR-MESA.cmd'
+Assert-True (Test-Path -LiteralPath $reviewLauncher -PathType Leaf) 'pacote inclui ABRIR-MESA.cmd'
+$reviewLauncherText = if (Test-Path -LiteralPath $reviewLauncher) { Get-Content -LiteralPath $reviewLauncher -Raw } else { '' }
+Assert-True ($reviewLauncherText -match '(?i)INICIAR\.cmd"? abrir-mesa') 'ABRIR-MESA.cmd chama o comando público abrir-mesa'
 
 $safe = ConvertTo-TceSafeText 'warning token=secret Authorization: Bearer header-secret https://temporary.invalid/download?id=1'
 Assert-True ($safe -notmatch 'secret|temporary\.invalid|Authorization|token|Bearer') 'sanitiza mensagem antes de exibir ou persistir'

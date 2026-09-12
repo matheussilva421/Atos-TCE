@@ -953,6 +953,38 @@ class PackageAuditContractTests(unittest.TestCase):
             self.assertIn("hash_divergence", codes)
             self.assertIn("reference_missing", codes)
 
+    def test_private_audit_does_not_treat_document_text_token_as_session_credential(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = root / "acervo-tce"
+            archive.mkdir(parents=True)
+            (archive / "dados-complementar-ato.json").write_text(
+                '{"records":[]}', encoding="utf-8"
+            )
+            (archive / "indice-classificado.json").write_text(
+                json.dumps(
+                    {
+                        "processes": [
+                            {
+                                "documents": [
+                                    {
+                                        "text": "Token: 3ff451d6-0c05-44da-a2de-f9de5d337444"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = self.audit_package(root, distribution="private")
+
+            self.assertNotIn(
+                ("credential_field", "acervo-tce/indice-classificado.json"),
+                {(finding.code, finding.path) for finding in report.findings},
+            )
+
 
 class PackagerContractTests(unittest.TestCase):
     def test_private_wrapper_uses_quiescent_transfer_helper(self):
@@ -1081,6 +1113,7 @@ class PackagerContractTests(unittest.TestCase):
             encoding="utf-8-sig"
         )
         self.assertIn("'INICIAR.bat'", packager)
+        self.assertIn("'ABRIR-MESA.cmd'", packager)
         required_topics = (
             "Primeiro uso",
             "Uso diário",

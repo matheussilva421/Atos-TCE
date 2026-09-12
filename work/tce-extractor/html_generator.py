@@ -274,6 +274,36 @@ def _safe_archive_document(
     }
 
 
+def _preserve_portal_process_order(
+    processes: list[dict[str, object]], archive_index: Mapping[str, object]
+) -> list[dict[str, object]]:
+    portal_keys = archive_index.get("process_keys")
+    if not isinstance(portal_keys, list):
+        return processes
+
+    by_key: dict[str, dict[str, object]] = {}
+    for process in processes:
+        key = str(process.get("process", ""))
+        if key and key not in by_key:
+            by_key[key] = process
+
+    ordered: list[dict[str, object]] = []
+    placed: set[str] = set()
+    for raw_key in portal_keys:
+        key = str(raw_key)
+        process = by_key.get(key)
+        if process is not None:
+            ordered.append(process)
+            placed.add(key)
+
+    ordered.extend(
+        process
+        for process in processes
+        if str(process.get("process", "")) not in placed
+    )
+    return ordered
+
+
 def build_interface_payload(
     manifest_path: Path,
     checkpoint_path: Path,
@@ -376,9 +406,9 @@ def build_interface_payload(
             }
         )
 
-    # Start on actionable records. Processes without either priority document
-    # remain available, but appear after those that can populate the form.
-    processes.sort(key=lambda item: not bool(item["documents"]))
+    # The portal order is the user's working order. Document availability must
+    # not move a process ahead of another process in that sequence.
+    processes = _preserve_portal_process_order(processes, archive_index)
 
     fields = [
         field

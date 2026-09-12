@@ -159,6 +159,7 @@ function buildPanelDocument() {
   addElement(documentRef, "button", "analysis-preview-button");
   addElement(documentRef, "button", "analysis-lots-button");
   addElement(documentRef, "select", "analysis-lot-number");
+  addElement(documentRef, "select", "analysis-selection-mode");
   addElement(documentRef, "button", "analysis-acquisition-button");
   addElement(documentRef, "p", "analysis-acquisition-status");
   addElement(documentRef, "p", "analysis-status");
@@ -637,19 +638,20 @@ test("runs a read-only Area Restrita analysis, shows the count, and creates dete
       bridgeCalls.push(["lots", id]);
       return { analysis_id: id, lots: [{ lot_id: "lot-1", items: [{}] }] };
     },
-    async startAnalysisAcquisition(id, lotNumber) {
-      bridgeCalls.push(["acquire", id, lotNumber]);
-      return { api_version: 1, analysis_id: id, job_id: "acq-" + "b".repeat(24), lot_number: lotNumber, status: "started", pid: 4321 };
+    async startAnalysisAcquisition(id, selection) {
+      bridgeCalls.push(["acquire", id, selection]);
+      return { api_version: 1, analysis_id: id, job_id: "acq-" + "b".repeat(24), lot_number: selection.lotNumber ?? 0, status: "started", pid: 4321 };
     },
   };
   const analysisResult = {
-    source_scope: "my_processes",
+    source_scope: "sector_finalistic",
     marker: { label: "PROFESSOR - IPERN - 2 RUBRICAS", value: "marker-2" },
+    area_snapshot_sha256: "c".repeat(64),
     rows: [{
       process_key: "103439/2023",
       interested_key: "maria de souza",
       area_restrita: {
-        scope: "my_processes",
+        scope: "sector_finalistic",
         marker_label: "PROFESSOR - IPERN - 2 RUBRICAS",
         marker_value: "marker-2",
         needs_complement: true,
@@ -660,8 +662,12 @@ test("runs a read-only Area Restrita analysis, shows the count, and creates dete
   };
   const chromeApi = makeRuntime({ dataset, snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })] });
   const sendMessage = chromeApi.runtime.sendMessage;
+  let analyzeSpec = null;
   chromeApi.runtime.sendMessage = async (message) => {
-    if (message.type === MESSAGE_TYPES.AUTO_ANALYZE) return { ok: true, payload: analysisResult };
+    if (message.type === MESSAGE_TYPES.AUTO_ANALYZE) {
+      analyzeSpec = structuredClone(message.payload.spec);
+      return { ok: true, payload: analysisResult };
+    }
     return sendMessage(message);
   };
   const { app, documentRef } = await startApp({
@@ -677,25 +683,32 @@ test("runs a read-only Area Restrita analysis, shows the count, and creates dete
     () => Boolean(app.getState().automationCapabilities),
     "bridge connection did not load automation capabilities for analysis",
   );
-  documentRef.getElementById("automation-marker").value = "PROFESSOR - IPERN - 2 RUBRICAS";
+  documentRef.getElementById("automation-marker").value = "IGNORAR ESTE CAMPO";
   documentRef.getElementById("automation-source-scope").value = "my_processes";
   documentRef.getElementById("automation-lot-size").value = "50";
   documentRef.getElementById("analysis-preview-button").dispatchEvent(new FakeEvent("click"));
   for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setImmediate(resolve));
   assert.match(documentRef.getElementById("analysis-status").textContent, /1.*complement/iu);
   assert.equal(bridgeCalls[0][0], "preview");
-  assert.equal(bridgeCalls[0][1].spec.source_scope, "my_processes");
+  assert.equal(bridgeCalls[0][1].spec.source_scope, "sector_finalistic");
   assert.equal(bridgeCalls[0][1].spec.lot_size, 50);
   assert.equal(bridgeCalls[0][1].spec.auto_submit, false);
+  assert.equal(bridgeCalls[0][1].spec.dataset_sha256, null);
+  assert.equal(bridgeCalls[0][1].spec.area_snapshot_sha256, "c".repeat(64));
+  assert.equal(analyzeSpec.sourceScope, "sector_finalistic");
+  assert.equal(analyzeSpec.datasetSha256, null);
+  assert.equal(analyzeSpec.analysisOnly, true);
+  assert.equal(Object.hasOwn(analyzeSpec, "marker"), false);
   assert.equal(documentRef.getElementById("analysis-lots-button").disabled, false);
   documentRef.getElementById("analysis-lots-button").dispatchEvent(new FakeEvent("click"));
   for (let index = 0; index < 3; index += 1) await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(bridgeCalls[1], ["lots", analysisId]);
   assert.equal(documentRef.getElementById("analysis-acquisition-button").disabled, false);
   documentRef.getElementById("analysis-lot-number").value = "1";
+  documentRef.getElementById("analysis-selection-mode").value = "lot";
   documentRef.getElementById("analysis-acquisition-button").dispatchEvent(new FakeEvent("click"));
   for (let index = 0; index < 3; index += 1) await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(bridgeCalls[2], ["acquire", analysisId, 1]);
+  assert.deepEqual(bridgeCalls[2], ["acquire", analysisId, { selection: "lot", lotNumber: 1 }]);
   assert.match(documentRef.getElementById("analysis-acquisition-status").textContent, /iniciada|started/iu);
 });
 
@@ -1704,7 +1717,7 @@ test("has structurally associated labels, keyboard focus styles, and disabled in
   const labelTargets = [...html.matchAll(/<label\b[^>]*\bfor="([^"]+)"[^>]*>/giu)].map((match) => match[1]);
   const buttonLabels = [...html.matchAll(/<button\b[^>]*>([^<]+)<\/button>/giu)].map((match) => match[1].trim());
 
-  assert.deepEqual(labelTargets, ["bridge-base-url", "bridge-pairing-code", "search-process", "search-interested", "automation-marker", "automation-source-scope", "automation-lot-size", "analysis-lot-number", "reviewed-checkbox"]);
+  assert.deepEqual(labelTargets, ["bridge-base-url", "bridge-pairing-code", "search-process", "search-interested", "automation-marker", "automation-source-scope", "automation-lot-size", "analysis-selection-mode", "analysis-lot-number", "reviewed-checkbox"]);
   assert.equal(labelTargets.every((target) => inputIds.has(target)), true);
   assert.match(inputTags.find((tag) => /\bid="dataset-file"/iu.test(tag)), /\baria-label="[^"]+"/iu);
   assert.equal(buttonLabels.length, 8);
