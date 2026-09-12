@@ -611,6 +611,151 @@ test("registers an initially zero-sized list frame and emits one typed snapshot 
   assert.equal(events.length, 2);
 });
 
+test("bounds the lifetime of observers when an unknown frame never becomes recognizable", () => {
+  const documentRef = new FakeDocument({ screen: "unknown" });
+  documentRef.defaultView.location.href = "https://novaarearestrita.tce.rn.gov.br/blank.asp";
+  const frameElement = { getBoundingClientRect: () => ({ width: 0, height: 0 }) };
+  documentRef.defaultView.frameElement = frameElement;
+  const observers = [];
+  const timers = [];
+  documentRef.defaultView.setTimeout = (callback, delay) => {
+    timers.push({ callback, delay, cleared: false });
+    return timers.length;
+  };
+  documentRef.defaultView.clearTimeout = (id) => {
+    if (timers[id - 1]) timers[id - 1].cleared = true;
+  };
+  documentRef.defaultView.ResizeObserver = class {
+    constructor() {
+      this.disconnected = false;
+      observers.push(this);
+    }
+
+    observe(target) {
+      assert.equal(target, frameElement);
+    }
+
+    disconnect() {
+      this.disconnected = true;
+    }
+  };
+  documentRef.defaultView.MutationObserver = class {
+    constructor() {
+      this.disconnected = false;
+      observers.push(this);
+    }
+
+    observe() {}
+
+    disconnect() {
+      this.disconnected = true;
+    }
+  };
+  const events = [];
+  const chromeApi = {
+    runtime: {
+      onMessage: { addListener() {} },
+      sendMessage(message) {
+        events.push(message);
+      },
+    },
+  };
+
+  installPortalNavigation({ documentRef, chromeApi });
+
+  assert.equal(events.length, 1);
+  assert.equal(timers.length, 1);
+  assert.ok(timers[0].delay > 0);
+  timers[0].callback();
+
+  assert.ok(observers.every((observer) => observer.disconnected));
+  assert.equal(timers[0].cleared, false);
+  assert.equal(events.length, 1);
+});
+
+test("uses the mutation observer for a top-level unknown frame and cleans it after recognition", async () => {
+  const documentRef = new FakeDocument({ screen: "unknown" });
+  documentRef.defaultView.location.href = "https://novaarearestrita.tce.rn.gov.br/SISTEMAS/Processo/ProcessonoSetor.asp";
+  documentRef.defaultView.frameElement = null;
+  const observers = [];
+  documentRef.defaultView.MutationObserver = class {
+    constructor(callback) {
+      this.callback = callback;
+      this.disconnected = false;
+      observers.push(this);
+    }
+
+    observe(target, options) {
+      assert.equal(target, documentRef.body);
+      assert.deepEqual(options, { childList: true, subtree: true, attributes: true });
+    }
+
+    disconnect() {
+      this.disconnected = true;
+    }
+
+    notify() {
+      this.callback([]);
+    }
+  };
+  const events = [];
+  const chromeApi = {
+    runtime: {
+      onMessage: { addListener() {} },
+      sendMessage(message) {
+        events.push(message);
+      },
+    },
+  };
+
+  installPortalNavigation({ documentRef, chromeApi });
+
+  const table = new FakeElement("table", { id: "tbproc01" });
+  documentRef.body.append(table);
+  observers[0].notify();
+  await Promise.resolve();
+
+  assert.equal(events.length, 2);
+  assert.equal(events[1].payload.event.snapshot.role, "list");
+  assert.equal(events[1].payload.event.snapshot.source_scope, "sector_finalistic");
+  assert.equal(observers.length, 1);
+  assert.equal(observers[0].disconnected, true);
+});
+
+test("cleans a created resize observer when observer installation fails", () => {
+  const documentRef = new FakeDocument({ screen: "unknown" });
+  const frameElement = { getBoundingClientRect: () => ({ width: 0, height: 0 }) };
+  documentRef.defaultView.frameElement = frameElement;
+  let resizeObserver = null;
+  documentRef.defaultView.ResizeObserver = class {
+    constructor() {
+      resizeObserver = this;
+    }
+
+    observe() {
+      throw new Error("observer unavailable");
+    }
+
+    disconnect() {
+      this.disconnected = true;
+    }
+  };
+  const events = [];
+  const chromeApi = {
+    runtime: {
+      onMessage: { addListener() {} },
+      sendMessage(message) {
+        events.push(message);
+      },
+    },
+  };
+
+  installPortalNavigation({ documentRef, chromeApi });
+
+  assert.equal(events.length, 1);
+  assert.equal(resizeObserver.disconnected, true);
+});
+
 test("selects the requested marker and clicks only the scoped Consultar control", async () => {
   const documentRef = buildListDocument("1", [{ processKey: "103401/2023", interested: "Ana da Silva" }]);
   const { select, consult } = addMarkerFilter(documentRef);

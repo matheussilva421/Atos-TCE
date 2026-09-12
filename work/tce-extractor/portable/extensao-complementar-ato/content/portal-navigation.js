@@ -1,5 +1,6 @@
 const ALLOWED_ACTIONS = new Set(["next_page", "open_act", "select_interested", "return_list", "filter_marker"]);
 const NAVIGATION_TIMEOUT_MS = 30_000;
+const LATE_SNAPSHOT_OBSERVER_TIMEOUT_MS = 30_000;
 const DOCUMENT_STATE = new WeakMap();
 
 function isRecord(value) {
@@ -920,7 +921,16 @@ function installPortalNavigation({ documentRef = globalThis.document, chromeApi 
   let lateSnapshotSent = false;
   let mutationObserver = null;
   let resizeObserver = null;
+  let observerCleanupTimer = null;
+  const clearObserverCleanupTimer = () => {
+    if (observerCleanupTimer === null) return;
+    const view = documentRef?.defaultView;
+    const clearTimer = view?.clearTimeout ?? globalThis.clearTimeout;
+    if (typeof clearTimer === "function") clearTimer.call(view ?? globalThis, observerCleanupTimer);
+    observerCleanupTimer = null;
+  };
   const disconnectObservers = () => {
+    clearObserverCleanupTimer();
     mutationObserver?.disconnect?.();
     resizeObserver?.disconnect?.();
     mutationObserver = null;
@@ -964,6 +974,17 @@ function installPortalNavigation({ documentRef = globalThis.document, chromeApi 
       if (typeof MutationObserverConstructor === "function" && target && typeof target === "object") {
         mutationObserver = new MutationObserverConstructor(emitLateSnapshot);
         mutationObserver.observe(target, { childList: true, subtree: true, attributes: true });
+      }
+      if (mutationObserver || resizeObserver) {
+        const view = documentRef?.defaultView;
+        const setTimer = view?.setTimeout ?? globalThis.setTimeout;
+        if (typeof setTimer === "function") {
+          observerCleanupTimer = setTimer.call(view ?? globalThis, () => {
+            observerCleanupTimer = null;
+            disconnectObservers();
+          }, LATE_SNAPSHOT_OBSERVER_TIMEOUT_MS);
+          observerCleanupTimer?.unref?.();
+        }
       }
     } catch {
       disconnectObservers();
