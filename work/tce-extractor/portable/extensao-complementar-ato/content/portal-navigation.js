@@ -913,13 +913,61 @@ function installPortalNavigation({ documentRef = globalThis.document, chromeApi 
     Promise.resolve(handleMessage(message)).then(sendResponse);
     return true;
   });
-  if (typeof chromeApi.runtime.sendMessage === "function") {
-    chromeApi.runtime.sendMessage({
+
+  const sendMessage = chromeApi.runtime.sendMessage;
+  if (typeof sendMessage !== "function") return { handleMessage, registered: true };
+
+  let lateSnapshotSent = false;
+  let mutationObserver = null;
+  let resizeObserver = null;
+  const disconnectObservers = () => {
+    mutationObserver?.disconnect?.();
+    resizeObserver?.disconnect?.();
+    mutationObserver = null;
+    resizeObserver = null;
+  };
+  const emitSnapshot = (snapshot) => sendMessage.call(chromeApi.runtime, {
       schemaVersion: 1,
       type: "PORTAL_EVENT",
       requestId: requestId(),
-      payload: { event: { type: "snapshot", snapshot: snapshotPortalScreen(documentRef) } },
+      payload: { event: { type: "snapshot", snapshot } },
     });
+  const emitLateSnapshot = () => {
+    if (lateSnapshotSent) return;
+    let snapshot;
+    try {
+      snapshot = snapshotPortalScreen(documentRef);
+    } catch {
+      disconnectObservers();
+      return;
+    }
+    if (snapshot.role === "unknown") return;
+    lateSnapshotSent = true;
+    disconnectObservers();
+    emitSnapshot(snapshot);
+  };
+
+  const initialSnapshot = snapshotPortalScreen(documentRef);
+  emitSnapshot(initialSnapshot);
+  if (initialSnapshot.role === "unknown") {
+    try {
+      const view = documentRef?.defaultView;
+      const ResizeObserverConstructor = view?.ResizeObserver ?? globalThis.ResizeObserver;
+      const frameElement = view?.frameElement;
+      if (typeof ResizeObserverConstructor === "function" && frameElement && typeof frameElement === "object") {
+        resizeObserver = new ResizeObserverConstructor(emitLateSnapshot);
+        resizeObserver.observe(frameElement);
+      }
+
+      const MutationObserverConstructor = view?.MutationObserver ?? globalThis.MutationObserver;
+      const target = documentRef?.body ?? documentRef?.documentElement ?? documentRef;
+      if (typeof MutationObserverConstructor === "function" && target && typeof target === "object") {
+        mutationObserver = new MutationObserverConstructor(emitLateSnapshot);
+        mutationObserver.observe(target, { childList: true, subtree: true, attributes: true });
+      }
+    } catch {
+      disconnectObservers();
+    }
   }
   return { handleMessage, registered: true };
 }

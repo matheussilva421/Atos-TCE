@@ -5,6 +5,7 @@ import {
   detectPortalScreen,
   executeNavigation,
   createMessageHandler,
+  installPortalNavigation,
   snapshotPortalScreen,
 } from "../content/portal-navigation.js";
 
@@ -549,6 +550,65 @@ test("does not classify a hidden Area Restrita process frame as the active list"
   hidden.defaultView.frameElement = { hidden: true };
   assert.equal(detectPortalScreen(hidden), "unknown");
   assert.equal(snapshotPortalScreen(hidden).role, "unknown");
+});
+
+test("registers an initially zero-sized list frame and emits one typed snapshot when it becomes visible", async () => {
+  const documentRef = buildListDocument(1, [{ processKey: "103401/2023", interested: "Ana da Silva" }], { hasNext: false });
+  documentRef.defaultView.location.href = "https://novaarearestrita.tce.rn.gov.br/SISTEMAS/PROCESSO/ProcessonoSetor.asp";
+  let rect = { width: 0, height: 0 };
+  const frameElement = { getBoundingClientRect: () => rect };
+  documentRef.defaultView.frameElement = frameElement;
+  const observers = [];
+  const events = [];
+  documentRef.defaultView.ResizeObserver = class {
+    constructor(callback) {
+      this.callback = callback;
+      this.disconnected = false;
+      observers.push(this);
+    }
+
+    observe(target) {
+      assert.equal(target, frameElement);
+    }
+
+    disconnect() {
+      this.disconnected = true;
+    }
+
+    notify() {
+      this.callback([{ target: frameElement }]);
+    }
+  };
+  const chromeApi = {
+    runtime: {
+      onMessage: { addListener() {} },
+      sendMessage(message) {
+        events.push(message);
+      },
+    },
+  };
+
+  installPortalNavigation({ documentRef, chromeApi });
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, "PORTAL_EVENT");
+  assert.equal(events[0].payload.event.snapshot.role, "unknown");
+  assert.equal(observers.length, 1);
+
+  rect = { width: 640, height: 480 };
+  observers[0].notify();
+  await Promise.resolve();
+
+  assert.equal(events.length, 2);
+  assert.equal(events[1].type, "PORTAL_EVENT");
+  assert.equal(events[1].payload.event.type, "snapshot");
+  assert.equal(events[1].payload.event.snapshot.role, "list");
+  assert.equal(events[1].payload.event.snapshot.source_scope, "sector_finalistic");
+  assert.equal(observers[0].disconnected, true);
+
+  observers[0].notify();
+  await Promise.resolve();
+  assert.equal(events.length, 2);
 });
 
 test("selects the requested marker and clicks only the scoped Consultar control", async () => {
