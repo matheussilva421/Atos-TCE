@@ -65,3 +65,7 @@ A primeira revisão do ZIP ainda falhou com PDF real: a lista usava event_id int
 - Limitação observada fora da abertura inicial: cliques muito rápidos de zoom podem provocar renderizações concorrentes e mensagem de fallback. A conferência final usou zoom sequencial aguardando renderização. Não declarar esse comportamento corrigido. Abrir PDF continua disponível.
 - Outros limites preservados: nova coleta autenticada depende do login humano; ambiguidades jurídicas exigem revisão. Nenhum ato enviado, automação cancelada.
 - Arquivos adicionais: html_generator.py, portable/app/local_service.py e test_manual_review_browser.py, além de guias e documentos previamente listados.
+
+## Publicação confirmada
+
+Código e documentação publicados em origin/main: commit c53cdf1 (fix: restore manual portable review and PDF document links), push bem-sucedido em 12/09/2026. Este fechamento documental segue no commit seguinte. ZIP local ignorado pelo Git; entregar o link do arquivo -pdf-corrigido. Não retomar automação. Nenhum processo ou PDF privado foi publicado.
