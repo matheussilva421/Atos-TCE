@@ -43,7 +43,7 @@ from automation_store import (
     RevisionConflict as AutomationRevisionConflict,
     RunNotFound,
 )
-from html_generator import render_html
+from html_generator import build_interface_payload, render_html
 from legal_context import LEGAL_CONTEXT_VERSION, _normalise_interested
 from prepare_transfer import _acquire_operation_lock, _active_runtime, _release_operation_lock, transfer_requested
 from qualification import expected_qualification_versions, inspect_qualification
@@ -1462,11 +1462,23 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
         except (OSError, ValueError, json.JSONDecodeError):
             self._error(500, "PUBLICATION_INVALID", "ponteiro de publicação inválido")
             return
-        if publication is None:
-            self._error(404, "REVIEW_DATA_NOT_FOUND", "snapshot de revisão não encontrado")
-            return
         try:
-            payload = self._review_payload_for_browser(_read_object(publication[1]))
+            if publication is None:
+                root = self.server_state.workflow_root
+                manifest = _safe_file(root, "pdfs-alvo-manifest.json")
+                checkpoint = _safe_file(root, "checkpoint-extracao.json")
+                if manifest is None or checkpoint is None:
+                    self._error(404, "REVIEW_DATA_NOT_FOUND", "execute a extração local antes de abrir a conferência")
+                    return
+                payload = build_interface_payload(
+                    manifest, checkpoint,
+                    archive_index_path=_safe_file(root, "indice-classificado.json"),
+                    visual_evidence_path=_safe_file(root, "evidencias-visuais.json"),
+                )
+                payload["manual_review"] = True
+            else:
+                payload = _read_object(publication[1])
+            payload = self._review_payload_for_browser(payload)
             html = render_html(payload)
         except (OSError, ValueError, json.JSONDecodeError, TypeError):
             self._error(500, "REVIEW_DATA_INVALID", "snapshot de revisão inválido")

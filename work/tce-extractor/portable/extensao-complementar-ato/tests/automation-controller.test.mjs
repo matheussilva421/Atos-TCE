@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createAutomationController } from "../background/automation-controller.js";
+import { validateAutomationEvent } from "../lib/automation-schema.js";
+import { resolveLegalFoundation } from "../lib/legal-foundation.js";
 import { MESSAGE_TYPES } from "../lib/messages.js";
 
 const HASH = "a".repeat(64);
@@ -588,6 +590,38 @@ test("does not pause for its own loading marker but pauses for an external loadi
   assert.equal(controller.status().pausedReason, "manual navigation detected");
 });
 
+test("native tab loading without frame metadata keeps the pilot running through an act subframe load", async () => {
+  const target = identity("103401/2023", "ana da silva", "act-1");
+  const chromeApi = activeChromeMock(snapshot("list", 1, [target], [{ action: "open_act", enabled: true, identity: target }]));
+  const navigationListeners = [];
+  chromeApi.webNavigation = { onBeforeNavigate: { addListener(listener) { navigationListeners.push(listener); } } };
+  const original = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    if (message.type === "PORTAL_NAVIGATE") chromeApi.fireTabUpdated(tabId, { status: "loading" });
+    return original(tabId, message, options);
+  };
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+  await controller.start({ spec: runSpec(), eventId: "native-load" });
+  for (const listener of navigationListeners) listener({ tabId: 7, frameId: 88 });
+  chromeApi.fireTabUpdated(7, { status: "loading" });
+  assert.equal(controller.status().status, "running");
+  assert.equal(controller.status().pausedReason, null);
+});
+
+test("native top-frame navigation still pauses the pilot while other tabs do not", async () => {
+  const target = identity("103401/2023", "ana da silva", "act-1");
+  const chromeApi = activeChromeMock(snapshot("list", 1, [target], [{ action: "open_act", enabled: true, identity: target }]));
+  const navigationListeners = [];
+  chromeApi.webNavigation = { onBeforeNavigate: { addListener(listener) { navigationListeners.push(listener); } } };
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+  await controller.start({ spec: runSpec(), eventId: "native-top-load" });
+  for (const listener of navigationListeners) listener({ tabId: 8, frameId: 0 });
+  assert.equal(controller.status().status, "running");
+  for (const listener of navigationListeners) listener({ tabId: 7, frameId: 0 });
+  assert.equal(controller.status().status, "paused");
+  assert.equal(controller.status().pausedReason, "manual navigation detected");
+});
+
 test("pauses when a same-tab loading event has the wrong navigation token or frame", async () => {
   const activePage = snapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
     { action: "open_act", enabled: true, identity: identity("103401/2023", "ana da silva", "act-1") },
@@ -626,6 +660,31 @@ test("accepts a same-frame loading event when Chrome omits its navigation marker
   const started = await controller.start({ spec: runSpec(), eventId: "start-missing-loading-marker" });
   assert.equal(started.status, "running");
   assert.notEqual(started.pausedReason, "navigation token/frame mismatch");
+});
+
+test("keeps running when the legacy portal reloads its own act subframe outside a navigation", async () => {
+  const activePage = snapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
+    { action: "open_act", enabled: true, identity: identity("103401/2023", "ana da silva", "act-1") },
+  ]);
+  const chromeApi = activeChromeMock(activePage);
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  const started = await controller.start({ spec: runSpec(), eventId: "start-act-subframe-reload" });
+  assert.equal(started.status, "running");
+
+  // Live evidence (tmp/fase41/act-post-response.html): the act screen carries
+  // `body onload="includeDataJs()"` next to the dvLoading fadeOut and reloads
+  // its own nested screens whenever the portal advances a step, always after
+  // the navigation promise has already settled. Chrome reports those loads with
+  // a non-zero frameId; they are portal churn, not the operator taking over.
+  chromeApi.fireTabUpdated(7, { status: "loading", frameId: 3 });
+  assert.equal(controller.status().status, "running");
+  assert.equal(controller.status().pausedReason, null);
+
+  // A frameless load is still the top-level tab navigation the gate protects.
+  chromeApi.fireTabUpdated(7, { status: "loading" });
+  assert.equal(controller.status().status, "paused");
+  assert.equal(controller.status().pausedReason, "manual navigation detected");
 });
 
 test("binds an explicitly identified non-zero frame from the initial snapshot response", async () => {
@@ -1488,7 +1547,7 @@ function preparationContext() {
     process_key: PREP_IDENTITY.processKey,
     interested_normalized: PREP_IDENTITY.interestedNormalized,
     resolution_status: "complete",
-    operative_text: "RESOLVE: Art. 40, § 5º.",
+    operative_text: "RESOLVE: Art. 3º, incisos I a III e parágrafo único, da EC nº 47/2005.",
     pages: [],
     context_revision: 12,
     rules_version: "legal-foundation-v1",
@@ -1496,14 +1555,10 @@ function preparationContext() {
 }
 
 function preparationLegalDecision() {
-  return {
-    status: "selected",
-    method: "rule",
-    rule_id: "EC41_COM_P5",
-    option_value: PREP_VALUES.fundamento_legal,
-    option_label: "Regra do professor",
-    rules_version: "legal-foundation-v1",
-  };
+  return resolveLegalFoundation({
+    context: preparationContext(),
+    options: preparationFormSnapshot().options.fundamento_legal,
+  });
 }
 
 function preparationFormSnapshot(fields = {}) {
@@ -1512,7 +1567,10 @@ function preparationFormSnapshot(fields = {}) {
     interested: { original: "Ana da Silva", normalized: PREP_IDENTITY.interestedNormalized },
     options: {
       modalidade: [{ value: PREP_VALUES.modalidade, label: "Especial" }],
-      fundamento_legal: [{ value: PREP_VALUES.fundamento_legal, label: "Regra do professor" }],
+      fundamento_legal: [{
+        value: PREP_VALUES.fundamento_legal,
+        label: "Civil - Artigo 3º, incisos I a III e parágrafo único, da Emenda Constitucional nº 47/2005",
+      }],
       genero: [{ value: PREP_VALUES.genero, label: "Feminino" }],
     },
     fields: Object.fromEntries(PREP_FIELDS.map((field) => [field, {
@@ -1523,22 +1581,24 @@ function preparationFormSnapshot(fields = {}) {
   };
 }
 
-function preparationPortalSnapshots() {
+function preparationPortalSnapshots(sourceScope = null) {
+  const scoped = (entry) => ({ ...entry, source_scope: sourceScope });
   return {
-    list: snapshot("list", 1, [PREP_IDENTITY], [{ action: "open_act", enabled: true, identity: PREP_IDENTITY }]),
-    interested: snapshot("interested", 2, [{ ...PREP_IDENTITY, selected: false }], [{ action: "select_interested", enabled: true, identity: PREP_IDENTITY }]),
-    form: snapshot("form", 3, [], [{ action: "return_list", enabled: true, identity: PREP_IDENTITY }]),
-    returned: snapshot("list", 4, [PREP_IDENTITY], []),
+    list: scoped(snapshot("list", 1, [PREP_IDENTITY], [{ action: "open_act", enabled: true, identity: PREP_IDENTITY }])),
+    interested: scoped(snapshot("interested", 2, [{ ...PREP_IDENTITY, selected: false }], [{ action: "select_interested", enabled: true, identity: PREP_IDENTITY }])),
+    form: scoped(snapshot("form", 3, [], [{ action: "return_list", enabled: true, identity: PREP_IDENTITY }])),
+    returned: scoped(snapshot("list", 4, [PREP_IDENTITY], [])),
   };
 }
 
-function preparationChromeMock({ initialFields = {}, afterApplyFields = null, submitResponse = null } = {}) {
+function preparationChromeMock({ initialFields = {}, afterApplyFields = null, afterApplyPortal = null, submitResponse = null, sourceScope = null, startAt = "list", staleGenerationOnce = [], staleGenerationAlways = false } = {}) {
   const calls = [];
   const removedListeners = [];
   const updatedListeners = [];
-  const pages = preparationPortalSnapshots();
-  let current = pages.list;
+  const pages = preparationPortalSnapshots(sourceScope);
+  let current = pages[startAt];
   let formFields = { ...initialFields };
+  const staleReported = new Set();
   return {
     calls,
     storage: { session: { async get() { return {}; }, async set() {} } },
@@ -1550,6 +1610,19 @@ function preparationChromeMock({ initialFields = {}, afterApplyFields = null, su
           return { ok: true, frameId, payload: structuredClone(current) };
         }
         if (message.type === MESSAGE_TYPES.PORTAL_NAVIGATE) {
+          const staleOnce = staleGenerationOnce.includes(message.payload.action) && !staleReported.has(message.payload.action);
+          if (staleGenerationAlways || staleOnce) {
+            // The restricted act screen repaints itself right after boot (body
+            // onload plus the jQuery fadeOut animation), so the navigation gate
+            // rejects anything sent with the generation observed before that
+            // repaint and reports the generation the frame is actually on.
+            if (staleOnce) staleReported.add(message.payload.action);
+            return {
+              ok: false,
+              error: { code: "STALE_GENERATION", message: "portal screen generation changed before navigation" },
+              generation: current.generation + 1,
+            };
+          }
           if (message.payload.action === "open_act") current = pages.interested;
           if (message.payload.action === "select_interested") current = pages.form;
           if (message.payload.action === "return_list") current = pages.returned;
@@ -1565,6 +1638,10 @@ function preparationChromeMock({ initialFields = {}, afterApplyFields = null, su
         }
         if (message.type === MESSAGE_TYPES.APPLY_FIELDS) {
           formFields = afterApplyFields ? { ...afterApplyFields } : { ...formFields, ...message.payload.fields };
+          // The restricted portal mutates the act screen on its own after the
+          // first observation (body onload plus a jQuery fadeOut animation),
+          // so the post-apply snapshot must be configurable per test.
+          if (afterApplyPortal) current = { ...current, ...afterApplyPortal };
           return {
             ok: true,
             frameId,
@@ -1594,6 +1671,7 @@ function preparationBridge({ failEventType = null } = {}) {
   const bridge = bridgeMock();
   let revision = 1;
   bridge.appendAutomationEvent = async (runId, event) => {
+    validateAutomationEvent(event);
     bridge.calls.push(["event", runId, structuredClone(event)]);
     if (event.type === failEventType) throw new Error("event persistence unavailable");
     revision += 1;
@@ -1621,6 +1699,24 @@ function preparationResolverCalls(calls, overrides = {}) {
     };
   };
 }
+
+test("no-send pilot persists a review pause and leaves the verified form open", async () => {
+  const chromeApi = preparationChromeMock();
+  const bridge = preparationBridge();
+  const controller = createAutomationController({ chromeApi, bridge, resolveAutomaticAct: preparationResolverCalls([]) });
+  const spec = { ...runSpec(), mode: "pilot", pilotIdentity: PREP_IDENTITY, autoSubmit: false };
+  const result = await controller.start({ spec, eventId: "review-pilot" });
+  assert.equal(result.status, "paused");
+  assert.equal(result.pausedReason, "pilot prepared; review the fields before continuing");
+  assert.deepEqual(persistedEventTypes(bridge), ["item_prepared", "fields_verified"]);
+  assert.equal(bridge.calls.filter(([name]) => name === "pause").length, 1);
+  assert.equal(chromeApi.calls.some(([, message]) => message.payload?.action === "return_list"), false);
+  assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO), false);
+  const writes = chromeApi.calls.filter(([, message]) => message.type === MESSAGE_TYPES.APPLY_FIELDS);
+  assert.equal(writes.length, 1);
+  await controller.handlePortalEvent({ tabId: 7, frameId: 0, type: "screen_changed", snapshot: preparationPortalSnapshots().form });
+  assert.equal(chromeApi.calls.filter(([, message]) => message.type === MESSAGE_TYPES.APPLY_FIELDS).length, 1);
+});
 
 test("prepares and verifies the discovered form through typed APPLY_FIELDS without sending", async () => {
   const resolverCalls = [];
@@ -1664,6 +1760,158 @@ test("prepares and verifies the discovered form through typed APPLY_FIELDS witho
   assert.match(verifiedEvent.payload.fieldResults.cargo.expectedHash, /^[0-9a-f]{64}$/u);
   assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO), false);
   assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.OVERRIDE_FIELD), false);
+});
+
+test("retries the act navigation once when the portal reports a newer screen generation", async () => {
+  const bridge = preparationBridge();
+  const chromeApi = preparationChromeMock({ staleGenerationOnce: ["select_interested"] });
+  const controller = createAutomationController({
+    chromeApi,
+    bridge,
+    resolveAutomaticAct: preparationResolverCalls([]),
+  });
+
+  const result = await controller.start({ spec: runSpec(), eventId: "start-stale-act-generation" });
+
+  const selects = chromeApi.calls.filter(([, message]) => message.type === MESSAGE_TYPES.PORTAL_NAVIGATE
+    && message.payload.action === "select_interested");
+  assert.equal(result.status, "completed");
+  assert.equal(result.pausedReason ?? null, null);
+  assert.equal(selects.length, 2);
+  assert.equal(selects[0][1].payload.expected_generation, 2);
+  // The retry keeps the action and the canonical identity and only carries the
+  // generation the navigation gate reported, so every identity and value gate
+  // still runs against the current screen.
+  assert.equal(selects[1][1].payload.expected_generation, 3);
+  assert.deepEqual(selects[1][1].payload.identity, PREP_IDENTITY);
+  assert.deepEqual(bridge.calls.filter(([name]) => name === "event").map(([, , event]) => event.type), [
+    "item_prepared",
+    "fields_verified",
+  ]);
+  assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO), false);
+});
+
+test("pauses instead of retrying forever when the portal keeps reporting newer generations", async () => {
+  const bridge = preparationBridge();
+  const chromeApi = preparationChromeMock({ staleGenerationAlways: true });
+  const controller = createAutomationController({
+    chromeApi,
+    bridge,
+    resolveAutomaticAct: preparationResolverCalls([]),
+  });
+
+  const result = await controller.start({ spec: runSpec(), eventId: "start-stale-act-loop" });
+
+  const navigations = chromeApi.calls.filter(([, message]) => message.type === MESSAGE_TYPES.PORTAL_NAVIGATE);
+  assert.equal(result.status, "paused");
+  assert.equal(navigations.length, 2);
+  assert.equal(result.pausedReason, "portal screen changed under the run; manual intervention required");
+  assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.APPLY_FIELDS), false);
+});
+
+async function rehydratedActPilot({ sourceScope = "sector_finalistic", startAt = "form" } = {}) {
+  const resolverCalls = [];
+  const bridge = preparationBridge();
+  const chromeApi = preparationChromeMock({ sourceScope, startAt });
+  const controller = createAutomationController({
+    chromeApi,
+    bridge,
+    resolveAutomaticAct: preparationResolverCalls(resolverCalls),
+  });
+  await controller.rehydrate({
+    api_version: 1,
+    run_id: "run-rehydrated-act",
+    revision: 4,
+    status: "running",
+    items: [{
+      item_id: PREP_IDENTITY.processKey,
+      ordinal: 1,
+      identity: PREP_IDENTITY,
+      state: "queued",
+    }],
+    last_confirmed_item_id: null,
+  }, {
+    ...runSpec(),
+    mode: "pilot",
+    pilotIdentity: PREP_IDENTITY,
+    sourceScope,
+  });
+  return { controller, chromeApi, bridge, resolverCalls };
+}
+
+function persistedEventTypes(bridge) {
+  return bridge.calls.filter(([name]) => name === "event").map(([, , event]) => event.type);
+}
+
+test("rehydrated running pilot resumes its queued identity from the act form snapshot and prepares it without sending", async () => {
+  const sourceScope = "sector_finalistic";
+  const { controller, chromeApi, bridge, resolverCalls } = await rehydratedActPilot();
+
+  await controller.handlePortalEvent({
+    tabId: 7,
+    frameId: 21,
+    type: "snapshot",
+    snapshot: preparationPortalSnapshots(sourceScope).form,
+  });
+
+  const applyCalls = chromeApi.calls.filter(([, message]) => message.type === MESSAGE_TYPES.APPLY_FIELDS);
+  assert.equal(resolverCalls.length, 1);
+  assert.deepEqual(resolverCalls[0].resolvedIdentity, PREP_IDENTITY);
+  assert.equal(resolverCalls[0].formSnapshot.identity.processKey, PREP_IDENTITY.processKey);
+  assert.equal(resolverCalls[0].formSnapshot.frameId, 21);
+  assert.equal(applyCalls.length, 1);
+  assert.deepEqual(Object.keys(applyCalls[0][1].payload.fields), PREP_FIELDS);
+  assert.deepEqual(persistedEventTypes(bridge), ["item_prepared", "fields_verified"]);
+  assert.equal(controller.status().status, "paused");
+  assert.equal(controller.status().pausedReason, "pilot prepared; review the fields before continuing");
+  assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO), false);
+  assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.AUTO_SUBMIT_COMMAND), false);
+});
+
+test("rehydrated pilot stays parked when the act form snapshot carries a diverging identity", async () => {
+  const sourceScope = "sector_finalistic";
+  const { controller, chromeApi, bridge, resolverCalls } = await rehydratedActPilot();
+
+  await controller.handlePortalEvent({
+    tabId: 7,
+    frameId: 21,
+    type: "snapshot",
+    snapshot: {
+      ...snapshot("form", 3, [], [{
+        action: "return_list",
+        enabled: true,
+        identity: identity("103440/2023", "bruno de souza", "act-other"),
+      }]),
+      source_scope: sourceScope,
+    },
+  });
+
+  assert.equal(controller.status().status, "running");
+  assert.equal(controller.status().currentIdentity, null);
+  assert.equal(resolverCalls.length, 0);
+  assert.deepEqual(persistedEventTypes(bridge), []);
+  assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.APPLY_FIELDS), false);
+});
+
+test("rehydrated pilot does not invent an identity from a generic return_list act snapshot", async () => {
+  const sourceScope = "sector_finalistic";
+  const { controller, chromeApi, bridge, resolverCalls } = await rehydratedActPilot();
+
+  await controller.handlePortalEvent({
+    tabId: 7,
+    frameId: 21,
+    type: "snapshot",
+    snapshot: {
+      ...snapshot("form", 3, [], [{ action: "return_list", enabled: true }]),
+      source_scope: sourceScope,
+    },
+  });
+
+  assert.equal(controller.status().status, "running");
+  assert.equal(controller.status().currentIdentity, null);
+  assert.equal(resolverCalls.length, 0);
+  assert.deepEqual(persistedEventTypes(bridge), []);
+  assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.APPLY_FIELDS), false);
 });
 
 test("fails closed when the integrated resolver cannot persist automation events", async () => {
@@ -1740,6 +1988,42 @@ test("rejects a post-apply catalog or field-state change across all seven fields
     "item_failed",
   ]);
   assert.match(bridge.calls.at(-1)[2].payload.error, /catalog|state|option|field/u);
+});
+
+test("verifies the prepared act when the portal mutates its own act screen between the snapshot and the reread", async () => {
+  const bridge = preparationBridge();
+  const chromeApi = preparationChromeMock({ afterApplyPortal: { generation: 9 } });
+  const controller = createAutomationController({
+    chromeApi,
+    bridge,
+    resolveAutomaticAct: preparationResolverCalls([]),
+  });
+
+  const result = await controller.start({ spec: runSpec(), eventId: "start-portal-self-mutation" });
+
+  assert.deepEqual(persistedEventTypes(bridge), ["item_prepared", "fields_verified"]);
+  assert.equal(result.status, "completed");
+  assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO), false);
+  const verifiedEvent = bridge.calls.find(([name, , event]) => name === "event" && event.type === "fields_verified")[2];
+  assert.equal(verifiedEvent.payload.rereads[0].generation, 9);
+});
+
+test("fails the prepared act when the portal leaves the act screen during preparation", async () => {
+  const bridge = preparationBridge();
+  const chromeApi = preparationChromeMock({ afterApplyPortal: { role: "list", generation: 12 } });
+  const controller = createAutomationController({
+    chromeApi,
+    bridge,
+    resolveAutomaticAct: preparationResolverCalls([]),
+  });
+
+  await controller.start({ spec: runSpec(), eventId: "start-surface-drift" });
+
+  assert.equal(chromeApi.calls.filter(([, message]) => message.type === MESSAGE_TYPES.APPLY_FIELDS).length, 1);
+  assert.deepEqual(persistedEventTypes(bridge), ["item_prepared", "item_failed"]);
+  assert.equal(bridge.calls.at(-1)[2].payload.error, "portal surface changed during preparation");
+  assert.equal(bridge.calls.at(-1)[2].payload.reason, "fields verification failed");
+  assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO), false);
 });
 
 test("does not partially write when the preflight snapshot contains a divergent field", async () => {

@@ -275,3 +275,256 @@ três caminhos acima cobrem exatamente os 8 arquivos de `git status`; `tmp/` e
 `work/tce-extractor/outputs/` são ignorados pelo `.gitignore`. Se aparecer
 `dubious ownership`, repetir com
 `git -c safe.directory='C:/Users/slvma/Downloads/Github/Complementação de Atos'`.
+
+---
+
+## Atualização 2026-09-12 — defeito 5 (deriva de geração), defeito 6 (retomada de identidade) e estado para a retomada
+
+**Status:** Fase 4.1 concluída; a Tarefa 4.2 continua **NÃO PASSA / bloqueada**.
+Nada foi promovido e nenhum `APPLY_FIELDS` real ocorreu. Os checkboxes formais
+de 4.2 seguem desmarcados no plano. Este bloco **para** a execução: nenhum
+piloto foi iniciado na sessão que o escreveu.
+
+### Defeito 5 — o portal repinta a própria tela de ato e a navegação desistia
+
+Ao contrário dos defeitos 1 a 3, este não é corrida de eventos nem registro
+tardio: é **contrato de geração**. A tela de ato montada pelo portal executa
+`body onload="includeDataJs()"` e desvanece `#dvLoading` no `window load`,
+então o *fingerprint* de conteúdo (`currentGeneration` em
+`content/portal-navigation.js`) avança **depois** de o controlador já ter
+observado a moldura. Duas consequências opostas foram tratadas:
+
+1. **Navegação recusada pelo gate.** O controlador enviava
+   `expected_generation` com o valor da observação anterior e recebia
+   `STALE_GENERATION`; o `setPaused("portal frame unavailable")` resultante
+   escondia a causa real e deixava o item em `queued`.
+   Correção em `background/automation-controller.js`: retry **único** da mesma
+   ação contra a geração que o próprio gate reportou, com
+   `noteFrameGeneration()` gravando a geração viva no registro de frames, e
+   `navigationFailureReason()` distinguindo as três saídas — `tab closed`,
+   `portal screen changed under the run; manual intervention required` e
+   `portal frame unavailable`. Testes:
+   `retries the act navigation once when the portal reports a newer screen generation`
+   e `pauses instead of retrying forever when the portal keeps reporting newer
+   generations` (o segundo prova que o retry **não** é laço: a segunda recusa
+   pausa o run).
+2. **Verificação recusada por deriva de geração.** `verifyPreparedSnapshot`
+   exigia `portalBefore.generation === portalAfter.generation`; a repintura de
+   boot do próprio ato fazia uma preparação **correta** ser rejeitada. A deriva
+   agora é provada estruturalmente, e não por igualdade de fingerprint: a
+   moldura precisa continuar sendo superfície de ato
+   (`ACT_SURFACE_ROLES = new Set(["form", "buttons"])`) **e** a releitura campo
+   a campo precisa reproduzir cada valor planejado sobre o catálogo de opções
+   inalterado. Testes:
+   `verifies the prepared act when the portal mutates its own act screen between
+   the snapshot and the reread` (GREEN) e
+   `fails the prepared act when the portal leaves the act screen during
+   preparation` (continua fail-closed: sair da superfície de ato barra a
+   preparação). O motivo de falha mudou para
+   `portal surface changed during preparation`.
+3. **Repintura lida como intervenção humana.** O listener
+   `chromeApi.tabs.onUpdated` pausava o run com `manual navigation detected` a
+   cada recarga da **submoldura** do ato, que o portal refaz sozinho e sempre
+   depois de a promessa de navegação do controlador já ter resolvido. O listener
+   agora ignora `changeInfo.frameId` diferente de `0`; o guarda de divergência
+   de verdade continua sendo o snapshot canônico do ato (identidade, moldura,
+   geração e igualdade de campos). Teste:
+   `keeps running when the legacy portal reloads its own act subframe outside a
+   navigation`.
+
+### Defeito 6 — retomada sem identidade corrente na tela de ato
+
+Quando o service worker morre entre `open_act` e o boot da moldura do ato, o
+run reiniciado fica sem `currentIdentity` e o item fica parado em `queued`
+para sempre, mesmo com a tela de ato mostrando o interessado. Correção em
+`automation-controller.js` (`resumeIdentityFromActSnapshot`): uma moldura de
+ato que publica `return_list` traz a identidade canônica daquele interessado, e
+o run adota o **próximo item enfileirado** apenas quando essa identidade é
+exatamente igual. Nunca inventa identidade a partir de snapshot genérico.
+Testes: `rehydrated running pilot resumes its queued identity from the act form
+snapshot and prepares it without sending` (GREEN: prepara **sem enviar**),
+`rehydrated pilot stays parked when the act form snapshot carries a diverging
+identity` e `rehydrated pilot does not invent an identity from a generic
+return_list act snapshot` (ambos fail-closed).
+
+### Correções menores do mesmo bloco (TDD)
+
+- `lib/bridge-client.js` — `wireEventPayload()` converte `identity` para o
+  formato de rede dentro de eventos, em vez de repassar o objeto interno cru.
+  Teste: `event payload without identity is forwarded without fabricating one`.
+- `lib/legal-foundation.js` — `candidateRuleId()` deriva `rule_id` da família
+  candidata quando a opção do portal não declara id próprio, preservando o
+  vínculo com o catálogo. Teste:
+  `names the matched catalog rule when portal options carry no rule id`.
+
+Esses defeitos estão corrigidos **no contrato local/sintético**. Suíte verde
+**não** promove a Tarefa 4.2: faltam os três preflights portal-reais.
+
+### Gates desta sessão
+
+- `node --test tests/automation-controller.test.mjs`: **59/59 aprovados, 0 falhas**.
+- `npm test`: **359/359 aprovados, 0 falhas**.
+- `node --check` nos arquivos de runtime: ok.
+- `git diff --check`: **limpo**.
+- `git status --short --branch`: `main`, `HEAD = b8c0024` == `origin/main`,
+  **6 arquivos portable modificados e ainda não publicados**.
+
+| Arquivo | SHA-256 (portable == live) |
+| --- | --- |
+| `background/automation-controller.js` | `F08D6BF2B907305D4DDDFF111CC7E2E3E8A7A132379DF3C7DF1AD360F6EFC53B` |
+| `background/service-worker.js` | `B55DA19BBCE4ECCD4D6D8432B3E04BE93F78D6EBA1A70D7F3FA0999875D2867F` |
+| `content/portal-navigation.js` | `F7B95447753F3DC2F4BAB0A885BBE39757C3A964ED26026A897FF2B1C665EFC5` |
+| `content/form-detector.js` | `DBDFC9C62F78090A5D91C3F241861A2E6E4BDDCEB1C10096936422FAFE382447` |
+| `lib/bridge-client.js` | `95C3A66651317D6C1FF95C65A272FB8AD768ACED66E709E5FC0E1ED985B99DCE` |
+| `lib/legal-foundation.js` | `8DF09A071A26A10B59A845E62663051F3A9EB2D29E0487AB02104D8CBC2A2F02` |
+
+Portable e pacote live estão byte a byte idênticos nos seis. O live é um
+subconjunto sem `tests/`.
+
+### Causa real do bloqueio agora (depois dos reloads da extensão)
+
+O run não é barrado pelo portal: é barrado por **estado de sessão da extensão**.
+Verificado ao vivo, com o Chrome isolado e a bridge de pé:
+
+1. `chrome.storage.session` tem **apenas** `frame-registrations:v1: []`. O
+   reload da extensão apaga o registro de molduras **e** as credenciais da
+   bridge, porque ambos vivem em `storage.session`.
+2. Os contextos da extensão trazem **só** `TAB`
+   (`sidepanel/panel.html`, tabId 1899399451); não há service worker ativo —
+   normal no MV3 até existir evento, mas significa que nada foi registrado desde
+   o reload.
+3. O painel exibe literalmente `Falha no pareamento: pareamento rejeitado` e
+   `Tela incompatível: formulário Complementar Ato não detectado`.
+4. O `pairing_code` vivo (`[código temporário omitido]`, gravado no boot da bridge às 11:28:01)
+   **expirou**: `app/bridge_auth.py` usa `ttl=timedelta(seconds=120)` e
+   `max_attempts=5`, e o código é emitido uma única vez em
+   `app/local_service.py` (`_write_runtime_metadata`). **Não há reemissão sem
+   reiniciar a bridge**: sem restart, todo pareamento devolve `PAIRING_REJECTED`.
+5. A moldura da lista está viva mas **sem filtro de marcador**: frame 82
+   (`ProcessonoSetor.asp`, `source_scope=sector_finalistic`, generation 2)
+   reporta `marker: null` e `identity_count: 0`. O filtro do valor `6189` se
+   perdeu no reload. A leitura dessa lista é por resposta de rede, não pelo DOM;
+   por isso `identity_count` fica 0 na sondagem de mensagens.
+
+### Fato de arquitetura que a matriz de bloqueio anterior superestimou
+
+O registro de molduras **não** bloqueia a descoberta. `readPortalSnapshot` faz
+*broadcast* (`sendPortalMessage(tabId, …, frameId = null)`) e aceita qualquer
+resposta com `role` e `source_scope` corretos, sem exigir moldura registrada. O
+`FRAME_NOT_REGISTERED` observado antes vem de `currentTabRegistration()`
+(`background/service-worker.js`), que só guarda os handlers de mensagem do
+**painel** (pareamento, prévia, `AUTO_STATUS`). Ou seja: painel e prévia exigem
+registro; o run não. Um `frame-registrations:v1` vazio explica falha de
+pareamento e de prévia, **não** impede a automação por si só.
+
+### Por que a tela de ato ainda não é um formulário
+
+`ComplementarAto.asp` abre como `role: "interested"` com **um** rádio
+(`name="escolha"`, `onclick="ComplementarAto('58084','APO',…)"`). Os seis campos
+obrigatórios só nascem **depois** desse clique, e `FORM_READY` só é emitido
+quando os nove sentinelas existem (`txtNumeroProcesso`, `txtAnoProcesso`,
+`txtModalidade`, `txtFundamentoLegal`, `txtDataDOE`, `txtCargo`,
+`txtMatricula`, `txtDataNascimento`, `txtGenero`). O fluxo real é
+`open_act` → `interested` → `select_interested` → `form`, e não
+`open_act` → `form`.
+
+### Estado dos ativos no momento deste handoff
+
+- Bridge de pé: **pid 20564**, porta **18743**, raiz
+  `work/tce-extractor/outputs/live-real-fase11h-sector-lot50`, modo
+  `--automation-pilot`; `/health` responde **401** sem token (esperado).
+- Chrome isolado de trabalho: CDP **127.0.0.1:19232** (pid 28564); tab do portal
+  **1899399381** (`telaPrincipalMenu.asp`, 12 molduras).
+- Molduras: 0, 74, 75, 78, 79, 80, 81, 82, 83, 84, 85, 86. Lista em **82**
+  (`marker: null`), botões da lista em **83**, o ato `100065/2026` em **84**
+  (wrapper `telaDeTrabalho.asp`) e **85** (`role: interested`, 1 identidade),
+  botões do ato em **86**.
+- Último run: `run-51d3169773174d5893ced37362e0d418`, `state stopped`,
+  revisão **2**, item `100065/2026 → queued`, exatamente **2 eventos**
+  (`queue_frozen`, `run_stopped` em `2026-09-12T14:38:17Z`). **Zero
+  `APPLY_FIELDS`, zero preenchimento, zero envio.**
+- Todos os runs recentes estão `stopped`; nenhum run ativo.
+- A seleção do rádio feita em inspeções anteriores foi reversível e **não**
+  conta como preflight.
+
+### Retomada exata
+
+1. **Reiniciar a bridge** para obter código de pareamento fresco:
+   `tmp/fase41/restart-bridge-18743-safe.ps1`. Sem isso o pareamento continuará
+   sendo rejeitado por TTL.
+2. **Parear uma única vez** pelo painel
+   (`tmp/fase41/pair-pilot-19232-safe.py`) com o código recém-emitido e
+   confirmar no painel que `Tela atual` deixa de dizer "Tela incompatível".
+3. **Reaplicar o marcador** `6189` (rótulo observado
+   `PROFESSOR - IPERN - 2 RUBRICAS (470)`) com
+   `tmp/fase41/filter-sector-marker-19232-safe.py`. O controlador também tem
+   `ensureMarkerFilter` (ação `filter_marker`), então o próprio run pode
+   reaplicá-lo se a política permitir — mas confirmar o marcador antes de
+   começar evita preflight sobre lista errada.
+4. **Reabrir o ato** do candidato com
+   `tmp/fase41/open-candidate-19232-safe.py 100065/2026` (a tabId muda; conferir
+   com `tmp/fase41/probe-tabs-sendmessage-19232-safe.py`). Evitar
+   `tmp/fase41/ext-reload-19232-safe.py`: cada reload apaga
+   `chrome.storage.session`.
+5. **Piloto explícito** com
+   `tmp/fase41/start-explicit-pilot-safe.py 100065/2026 <tabId>`. Alvos de
+   observação: `item_prepared` e `fields_verified` presentes, **sem**
+   `REQUEST_COMPLEMENTAR_ATO`; depois ler o DOM com
+   `tmp/fase41/read-form-values-19232-safe.py` e comparar campo a campo; por
+   fim, `tmp/fase41/auto-stop-run-safe.py <runId> <rev>`.
+6. **Repetir para os três alvos** (esquema de envio: `AUTO_START` =
+   `{spec, eventId}`; `AUTO_STOP`/`AUTO_PAUSE` = `{runId, eventId, expectedRevision}`):
+
+   - `100065/2026` — identidade conferida em evidência privada, identificador
+     `[omitido]`, **EC 47/2005** (option `7`), `PROFESSOR SUPLEMENTAR P9-C`,
+     matrícula `102.135-4/1`, nascimento `20/05/1964`, DOE `24.04.2024`,
+     modalidade `12`, `hideIdRegistroAto=58084`.
+   - `100273/2025` — identidade em evidência privada — **EC 41/2003** —
+     `PROFESSOR PN - III, Classe "E"`, matrícula `119.565-4/1`, nascimento
+     `21/07/1964`, DOE `26/06/2020`.
+   - `103795/2025` — identidade em evidência privada — **ECE 20/2020 c/ EC 41/2003** —
+     `PROFESSOR PERMANANTE NIVEL - III, Classe "G"`, matrícula `110.081-5/1`,
+     nascimento `02/06/1968`, DOE `19/04/2024`.
+   - Descartado: `103777/2025` identidade em evidência privada (sem
+     `data_nascimento`; não pode ser contado como preflight).
+
+7. Só depois dos três preflights reais, atualizar plano, ledger e este handoff.
+   Publicar em `origin/main` **com autorização explícita antes do push**.
+
+### Publicação deste bloco
+
+Escrito e validado nesta sessão. A staging é nominal e cobre **exatamente** os 6
+arquivos portable de `git status` mais este handoff e o ledger; `tmp/` e
+`work/tce-extractor/outputs/` são ignorados pelo `.gitignore`.
+
+---
+
+## Solicitações do usuário que continuam pendentes (não são código)
+
+Estas respostas foram pedidas pelo usuário e **ainda não foram entregues**; elas
+não bloqueiam a Tarefa 4.2, mas precisam de resposta do próximo agente:
+
+1. **Por que não dá para fazer a complementação só por script, sem a extensão.**
+   O portal não expõe API: a sessão da Área Restrita é cookie de navegador e cada
+   etapa é uma navegação ASP com frames aninhados (`telaDeTrabalho.asp` →
+   `ComplementarAto.asp` → `botoesNovo.asp`). Um script externo precisaria
+   reimplementar sessão, frames, catálogo de modalidades/fundamentos e o estado
+   do rádio do interessado, e passaria a ser um login automatizado de terceiro,
+   sem os guardas do piloto. A extensão roda **dentro** da página autenticada do
+   operador, reaproveitando a sessão humana e mantendo a escrita limitada a
+   `APPLY_FIELDS` com releitura e `autoSubmit=false`.
+2. **Viabilidade de um pacote portátil em ZIP para PC sem instalação.** É
+   viável: o pacote live já é autocontido (Python embutido em `runtime/python`,
+   `dados-locais`, extensão em pasta) e não exige instalação, apenas navegador
+   com carregamento de extensão descompactada e o serviço local em
+   `127.0.0.1`. O que **não** é portátil sem preparo é o navegador: o Chrome de
+   trabalho foi lançado de um Chromium do Playwright e a extensão é carregada por
+   perfil dedicado. Fechar isso como entrega é um bloco de trabalho separado, com
+   checklist próprio (perfil pré-carregado, atalho de inicialização e verificação
+   de ID/manifest).
+3. **Annotation pendente:** explicação, em linguagem simples, de *service worker,
+   sidepanel, pareamento, bridge e corridas entre mensagens* — os termos que
+   descrevem a arquitetura da extensão do piloto.
+# Escopo cancelado pelo usuário em 12/09/2026
+
+A automação foi abandonada a pedido do usuário. Não retomar os pilotos descritos neste histórico. Entrega atual: ZIP de coleta, extração, HTML e extensão manual, documentado em `2026-09-12-pacote-manual-handoff.md`. Tarefa 4.2 não concluída. Nenhum ato enviado; bridge piloto encerrada.

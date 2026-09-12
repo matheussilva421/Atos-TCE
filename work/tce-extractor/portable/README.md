@@ -1,5 +1,13 @@
 # Coletor portátil de processos do TCE/RN
 
+> **Entrega de 12/09/2026 — coleta, extração, HTML e extensão manual.**
+> Abra `GUIA-RAPIDO.html` e use a opção **6 — Fluxo completo** de `INICIAR.cmd`.
+> Depois importe `acervo-tce\dados-complementar-ato.json` na extensão. Pareamento
+> não é necessário para a importação manual. As funções experimentais de
+> execução automática descritas adiante estão fora desta entrega; não use
+> Iniciar execução, piloto ou conclusão automática. O ZIP limpo não contém
+> processos prontos: HTML e JSON são criados após coleta e análise.
+
 Para começar sem precisar conhecer os arquivos técnicos, abra
 `GUIA-RAPIDO.html`. A mesma orientação está disponível em texto no arquivo
 `GUIA-RAPIDO.md`.

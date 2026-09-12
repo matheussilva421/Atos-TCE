@@ -230,8 +230,16 @@ function wireEvent(value) {
     expected_revision: value.expectedRevision,
     item_id: value.itemId,
     type: value.type,
-    payload: value.payload,
+    payload: wireEventPayload(value.payload),
   };
+}
+
+function wireEventPayload(payload) {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)
+    || !Object.hasOwn(payload, "identity")) {
+    return payload;
+  }
+  return { ...payload, identity: wireIdentity(payload.identity) };
 }
 
 function wireControl(value) {

@@ -281,6 +281,12 @@ function familyForOption(option, references) {
   return sourceFamilies(references)[0] ?? "OTHER";
 }
 
+function candidateRuleId(option, candidateFamily) {
+  const declared = String(option.rule_id ?? "");
+  if (RULE_IDS.has(declared)) return declared;
+  return RULE_IDS.has(candidateFamily) ? candidateFamily : null;
+}
+
 function diplomaFamilyKey(reference) {
   const type = reference.diploma?.type;
   if (!new Set(["ec", "ece", "cf", "ce"]).has(type)) return null;
@@ -513,7 +519,7 @@ export function resolveLegalFoundation({ context, options = [] } = {}) {
         option_index: option.index,
         option_value: option.value,
         option_label: option.label,
-        rule_id: RULE_IDS.has(option.rule_id) ? option.rule_id : null,
+        rule_id: candidateRuleId(option, scored.candidateFamily),
         score: scored.score,
         method: scored.method,
         reasons: scored.reasons,

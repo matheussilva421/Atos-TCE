@@ -315,3 +315,81 @@ The scan below records every task self-consistency check and every pair with a s
   byte-identical to portable. Task 4.2 remains **NÃO PASSA / blocked**: no live
   portal run happened in this session, the isolated CDP and bridge were not
   running, and no `APPLY_FIELDS`, fill, send or finalization occurred.
+
+
+- Task 4.2 generation-drift and identity-resume TDD (2026-09-12): two
+  runtime defects were reproduced read-only and corrected with RED/GREEN tests.
+  (a) Generation drift: the legacy act screen repaints itself after the first
+  observation (`body onload="includeDataJs()"` plus the `#dvLoading` fade), so
+  the navigation gate rejected a correct action with `STALE_GENERATION` and the
+  preparation reread rejected a correct preparation on unequal generation
+  fingerprints. `background/automation-controller.js` now re-issues the same
+  action once against the generation the gate reported, records it through
+  `noteFrameGeneration()`, distinguishes failure reasons through
+  `navigationFailureReason()`, accepts generation drift only while the frame
+  remains an act surface (`ACT_SURFACE_ROLES = form | buttons`) and every field
+  rereads its planned value over an unchanged option catalog, and ignores
+  `tabs.onUpdated` notifications whose `frameId` is not 0. New tests:
+  `keeps running when the legacy portal reloads its own act subframe outside a
+  navigation`, `retries the act navigation once when the portal reports a newer
+  screen generation`, `pauses instead of retrying forever when the portal keeps
+  reporting newer generations`, `verifies the prepared act when the portal
+  mutates its own act screen between the snapshot and the reread`, and
+  `fails the prepared act when the portal leaves the act screen during
+  preparation` (still fail-closed). (b) Identity resume: a service worker that
+  dies between `open_act` and the act frame boot left the restarted run parked
+  in `queued` with `currentIdentity=null`; the controller now adopts the next
+  queued identity only when the act snapshot's own `return_list` identity
+  matches it exactly (`resumeIdentityFromActSnapshot`). Tests:
+  `rehydrated running pilot resumes its queued identity from the act form
+  snapshot and prepares it without sending`,
+  `rehydrated pilot stays parked when the act form snapshot carries a diverging
+  identity`, and `rehydrated pilot does not invent an identity from a generic
+  return_list act snapshot`. Two smaller contract fixes came with the block:
+  `lib/bridge-client.js` converts `identity` inside event payloads for the wire
+  (`event payload without identity is forwarded without fabricating one`) and
+  `lib/legal-foundation.js` derives `rule_id` from the matched catalog family
+  when the portal option declares none (`names the matched catalog rule when
+  portal options carry no rule id`). Gates: focal controller suite 59/59,
+  extension suite 359/359, `node --check` and `git diff --check` clean. The
+  live package under `work/tce-extractor/outputs/live-real-fase11h-sector-lot50`
+  is byte-identical to portable for all six files
+  (`automation-controller.js` `F08D6BF2…`, `bridge-client.js` `95C3A666…`,
+  `legal-foundation.js` `8DF09A07…`). No pilot was started in this block.
+
+- Live blocker narrowed to extension session state (2026-09-12): with the
+  isolated Chrome (CDP 19232) and the pilot bridge (pid 20564, port 18743,
+  `--automation-pilot`) both alive, the automation was blocked by extension
+  session state rather than by the portal. `chrome.storage.session` held only
+  `frame-registrations:v1: []` after the earlier extension reloads, and the
+  panel reported `Falha no pareamento: pareamento rejeitado` with
+  `Tela incompatível: formulário Complementar Ato não detectado`. The bridge
+  pairing code `[omitted temporary code]` was issued once at boot (11:28:01) and expired:
+  `app/bridge_auth.py` sets `ttl=timedelta(seconds=120)` with
+  `max_attempts=5`, so `PAIRING_REJECTED` is unconditional until the bridge is
+  restarted (`tmp/fase41/restart-bridge-18743-safe.ps1`). The portal stayed on
+  `sector_finalistic` with frame 82 (`ProcessonoSetor.asp`, generation 2)
+  reporting `marker: null` and `identity_count: 0` because the `6189` marker
+  filter was lost in the reload, the act `100065/2026` opened as
+  `role: interested` with one identity (frames 84/85/86), and every recent run
+  was `stopped` — the last one,
+  `run-51d3169773174d5893ced37362e0d418`, held exactly the `queue_frozen` and
+  `run_stopped` events with one item still `queued`. Architectural correction
+  recorded for the next agent: frame registration does **not** gate discovery,
+  because `readPortalSnapshot` broadcasts with `frameId = null` and accepts any
+  response carrying the right `role` and `source_scope`; the
+  `FRAME_NOT_REGISTERED` path in `background/service-worker.js` only guards the
+  panel message handlers. Task 4.2 remains **NÃO PASSA / blocked**; no
+  `APPLY_FIELDS`, no fill, no send and no finalization occurred, and the formal
+  checkboxes stay unchecked.
+# Atualização 2026-09-12 — recuperação portal-real em andamento
+
+> **Escopo substituído pelo usuário:** automação cancelada; entregar ZIP para coleta, extração, HTML e extensão manual. Não retomar Fase 4.2/envio. Estado final e pacote em docs/notes/2026-09-12-pacote-manual-handoff.md.
+
+Entrega manual concluída: outputs/TCE-Coleta-Extracao-HTML-Extensao-2026-09-12.zip (98.301.282 bytes), SHA-256 b0a8766355af6d0c5b1a526704199f365391c7e74905256cd988a6ae1a29efae. Extensão 362/362; Python 136 aprovados e 2 skips de 138; menu 83/83; coletor 114/114; pacote offline/CRC/auditoria aprovados; pipeline real local produziu seis campos, HTML e JSON; extensão testada em Chrome descartável. Nenhum envio. Login/coleta real no destino permanece ação do usuário.
+
+Novo handoff: docs/notes/2026-09-12-recuperacao-preflight-handoff.md. Pareamento recuperado. Reproduzido defeito no contrato nativo de tabs.onUpdated: não contém frameId; mocks anteriores ocultavam pausa indevida. RED 2/2, GREEN 61/61 após distinguir navegação principal via webNavigation. Primeiro run chegou a item_prepared/fields_verified sem envio, porém fechava o formulário. Correção TDD em andamento para pausar piloto sem envio no formulário e permitir conferência visual. 4.2 ainda não promovida.
+
+## Entrega manual final — PDF conferido (2026-09-12)
+
+Automação cancelada por pedido do usuário. ZIP final: outputs/TCE-Coleta-Extracao-HTML-Extensao-2026-09-12-pdf-corrigido.zip, SHA256 85faeea8972810949e331710e2f03c6274bc37fc24e3ec4a4842347532f7edd5. Coleta, extração/OCR, HTML e extensão manual incluídos; acervo/credenciais excluídos. Gate anterior de canvas era insuficiente. RED/GREEN da rota manual sem publicação e da identidade de evento divergente; PDF real renderizado pela extração final, foto conferida. Suíte Python ampliada 166/163 pass/0 fail/3 skips, extensão 362/362, menu 83/83, coletor 114/114, integridade e CRC aprovados. Limites e reprodução em docs/notes/2026-09-12-pacote-manual-handoff.md. Fase 4.2 cancelada, nunca marcada PASS. Staging nominal e publicação no fechamento da entrega.

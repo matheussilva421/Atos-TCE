@@ -27,6 +27,8 @@ const option = (rule_id, value, label, selectable = true) => ({
   selectable,
 });
 
+const portalOption = (value, label) => ({ value, label, selectable: true });
+
 test("parses an EC article reference without collapsing ECE or losing paragraph", () => {
   const references = parseLegalReferences(
     "Art. 6º, § 5º da EC nº 41/2003 e art. 7º da ECE nº 41/2003",
@@ -111,6 +113,25 @@ test("resolves EC47 article 3 structurally and preserves ranking and citations",
   assert.ok(result.score > 0);
   assert.equal(result.ranking.length, 2);
   assert.deepEqual(result.citations, [contextFor("x").pages[0].citation]);
+});
+
+test("names the matched catalog rule when portal options carry no rule id", () => {
+  const result = resolveLegalFoundation({
+    context: contextFor(
+      "RESOLVE: Art. 3º, incisos I a III e parágrafo único, da EC nº 47/2005.",
+    ),
+    options: [
+      portalOption("", "Selecione uma fundamentação"),
+      portalOption(
+        "7",
+        "Civil - Artigo 3º, incisos I a III e parágrafo único, da Emenda Constitucional nº 47/2005",
+      ),
+    ],
+  });
+
+  assert.equal(result.status, "selected");
+  assert.equal(result.option_value, "7");
+  assert.equal(result.rule_id, "EC47_ART3");
 });
 
 test("selects EC41 without paragraph 5 and ignores cargo as a paragraph-5 signal", () => {

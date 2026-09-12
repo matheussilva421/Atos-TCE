@@ -242,6 +242,12 @@ def _safe_archive_document(
     visual_document_id = hashlib.sha256(
         f"{process_key}|{event.get('event_id', event.get('event', ''))}|{source_document_id}|{pdf_sha256}".encode()
     ).hexdigest()
+    if target is not None:
+        # The evidence sidecar uses the target manifest's occurrence identity.
+        # The archive may also carry a different internal portal event ID.
+        visual_document_id = _safe_document(
+            target, analyzed, process_key=process_key
+        )["document_id"]
     return {
         "document_id": visual_document_id,
         "source_document_id": source_document_id,
@@ -984,6 +990,10 @@ HTML_TEMPLATE = r'''<!doctype html>
   }
 
   async function pollLiveReview() {
+    if (data.manual_review || !document.body.dataset.reviewCsrf) {
+      setLiveStatus('Modo manual · dados locais');
+      return;
+    }
     const localFileProtocol = 'file' + ':';
     if (window.location.protocol === localFileProtocol) {
       setLiveStatus('Modo arquivo · sem sincronização');

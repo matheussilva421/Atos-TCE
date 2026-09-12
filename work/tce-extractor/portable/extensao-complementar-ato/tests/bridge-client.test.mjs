@@ -315,6 +315,72 @@ test('bridge exposes authenticated automation methods with closed wire payloads'
     event_id: 'queue-1',
     expected_revision: 0,
   });
+  const eventBody = JSON.parse(calls[4].options.body);
+  assert.equal(calls[4].options.method, 'POST');
+  assert.match(calls[4].url, /\/automation\/runs\/run-1\/events$/u);
+  assert.deepEqual(Object.keys(eventBody).sort(), ['event_id', 'expected_revision', 'item_id', 'payload', 'type']);
+  assert.equal(eventBody.event_id, 'prepare-1');
+  assert.equal(eventBody.expected_revision, 1);
+  assert.equal(eventBody.item_id, '103439/2023');
+  assert.equal(eventBody.type, 'item_prepared');
+  assert.deepEqual(eventBody.payload.identity, {
+    process_key: '103439/2023',
+    interested_normalized: 'ana',
+    portal_act_id: null,
+  });
+  assert.deepEqual(eventBody.payload.frame, { generation: 1, frameId: 0 });
+  assert.deepEqual(eventBody.payload.legalDecision, {
+    status: 'selected',
+    method: 'rule',
+    rule_id: 'rule-1',
+    option_value: 'option-1',
+    rules_version: 'legal-foundation-v1',
+  });
+  assert.deepEqual(eventBody.payload.before, redactedFieldEvidence());
+  assert.deepEqual(JSON.parse(calls[5].options.body), {
+    action: 'pause',
+    event_id: 'pause-1',
+    expected_revision: 2,
+  });
+});
+
+test('event payload without identity is forwarded without fabricating one', async () => {
+  const calls = [];
+  const bridge = createBridgeClient({
+    baseUrl: 'http://127.0.0.1:18743',
+    token: 'test',
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          api_version: 1,
+          run_id: 'run-1',
+          revision: 2,
+          status: 'running',
+          items: [],
+          last_confirmed_item_id: null,
+        }),
+      };
+    },
+  });
+
+  await bridge.appendAutomationEvent('run-1', {
+    eventId: 'pending-1',
+    expectedRevision: 1,
+    itemId: '103439/2023',
+    type: 'item_pending',
+    payload: { reason: 'contexto ausente', legalDecision: { status: 'pending' } },
+  });
+
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    event_id: 'pending-1',
+    expected_revision: 1,
+    item_id: '103439/2023',
+    type: 'item_pending',
+    payload: { reason: 'contexto ausente', legalDecision: { status: 'pending' } },
+  });
 });
 
 test('bridge exposes authenticated analysis preview and deterministic lot methods', async () => {

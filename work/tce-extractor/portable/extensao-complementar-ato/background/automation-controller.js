@@ -35,6 +35,12 @@ const TERMINAL_ITEM_STATES = new Set([
 const PROCESS_KEY_RE = /^\d+\/\d{4}$/u;
 const AUTO_SUBMIT_TTL_MS = 15_000;
 const UNRECOGNIZED_PORTAL_SCREEN_REASON = "portal screen not recognized; manual intervention required";
+/*
+ * The act screen is the only surface where the queue may write fields. It is
+ * reached either as the form document itself or as the sibling buttons
+ * document that submits it.
+ */
+const ACT_SURFACE_ROLES = new Set(["form", "buttons"]);
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -167,6 +173,25 @@ function snapshotFromResponse(response) {
   return isPortalSnapshot(candidate) ? candidate : null;
 }
 
+function staleGenerationReport(response, attemptGeneration) {
+  if (response?.error?.code !== "STALE_GENERATION") return null;
+  const live = response?.generation;
+  if (!Number.isSafeInteger(live) || live < 1 || live === attemptGeneration) return null;
+  return live;
+}
+
+function navigationFailureReason(response) {
+  const code = response?.error?.code;
+  if (code === "TAB_CLOSED") return "tab closed";
+  /*
+   * The act screen repaints itself while it boots, so a generation that is
+   * still moving after the navigation retry is a screen changing under the
+   * run rather than a lost frame, and the operator needs that distinction.
+   */
+  if (code === "STALE_GENERATION") return "portal screen changed under the run; manual intervention required";
+  return "portal frame unavailable";
+}
+
 function actionFor(snapshot, action, identity = null) {
   return (snapshot?.actions ?? []).find((candidate) => (
     candidate?.action === action
@@ -175,6 +200,19 @@ function actionFor(snapshot, action, identity = null) {
       || identityKey(identityFromAction(candidate)) === identityKey(identity)
       || (action === "return_list" && identityFromAction(candidate) === null))
   )) ?? null;
+}
+
+function resumeIdentityFromActSnapshot(snapshot) {
+  // A "Complementar Ato" document publishes the canonical identity of the
+  // interested party the portal already has selected on its return_list action.
+  // Resuming a restarted run reads that identity instead of inventing one.
+  if (snapshot?.role !== "form" && snapshot?.role !== "buttons") return null;
+  for (const candidate of snapshot.actions ?? []) {
+    if (candidate?.action !== "return_list" || candidate.enabled === false) continue;
+    const identity = identityFromAction(candidate);
+    if (identity) return identity;
+  }
+  return null;
 }
 
 function formSnapshotFromResponse(response) {
@@ -481,6 +519,23 @@ export function createAutomationController({
     void persistFrames().catch(() => undefined);
   }
 
+  /*
+   * The gate reports the generation the frame is actually on. Recording it
+   * keeps the registry from handing the next navigation a value the portal has
+   * already left behind, which would cost another rejection.
+   */
+  function noteFrameGeneration(tabId, frameId, generation) {
+    if (!Number.isSafeInteger(tabId) || tabId < 0 || !Number.isSafeInteger(frameId) || frameId < 0) return;
+    if (!Number.isSafeInteger(generation) || generation < 1) return;
+    const registration = frames.get(`${tabId}:${frameId}`);
+    if (registration) {
+      registration.generation = generation;
+      registration.observedAt = now();
+    }
+    if (state.tabId === tabId && state.frame?.frameId === frameId) state.frame.generation = generation;
+    void persistFrames().catch(() => undefined);
+  }
+
   function invalidateFrames(tabId) {
     for (const key of [...frames.keys()]) {
       if (key.startsWith(`${tabId}:`)) frames.delete(key);
@@ -691,7 +746,19 @@ export function createAutomationController({
     if (after.generation !== portalAfter?.generation || after.currentGeneration !== portalAfter?.generation) {
       return "reread generation mismatch";
     }
-    if (portalBefore?.generation !== portalAfter?.generation) return "portal generation changed during preparation";
+    /*
+     * portal generation is a per-document content fingerprint (currentGeneration
+     * in portal-navigation.js), and the act screen revises its own DOM after the
+     * first observation: the rendered act runs body onload="includeDataJs()" and
+     * fades #dvLoading out on window load. Requiring equal generations across the
+     * whole preparation window therefore rejected correct preparations. Drift is
+     * proven structurally instead: the portal must still be showing an act surface
+     * for the same frame and identity, and the per-field reread below must
+     * reproduce every planned value over an unchanged option catalog.
+     */
+    if (!ACT_SURFACE_ROLES.has(portalBefore?.role) || !ACT_SURFACE_ROLES.has(portalAfter?.role)) {
+      return "portal surface changed during preparation";
+    }
     const expected = expectedFieldValues(before, preparation);
     for (const field of AUTOMATION_FIELDS) {
       if (after.fields[field]?.value !== expected[field]) return `reread field mismatch: ${field}`;
@@ -787,7 +854,7 @@ export function createAutomationController({
       ...(submitTarget.buttonId ? { button_id: submitTarget.buttonId } : {}),
     };
     const intent = await appendAutomationEvent(identity, "send_intent", {
-      expected_fields_hash: expectedFieldsHash,
+      expectedFieldsHash,
       command_id: command.command_id,
       expires_at: command.expires_at,
       identity: clone(identity),
@@ -934,6 +1001,10 @@ export function createAutomationController({
       rereads: [{ identity: after.identity, frame: frameId, generation: after.generation }],
     });
     if (!verified) return { stop: true };
+    if (state.mode === "pilot" && state.autoSubmit !== true) {
+      await pauseAndPersist("pilot prepared; review the fields before continuing");
+      return { stop: true, paused: true };
+    }
     if (state.autoSubmit !== true) return { stop: false };
     return submitPreparedForm(tabId, frameId, before, after, preparation, resolved, identity);
   }
@@ -1144,13 +1215,30 @@ export function createAutomationController({
     };
     expectedNavigation = navigation;
     try {
-      const payload = {
-        action,
-        identity: identity ?? null,
-        expected_generation: generation,
+      const send = async (expectedGeneration) => {
+        const payload = {
+          action,
+          identity: identity ?? null,
+          expected_generation: expectedGeneration,
+        };
+        if (typeof options.marker === "string") payload.marker = options.marker;
+        return sendPortalMessage(tabId, MESSAGE_TYPES.PORTAL_NAVIGATE, payload, frameId, navigation.token);
       };
-      if (typeof options.marker === "string") payload.marker = options.marker;
-      const response = await sendPortalMessage(tabId, MESSAGE_TYPES.PORTAL_NAVIGATE, payload, frameId, navigation.token);
+      let response = await send(generation);
+      const liveGeneration = state.status === "running" ? staleGenerationReport(response, generation) : null;
+      if (liveGeneration !== null) {
+        /*
+         * The restricted act screen repaints itself right after boot (the
+         * rendered act runs body onload="includeDataJs()" and fades #dvLoading
+         * out on window load), so a navigation prepared from the previous
+         * observation is rejected by the gate before it touches any control.
+         * That rejection is the guard doing its job: re-issue the same action
+         * once against the generation the frame reported, and let the gate
+         * resolve every control and identity again from the live screen.
+         */
+        noteFrameGeneration(tabId, frameId, liveGeneration);
+        response = await send(liveGeneration);
+      }
       if (response?.ok !== true) {
         if (action === "next_page" && isRecord(options.beforeSnapshot)) {
           // The legacy portal can finish replacing the list iframe while its
@@ -1163,7 +1251,7 @@ export function createAutomationController({
             return { ok: true, snapshot: recovered.snapshot, frameId: recovered.frameId };
           }
         }
-        setPaused(response?.error?.code === "TAB_CLOSED" ? "tab closed" : "portal frame unavailable");
+        setPaused(navigationFailureReason(response));
         return { ok: false, response };
       }
       const responseFrameId = Number.isSafeInteger(response?.frameId) && response.frameId >= 0 ? response.frameId : null;
@@ -1716,6 +1804,17 @@ export function createAutomationController({
           identity = queued;
         }
       }
+      if (!identity && (snapshot.role === "form" || snapshot.role === "buttons")) {
+        // A service worker restart between "abrir ato" and the act frame boot
+        // leaves the run without a current identity. Resume only the next queued
+        // item, and only when the act screen confirms that exact identity.
+        const resumed = resumeIdentityFromActSnapshot(snapshot);
+        const queued = nextQueuedIdentity();
+        if (resumed && queued && identityKey(resumed) === identityKey(queued)) {
+          state.currentIdentity = queued;
+          identity = queued;
+        }
+      }
       if (!identity) return;
       if (snapshot.role === "interested") {
         if (selectedConfirmed) {
@@ -1892,9 +1991,23 @@ export function createAutomationController({
       }
     });
   }
+  const hasNativeNavigationEvents = typeof chromeApi.webNavigation?.onBeforeNavigate?.addListener === "function";
+  if (hasNativeNavigationEvents) {
+    chromeApi.webNavigation.onBeforeNavigate.addListener(({ tabId, frameId }) => {
+      if (tabId !== state.tabId || frameId !== 0 || !ACTIVE_STATUSES.has(state.status)) return;
+      expectedNavigation = null;
+      invalidateFrames(tabId);
+      setPaused("manual navigation detected");
+    });
+  }
   if (chromeApi.tabs.onUpdated?.addListener) {
     chromeApi.tabs.onUpdated.addListener((tabId, changeInfo) => {
       if (tabId !== state.tabId || !ACTIVE_STATUSES.has(state.status)) return;
+      // Native tabs.onUpdated reports aggregate tab loading without a frameId.
+      // Only webNavigation can distinguish a top-level navigation from the
+      // legacy portal loading a child frame. Retain the fallback for adapters
+      // without webNavigation and their explicitly attributed notifications.
+      if (hasNativeNavigationEvents && !Number.isSafeInteger(changeInfo?.frameId)) return;
       const hasNavigationMarker = Number.isSafeInteger(changeInfo?.frameId)
         && typeof changeInfo?.navigationToken === "string"
         && changeInfo.navigationToken.length > 0;
@@ -1926,6 +2039,9 @@ export function createAutomationController({
         expectedNavigation = null;
         return;
       }
+      // Explicitly attributed adapter events for child frames are checked by
+      // the act identity, generation and field-equality gates instead.
+      if (Number.isSafeInteger(changeInfo?.frameId) && changeInfo.frameId !== 0) return;
       invalidateFrames(tabId);
       setPaused("manual navigation detected");
     });
