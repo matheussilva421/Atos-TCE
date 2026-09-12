@@ -1316,6 +1316,65 @@ test("automation messages preserve manual fallback when the old service has no b
   assert.equal(response.error.code, "AUTOMATION_UNAVAILABLE");
 });
 
+test("AUTO_START retries bridge discovery after credentials are paired late", async () => {
+  const storage = storageMock();
+  const session = storageMock();
+  const bridge = {
+    async createAutomationRun() {
+      return { api_version: 1, run_id: "run-late-pair", revision: 0, status: "discovering", items: [], last_confirmed_item_id: null };
+    },
+    async getDataset() {
+      return { api_version: 1, revision: 1, dataset: { batch: { logical_sha256: "a".repeat(64) } } };
+    },
+    async freezeAutomationQueue(_runId, queue) {
+      return {
+        api_version: 1,
+        run_id: "run-late-pair",
+        revision: 1,
+        status: "running",
+        items: queue.identities.map((identityValue, index) => ({
+          item_id: identityValue.processKey,
+          ordinal: index + 1,
+          identity: identityValue,
+          state: "queued",
+        })),
+        last_confirmed_item_id: null,
+      };
+    },
+    async controlAutomationRun() {
+      throw new Error("not expected");
+    },
+  };
+  const chromeApi = chromeMock(storage, async (_tabId, _message, options) => ({
+    ok: true,
+    frameId: options?.frameId ?? 12,
+    payload: {
+      role: "list",
+      generation: 1,
+      sector: "aposentadorias",
+      identities: [],
+      actions: [],
+    },
+  }), session);
+  const worker = createServiceWorker({ chromeApi, bridgeClientFactory: () => bridge });
+  const message = createMessage(MESSAGE_TYPES.AUTO_START, {
+    spec: {
+      tabId: 7,
+      sector: "aposentadorias",
+      datasetSha256: "a".repeat(64),
+      rulesVersion: "legal-foundation-v1",
+    },
+    eventId: "late-pair",
+  }, "late-pair");
+
+  assert.equal((await worker.handleMessage(message, extensionSender())).error.code, "AUTOMATION_UNAVAILABLE");
+  await session.set({
+    [STORAGE_KEYS.BRIDGE_BASE_URL]: "http://127.0.0.1:18743",
+    [STORAGE_KEYS.BRIDGE_TOKEN]: "late-token",
+  });
+  assert.equal((await worker.handleMessage(message, extensionSender())).ok, true);
+});
+
 test("failed AUTO_START clears the active run and watchdog state", async () => {
   const storage = storageMock();
   const alarms = { created: [], cleared: [], listeners: [] };

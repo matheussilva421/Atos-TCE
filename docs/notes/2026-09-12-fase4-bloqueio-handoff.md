@@ -155,3 +155,123 @@ Tarefa 4.2.
 - Push: concluído em `origin/main` por fast-forward.
 - Verificação: `HEAD == origin/main == 2c73abf`, worktree limpo e
   `git diff --check` sem saída.
+
+---
+
+## Atualização 2026-09-12 — retomada após a correção do sandbox
+
+**Status:** Fase 4.1 concluída; a Tarefa 4.2 continua **NÃO PASSA / bloqueada**.
+Nada foi promovido: os três preflights portal-reais ainda não existem.
+
+### Infraestrutura
+
+- O sandbox local voltou a funcionar nesta sessão: comandos, `git`,
+  `node --test` e escrita no repositório rodaram sem escalonamento e sem
+  rejeição do revisor automático. O bloqueio anterior
+  (`helper_sandbox_lock_failed` combinado com
+  `Provider error 400 ... This response_format type is unavailable now`)
+  não se repetiu.
+- No início desta retomada **nenhuma** porta de depuração estava em escuta:
+  Chrome/CDP isolado (19232), bridge (18743/18746) e janela de piloto estavam
+  fechados. O run anterior segue **não confirmado como parado**.
+- Ativos conferidos em disco: Chromium do Playwright em
+  `%LOCALAPPDATA%\ms-playwright\chromium-1208\chrome-win64\chrome.exe`,
+  perfil de trabalho `tmp\fase41\chrome-work-auth-profile`, extração live
+  completa com `manifest.json` (versão 1.1.0, "Complementar Ato TCE/RN") e
+  Python em `C:\Python314\python.exe`.
+
+### Correções validadas neste worktree (TDD; sem prova portal-real)
+
+1. `background/automation-controller.js` — recuperação determinística de
+   identidade. Quando existe **exatamente uma** identidade enfileirada e o
+   snapshot `interested` traz a ação `select_interested` correspondente, o
+   controlador a adota como `currentIdentity` em vez de descartar o evento
+   com `currentIdentity=null`. Teste:
+   `rehydrated pilot recovers its sole queued identity from an interested snapshot`
+   (`tests/automation-controller.test.mjs`).
+2. `background/service-worker.js` — o cache de descoberta da bridge deixou de
+   memorizar resultado nulo. Depois de um pareamento tardio, `AUTO_START` volta
+   a descobrir a bridge em vez de responder `AUTOMATION_UNAVAILABLE` para
+   sempre. Teste: `AUTO_START retries bridge discovery after credentials are
+   paired late` (`tests/service-worker.test.mjs`).
+3. `content/portal-navigation.js` — o controle `Consultar` da Área Restrita
+   passa a ser procurado em **frames descendentes** (busca em largura, limite
+   64), cobrindo o aninhamento real
+   `ProcessonoSetor.asp` → `botoesNOVO.asp`, e não apenas irmãos diretos do
+   topo. Teste: `finds the Area Restrita Consultar control in a nested sibling
+   frame` (`tests/portal-navigation.test.mjs`).
+
+### Sincronização do pacote live
+
+O pacote
+`work/tce-extractor/outputs/live-real-fase11h-sector-lot50/extensao-complementar-ato`
+recebeu os dois arquivos que estavam defasados. O live é um subconjunto sem
+`tests/`; fora os testes, portable e live agora são byte a byte idênticos.
+
+| Arquivo | SHA-256 (portable == live) |
+| --- | --- |
+| `background/automation-controller.js` | `E3568E4FE974105CB6E3CD6F328433E53717C5C8CEC42603C0177011901FA468` |
+| `background/service-worker.js` | `B55DA19BBCE4ECCD4D6D8432B3E04BE93F78D6EBA1A70D7F3FA0999875D2867F` |
+| `content/portal-navigation.js` | `F7B95447753F3DC2F4BAB0A885BBE39757C3A964ED26026A897FF2B1C665EFC5` |
+| `content/form-detector.js` | `DBDFC9C62F78090A5D91C3F241861A2E6E4BDDCEB1C10096936422FAFE382447` |
+
+O hash `EBF860C…` registrado em "Gates locais" acima está **superado** por
+estes quatro.
+
+### Gates executados nesta retomada
+
+- `node --test tests/automation-controller.test.mjs tests/portal-navigation.test.mjs tests/service-worker.test.mjs`:
+  **128/128 aprovados, 0 falhas**.
+- `npm test`: **349/349 aprovados, 0 falhas** (eram 346).
+- `node --check` nos três arquivos de runtime: ok.
+- `git diff --check`: **limpo** — cinco linhas com CR solto foram normalizadas
+  para LF antes do commit.
+- Suíte local verde **não** promove a Tarefa 4.2.
+
+### Retomada imediata
+
+1. Abrir o Chrome isolado com o perfil de trabalho e carregar a extração live já
+   sincronizada; confirmar ID `fpnamgnjnddmmcpnjobnokpfakpooecg` e manifest.
+2. Subir a bridge na raiz `work/tce-extractor/outputs/live-real-fase11h-sector-lot50`
+   com `--automation-pilot` e parear **uma única vez** com código fresco.
+3. Parar para login humano se a sessão do portal tiver expirado. Navegar
+   Home → Processos do setor → `ProcessonoSetor.asp` com o marcador `6189`
+   (`PROFESSOR - IPERN - 2 RUBRICAS`). Nunca `MeusProcessos.asp`.
+4. Reproduzir o item `100065/2026` e confirmar no runtime que
+   `select_interested` foi emitido e que o frame de formulário foi registrado.
+   Se a corrida reaparecer, corrigir de forma fail-closed, sem aumentar timeout.
+5. Executar os três preflights exigidos pela Tarefa 4.2 e só então marcar os
+   checkboxes do plano. `autoSubmit=false` permanece.
+
+### Locks obsoletos no pacote live (não são bloqueio)
+
+No pacote live, `dados-locais/bridge/service.json` aponta para o pid 13512 e
+`.operation.lock` para o pid 4188 — **ambos mortos**. O
+`acervo-tce/.workflow-state.lock` também cita o pid 4188.
+`app/prepare_transfer.py` recupera esses marcadores sozinho
+(`_active_runtime` e `transfer_requested` removem marcador cujo pid não está
+vivo), então **não** é preciso apagá-los à mão antes de subir o serviço. Nenhum
+processo do serviço local nem Chrome de trabalho estava rodando nesta retomada;
+só há Chrome do perfil pessoal.
+
+### Publicação pendente (exige execução humana)
+
+Este bloco está **escrito e validado, mas não commitado**. Nesta sessão o
+sandbox expõe `.git` somente para leitura
+(`fatal: Unable to create '.git/index.lock': Permission denied`) e o revisor
+automático de aprovação continua falhando
+(`Provider error 400 ... This response_format type is unavailable now`), então
+`git add`/`commit`/`push` precisam ser executados pelo usuário:
+
+```powershell
+cd "C:\Users\slvma\Downloads\Github\Complementação de Atos"
+git add -- ".superpowers/sdd/2026-09-10-plano-consolidacao-main-e-conclusao/progress.md" "docs/notes/2026-09-12-fase4-bloqueio-handoff.md" "work/tce-extractor/portable/extensao-complementar-ato"
+git commit -m "fix: recover queued pilot identity and nested consultar frame"
+git push
+```
+
+A staging é nominal de propósito (o projeto não usa `git add .`/`-A`). Os
+três caminhos acima cobrem exatamente os 8 arquivos de `git status`; `tmp/` e
+`work/tce-extractor/outputs/` são ignorados pelo `.gitignore`. Se aparecer
+`dubious ownership`, repetir com
+`git -c safe.directory='C:/Users/slvma/Downloads/Github/Complementação de Atos'`.

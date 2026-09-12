@@ -1708,7 +1708,14 @@ export function createAutomationController({
         continue;
       }
 
-      const identity = state.currentIdentity;
+      let identity = state.currentIdentity;
+      if (!identity && snapshot.role === "interested") {
+        const queued = nextQueuedIdentity();
+        if (queued && actionFor(snapshot, "select_interested", queued)) {
+          state.currentIdentity = queued;
+          identity = queued;
+        }
+      }
       if (!identity) return;
       if (snapshot.role === "interested") {
         if (selectedConfirmed) {

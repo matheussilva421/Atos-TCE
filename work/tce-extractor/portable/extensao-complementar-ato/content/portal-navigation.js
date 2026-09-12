@@ -120,6 +120,24 @@ function observedMarker(documentRef) {
   };
 }
 
+function descendantDocuments(rootWindow, limit = 64) {
+  const documents = [];
+  const queue = [rootWindow];
+  const seen = new Set();
+  while (queue.length && seen.size < limit) {
+    const windowRef = queue.shift();
+    if (!windowRef || seen.has(windowRef)) continue;
+    seen.add(windowRef);
+    try {
+      if (windowRef.document) documents.push(windowRef.document);
+    } catch {}
+    let frames;
+    try { frames = windowRef.frames; } catch { continue; }
+    for (let index = 0; index < (frames?.length ?? 0); index += 1) queue.push(frames[index]);
+  }
+  return documents;
+}
+
 function markerFilterControls(documentRef) {
   const select = markerSelect(documentRef);
   if (!select) return null;
@@ -133,12 +151,8 @@ function markerFilterControls(documentRef) {
   }
   // Area Restrita keeps the filter in the process-list frame but renders its
   // action bar in a sibling botoesNOVO.asp frame.
-  const topWindow = topWindowFor(documentRef);
-  // window.frames is array-like and has no Symbol.iterator; iterate by index.
-  const frameList = topWindow?.frames;
-  for (let index = 0; index < (frameList?.length ?? 0); index += 1) {
+  for (const sibling of descendantDocuments(topWindowFor(documentRef))) {
     try {
-      const sibling = frameList[index]?.document;
       if (!sibling || sibling === documentRef) continue;
       const siblingUrl = String(sibling.defaultView?.location?.href ?? "").toLowerCase();
       if (!siblingUrl.includes("botoesnovo.asp") || !siblingUrl.includes("processonosetor")) continue;
@@ -148,7 +162,7 @@ function markerFilterControls(documentRef) {
       });
       if (submit) return { select, submit };
     } catch {
-      // Ignore detached or inaccessible sibling frames.
+      // Ignore detached or inaccessible descendant frames.
     }
   }
   return { select, submit: null };

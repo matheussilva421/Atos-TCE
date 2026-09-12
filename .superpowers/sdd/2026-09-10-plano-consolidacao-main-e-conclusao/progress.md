@@ -292,3 +292,26 @@ The scan below records every task self-consistency check and every pair with a s
   implementer dispatched with ownership limited to `content/form-detector.js`
   and `tests/form-detector.test.mjs`; TDD result pending. No
   `APPLY_FIELDS`, fill, send or finalization; no `MeusProcessos.asp`.
+
+- Sandbox recovery checkpoint (2026-09-12): the local sandbox was healthy again
+  at the start of this session, so the previously blocked worktree block was
+  validated and completed with TDD. Three runtime fixes are now green.
+  `background/automation-controller.js` adopts the sole queued identity when an
+  `interested` snapshot carries the matching `select_interested` action
+  (test `rehydrated pilot recovers its sole queued identity from an interested
+  snapshot`), `background/service-worker.js` retries bridge discovery after a
+  late pairing instead of caching the null result (test `AUTO_START retries
+  bridge discovery after credentials are paired late`), and
+  `content/portal-navigation.js` searches descendant frames for the Area
+  Restrita `Consultar` control so the real
+  `ProcessonoSetor.asp` → `botoesNOVO.asp` nesting is covered (test
+  `finds the Area Restrita Consultar control in a nested sibling frame`).
+  Focal suites passed 128/128 and the extension suite passed 349/349;
+  `node --check` passed and `git diff --check` was clean after normalizing
+  five stray CR line endings. The live package at
+  `work/tce-extractor/outputs/live-real-fase11h-sector-lot50` was synced so
+  `background/automation-controller.js`, `background/service-worker.js`,
+  `content/portal-navigation.js` and `content/form-detector.js` are now
+  byte-identical to portable. Task 4.2 remains **NÃO PASSA / blocked**: no live
+  portal run happened in this session, the isolated CDP and bridge were not
+  running, and no `APPLY_FIELDS`, fill, send or finalization occurred.

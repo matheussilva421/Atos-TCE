@@ -156,7 +156,9 @@ export function createServiceWorker({
         return activeBridge;
       })().catch(() => null);
     }
-    return bridgeLoadPromise;
+    const resolved = await bridgeLoadPromise;
+    if (resolved === null) bridgeLoadPromise = null;
+    return resolved;
   }
 
   function controllerFor(currentBridge) {

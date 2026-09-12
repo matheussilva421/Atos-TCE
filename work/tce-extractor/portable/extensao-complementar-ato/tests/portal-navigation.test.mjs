@@ -851,6 +851,48 @@ test("finds the sibling Consultar control when the top frames collection is arra
   assert.equal(result.snapshot.marker.value, "marker-2");
 });
 
+test("finds the Area Restrita Consultar control in a nested sibling frame", async () => {
+  const documentRef = buildListDocument("1", [{ processKey: "103401/2023", interested: "Ana da Silva" }]);
+  const form = new FakeElement("form");
+  const select = new FakeElement("select", { id: "cmbMarcadorFiltro" });
+  const all = new FakeElement("option", { text: "Todos os marcadores", value: "" });
+  const target = new FakeElement("option", { text: "PROFESSOR - IPERN - 2 RUBRICAS", value: "marker-2" });
+  all.selected = true;
+  select.value = "";
+  select.append(all, target);
+  form.append(select);
+  documentRef.body.append(form);
+
+  const topDocument = new FakeDocument({ screen: "shell" });
+  const workspaceDocument = new FakeDocument({ screen: "workspace" });
+  const buttonFrame = new FakeDocument({ screen: "buttons" });
+  buttonFrame.defaultView.location.href = "https://portal.test/botoesNOVO.asp?pagina=ProcessonoSetor";
+  const consult = new FakeElement("input", { value: "Consultar", attrs: { type: "button", onclick: "parametros('1695','C','','');" } });
+  buttonFrame.body.append(consult);
+  const workspaceWindow = {
+    document: workspaceDocument,
+    frames: arrayLikeFrames({ document: documentRef }, { document: buttonFrame }),
+  };
+  documentRef.defaultView.top = { document: topDocument, frames: arrayLikeFrames(workspaceWindow) };
+
+  consult.onClick = () => {
+    target.selected = true;
+    all.selected = false;
+    select.value = "marker-2";
+  };
+  const before = snapshotPortalScreen(documentRef);
+  const result = await executeNavigation(documentRef, {
+    action: "filter_marker",
+    marker: "PROFESSOR - IPERN - 2 RUBRICAS",
+    expected_generation: before.generation,
+    timeoutMs: 50,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(consult.clickCount, 1);
+  assert.equal(result.snapshot.marker.value, "marker-2");
+});
+
 test("recognizes the legacy Area Restrita pagination link with NumeroPagina.value", () => {
   const documentRef = buildListDocument("3", [{ processKey: "103401/2023", interested: "Ana da Silva" }], { hasNext: false });
   const currentPage = new FakeElement("input", { id: "NumeroPagina", value: "3", attrs: { type: "hidden" } });

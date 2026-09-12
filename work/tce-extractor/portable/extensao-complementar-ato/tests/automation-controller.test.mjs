@@ -1385,6 +1385,58 @@ test("replays a newly created interested frame that arrives during open-act navi
     && message.payload.action === "select_interested"), true);
 });
 
+test("rehydrated pilot recovers its sole queued identity from an interested snapshot", async () => {
+  const target = identity("103401/2023", "ana da silva", null);
+  const calls = [];
+  const chromeApi = {
+    calls,
+    storage: { session: { async get() { return {}; }, async set() {} } },
+    tabs: {
+      async sendMessage(tabId, message, options) {
+        calls.push([tabId, message, options]);
+        return { ok: true, payload: {} };
+      },
+      onRemoved: { addListener() {} },
+      onUpdated: { addListener() {} },
+    },
+  };
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+  await controller.rehydrate({
+    api_version: 1,
+    run_id: "run-rehydrated-interested",
+    revision: 3,
+    status: "running",
+    items: [{
+      item_id: target.processKey,
+      ordinal: 1,
+      identity: target,
+      state: "queued",
+    }],
+    last_confirmed_item_id: null,
+  }, {
+    ...runSpec(),
+    mode: "pilot",
+    pilotIdentity: target,
+    sourceScope: "sector_finalistic",
+  });
+
+  await controller.handlePortalEvent({
+    tabId: 7,
+    frameId: 5,
+    type: "snapshot",
+    snapshot: {
+      ...snapshot("interested", 2, [{ ...target, selected: false }], [
+        { action: "select_interested", enabled: true, identity: { ...target, selected: false } },
+      ]),
+      source_scope: null,
+    },
+  });
+
+  assert.deepEqual(controller.status().currentIdentity, target);
+  assert.equal(calls.some(([, message]) => message.type === "PORTAL_NAVIGATE"
+    && message.payload.action === "select_interested"), true);
+});
+
 test("controller owns navigation loop and exposes pause/resume/stop/status without panel participation", async () => {
   const bridge = bridgeMock();
   const chromeApi = chromeMock([PAGE_1, PAGE_2, PAGE_3]);
