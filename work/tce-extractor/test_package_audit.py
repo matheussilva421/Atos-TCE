@@ -645,6 +645,22 @@ class PackageAuditContractTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertEqual(json.loads(output.getvalue())["ok"], True)
 
+    def test_accepts_production_manifest_permissions_with_web_navigation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._make_runtime_package(root)
+            extension = self._copy_production_extension(root)
+
+            manifest = json.loads((extension / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                manifest["permissions"],
+                ["storage", "sidePanel", "alarms", "webNavigation"],
+            )
+
+            report = self._audit(root)
+
+            self.assertTrue(report.ok, report.findings)
+
     def test_public_audit_requires_app_modules_and_extension_when_directories_are_absent(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

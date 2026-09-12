@@ -861,11 +861,12 @@ def _audit_extension(
         "storage",
         "sidePanel",
         "alarms",
+        "webNavigation",
     ]:
         report.add(
             "extension_permissions",
             _relative_name(root, manifest_path),
-            "permissões devem ser exatamente storage, sidePanel e alarms",
+            "permissões devem ser exatamente storage, sidePanel, alarms e webNavigation",
         )
 
     host_permissions = manifest.get("host_permissions")
