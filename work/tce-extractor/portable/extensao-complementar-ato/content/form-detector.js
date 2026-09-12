@@ -544,15 +544,78 @@ function installContentScript({
     return true;
   });
 
-  if (hasCompleteForm(documentRef) && typeof chromeApi.runtime.sendMessage === "function") {
-    const url = typeof locationRef?.href === "string" ? locationRef.href : "";
+  const sendMessage = chromeApi.runtime.sendMessage;
+  if (typeof sendMessage !== "function") return { handleMessage, registered: true };
+
+  let readySent = false;
+  let observer = null;
+  const disconnectObserver = () => {
+    observer?.disconnect?.();
+    observer = null;
+  };
+  const documentIsUsable = () => {
+    try {
+      return Boolean(
+        documentRef
+          && typeof documentRef.getElementById === "function"
+          && documentRef.defaultView,
+      );
+    } catch {
+      return false;
+    }
+  };
+  const emitReady = () => {
+    if (readySent) return;
+    let url = "";
+    try {
+      url = typeof locationRef?.href === "string" ? locationRef.href : "";
+    } catch {
+      // A non-browser location object must not prevent installation cleanup.
+    }
     const readyMessage = {
       schemaVersion: 1,
       type: "FORM_READY",
       requestId: createRequestId(),
       payload: { url },
     };
-    chromeApi.runtime.sendMessage(readyMessage);
+    readySent = true;
+    disconnectObserver();
+    sendMessage.call(chromeApi.runtime, readyMessage);
+  };
+  const emitReadyIfAvailable = () => {
+    if (readySent) return;
+    if (!documentIsUsable()) {
+      disconnectObserver();
+      return;
+    }
+    try {
+      if (!hasCompleteForm(documentRef) || !isVisibleForm(documentRef)) return;
+    } catch {
+      disconnectObserver();
+      return;
+    }
+    emitReady();
+  };
+
+  let formIsComplete = false;
+  try {
+    formIsComplete = hasCompleteForm(documentRef);
+  } catch {
+    return { handleMessage, registered: true };
+  }
+  if (formIsComplete) {
+    emitReady();
+  } else if (documentIsUsable()) {
+    try {
+      const Observer = documentRef.defaultView?.MutationObserver ?? globalThis.MutationObserver;
+      const target = documentRef.body ?? documentRef.documentElement ?? documentRef;
+      if (typeof Observer === "function" && target && typeof target === "object") {
+        observer = new Observer(emitReadyIfAvailable);
+        observer.observe(target, { childList: true, subtree: true, attributes: true });
+      }
+    } catch {
+      disconnectObserver();
+    }
   }
   return { handleMessage, registered: true };
 }

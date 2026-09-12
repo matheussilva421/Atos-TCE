@@ -437,6 +437,60 @@ test("blocks incomplete DOM before any write", () => {
   assert.ok(result.errors.some((error) => /sentinel/u.test(error)));
 });
 
+test("registers a late complete form exactly once with its current portal URL", async () => {
+  const { documentRef, form, controls } = buildForm({ complete: false });
+  const observers = [];
+  const locationRef = { href: "https://novaarearestrita.tce.rn.gov.br/ProcessonoSetor.asp?stage=initial" };
+  const readyMessages = [];
+  documentRef.defaultView.MutationObserver = class {
+    constructor(callback) {
+      this.callback = callback;
+      this.disconnected = false;
+      observers.push(this);
+    }
+
+    observe() {}
+
+    disconnect() {
+      this.disconnected = true;
+    }
+
+    notify() {
+      this.callback();
+    }
+  };
+  const chromeApi = {
+    runtime: {
+      onMessage: { addListener() {} },
+      sendMessage(message) {
+        readyMessages.push(message);
+      },
+    },
+  };
+
+  installContentScript({ documentRef, chromeApi, locationRef });
+  assert.equal(readyMessages.length, 0);
+  assert.equal(observers.length, 1);
+
+  locationRef.href = "https://novaarearestrita.tce.rn.gov.br/ProcessonoSetor.asp?stage=ready";
+  form.append(controls.txtGenero);
+  observers[0].notify();
+  await Promise.resolve();
+
+  assert.equal(readyMessages.length, 1);
+  assert.equal(readyMessages[0].schemaVersion, 1);
+  assert.equal(readyMessages[0].type, "FORM_READY");
+  assert.equal(readyMessages[0].payload.url, locationRef.href);
+  assert.equal(typeof readyMessages[0].requestId, "string");
+  assert.notEqual(readyMessages[0].requestId, "");
+  assert.equal(observers[0].disconnected, true);
+
+  form.append(new FakeElement("div"));
+  observers[0].notify();
+  await Promise.resolve();
+  assert.equal(readyMessages.length, 1);
+});
+
 test("blocks a form without exactly one selected interested radio", () => {
   const { documentRef, controls } = buildForm();
   for (const radio of documentRef.querySelectorAll('input[type="radio"]')) radio.checked = false;
