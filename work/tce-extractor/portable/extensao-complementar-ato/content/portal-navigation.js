@@ -732,7 +732,12 @@ function isProgress(documentRef, before, after, action, identity, requestedMarke
       && after.identities.some(({ processKey, interestedNormalized }) => !beforeKeys.has(`${processKey}\u0000${interestedNormalized}`));
   }
   if (action === "open_act") return before.role === "list" && after.role !== "list";
-  if (action === "select_interested") return after.role === "interested" && sameIdentity(selectedIdentity(documentRef), identity);
+  if (action === "select_interested") {
+    const selected = selectedIdentity(documentRef);
+    return before.role === "interested"
+      && (after.role === "interested" || after.role === "form")
+      && sameIdentity(selected, identity);
+  }
   if (action === "return_list") return after.role === "list" && before.role !== "list";
   if (action === "filter_marker") return after.role === "list"
     && after.generation !== before.generation

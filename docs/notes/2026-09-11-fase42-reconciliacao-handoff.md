@@ -543,6 +543,40 @@ no commit.
   foram convertidas em preparação persistida; não houve `APPLY_FIELDS`, envio
   ou finalização.
 
+## Retomada 2026-09-12 — correção TDD do avanço interessado→form
+
+Escopo obrigatório para a retomada: somente o marcador
+`PROFESSOR - IPERN - 2 - RUBRICAS` (valor `6189`) na lista autenticada do
+setor (`ProcessonoSetor.asp`, `source_scope=sector_finalistic`). Não abrir nem
+consultar `MeusProcessos.asp`.
+
+O piloto anterior foi encerrado antes de qualquer escrita. A inspeção
+controlada do candidato `100455/2025` mostrou que a ação única “Ato
+Complementado” abre a tela com um rádio de interessado; selecionar o rádio
+carrega os campos e muda diretamente a classificação da tela para `form`.
+O controlador aguardava `interested` depois dessa seleção e expirava com
+`NAVIGATION_TIMEOUT`.
+
+### Patch validado
+
+`content/portal-navigation.js` agora exige `before.role === "interested"` e
+aceita `after.role === "form"` somente com `selectedIdentity` idêntica à
+identidade solicitada. Os testes cobrem o caminho real de
+`MutationObserver`, o bloqueio `form→form` e a identidade divergente.
+
+- RED: 1 caso falhou pela razão esperada (`NAVIGATION_TIMEOUT`).
+- GREEN focal final: 34/34.
+- Suíte completa: `npm test` — 339/339.
+- `node --check` e `git diff --check`: verdes.
+- Revisão independente Luna `Anscombe`: conforme, 0 findings.
+- Arquivos alterados: `content/portal-navigation.js` e
+  `tests/portal-navigation.test.mjs`.
+
+Nenhum `APPLY_FIELDS`, preenchimento, envio, conclusão ou finalização foi
+executado. O patch ainda precisa ser sincronizado no pacote live, a extensão
+recarregada e o bridge pareado com código fresco antes dos três preflights
+formais. `autoSubmit=false` deve permanecer em todos os runs.
+
 O `git fetch origin` posterior foi tentado, mas o sandbox não pôde abrir
 `.git/FETCH_HEAD`. Isso não altera a confirmação do push nem a igualdade do
 ref remoto atualizado pelo próprio push.

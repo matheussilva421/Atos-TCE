@@ -1020,3 +1020,48 @@ isolado e teste de regressão; o teste novo reproduziu RED quando
 O `git fetch origin` posterior não conseguiu abrir `.git/FETCH_HEAD` por
 restrição do sandbox; o push foi confirmado diretamente pelo retorno remoto e
 pela igualdade do ref `origin/main` com `HEAD`.
+
+## Correção TDD do avanço interessado→form (2026-09-12)
+
+O escopo operacional permanece exclusivamente o marcador
+`PROFESSOR - IPERN - 2 - RUBRICAS`, valor `6189`, na origem autenticada
+`ProcessonoSetor.asp`/`sector_finalistic`. `MeusProcessos.asp` não foi usado.
+
+### Causa e correção
+
+O portal legacy abre `ComplementarAto.asp` com um rádio de interessado e,
+quando esse único rádio é selecionado, transforma diretamente a mesma tela de
+`interested` em `form`. O controlador aceitava somente `interested` como
+progresso de `select_interested`, aguardava o timeout e deixava o piloto
+parado em `NAVIGATION_TIMEOUT`.
+
+O patch TDD em `portal-navigation.js` aceita a transição para `form` somente
+quando a tela anterior era `interested` e o interessado selecionado coincide
+exatamente com a identidade solicitada. O caminho `form→form` já selecionado
+e a identidade divergente continuam bloqueados. Os guards de geração, origem,
+aba/frame, marcador e identidade foram preservados.
+
+**Ruling:** tratar `interested→form` como progresso válido somente com
+identidade selecionada igual — decisão baseada na transição observada no DOM
+real; se estiver errada, o custo é repetir o preflight e ajustar o contrato,
+sem risco de escrita externa porque `autoSubmit=false` permanece ativo.
+
+### Evidência TDD e revisão
+
+- RED: a transição direta falhou com `NAVIGATION_TIMEOUT` antes da correção.
+- GREEN focal: 34/34 testes aprovados.
+- Suíte do pacote: `npm test` — 339/339 aprovados.
+- `node --check` e `git diff --check` — aprovados.
+- Testes incluem `MutationObserver.observe/disconnect`, `form→form` e
+  identidade divergente; mutações que removem os guards foram detectadas.
+- Worker Luna `Jason` implementou o patch; revisão Luna `Anscombe` aprovou com
+  0 findings.
+
+### Status da Tarefa 4.2
+
+- [x] Corrigir o bloqueio de navegação interessado→form com TDD e revisão.
+- [ ] Sincronizar o patch com o pacote live, recarregar a extensão e repetir
+  três preflights reais no marcador 6189/origem `sector_finalistic`.
+- [ ] `APPLY_FIELDS` e releitura pós-escrita ainda não executados.
+- [ ] Nenhum botão de envio/finalização foi clicado; Fases 5+ continuam
+  bloqueadas pelo gate formal.

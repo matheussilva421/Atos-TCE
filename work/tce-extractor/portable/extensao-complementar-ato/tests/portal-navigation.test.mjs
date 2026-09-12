@@ -369,6 +369,88 @@ test("detects the restricted portal's initial Complementar Ato screen as interes
   assert.ok(snapshot.actions.some((action) => action.action === "select_interested"));
 });
 
+test("accepts a legacy interested selection that transitions directly to the form", async () => {
+  const { documentRef, radio } = buildRestrictedInitialActDocument();
+  let mutationCallback = null;
+  let observeCount = 0;
+  let disconnectCount = 0;
+  documentRef.defaultView.MutationObserver = class {
+    constructor(callback) {
+      mutationCallback = callback;
+    }
+
+    observe(target, options) {
+      observeCount += 1;
+      assert.equal(target, documentRef.body);
+      assert.deepEqual(options, { childList: true, subtree: true, attributes: true });
+    }
+
+    disconnect() {
+      disconnectCount += 1;
+    }
+  };
+  radio.onClick = () => {
+    radio.checked = true;
+    mutationCallback?.();
+  };
+  const before = snapshotPortalScreen(documentRef);
+
+  const result = await executeNavigation(documentRef, {
+    action: "select_interested",
+    identity: identity("101675/2026", "Núzia Maria Barbosa"),
+    expected_generation: before.generation,
+    timeoutMs: 50,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.snapshot.role, "form");
+  assert.equal(radio.checked, true);
+  assert.equal(observeCount, 1);
+  assert.equal(disconnectCount, 1);
+});
+
+test("does not treat an already selected form as progress for select_interested", async () => {
+  const { documentRef, radio } = buildRestrictedInitialActDocument({ selected: true });
+  const before = snapshotPortalScreen(documentRef);
+
+  const result = await executeNavigation(documentRef, {
+    action: "select_interested",
+    identity: identity("101675/2026", "Núzia Maria Barbosa"),
+    expected_generation: before.generation,
+    timeoutMs: 50,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "NAVIGATION_TIMEOUT");
+  assert.equal(radio.clickCount, 1);
+});
+
+test("rejects a selected interested identity that differs from the requested identity", async () => {
+  const { documentRef, radio } = buildRestrictedInitialActDocument();
+  documentRef.querySelector("td").textContent = "Bruno de Souza";
+  const interestedTable = documentRef.querySelector("#PessoasAssocicadas");
+  const requestedRow = new FakeElement("tr");
+  const requestedRadio = new FakeElement("input", {
+    attrs: { type: "radio", "data-interested-name": "Ana da Silva" },
+  });
+  requestedRow.append(requestedRadio, cell("Ana da Silva"), cell("CPF-SANITIZADO-02"), cell("Interessado"));
+  interestedTable.append(requestedRow);
+  requestedRadio.onClick = () => { radio.checked = true; };
+  const before = snapshotPortalScreen(documentRef);
+
+  const result = await executeNavigation(documentRef, {
+    action: "select_interested",
+    identity: identity("101675/2026", "Ana da Silva"),
+    expected_generation: before.generation,
+    timeoutMs: 50,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "NAVIGATION_TIMEOUT");
+  assert.equal(radio.checked, true);
+  assert.equal(requestedRadio.clickCount, 1);
+});
+
 test("exposes the restricted portal tab close as the automatic return action after selection", () => {
   const { documentRef } = buildRestrictedInitialActDocument({ selected: true, withTopClose: true });
   const snapshot = snapshotPortalScreen(documentRef);
