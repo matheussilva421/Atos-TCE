@@ -532,3 +532,17 @@ quatro caminhos, criar um commit nominal e executar `git push` fast-forward.
 Depois conferir `HEAD == origin/main` e worktree limpo. Os diagnósticos
 ignorados em `tmp/` e o sidecar de contexto gerado no output live não entram
 no commit.
+
+## Publicação confirmada do bloco (2026-09-11)
+
+- [x] Commit `10f4b68` da correção do auditor e commit `88fba46` do bloco
+  atual publicados em `origin/main` por fast-forward.
+- [x] Push retornou `9c5049d..88fba46 main -> main`.
+- [x] Verificação pós-push confirmou `HEAD == origin/main` e worktree limpo.
+- [ ] Tarefa 4.2 formal permanece pendente: as três prévias read-only não
+  foram convertidas em preparação persistida; não houve `APPLY_FIELDS`, envio
+  ou finalização.
+
+O `git fetch origin` posterior foi tentado, mas o sandbox não pôde abrir
+`.git/FETCH_HEAD`. Isso não altera a confirmação do push nem a igualdade do
+ref remoto atualizado pelo próprio push.

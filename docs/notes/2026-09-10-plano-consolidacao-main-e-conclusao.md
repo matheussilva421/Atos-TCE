@@ -1008,3 +1008,15 @@ isolado e teste de regressão; o teste novo reproduziu RED quando
 - [ ] Push do commit `10f4b68` junto com o bloco atual de sidepanel e
   documentação; a publicação deve ser fast-forward e deixar
   `HEAD == origin/main`.
+
+## Publicação confirmada do bloco (2026-09-11)
+
+- [x] O commit `10f4b68` e o bloco de sidepanel/documentação foram publicados
+  em `origin/main` por fast-forward até `88fba46`.
+- [x] A verificação pós-push confirmou `HEAD == origin/main` e worktree limpo.
+- [ ] A Tarefa 4.2 formal continua pendente: nenhuma escrita, releitura
+  pós-escrita, envio ou finalização foi autorizada neste bloco.
+
+O `git fetch origin` posterior não conseguiu abrir `.git/FETCH_HEAD` por
+restrição do sandbox; o push foi confirmado diretamente pelo retorno remoto e
+pela igualdade do ref `origin/main` com `HEAD`.
