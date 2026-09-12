@@ -313,6 +313,41 @@ test("pilot mode freezes only the explicitly selected identity", async () => {
   assert.deepEqual(bridge.calls.find(([name]) => name === "freeze")[2].identities, [target]);
 });
 
+test("pilot with a confirmed marker stops discovery on the page containing its target", async () => {
+  const target = identity("103401/2023", "ana da silva", "act-1");
+  const targetRow = { ...target, needsComplement: true };
+  const marker = "PROFESSOR - IPERN - 2 RUBRICAS";
+  const pages = {
+    1: { ...lifecycleList(1, [targetRow], { next: true }), marker: { label: marker, value: "marker-2" }, source_scope: "sector_finalistic" },
+    2: { ...lifecycleList(2, [identity("103402/2023", "bruno de souza", "act-2")], { next: true }), marker: { label: marker, value: "marker-2" }, source_scope: "sector_finalistic" },
+    3: { ...lifecycleList(3, [identity("103403/2023", "carla de lima", "act-3")], { first: true }), marker: { label: marker, value: "marker-2" }, source_scope: "sector_finalistic" },
+  };
+  const bridge = bridgeMock();
+  const chromeApi = lifecycleChromeMock(pages);
+
+  await createAutomationController({ chromeApi, bridge }).start({
+    spec: {
+      ...runSpec(),
+      mode: "pilot",
+      pilotIdentity: target,
+      marker,
+      sourceScope: "sector_finalistic",
+      markerValue: "marker-2",
+      acquisitionSource: "econtas",
+    },
+    eventId: "pilot-marker-fast-path",
+  });
+
+  const nextNavigations = chromeApi.calls.filter(([, message]) => (
+    message.type === "PORTAL_NAVIGATE" && message.payload.action === "next_page"
+  ));
+  assert.equal(nextNavigations.length, 0);
+  assert.equal(chromeApi.calls.filter(([, message]) => (
+    message.type === "PORTAL_NAVIGATE" && message.payload.action === "open_act"
+  )).length, 1);
+  assert.deepEqual(bridge.calls.find(([name]) => name === "freeze")[2].identities, [target]);
+});
+
 test("keeps an unresolved identity in totals and pauses when pagination repeats", async () => {
   const unresolved = snapshot("list", 1, [
     { processKey: null, interestedOriginal: "", interestedNormalized: null, portalActId: null, pending: true },
@@ -1282,6 +1317,72 @@ test("accepts the restricted portal's newly created interested/form frame after 
 
   assert.equal(controller.status().frame.frameId, 5);
   assert.equal(controller.status().frame.role, "interested");
+});
+
+test("replays a newly created interested frame that arrives during open-act navigation", async () => {
+  const target = identity("103401/2023", "ana da silva", "act-1");
+  const interested = snapshot("interested", 2, [{ ...target, selected: false }], [
+    { action: "select_interested", enabled: true, identity: { ...target, selected: false } },
+  ]);
+  const calls = [];
+  let releaseOpen;
+  let openEnteredResolve;
+  const openEntered = new Promise((resolve) => { openEnteredResolve = resolve; });
+  const openGate = new Promise((resolve) => { releaseOpen = resolve; });
+  const chromeApi = {
+    calls,
+    storage: { session: { async get() { return {}; }, async set() {} } },
+    tabs: {
+      async sendMessage(tabId, message, options) {
+        calls.push([tabId, message, options]);
+        const frameId = Number.isSafeInteger(options?.frameId) ? options.frameId : 0;
+        if (message.type === "PORTAL_GET_SNAPSHOT") {
+          return { ok: true, frameId, payload: snapshot("list", 1, [target], [
+            { action: "open_act", enabled: true, identity: target },
+          ]) };
+        }
+        if (message.type === "PORTAL_NAVIGATE") {
+          if (message.payload.action === "open_act") {
+            openEnteredResolve();
+            await openGate;
+          }
+          return { ok: true, frameId, navigationToken: message.requestId, payload: {} };
+        }
+        return { ok: true, payload: {} };
+      },
+      onRemoved: { addListener() {} },
+      onUpdated: { addListener() {} },
+    },
+  };
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+  const starting = controller.start({ ...runSpec(), lotSize: 1 }, "start-interested-race");
+  await openEntered;
+
+  const received = controller.handlePortalEvent({
+    tabId: 7,
+    frameId: 5,
+    type: "snapshot",
+    snapshot: interested,
+  });
+  const staleList = controller.handlePortalEvent({
+    tabId: 7,
+    frameId: 0,
+    type: "snapshot",
+    snapshot: snapshot("list", 1, [target], [
+      { action: "open_act", enabled: true, identity: target },
+    ]),
+  });
+  releaseOpen();
+  await starting;
+  await received;
+  await staleList;
+
+  assert.equal(controller.status().status, "running");
+  assert.equal(controller.status().currentIdentity.processKey, target.processKey);
+  assert.equal(controller.status().frame.frameId, 5);
+  assert.equal(controller.status().frame.role, "interested");
+  assert.equal(calls.some(([, message]) => message.type === "PORTAL_NAVIGATE"
+    && message.payload.action === "select_interested"), true);
 });
 
 test("controller owns navigation loop and exposes pause/resume/stop/status without panel participation", async () => {

@@ -1065,3 +1065,50 @@ sem risco de escrita externa porque `autoSubmit=false` permanece ativo.
 - [ ] `APPLY_FIELDS` e releitura pós-escrita ainda não executados.
 - [ ] Nenhum botão de envio/finalização foi clicado; Fases 5+ continuam
   bloqueadas pelo gate formal.
+
+## Diagnóstico TDD do registro tardio do formulário (2026-09-12)
+
+Na retomada controlada, a origem correta foi reaberta e o marcador `6189`
+(`PROFESSOR - IPERN - 2 - RUBRICAS`) foi aplicado em `ProcessonoSetor.asp`.
+O candidato `100455/2025` foi aberto somente para leitura: a tela inicialmente
+continha um único rádio de interessado; após a seleção reversível, os campos do
+formulário surgiram na mesma moldura.
+
+O `service-worker` estava ativo, mas `portal-frame-registrations:v1` e
+`submit-frame-registrations:v1` permaneciam vazios. A causa-raiz encontrada no
+fluxo estático é que `form-detector.js` só envia `FORM_READY` durante a
+instalação do content script, condicionado à existência dos sentinelas
+completos. Como o portal cria os sentinelas somente depois do rádio, o detector
+perde o único evento e o bridge responde `FRAME_NOT_REGISTERED`.
+
+Foi despachada uma correção TDD limitada a
+`content/form-detector.js` e `tests/form-detector.test.mjs`: observar a criação
+tardia do formulário, emitir um único `FORM_READY` quando ele estiver completo
+e visível, e encerrar a observação após o registro. Até a validação do patch,
+não promover a Tarefa 4.2, não executar `APPLY_FIELDS`, não preencher, enviar ou
+finalizar. O escopo de portal continua exclusivamente processos do setor; não
+usar `MeusProcessos.asp`.
+
+## Handoff de bloqueio da Fase 4 (2026-09-12)
+
+**Status canônico:** Fase 4.1 concluída; Tarefa 4.2 **NÃO PASSA / bloqueada**.
+O último piloto real restrito ao marcador `PROFESSOR - IPERN - 2 - RUBRICAS`
+(`value=6189`, `ProcessonoSetor.asp`, `source_scope=sector_finalistic`) ficou
+com um único item `100065/2026` em `queued`, `currentIdentity=null` e sem
+avanço para `select_interested`. O bloqueio runtime é a corrida entre a
+resposta de `open_act` e o snapshot `interested` criado em frame irmão. A
+suíte local passou, mas a reprodução live ainda não confirmou a correção.
+
+O Chrome/CDP isolado estava fechado na última verificação
+(`ECONNREFUSED 127.0.0.1:19232`), portanto o run não deve ser presumido como
+parado. O próximo agente deve reabrir a superfície controlável, confirmar o
+estado, reproduzir a sequência `open_act → interested → select_interested →
+form` com tracing sanitizado e corrigir/testar a associação tab/frame,
+geração e `inFlight` antes de repetir os três preflights. O novo ponto de
+entrada é `docs/notes/2026-09-12-fase4-bloqueio-handoff.md`.
+
+Nenhum `APPLY_FIELDS`, preenchimento, envio ou finalização foi executado. As
+Tarefas 5+ continuam desmarcadas. Fundamentação por `similarity` permanece
+aceita quando a decisão legal está `selected` e o valor de catálogo é
+verificável; isso não libera divergência de identidade, data, nascimento,
+opção, frame, contexto ou evidência.

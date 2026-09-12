@@ -265,3 +265,24 @@ The scan below records every task self-consistency check and every pair with a s
   session. Human login is now required in the isolated work Chrome before the
   three real Task 4.2 preflights can resume. No credentials were typed by the
   runner and no portal mutation occurred.
+
+- Task 4.2 runtime diagnosis (2026-09-12): after re-authenticated navigation
+- Handoff checkpoint (2026-09-12): Fase 4.1 remains complete, but Task 4.2 is
+  still **NÃO PASSA / blocked**. The last real pilot on marker `6189` remained
+  `running` with one frozen queued item (`100065/2026`), `currentIdentity=null`,
+  and list/interested frames without a form; the isolated CDP was then closed,
+  so the run was not confirmed stopped. The unresolved runtime issue is the
+  event race between `open_act` and the sibling interested frame; local TDD is
+  green but live advancement to `select_interested` is not proven. See
+  `docs/notes/2026-09-12-fase4-bloqueio-handoff.md` for exact evidence and
+  resume procedure. Scope remains only `ProcessonoSetor.asp`,
+  `source_scope=sector_finalistic`, marker value `6189`; never
+  `MeusProcessos.asp`. No `APPLY_FIELDS`, fill, send or finalization occurred.
+  limited to `ProcessonoSetor.asp` and marker value `6189`, the exact candidate
+  `100455/2025` exposed a single interested radio and then created the complete
+  form after the reversible selection. The worker was active but no frame was
+  registered. Root cause isolated to `form-detector.js`: `FORM_READY` was sent
+  only at initial injection, before the portal created the form sentinels. Luna
+  implementer dispatched with ownership limited to `content/form-detector.js`
+  and `tests/form-detector.test.mjs`; TDD result pending. No
+  `APPLY_FIELDS`, fill, send or finalization; no `MeusProcessos.asp`.

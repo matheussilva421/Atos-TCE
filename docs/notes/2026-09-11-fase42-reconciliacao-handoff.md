@@ -580,3 +580,59 @@ formais. `autoSubmit=false` deve permanecer em todos os runs.
 O `git fetch origin` posterior foi tentado, mas o sandbox não pôde abrir
 `.git/FETCH_HEAD`. Isso não altera a confirmação do push nem a igualdade do
 ref remoto atualizado pelo próprio push.
+
+## Retomada 2026-09-12 — causa-raiz do FRAME_NOT_REGISTERED
+
+O login permaneceu válido no Chrome isolado. A navegação foi feita novamente
+somente por `ProcessonoSetor.asp`, com o valor `6189` do marcador
+`PROFESSOR - IPERN - 2 - RUBRICAS`; `MeusProcessos.asp` não foi aberto.
+`100455/2025` foi consultado e aberto apenas para inspeção. O rádio único foi
+selecionado reversivelmente e os campos apareceram, mas não houve registro de
+frame no worker.
+
+O diagnóstico estático mostrou a causa: `form-detector.js` envia `FORM_READY`
+apenas no momento da injeção e somente se o conjunto completo de sentinelas já
+existir. O portal injeta o detector antes da seleção do interessado e cria os
+campos depois; logo, o frame não se registra e o bridge retorna
+`FRAME_NOT_REGISTERED`. O worker estava ativo, e a sessão autenticada estava
+confirmada; portanto não se trata de login nem de uso da origem errada.
+
+Uma Luna foi encarregada da correção TDD somente em
+`content/form-detector.js` e `tests/form-detector.test.mjs`, com observação
+limitada à criação tardia do formulário, emissão única de `FORM_READY` e
+limpeza do observer. A validação ainda está em andamento. Não houve escrita no
+portal, `APPLY_FIELDS`, preenchimento, envio ou finalização.
+
+## Tarefa 4.2 — registro tardio da lista visível (2026-09-12)
+
+A reprodução live reportada no Chrome/CDP ficou restrita à lista do setor em
+`ProcessonoSetor.asp`, com `source_scope=sector_finalistic` e marcador valor
+`6189`, rótulo observado `PROFESSOR - IPERN - 2 RUBRICAS (470)`. O iframe da
+lista começava com bounding rect `0x0`, emitia snapshot `unknown` e não
+reenviava quando passava a estar visível.
+
+### Correção TDD
+
+- RED focal: o teste novo falhou pela razão esperada, com `0 !== 1` ao exigir
+  o registro tardio do observador.
+- GREEN focal do caso: passou com evento inicial `unknown`, um único
+  `PORTAL_EVENT` posterior com papel `list` e `source_scope=sector_finalistic`,
+  `disconnect` após sucesso e nenhum terceiro evento.
+- Suíte focal `node --test tests/portal-navigation.test.mjs`: 35/35 aprovados,
+  0 falhas.
+- Suíte da extensão `npm test`: 341/341 aprovados, 0 falhas.
+- `node --check content/portal-navigation.js` e `git diff --check`: aprovados.
+- Commit local: `862b2c2e16fae391ce3863a59f1f51ddf7d9887a`.
+
+`installPortalNavigation` mantém o snapshot inicial e, somente quando ele é
+`unknown`, registra `ResizeObserver` no `frameElement` e `MutationObserver` no
+documento. A primeira transição reconhecida emite o snapshot tipado, encerra
+ambos os observadores e não inicia polling. Os arquivos da implementação são
+`work/tce-extractor/portable/extensao-complementar-ato/content/portal-navigation.js`
+e `work/tce-extractor/portable/extensao-complementar-ato/tests/portal-navigation.test.mjs`.
+
+Não houve abertura de `MeusProcessos.asp`, `APPLY_FIELDS`, alteração de campo,
+preenchimento, envio ou finalização. Não houve push; a publicação e a
+integração permanecem sob responsabilidade do controlador. As alterações
+documentais já existentes no worktree foram preservadas e não entraram no
+commit.

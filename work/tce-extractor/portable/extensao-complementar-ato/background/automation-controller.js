@@ -359,6 +359,7 @@ export function createAutomationController({
   let frameLoadPromise = null;
   let framePersistPromise = Promise.resolve();
   let inFlight = null;
+  let pendingPortalSnapshot = null;
   let expectedNavigation = null;
   let navigationToken = 0;
   let messageSequence = 0;
@@ -1243,6 +1244,18 @@ export function createAutomationController({
         setPaused("o resultado da paginação perdeu o marcador solicitado");
         return current;
       }
+      if (spec.mode === "pilot"
+        && spec.marker
+        && isRecord(spec.pilotIdentity)
+        && (current.identities ?? []).some((candidate) => (
+          identityKey(candidate) === identityKey(spec.pilotIdentity)
+        ))) {
+        // A pilot has one explicit identity. Once that identity is visible on
+        // the already-confirmed filtered list, do not walk unrelated pages or
+        // depend on the legacy portal's final-page reset behavior.
+        collectSnapshot(current);
+        return current;
+      }
       const signature = (current.identities ?? []).map(identityKey).join("|");
       if (pageSignatures.has(signature)) {
         setPaused("page repeated without progress");
@@ -1755,9 +1768,23 @@ export function createAutomationController({
   }
 
   async function driveSnapshot(tabId, frameId, snapshot) {
-    if (state.status !== "running" || inFlight) return;
-    inFlight = processSnapshot(tabId, frameId, snapshot).finally(() => { inFlight = null; });
-    await inFlight;
+    if (state.status !== "running") return;
+    if (inFlight) {
+      pendingPortalSnapshot = { tabId, frameId, snapshot: clone(snapshot) };
+      return;
+    }
+    const currentFlight = processSnapshot(tabId, frameId, snapshot);
+    inFlight = currentFlight;
+    try {
+      await currentFlight;
+    } finally {
+      if (inFlight === currentFlight) inFlight = null;
+      const pending = pendingPortalSnapshot;
+      pendingPortalSnapshot = null;
+      if (pending && state.status === "running") {
+        await driveSnapshot(pending.tabId, pending.frameId, pending.snapshot);
+      }
+    }
   }
 
   async function handlePortalEvent(event) {
