@@ -149,3 +149,9 @@ Tarefa 4.2.
 - Este documento é o ponto de entrada para retomada; não apagar o handoff
   anterior nem os relatórios de evidência.
 
+## Publicação deste handoff
+
+- Commit: `2c73abf` (`docs: handoff phase 4 blocked state`).
+- Push: concluído em `origin/main` por fast-forward.
+- Verificação: `HEAD == origin/main == 2c73abf`, worktree limpo e
+  `git diff --check` sem saída.

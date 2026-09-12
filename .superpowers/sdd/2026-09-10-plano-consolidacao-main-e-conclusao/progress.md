@@ -278,6 +278,12 @@ The scan below records every task self-consistency check and every pair with a s
   resume procedure. Scope remains only `ProcessonoSetor.asp`,
   `source_scope=sector_finalistic`, marker value `6189`; never
   `MeusProcessos.asp`. No `APPLY_FIELDS`, fill, send or finalization occurred.
+
+- Publication checkpoint (2026-09-12): handoff
+  `docs/notes/2026-09-12-fase4-bloqueio-handoff.md` and the related plan,
+  ledger and TDD block were committed as `2c73abf` and pushed fast-forward to
+  `origin/main`. Post-push verification: `HEAD == origin/main), clean
+  worktree and `git diff --check` passed. Task 4.2 remains blocked.
   limited to `ProcessonoSetor.asp` and marker value `6189`, the exact candidate
   `100455/2025` exposed a single interested radio and then created the complete
   form after the reversible selection. The worker was active but no frame was

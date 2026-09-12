@@ -1112,3 +1112,7 @@ Tarefas 5+ continuam desmarcadas. Fundamentação por `similarity` permanece
 aceita quando a decisão legal está `selected` e o valor de catálogo é
 verificável; isso não libera divergência de identidade, data, nascimento,
 opção, frame, contexto ou evidência.
+
+O handoff foi publicado no commit `2c73abf`, com `HEAD == origin/main),
+worktree limpo e `git diff --check` aprovado. A Tarefa 4.2 continua
+bloqueada.
