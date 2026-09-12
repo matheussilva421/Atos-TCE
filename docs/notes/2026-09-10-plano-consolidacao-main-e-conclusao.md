@@ -899,3 +899,45 @@ O diagnóstico foi mantido honesto: o teste unitário da extensão está verde,
 mas isso não substitui a prova runtime das três preflights reais. O escopo
 permanece exclusivamente `sector_finalistic` e o marcador `6189`; nenhuma
 identidade de `MeusProcessos.asp` foi incluída.
+
+## Reconciliação da retomada live — paginação estabilizada (2026-09-11)
+
+O bloqueio descrito acima é histórico: ele foi reproduzido, corrigido em TDD
+e revalidado no Chrome isolado. A fonte de verdade atual deste bloco é:
+
+- [x] Corrigir a paginação legacy do `ProcessonoSetor.asp` usando somente a
+  allowlist `NumeroPagina` + `Paginacao=S` + `GrupoProcesso=NS`, no `form1`
+  correto, sem executar comandos JavaScript arbitrários.
+- [x] Fazer o controller tolerar `waitingForFrame`, timeout após o unload,
+  frame substituído, snapshot `unknown` transitório e geração stale, sempre
+  exigindo progresso da lista, mesma origem, mesmo marcador e novas
+  identidades.
+- [x] Propagar a razão interna do `AUTO_ANALYZE` ao painel sem expor payload
+  privado; a cobertura existente inclui esse contrato.
+- [x] Repetir o preflight técnico read-only da paginação três vezes, desde a
+  página 1, sempre com `ProcessonoSetor.asp`, `source_scope=sector_finalistic`
+  e marcador canônico `6189`.
+- [ ] Tarefa 4.2 funcional: selecionar três atos representativos e elegíveis,
+  conferir os seis campos e registrar três preflights de atos. A análise de
+  lista abaixo não conta como preflight de ato e não autoriza `APPLY_FIELDS`,
+  preenchimento, envio ou finalização.
+
+### Evidência runtime reconciliada
+
+As três execuções read-only retornaram o mesmo contrato: `outer_ok=true`,
+`error=null`, `source_scope=sector_finalistic`, marcador apresentado
+`PROFESSOR - IPERN - 2 RUBRICAS (470)`, valor `6189`, `row_count=470`,
+`totals.discovered=502`, `totals.unique=472` e `totals.pending=2`. A execução
+percorreu a paginação sem `portal frame unavailable`; nenhuma execução chamou
+`APPLY_FIELDS` ou qualquer comando de envio. O campo `inner_ok` não é usado
+como critério: o controller devolve diretamente o payload de análise.
+
+### QA do bloco reconciliado
+
+- [x] `npm test` na extensão: 335 testes executados, 335 aprovados, 0 falhas.
+- [x] `tests/Test-TcePortable.ps1`: 114 testes executados, 114 aprovados,
+  0 falhas.
+- [x] `node --check` nos dois módulos alterados e `git diff --check` sem erros.
+- [x] Três execuções live read-only verdes na origem e marcador restritos.
+- [x] Nenhum token, cookie, CPF bruto, DOM bruto, preenchimento ou envio foi
+  registrado no repositório.

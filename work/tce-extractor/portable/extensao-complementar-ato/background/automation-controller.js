@@ -589,6 +589,24 @@ export function createAutomationController({
     return response;
   }
 
+  async function sendPortalMessageBounded(tabId, type, payload, frameId, requestId, timeoutMs = 750) {
+    let timer = null;
+    try {
+      return await Promise.race([
+        sendPortalMessage(tabId, type, payload, frameId, requestId),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => {
+            const error = new Error("portal frame message timed out");
+            error.code = "PORTAL_MESSAGE_TIMEOUT";
+            reject(error);
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer !== null) clearTimeout(timer);
+    }
+  }
+
   async function enumeratePortalFrameIds(tabId) {
     if (typeof chromeApi.webNavigation?.getAllFrames !== "function") return [];
     try {
@@ -980,6 +998,19 @@ export function createAutomationController({
     }
   }
 
+  async function refreshListGeneration(tabId, current) {
+    const frameId = state.frame?.frameId;
+    if (!Number.isSafeInteger(frameId) || !isRecord(current) || current.role !== "list") return current;
+    const observed = await readPortalSnapshot(tabId, frameId);
+    const next = observed?.snapshot;
+    if (!isRecord(next) || next.role !== "list") return current;
+    if (state.sourceScope !== null && next.source_scope !== state.sourceScope) return current;
+    if (state.marker && !markerMatches(next, state.marker)) return current;
+    const currentSignature = (current.identities ?? []).map(identityKey).join("|");
+    const nextSignature = (next.identities ?? []).map(identityKey).join("|");
+    return currentSignature === nextSignature ? next : current;
+  }
+
   async function verifySubmitState(input = {}) {
     const command = input.command;
     const formFrameId = commandFormFrame(command);
@@ -1040,6 +1071,65 @@ export function createAutomationController({
     }
   }
 
+  function isProgressedListSnapshot(before, after) {
+    if (!isRecord(before) || !isRecord(after)
+      || before.role !== "list" || after.role !== "list") return false;
+    const beforeKeys = new Set((before.identities ?? []).map(identityKey));
+    return (after.identities ?? []).some((candidate) => !beforeKeys.has(identityKey(candidate)));
+  }
+
+  function acceptedProgressedPaginationSnapshot(beforeSnapshot, snapshot) {
+    return isProgressedListSnapshot(beforeSnapshot, snapshot)
+      && (state.sourceScope === null || snapshot.source_scope === state.sourceScope)
+      && (!state.marker || markerMatches(snapshot, state.marker));
+  }
+
+  function takeExpectedProgressedPaginationSnapshot(tabId, beforeSnapshot) {
+    const navigation = expectedNavigation;
+    const pending = navigation?.progressedSnapshot;
+    if (navigation?.action !== "next_page"
+      || navigation.tabId !== tabId
+      || !isRecord(pending)
+      || !acceptedProgressedPaginationSnapshot(beforeSnapshot, pending.snapshot)) return null;
+    navigation.progressedSnapshot = null;
+    registerFrame(tabId, pending.frameId, pending.snapshot);
+    return { snapshot: pending.snapshot, frameId: pending.frameId };
+  }
+
+  async function recoverPaginatedSnapshot(tabId, frameId, beforeSnapshot) {
+    const attempts = 24;
+    const delayMs = 250;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const eventSnapshot = takeExpectedProgressedPaginationSnapshot(tabId, beforeSnapshot);
+      if (eventSnapshot) return eventSnapshot;
+      // Native submission starts unloading the old legacy document only
+      // after the content listener returns. Give Chrome one event-loop turn
+      // before probing so the first read cannot pin the stale frame.
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      const discoveredFrameIds = await enumeratePortalFrameIds(tabId);
+      const frameIds = [...new Set([frameId, ...discoveredFrameIds])]
+        .filter((candidate) => Number.isSafeInteger(candidate) && candidate >= 0);
+      for (const candidate of frameIds) {
+        try {
+          const response = await sendPortalMessageBounded(
+            tabId,
+            MESSAGE_TYPES.PORTAL_GET_SNAPSHOT,
+            {},
+            candidate,
+            `${state.eventPrefix}-recovery-${String(attempt)}-${String(candidate)}`,
+          );
+          const snapshot = snapshotFromResponse(response);
+          if (!acceptedProgressedPaginationSnapshot(beforeSnapshot, snapshot)) continue;
+          registerFrame(tabId, candidate, snapshot);
+          return { snapshot, frameId: candidate };
+        } catch {
+          // A frame can disappear while the portal replaces the iframe.
+        }
+      }
+    }
+    return null;
+  }
+
   async function navigate(tabId, frameId, action, identity, generation, options = {}) {
     const navigation = {
       token: `${state.eventPrefix}-navigation-${String(++navigationToken)}`,
@@ -1048,6 +1138,8 @@ export function createAutomationController({
       action,
       generation,
       loadingObserved: false,
+      beforeSnapshot: isRecord(options.beforeSnapshot) ? options.beforeSnapshot : null,
+      progressedSnapshot: null,
     };
     expectedNavigation = navigation;
     try {
@@ -1059,6 +1151,17 @@ export function createAutomationController({
       if (typeof options.marker === "string") payload.marker = options.marker;
       const response = await sendPortalMessage(tabId, MESSAGE_TYPES.PORTAL_NAVIGATE, payload, frameId, navigation.token);
       if (response?.ok !== true) {
+        if (action === "next_page" && isRecord(options.beforeSnapshot)) {
+          // The legacy portal can finish replacing the list iframe while its
+          // navigation promise is already reporting a timeout/error. Probe
+          // the current frames before pausing; a progressed snapshot is the
+          // authoritative evidence that the page actually advanced.
+          const recovered = await recoverPaginatedSnapshot(tabId, frameId, options.beforeSnapshot);
+          if (recovered) {
+            if (expectedNavigation === navigation) expectedNavigation = null;
+            return { ok: true, snapshot: recovered.snapshot, frameId: recovered.frameId };
+          }
+        }
         setPaused(response?.error?.code === "TAB_CLOSED" ? "tab closed" : "portal frame unavailable");
         return { ok: false, response };
       }
@@ -1073,12 +1176,33 @@ export function createAutomationController({
       }
       const snapshot = snapshotFromResponse(response);
       if (snapshot) registerFrame(tabId, frameId, snapshot);
+      if (action === "next_page"
+        && !snapshot
+        && isRecord(options.beforeSnapshot)) {
+        const eventSnapshot = takeExpectedProgressedPaginationSnapshot(tabId, options.beforeSnapshot);
+        if (eventSnapshot) {
+          if (expectedNavigation === navigation) expectedNavigation = null;
+          return { ok: true, snapshot: eventSnapshot.snapshot, frameId: eventSnapshot.frameId };
+        }
+        const recovered = await recoverPaginatedSnapshot(tabId, frameId, options.beforeSnapshot);
+        if (recovered) {
+          if (expectedNavigation === navigation) expectedNavigation = null;
+          return { ok: true, snapshot: recovered.snapshot, frameId: recovered.frameId };
+        }
+      }
       return { ok: true, snapshot };
     } catch (error) {
+      if (action === "next_page" && isRecord(options.beforeSnapshot)) {
+        const recovered = await recoverPaginatedSnapshot(tabId, frameId, options.beforeSnapshot);
+        if (recovered) {
+          if (expectedNavigation === navigation) expectedNavigation = null;
+          return { ok: true, snapshot: recovered.snapshot, frameId: recovered.frameId };
+        }
+      }
       setPaused(error?.code === "TAB_CLOSED" ? "tab closed" : "portal frame unavailable");
       return { ok: false, error };
     } finally {
-      if (expectedNavigation === navigation && !navigation.loadingObserved) expectedNavigation = null;
+      if (expectedNavigation === navigation) expectedNavigation = null;
     }
   }
 
@@ -1109,7 +1233,12 @@ export function createAutomationController({
     let current = await ensureMarkerFilter(tabId, initial, spec.marker);
     if (!current) return null;
     const pageSignatures = new Set();
+    let refreshBeforeAction = false;
     for (let index = 0; index < 100; index += 1) {
+      if (refreshBeforeAction) {
+        current = await refreshListGeneration(tabId, current);
+        refreshBeforeAction = false;
+      }
       if (spec.marker && !markerMatches(current, spec.marker)) {
         setPaused("o resultado da paginação perdeu o marcador solicitado");
         return current;
@@ -1124,7 +1253,7 @@ export function createAutomationController({
       const next = actionFor(current, "next_page");
       if (!next || next.direction === "first") return current;
       const frameId = state.frame?.frameId ?? 0;
-      const moved = await navigate(tabId, frameId, "next_page", null, current.generation);
+      const moved = await navigate(tabId, frameId, "next_page", null, current.generation, { beforeSnapshot: current });
       if (!moved.ok) {
         if (state.status !== "paused") setPaused("navigation failed or requires manual intervention");
         return current;
@@ -1145,6 +1274,7 @@ export function createAutomationController({
         return nextSnapshot;
       }
       current = nextSnapshot;
+      refreshBeforeAction = true;
     }
     setPaused("pagination exceeded the safe page limit");
     return current;
@@ -1387,7 +1517,7 @@ export function createAutomationController({
           setPaused("first queued process requires manual re-find");
           return statusToPublic(state);
         }
-        const moved = await navigate(spec.tabId, state.frame?.frameId ?? 0, "next_page", null, ready.generation);
+        const moved = await navigate(spec.tabId, state.frame?.frameId ?? 0, "next_page", null, ready.generation, { beforeSnapshot: ready });
         if (!moved.ok || !moved.snapshot || moved.snapshot.role !== "list") {
           setPaused("first queued process requires manual re-find");
           return statusToPublic(state);
@@ -1545,7 +1675,7 @@ export function createAutomationController({
             setPaused("process not found after return; manual intervention required");
             return;
           }
-          const moved = await navigate(tabId, frameId, "next_page", null, snapshot.generation);
+          const moved = await navigate(tabId, frameId, "next_page", null, snapshot.generation, { beforeSnapshot: snapshot });
           if (!moved.ok || !moved.snapshot || moved.snapshot.role !== "list") {
             setPaused("process lookup pagination requires manual intervention");
             return;
@@ -1639,13 +1769,29 @@ export function createAutomationController({
       return statusToPublic(state);
     }
     if (event.tabId !== state.tabId) return statusToPublic(state);
+    const expectedPagination = expectedNavigation?.action === "next_page"
+      && expectedNavigation.tabId === event.tabId;
+    const progressedPaginationEvent = expectedPagination
+      && eventType === "snapshot"
+      && isPortalSnapshot(snapshot)
+      && snapshot.role === "list"
+      && acceptedProgressedPaginationSnapshot(expectedNavigation.beforeSnapshot, snapshot);
     // Area Restrita opens Complementar Ato in a new sibling frame. The first
     // event from that frame is the unselected interested-party surface, not a
     // form yet, so it must be accepted before the controller can select the
     // radio and continue with field preparation.
     if (state.frame
       && event.frameId !== state.frame.frameId
-      && !["interested", "form"].includes(snapshot?.role)) return statusToPublic(state);
+      && !["interested", "form"].includes(snapshot?.role)
+      && !progressedPaginationEvent) return statusToPublic(state);
+    if (progressedPaginationEvent) {
+      expectedNavigation.progressedSnapshot = {
+        frameId: event.frameId,
+        snapshot: clone(snapshot),
+      };
+      registerFrame(event.tabId, event.frameId, snapshot);
+      return statusToPublic(state);
+    }
     if (eventType === "navigation") invalidateFrames(event.tabId);
     if (eventType === "frame_unavailable" || eventType === "tab_closed") {
       setPaused(eventType === "tab_closed" ? "tab closed" : "portal frame unavailable");
@@ -1657,6 +1803,15 @@ export function createAutomationController({
     }
     if (eventType === "sector_changed" || (snapshot?.sector && state.sector && snapshot.sector !== state.sector)) {
       setPaused("setor mudou durante a navegação");
+      return statusToPublic(state);
+    }
+    if (eventType === "snapshot"
+      && snapshot?.role === "unknown"
+      && expectedNavigation?.action === "next_page"
+      && expectedNavigation.tabId === event.tabId
+      && expectedNavigation.frameId === event.frameId) {
+      // The legacy form submit briefly exposes an incomplete document in the
+      // same frame. The replacement list snapshot is the authoritative guard.
       return statusToPublic(state);
     }
     if (["discovering", "running"].includes(state.status)
@@ -1713,12 +1868,22 @@ export function createAutomationController({
         && expectedNavigation?.tabId === tabId
         && changeInfo.frameId === expectedNavigation.frameId
         && changeInfo.navigationToken === expectedNavigation.token;
+      const sameExpectedFrame = Number.isSafeInteger(changeInfo?.frameId)
+        && expectedNavigation?.tabId === tabId
+        && changeInfo.frameId === expectedNavigation.frameId;
       if (changeInfo?.status === "complete" && matchesExpectedNavigation) {
         expectedNavigation = null;
         return;
       }
       if (changeInfo?.status !== "loading") return;
-      if (matchesExpectedNavigation) {
+      if (matchesExpectedNavigation || sameExpectedFrame) {
+        expectedNavigation.loadingObserved = true;
+        return;
+      }
+      if (expectedNavigation?.action === "next_page") {
+        // A legacy form submit can emit loading for the wrapper or a sibling
+        // portal frame before the list iframe is recreated. The replacement
+        // snapshot below is the authoritative guard for scope and progress.
         expectedNavigation.loadingObserved = true;
         return;
       }

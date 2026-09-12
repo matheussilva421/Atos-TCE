@@ -573,7 +573,7 @@ test("pauses when a same-tab loading event has the wrong navigation token or fra
   assert.equal(started.pausedReason, "navigation token/frame mismatch");
 });
 
-test("pauses when a same-tab loading event omits its navigation marker", async () => {
+test("accepts a same-frame loading event when Chrome omits its navigation marker", async () => {
   const activePage = snapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
     { action: "open_act", enabled: true, identity: identity("103401/2023", "ana da silva", "act-1") },
   ]);
@@ -589,8 +589,8 @@ test("pauses when a same-tab loading event omits its navigation marker", async (
   const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
 
   const started = await controller.start({ spec: runSpec(), eventId: "start-missing-loading-marker" });
-  assert.equal(started.status, "paused");
-  assert.equal(started.pausedReason, "navigation token/frame mismatch");
+  assert.equal(started.status, "running");
+  assert.notEqual(started.pausedReason, "navigation token/frame mismatch");
 });
 
 test("binds an explicitly identified non-zero frame from the initial snapshot response", async () => {
@@ -665,6 +665,334 @@ test("recovers the scoped list frame after reload when an unknown frame precedes
     sector: "aposentadorias",
     source_scope: "sector_finalistic",
   });
+});
+
+test("recovers a paginated list from a new frame after the navigation frame disappears", async () => {
+  const pageOne = {
+    ...markerSnapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
+      { action: "next_page", enabled: true, direction: "next" },
+    ]),
+    source_scope: "sector_finalistic",
+  };
+  const pageTwo = {
+    ...markerSnapshot("list", 1, [identity("103402/2023", "bruno de souza", "act-2")], []),
+    source_scope: "sector_finalistic",
+  };
+  const chromeApi = chromeMock([pageOne]);
+  chromeApi.webNavigation = {
+    async getAllFrames() {
+      return [{ frameId: 4 }, { frameId: 6 }];
+    },
+  };
+  const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    if (message.type === "PORTAL_NAVIGATE") {
+      return null;
+    }
+    if (message.type === "PORTAL_GET_SNAPSHOT" && options?.frameId === 4) {
+      return { ok: true, frameId: 4, payload: structuredClone(pageOne) };
+    }
+    if (message.type === "PORTAL_GET_SNAPSHOT" && options?.frameId === 6) {
+      return { ok: true, frameId: 6, payload: structuredClone(pageTwo) };
+    }
+    return originalSendMessage(tabId, message, options);
+  };
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  const result = await controller.analyze({
+    spec: {
+      ...runSpec(),
+      marker: "PROFESSOR - IPERN - 2 RUBRICAS",
+      sourceScope: "sector_finalistic",
+      lotSize: 50,
+      acquisitionSource: "econtas",
+    },
+    eventId: "analysis-frame-rollover",
+  });
+
+  assert.equal(result.source_scope, "sector_finalistic");
+  assert.equal(result.rows.length, 2);
+  assert.equal(result.frame_id, 6);
+});
+
+test("recovers the paginated list when the portal reports a navigation timeout after loading", async () => {
+  const pageOne = {
+    ...markerSnapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
+      { action: "next_page", enabled: true, direction: "next" },
+    ]),
+    source_scope: "sector_finalistic",
+  };
+  const pageTwo = {
+    ...markerSnapshot("list", 2, [identity("103402/2023", "bruno de souza", "act-2")], []),
+    source_scope: "sector_finalistic",
+  };
+  const chromeApi = chromeMock([pageOne]);
+  chromeApi.webNavigation = {
+    async getAllFrames() {
+      return [{ frameId: 4 }, { frameId: 6 }];
+    },
+  };
+  const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    if (message.type === "PORTAL_NAVIGATE") {
+      return { ok: false, error: { code: "NAVIGATION_TIMEOUT", message: "portal did not confirm navigation" } };
+    }
+    if (message.type === "PORTAL_GET_SNAPSHOT" && options?.frameId === 4) {
+      return { ok: true, frameId: 4, payload: structuredClone(pageOne) };
+    }
+    if (message.type === "PORTAL_GET_SNAPSHOT" && options?.frameId === 6) {
+      return { ok: true, frameId: 6, payload: structuredClone(pageTwo) };
+    }
+    return originalSendMessage(tabId, message, options);
+  };
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  const result = await controller.analyze({
+    spec: {
+      ...runSpec(),
+      marker: "PROFESSOR - IPERN - 2 RUBRICAS",
+      sourceScope: "sector_finalistic",
+      lotSize: 50,
+      acquisitionSource: "econtas",
+    },
+    eventId: "analysis-timeout-after-load",
+  });
+
+  assert.equal(result.source_scope, "sector_finalistic");
+  assert.equal(result.rows.length, 2);
+  assert.equal(result.frame_id, 6);
+});
+
+test("waits for the progressed list when legacy pagination returns without a snapshot", async () => {
+  const pageOne = {
+    ...markerSnapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
+      { action: "next_page", enabled: true, direction: "next" },
+    ]),
+    source_scope: "sector_finalistic",
+  };
+  const pageTwo = {
+    ...markerSnapshot("list", 2, [identity("103402/2023", "bruno de souza", "act-2")], []),
+    source_scope: "sector_finalistic",
+  };
+  const chromeApi = chromeMock([pageOne]);
+  chromeApi.webNavigation = {
+    async getAllFrames() {
+      return [{ frameId: 4 }, { frameId: 6 }];
+    },
+  };
+  const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    if (message.type === "PORTAL_NAVIGATE") {
+      return {
+        ok: true,
+        frameId: Number.isSafeInteger(options?.frameId) ? options.frameId : 0,
+        navigationToken: message.requestId,
+        payload: {},
+      };
+    }
+    if (message.type === "PORTAL_GET_SNAPSHOT" && options?.frameId === 4) {
+      return { ok: true, frameId: 4, payload: structuredClone(pageOne) };
+    }
+    if (message.type === "PORTAL_GET_SNAPSHOT" && options?.frameId === 6) {
+      return { ok: true, frameId: 6, payload: structuredClone(pageTwo) };
+    }
+    return originalSendMessage(tabId, message, options);
+  };
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  const result = await controller.analyze({
+    spec: {
+      ...runSpec(),
+      marker: "PROFESSOR - IPERN - 2 RUBRICAS",
+      sourceScope: "sector_finalistic",
+      lotSize: 50,
+      acquisitionSource: "econtas",
+    },
+    eventId: "analysis-wait-for-list",
+  });
+
+  assert.equal(result.source_scope, "sector_finalistic");
+  assert.equal(result.rows.length, 2);
+  assert.equal(result.frame_id, 6);
+});
+
+test("ignores a transient unknown snapshot from the expected legacy pagination frame", async () => {
+  const pageOne = {
+    ...markerSnapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
+      { action: "next_page", enabled: true, direction: "next" },
+    ]),
+    source_scope: "sector_finalistic",
+  };
+  const pageTwo = {
+    ...markerSnapshot("list", 2, [identity("103402/2023", "bruno de souza", "act-2")], []),
+    source_scope: "sector_finalistic",
+  };
+  const chromeApi = chromeMock([pageOne, pageTwo]);
+  const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
+  let controller;
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    if (message.type === "PORTAL_NAVIGATE") {
+      await controller.handlePortalEvent({
+        tabId,
+        frameId: options?.frameId ?? 0,
+        type: "snapshot",
+        snapshot: snapshot("unknown", 3),
+      });
+      return {
+        ok: true,
+        frameId: options?.frameId ?? 0,
+        navigationToken: message.requestId,
+        payload: { snapshot: structuredClone(pageTwo) },
+      };
+    }
+    return originalSendMessage(tabId, message, options);
+  };
+  controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  const result = await controller.analyze({
+    spec: {
+      ...runSpec(),
+      marker: "PROFESSOR - IPERN - 2 RUBRICAS",
+      sourceScope: "sector_finalistic",
+      lotSize: 50,
+      acquisitionSource: "econtas",
+    },
+    eventId: "analysis-transient-unknown-pagination",
+  });
+
+  assert.equal(result.source_scope, "sector_finalistic");
+  assert.equal(result.rows.length, 2);
+  assert.equal(controller.status().status, "stopped");
+});
+
+test("accepts a progressed list event from a replacement legacy pagination frame", async () => {
+  const pageOne = {
+    ...markerSnapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
+      { action: "next_page", enabled: true, direction: "next" },
+    ]),
+    source_scope: "sector_finalistic",
+  };
+  const pageTwo = {
+    ...markerSnapshot("list", 2, [identity("103402/2023", "bruno de souza", "act-2")], []),
+    source_scope: "sector_finalistic",
+  };
+  const chromeApi = chromeMock([pageOne]);
+  const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
+  let controller;
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    if (message.type === "PORTAL_NAVIGATE") {
+      await controller.handlePortalEvent({
+        tabId,
+        frameId: 6,
+        type: "snapshot",
+        snapshot: pageTwo,
+      });
+      return {
+        ok: true,
+        frameId: options?.frameId ?? 0,
+        navigationToken: message.requestId,
+        payload: {},
+      };
+    }
+    return originalSendMessage(tabId, message, options);
+  };
+  controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  const result = await controller.analyze({
+    spec: {
+      ...runSpec(),
+      marker: "PROFESSOR - IPERN - 2 RUBRICAS",
+      sourceScope: "sector_finalistic",
+      lotSize: 50,
+      acquisitionSource: "econtas",
+    },
+    eventId: "analysis-progress-event-pagination",
+  });
+
+  assert.equal(result.source_scope, "sector_finalistic");
+  assert.equal(result.rows.length, 2);
+  assert.equal(result.frame_id, 6);
+  assert.equal(controller.status().status, "stopped");
+});
+
+test("refreshes a stale list generation before the next legacy pagination action", async () => {
+  const pageOne = {
+    ...markerSnapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
+      { action: "next_page", enabled: true, direction: "next" },
+    ]),
+    source_scope: "sector_finalistic",
+  };
+  const stalePageTwo = {
+    ...markerSnapshot("list", 1, [identity("103402/2023", "bruno de souza", "act-2")], [
+      { action: "next_page", enabled: true, direction: "next" },
+    ]),
+    source_scope: "sector_finalistic",
+  };
+  const freshPageTwo = {
+    ...markerSnapshot("list", 2, [identity("103402/2023", "bruno de souza", "act-2")], []),
+    source_scope: "sector_finalistic",
+  };
+  const chromeApi = chromeMock([pageOne]);
+  const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
+  let snapshotReads = 0;
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    if (message.type === "PORTAL_GET_SNAPSHOT") {
+      snapshotReads += 1;
+      return {
+        ok: true,
+        frameId: options?.frameId ?? 0,
+        payload: structuredClone(snapshotReads >= 2 ? freshPageTwo : pageOne),
+      };
+    }
+    if (message.type === "PORTAL_NAVIGATE") {
+      if (message.payload.action === "next_page" && snapshotReads <= 2) {
+        return {
+          ok: true,
+          frameId: options?.frameId ?? 0,
+          navigationToken: message.requestId,
+          payload: { snapshot: structuredClone(stalePageTwo) },
+        };
+      }
+      return { ok: false, error: { code: "STALE_GENERATION", message: "stale page" } };
+    }
+    return originalSendMessage(tabId, message, options);
+  };
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  const result = await controller.analyze({
+    spec: {
+      ...runSpec(),
+      marker: "PROFESSOR - IPERN - 2 RUBRICAS",
+      sourceScope: "sector_finalistic",
+      lotSize: 50,
+      acquisitionSource: "econtas",
+    },
+    eventId: "analysis-refresh-stale-pagination",
+  });
+
+  assert.equal(result.source_scope, "sector_finalistic");
+  assert.equal(result.rows.length, 2);
+  assert.equal(controller.status().status, "stopped");
+});
+
+test("accepts Chrome loading for the expected frame without a synthetic navigation token", async () => {
+  const activePage = snapshot("list", 1, [identity("103401/2023", "ana da silva", "act-1")], [
+    { action: "open_act", enabled: true, identity: identity("103401/2023", "ana da silva", "act-1") },
+  ]);
+  const chromeApi = activeChromeMock(activePage);
+  const originalSendMessage = chromeApi.tabs.sendMessage.bind(chromeApi.tabs);
+  chromeApi.tabs.sendMessage = async (tabId, message, options) => {
+    if (message.type === "PORTAL_NAVIGATE") {
+      chromeApi.fireTabUpdated(7, { status: "loading", frameId: options?.frameId ?? 0 });
+    }
+    return originalSendMessage(tabId, message, options);
+  };
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  const started = await controller.start({ spec: runSpec(), eventId: "start-standard-loading" });
+
+  assert.equal(started.status, "running");
+  assert.notEqual(started.pausedReason, "navigation token/frame mismatch");
 });
 
 test("binds the discovered frame and pauses fail-closed on frame send errors", async () => {

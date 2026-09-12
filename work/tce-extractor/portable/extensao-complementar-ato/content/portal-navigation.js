@@ -454,6 +454,84 @@ function findNextControl(documentRef) {
   return findNextNavigation(documentRef)?.control ?? null;
 }
 
+function formField(form, name) {
+  return queryOne(form, `[name="${name}"]`)
+    || queryOne(form, `[id="${name}"]`);
+}
+
+function legacyPaginationSpec(control) {
+  const href = getAttribute(control, "href");
+  const page = href.match(/NumeroPagina\.value\s*=\s*['"]?(\d+)/iu);
+  if (!page) return null;
+  const pagination = href.match(/Paginacao\.value\s*=\s*['"]([^'"]+)['"]/iu);
+  const group = href.match(/GrupoProcesso\.value\s*=\s*['"]([^'"]+)['"]/iu);
+  return {
+    page: page[1],
+    pagination: pagination?.[1] ?? null,
+    group: group?.[1] ?? null,
+    allowed: pagination?.[1] === "S" && group?.[1] === "NS",
+  };
+}
+
+function legacyPaginationPlan(documentRef, control) {
+  const spec = legacyPaginationSpec(control);
+  if (!spec) return null;
+  if (!spec.allowed) {
+    return {
+      error: {
+        code: "ACTION_NOT_ALLOWED",
+        message: "the legacy pagination command is outside the navigation allowlist",
+      },
+    };
+  }
+
+  const forms = queryAll(documentRef, "form");
+  const form = control?.form
+    || control?.closest?.("form")
+    || byId(documentRef, "form1")
+    || forms.find((candidate) => getAttribute(candidate, "name") === "form1")
+    || forms.find((candidate) => formField(candidate, "NumeroPagina"));
+  const page = formField(form, "NumeroPagina");
+  const pagination = formField(form, "Paginacao");
+  const group = formField(form, "GrupoProcesso");
+  if (!form || !page || !pagination || !group) {
+    return {
+      error: {
+        code: "PAGINATION_FORM_NOT_FOUND",
+        message: "the legacy pagination form is unavailable",
+      },
+    };
+  }
+  return { form, page, pagination, group, spec };
+}
+
+function submitLegacyPagination(documentRef, plan) {
+  if (!plan || plan.error) return false;
+  plan.page.value = plan.spec.page;
+  plan.pagination.value = plan.spec.pagination;
+  plan.group.value = plan.spec.group;
+
+  const nativeSubmit = documentRef?.defaultView?.HTMLFormElement?.prototype?.submit
+    || globalThis.HTMLFormElement?.prototype?.submit;
+  if (typeof nativeSubmit === "function") {
+    try {
+      nativeSubmit.call(plan.form);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (typeof plan.form.submit === "function") {
+    try {
+      plan.form.submit();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 function findReturnControl(documentRef) {
   const local = queryAll(documentRef, '[data-action="return-list"], [data-action="return_list"], a, button').find((control) => {
     const action = getAttribute(control, "data-action");
@@ -769,6 +847,8 @@ async function executeNavigation(documentRef = globalThis.document, request = {}
     control.click?.();
     return { ok: true, action, snapshot: null, waitingForFrame: true };
   }
+  const legacyPlan = action === "next_page" ? legacyPaginationPlan(documentRef, control) : null;
+  if (legacyPlan?.error) return navigationError(legacyPlan.error.code, legacyPlan.error.message);
   if (action === "return_list") {
     const topReturn = await closeRestrictedActTab(
       documentRef,
@@ -777,13 +857,24 @@ async function executeNavigation(documentRef = globalThis.document, request = {}
     );
     if (topReturn) return topReturn;
   }
+  if (action === "next_page" && legacyPlan) {
+    if (!submitLegacyPagination(documentRef, legacyPlan)) {
+      return navigationError("PAGINATION_SUBMIT_FAILED", "the legacy pagination form could not be submitted");
+    }
+    // Native form submission unloads this document. The controller must
+    // probe the replacement frame instead of waiting on this old document's
+    // MutationObserver, which otherwise times out after the page has moved.
+    return { ok: true, action, snapshot: null, waitingForFrame: true };
+  }
   return waitForNavigation(
     documentRef,
     before,
     action,
     request.identity,
     Number.isInteger(request.timeoutMs) && request.timeoutMs > 0 ? Math.min(request.timeoutMs, NAVIGATION_TIMEOUT_MS) : NAVIGATION_TIMEOUT_MS,
-    () => control.click?.(),
+    () => {
+      control.click?.();
+    },
   );
 }
 

@@ -386,3 +386,61 @@ O registro deste checkpoint foi publicado no commit `d63d3a2` em
 worktree limpo e `git diff --check` sem erros. O próximo agente deve retomar
 pela task de paginação/frame, repetir o preflight apenas no marcador `6189` do
 setor e não promover a descoberta parcial a PASS.
+
+## Reconciliação posterior — paginação verde no marcador restrito (2026-09-11)
+
+O trecho “paginação ainda bloqueada” acima é preservado como histórico da
+falha observada antes da correção. A implementação local corrigiu a submissão
+legacy e o rollover do frame em TDD; a correção foi sincronizada para o
+artefato live e validada em três execuções independentes desde a página 1.
+
+Resultado comum das três execuções `AUTO_ANALYZE` read-only:
+
+- `outer_ok=true`, `error=null`;
+- `source_scope=sector_finalistic`;
+- marcador `PROFESSOR - IPERN - 2 RUBRICAS (470)`, valor canônico `6189`;
+- `row_count=470`, `discovered=502`, `unique=472`, `pending=2`;
+- sem `portal frame unavailable`, `APPLY_FIELDS`, preenchimento, envio ou
+  finalização.
+
+O `inner_ok=null` observado no utilitário não é falha: o controller devolve o
+payload da análise diretamente, sem o wrapper `{ ok: true }`. O critério de
+sucesso é o envelope externo, ausência de erro e os guards de origem/marcador.
+
+### Procedimento canônico para não repetir o erro de carregamento
+
+1. Usar o executável de sistema
+   `C:\Program Files\Google\Chrome\Application\chrome.exe`.
+2. Usar somente o perfil isolado
+   `C:\Users\slvma\Downloads\Github\Complementação de Atos\tmp\fase41\chrome-work-auth-profile-152`.
+3. Carregar exatamente o diretório que contém `manifest.json`:
+   `C:\Users\slvma\Downloads\Github\Complementação de Atos\work\tce-extractor\outputs\live-real-fase11h-sector-lot50\extensao-complementar-ato`.
+   Não selecionar o diretório pai `live-real-fase11h-sector-lot50` nem outro
+   diretório `live`; isso causa a mensagem “manifesto faltando ou ilegível”.
+4. Iniciar com `--remote-debugging-port=19232`,
+   `--disable-extensions-except` e `--load-extension` apontando para o caminho
+   acima. Não usar `--ignore-certificate-errors`.
+5. Abrir `https://novaarearestrita.tce.rn.gov.br/telaPrincipalMenu.asp`, fazer
+   login manual se solicitado, abrir `Proc./Doc. Eletrônicos` > processos no
+   setor e confirmar `ProcessonoSetor.asp`.
+6. Abrir a sidepanel somente após confirmar o marcador `6189` e
+   `source_scope=sector_finalistic`. A aba `Meus Processos Eletrônicos` e
+   `MeusProcessos.asp` ficam fora deste fluxo.
+
+Após recarregar a extensão, parear novamente a ponte local, pois o reload
+limpa o armazenamento de sessão e não reinjeta content scripts em frames já
+abertos. A ponte deve continuar com `pilot_enabled=true` e
+`real_send_enabled=false`. A Tarefa 4.2 de três atos ainda está aberta; o
+preflight verde acima é apenas o gate técnico da paginação.
+
+## Estado de tasks após a reconciliação
+
+- [x] Escopo restrito ao marcador `PROFESSOR - IPERN - 2 - RUBRICAS` (catálogo:
+  `PROFESSOR - IPERN - 2 RUBRICAS (470)`, valor `6189`).
+- [x] Origem restrita a processos do setor (`ProcessonoSetor.asp`).
+- [x] Paginação e recuperação de frame validadas em 3/3 execuções live.
+- [x] Suíte da extensão: 335/335; validador portátil: 114/114.
+- [ ] Tarefa 4.2: três preflights de atos; nenhum ato foi preenchido ou
+  enviado.
+- [ ] Fases 5+ continuam bloqueadas pelo gate funcional 4.2 e pelo checkpoint
+  humano obrigatório para qualquer primeiro envio.

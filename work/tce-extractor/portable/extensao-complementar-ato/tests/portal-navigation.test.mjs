@@ -564,18 +564,60 @@ test("finds the sibling Consultar control when the top frames collection is arra
   assert.equal(result.snapshot.marker.value, "marker-2");
 });
 
-test("recognizes the legacy Area Restrita pagination link with NumeroPagina.value", async () => {
+test("recognizes the legacy Area Restrita pagination link with NumeroPagina.value", () => {
   const documentRef = buildListDocument("3", [{ processKey: "103401/2023", interested: "Ana da Silva" }], { hasNext: false });
   const currentPage = new FakeElement("input", { id: "NumeroPagina", value: "3", attrs: { type: "hidden" } });
   const next = new FakeElement("a", {
     text: "Pr�xima >",
     attrs: { href: "javascript: form1.NumeroPagina.value=4; document.form1.Paginacao.value='S'; form1.submit();" },
   });
-  next.onClick = () => documentRef.setSurface(buildListSurface(documentRef, 2));
   documentRef.body.append(currentPage, next);
 
   const before = snapshotPortalScreen(documentRef);
   assert.ok(before.actions.some((action) => action.action === "next_page" && action.direction === "next"));
+});
+
+test("uses the named legacy pagination form and extracts every allowlisted value", async () => {
+  const documentRef = buildListDocument("1", [
+    { processKey: "103401/2023", interested: "Ana da Silva" },
+  ], { hasNext: false });
+  const distractor = new FakeElement("form", { attrs: { name: "otherForm" } });
+  distractor.append(new FakeElement("input", {
+    value: "1",
+    attrs: { name: "NumeroPagina", type: "hidden" },
+  }));
+  let distractorSubmitCount = 0;
+  distractor.submit = () => { distractorSubmitCount += 1; };
+  const form = new FakeElement("form", { id: "form1", attrs: { name: "form1" } });
+  const currentPage = new FakeElement("input", {
+    id: "NumeroPagina",
+    value: "1",
+    attrs: { name: "NumeroPagina", type: "hidden" },
+  });
+  const pagination = new FakeElement("input", {
+    value: "",
+    attrs: { name: "Paginacao", type: "hidden" },
+  });
+  const group = new FakeElement("input", {
+    value: "",
+    attrs: { name: "GrupoProcesso", type: "hidden" },
+  });
+  form.append(currentPage, pagination, group);
+  let submitCount = 0;
+  form.submit = () => {
+    submitCount += 1;
+    documentRef.setSurface(buildListSurface(documentRef, 2));
+  };
+  const next = new FakeElement("a", {
+    text: "Pr�xima >",
+    attrs: {
+      href: "javascript: form1.NumeroPagina.value=2; document.form1.Paginacao.value='S'; document.form1.GrupoProcesso.value='NS'; form1.submit();",
+    },
+  });
+  next.onClick = () => {};
+  documentRef.body.append(distractor, form, next);
+
+  const before = snapshotPortalScreen(documentRef);
   const result = await executeNavigation(documentRef, {
     action: "next_page",
     expected_generation: before.generation,
@@ -583,8 +625,97 @@ test("recognizes the legacy Area Restrita pagination link with NumeroPagina.valu
   });
 
   assert.equal(result.ok, true);
-  assert.equal(result.snapshot.role, "list");
-  assert.equal(next.clickCount, 1);
+  assert.equal(result.snapshot, null);
+  assert.equal(result.waitingForFrame, true);
+  assert.equal(submitCount, 1);
+  assert.equal(distractorSubmitCount, 0);
+  assert.equal(currentPage.value, "2");
+  assert.equal(pagination.value, "S");
+  assert.equal(group.value, "NS");
+  assert.equal(next.clickCount, 0);
+});
+
+test("rejects an unallowlisted legacy pagination command without clicking its javascript link", async () => {
+  const documentRef = buildListDocument("1", [
+    { processKey: "103401/2023", interested: "Ana da Silva" },
+  ], { hasNext: false });
+  const form = new FakeElement("form", { id: "form1", attrs: { name: "form1" } });
+  form.append(
+    new FakeElement("input", { value: "1", attrs: { name: "NumeroPagina", type: "hidden" } }),
+    new FakeElement("input", { value: "", attrs: { name: "Paginacao", type: "hidden" } }),
+    new FakeElement("input", { value: "", attrs: { name: "GrupoProcesso", type: "hidden" } }),
+  );
+  let submitCount = 0;
+  form.submit = () => { submitCount += 1; };
+  const next = new FakeElement("a", {
+    text: "Pr�xima >",
+    attrs: {
+      href: "javascript: form1.NumeroPagina.value=2; document.form1.Paginacao.value='N'; document.form1.GrupoProcesso.value='OTHER'; form1.submit();",
+    },
+  });
+  next.onClick = () => {};
+  documentRef.body.append(form, next);
+
+  const result = await executeNavigation(documentRef, {
+    action: "next_page",
+    expected_generation: snapshotPortalScreen(documentRef).generation,
+    timeoutMs: 50,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "ACTION_NOT_ALLOWED");
+  assert.equal(submitCount, 0);
+  assert.equal(next.clickCount, 0);
+});
+
+test("submits the safe legacy pagination form when the javascript link click is inert", async () => {
+  const documentRef = buildListDocument("1", [
+    { processKey: "103401/2023", interested: "Ana da Silva" },
+  ], { hasNext: false });
+  const form = new FakeElement("form", { id: "form1", attrs: { name: "form1" } });
+  const currentPage = new FakeElement("input", {
+    id: "NumeroPagina",
+    value: "1",
+    attrs: { name: "NumeroPagina", type: "hidden" },
+  });
+  const pagination = new FakeElement("input", {
+    value: "",
+    attrs: { name: "Paginacao", type: "hidden" },
+  });
+  const group = new FakeElement("input", {
+    value: "",
+    attrs: { name: "GrupoProcesso", type: "hidden" },
+  });
+  form.append(currentPage, pagination, group);
+  let submitCount = 0;
+  form.submit = () => {
+    submitCount += 1;
+    documentRef.setSurface(buildListSurface(documentRef, 2));
+  };
+  const next = new FakeElement("a", {
+    text: "Pr�xima >",
+    attrs: {
+      href: "javascript: form1.NumeroPagina.value=2; document.form1.Paginacao.value='S'; document.form1.GrupoProcesso.value='NS'; form1.submit();",
+    },
+  });
+  next.onClick = () => {};
+  documentRef.body.append(form, next);
+
+  const before = snapshotPortalScreen(documentRef);
+  const result = await executeNavigation(documentRef, {
+    action: "next_page",
+    expected_generation: before.generation,
+    timeoutMs: 50,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.snapshot, null);
+  assert.equal(result.waitingForFrame, true);
+  assert.equal(submitCount, 1);
+  assert.equal(currentPage.value, "2");
+  assert.equal(pagination.value, "S");
+  assert.equal(group.value, "NS");
+  assert.equal(next.clickCount, 0);
 });
 
 test("keeps a row without a canonical identity as pending without exposing it as an action", () => {
