@@ -282,5 +282,6 @@
   portatil`). Inclui código, testes e o histórico operacional acima.
 - Uma revisão independente foi solicitada antes do commit, mas não retornou
   achados dentro da janela e foi encerrada; os gates objetivos permanecem como
-  evidência de aceite. O status do push para `origin/main` deve ser conferido no
-  resumo final da tarefa.
+  evidência de aceite.
+- Commit documental: `9a7bc66` (`docs: registrar entrega combinada`). Push
+  confirmado: `origin/main` avançou de `f793d1f` para `9a7bc66`.
