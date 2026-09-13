@@ -275,3 +275,12 @@
    `/review` para PDF.js, JSON e assets locais.
 3. Nenhum ato foi preenchido, concluído ou enviado. A mesa continua somente
    leitura e os botões `Copiar` apenas colocam valores na área de transferência.
+
+### GitHub desta entrega
+
+- Commit de implementação: `e7de4ed` (`feat: consolidar mesas e corrigir OCR
+  portatil`). Inclui código, testes e o histórico operacional acima.
+- Uma revisão independente foi solicitada antes do commit, mas não retornou
+  achados dentro da janela e foi encerrada; os gates objetivos permanecem como
+  evidência de aceite. O status do push para `origin/main` deve ser conferido no
+  resumo final da tarefa.
