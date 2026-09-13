@@ -255,6 +255,114 @@ class HtmlGeneratorTests(unittest.TestCase):
                 ["100064/2022", "103487/2023"],
             )
 
+    def test_payload_preserves_two_named_process_collections_without_duplicating_records(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest, checkpoint, index = self._write_all_documents_fixture(root)
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "processes": [
+                            {"process": "103439/2023", "documents": []},
+                            {"process": "101444/2026", "documents": []},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            checkpoint.write_text(
+                json.dumps(
+                    {
+                        "processes": {
+                            "103439/2023": {"result": {"blocks": []}},
+                            "101444/2026": {"result": {"blocks": []}},
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            collections = root / "colecoes-processos.json"
+            collections.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "default_collection": "sector_finalistic",
+                        "collections": [
+                            {
+                                "id": "my_processes",
+                                "label": "Meus Processos",
+                                "process_keys": ["103439/2023", "101444/2026"],
+                            },
+                            {
+                                "id": "sector_finalistic",
+                                "label": "Processos no Setor",
+                                "process_keys": ["101444/2026"],
+                                "interested_by_process": {
+                                    "101444/2026": ["FRANCISCO DE ASSIS ROCHA"]
+                                },
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_interface_payload(
+                manifest,
+                checkpoint,
+                archive_index_path=index,
+                collections_path=collections,
+            )
+
+            self.assertEqual(len(payload["processes"]), 2)
+            sector_process = next(
+                item for item in payload["processes"] if item["process"] == "101444/2026"
+            )
+            self.assertEqual(
+                ["FRANCISCO DE ASSIS ROCHA"],
+                [block["interested"] for block in sector_process["blocks"]],
+            )
+            self.assertEqual(payload["default_collection"], "sector_finalistic")
+            self.assertEqual(
+                payload["collections"],
+                [
+                    {
+                        "id": "my_processes",
+                        "label": "Meus Processos",
+                        "process_keys": ["103439/2023", "101444/2026"],
+                        "count": 2,
+                    },
+                    {
+                        "id": "sector_finalistic",
+                        "label": "Processos no Setor",
+                        "process_keys": ["101444/2026"],
+                        "count": 1,
+                    },
+                ],
+            )
+
+    def test_rendered_html_has_one_button_that_switches_and_filters_named_collections(self):
+        html = render_html(
+            {
+                "processes": [
+                    {"process": "103439/2023", "status": "partial", "documents": [], "blocks": []},
+                    {"process": "101444/2026", "status": "partial", "documents": [], "blocks": []},
+                ],
+                "collections": [
+                    {"id": "my_processes", "label": "Meus Processos", "process_keys": ["103439/2023", "101444/2026"], "count": 2},
+                    {"id": "sector_finalistic", "label": "Processos no Setor", "process_keys": ["101444/2026"], "count": 1},
+                ],
+                "default_collection": "sector_finalistic",
+                "stats": {"processes": 2, "documents": 0, "found": 0, "conflicts": 0},
+            }
+        )
+
+        self.assertEqual(html.count('id="collection-toggle"'), 1)
+        self.assertIn('id="collection-name"', html)
+        self.assertIn("activeCollection().process_keys", html)
+        self.assertIn("state.collectionIndex = (state.collectionIndex + 1) % collections.length", html)
+        self.assertIn("collection.count", html)
+
     def test_rendered_html_has_document_badges_counters_and_preserves_controls(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             manifest, checkpoint, index = self._write_all_documents_fixture(

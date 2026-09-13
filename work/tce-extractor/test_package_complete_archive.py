@@ -262,6 +262,19 @@ class CompleteArchivePackageTests(unittest.TestCase):
             (archive / "indice-classificado.json").write_text(
                 json.dumps({"version": 1, "processes": [process]}), encoding="utf-8"
             )
+            (archive / "colecoes-processos.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "default_collection": "sector_finalistic",
+                        "collections": [
+                            {"id": "my_processes", "label": "Meus Processos", "process_keys": ["0/0000"]},
+                            {"id": "sector_finalistic", "label": "Processos no Setor", "process_keys": ["0/0000"]},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
             stale_html = archive / "complementar-ato.html"
             stale_html.write_text("<html>stale package html</html>", encoding="utf-8")
             destination = root / "refreshed.zip"
@@ -272,6 +285,8 @@ class CompleteArchivePackageTests(unittest.TestCase):
             with zipfile.ZipFile(destination) as package:
                 html = package.read("acervo-tce/complementar-ato.html").decode("utf-8")
             self.assertIn('id="follow-toggle"', html)
+            self.assertIn('id="collection-toggle"', html)
+            self.assertIn('"default_collection":"sector_finalistic"', html)
             self.assertIn('selection_module', html)
 
     def test_excludes_auth_profiles_bridge_parts_backups_and_logs(self):

@@ -311,6 +311,7 @@ def build_interface_payload(
     pdf_link_root: str | None = None,
     archive_index_path: Path | None = None,
     visual_evidence_path: Path | None = None,
+    collections_path: Path | None = None,
 ) -> dict:
     manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
     checkpoint = json.loads(Path(checkpoint_path).read_text(encoding="utf-8"))
@@ -410,6 +411,65 @@ def build_interface_payload(
     # not move a process ahead of another process in that sequence.
     processes = _preserve_portal_process_order(processes, archive_index)
 
+    collections = []
+    default_collection = ""
+    if collections_path is not None:
+        collection_data = json.loads(Path(collections_path).read_text(encoding="utf-8-sig"))
+        if not isinstance(collection_data, Mapping) or set(collection_data) != {
+            "schema_version", "default_collection", "collections"
+        } or collection_data.get("schema_version") != 1:
+            raise ValueError("Coleções de processos inválidas")
+        available = {str(item.get("process", "")) for item in processes}
+        seen_ids = set()
+        observed_interested = {}
+        for raw_collection in collection_data.get("collections", []):
+            allowed_keys = {"id", "label", "process_keys", "interested_by_process"}
+            if (
+                not isinstance(raw_collection, Mapping)
+                or not {"id", "label", "process_keys"}.issubset(raw_collection)
+                or not set(raw_collection).issubset(allowed_keys)
+            ):
+                raise ValueError("Coleção de processos inválida")
+            collection_id = str(raw_collection.get("id", "")).strip()
+            label = str(raw_collection.get("label", "")).strip()
+            process_keys = [str(item).strip() for item in raw_collection.get("process_keys", [])]
+            if not collection_id or not label or collection_id in seen_ids:
+                raise ValueError("Identidade de coleção inválida ou duplicada")
+            if not process_keys or len(process_keys) != len(set(process_keys)):
+                raise ValueError("Ordem da coleção vazia ou duplicada")
+            missing = [item for item in process_keys if item not in available]
+            if missing:
+                raise ValueError(f"Processo ausente da mesa para a coleção: {missing[0]}")
+            interested_by_process = raw_collection.get("interested_by_process", {})
+            if not isinstance(interested_by_process, Mapping):
+                raise ValueError("Interessados da coleção inválidos")
+            for process_key, names in interested_by_process.items():
+                if process_key not in process_keys or not isinstance(names, list):
+                    raise ValueError("Interessados fora da coleção ou inválidos")
+                clean_names = [str(name).strip() for name in names if str(name).strip()]
+                if len(clean_names) != len(set(clean_names)):
+                    raise ValueError("Interessados duplicados na coleção")
+                observed_interested.setdefault(process_key, [])
+                for name in clean_names:
+                    if name not in observed_interested[process_key]:
+                        observed_interested[process_key].append(name)
+            seen_ids.add(collection_id)
+            collections.append({
+                "id": collection_id,
+                "label": label,
+                "process_keys": process_keys,
+                "count": len(process_keys),
+            })
+        default_collection = str(collection_data.get("default_collection", "")).strip()
+        if len(collections) < 2 or default_collection not in seen_ids:
+            raise ValueError("Coleções exigem ao menos duas opções e uma opção padrão válida")
+        for process in processes:
+            names = observed_interested.get(process["process"], [])
+            existing = {block["interested"] for block in process["blocks"]}
+            for name in names:
+                if name not in existing:
+                    process["blocks"].append(_safe_block({"interested": name}))
+
     fields = [
         field
         for process in processes
@@ -430,7 +490,7 @@ def build_interface_payload(
         for process in processes
         for document in process["all_documents"]
     )
-    return {
+    payload = {
         "generated_at": str(checkpoint.get("created_at", "")),
         "run_id": str(checkpoint.get("run_id", "")),
         "processes": processes,
@@ -463,6 +523,10 @@ def build_interface_payload(
             "pending": field_pending + document_pending,
         },
     }
+    if collections:
+        payload["collections"] = collections
+        payload["default_collection"] = default_collection
+    return payload
 
 
 HTML_TEMPLATE = r'''<!doctype html>
@@ -515,7 +579,7 @@ HTML_TEMPLATE = r'''<!doctype html>
     h1, h2, h3, p { margin: 0; }
     .brand h1 { margin-top: 2px; font: 700 25px/1.05 Georgia, "Times New Roman", serif; letter-spacing: -.02em; }
     .brand-note { margin-top: 4px; color: #b5c2ca; font-size: 11px; }
-    .toolbar { display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 8px; align-items: center; }
+    .toolbar { display: grid; grid-template-columns: 1fr auto auto auto auto auto; gap: 8px; align-items: center; }
     .toolbar label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
     .toolbar input, .toolbar select {
       min-width: 0; height: 39px; padding: 0 12px; color: var(--ink);
@@ -527,6 +591,7 @@ HTML_TEMPLATE = r'''<!doctype html>
       border: 1px solid #6a8a8b; border-radius: 3px; font-weight: 700;
     }
     .icon-button:hover, .outline-button:hover { background: #294153; border-color: #b5d1c9; }
+    .collection-switch { white-space: nowrap; }
     .stats { display: flex; gap: 13px; justify-content: flex-end; }
     .stat { min-width: 69px; padding-left: 11px; border-left: 1px solid #476070; }
     .stat strong { display: block; color: #fff; font-size: 19px; line-height: 1; }
@@ -630,7 +695,7 @@ HTML_TEMPLATE = r'''<!doctype html>
       .eyebrow { font-size: 8px; letter-spacing: .12em; }
       .brand h1 { font-size: 18px; }
       .brand-note { display: none; }
-      .toolbar { grid-template-columns: minmax(110px, 1fr) minmax(135px, 1.15fr) 31px 31px minmax(116px, auto); gap: 5px; }
+      .toolbar { grid-template-columns: minmax(100px, .8fr) minmax(125px, 1fr) 31px 31px minmax(110px, auto) minmax(116px, auto); gap: 5px; }
       .toolbar .follow-button { min-width: 116px; white-space: nowrap; }
       .toolbar input, .toolbar select { height: 31px; padding: 0 8px; font-size: 11px; }
       .icon-button, .outline-button { height: 31px; padding: 0 6px; font-size: 13px; }
@@ -727,6 +792,7 @@ HTML_TEMPLATE = r'''<!doctype html>
       <select id="process-select" aria-label="Processo"></select>
       <button class="icon-button" id="prev-process" type="button" title="Processo anterior">←</button>
       <button class="icon-button" id="next-process" type="button" title="Próximo processo">→</button>
+      <button class="outline-button collection-switch" id="collection-toggle" type="button"><span id="collection-name">Todos os processos</span></button>
       <button class="outline-button follow-button" id="follow-toggle" type="button" aria-pressed="true">Acompanhar portal</button>
     </div>
     <div class="stats" aria-label="Resumo da extração">
@@ -815,7 +881,11 @@ HTML_TEMPLATE = r'''<!doctype html>
     matricula: 'Matrícula', data_nascimento: 'Data de nascimento', genero: 'Gênero'
   };
   const order = Object.keys(labels);
-  const state = { processIndex: 0, blockIndex: 0, documentIndex: 0, query: '', evidence: null };
+  const collections = Array.isArray(data.collections) && data.collections.length
+    ? data.collections
+    : [{id: 'all', label: 'Todos os processos', process_keys: data.processes.map((process) => process.process), count: data.processes.length}];
+  const initialCollectionIndex = Math.max(0, collections.findIndex((collection) => collection.id === data.default_collection));
+  const state = { processIndex: 0, blockIndex: 0, documentIndex: 0, query: '', evidence: null, collectionIndex: initialCollectionIndex };
   let integratedViewer = null;
   let integratedPdfjs = null;
   let integratedLoad = null;
@@ -844,6 +914,11 @@ HTML_TEMPLATE = r'''<!doctype html>
   const sourceText = (field) => field && field.citation ? field.citation : 'Fonte sem página';
   const currentProcess = () => data.processes[state.processIndex] || {process: '', status: 'pending', documents: [], all_documents: [], blocks: []};
   const currentBlock = () => currentProcess().blocks[state.blockIndex] || {interested: 'Não identificado', pending: [], fields: {}};
+  const activeCollection = () => collections[state.collectionIndex] || collections[0];
+  function collectionIndexes() {
+    const byProcess = new Map(data.processes.map((process, index) => [process.process, index]));
+    return activeCollection().process_keys.map((processKey) => byProcess.get(processKey)).filter(Number.isInteger);
+  }
   const notify = (message) => { const toast = $('toast'); toast.textContent = message; toast.classList.add('show'); clearTimeout(notify.timer); notify.timer = setTimeout(() => toast.classList.remove('show'), 2200); };
   const normalizeIdentity = (value) => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').replace(/[^a-z0-9]+/g, ' ').trim();
   const reviewCsrfToken = () => {
@@ -1104,8 +1179,10 @@ HTML_TEMPLATE = r'''<!doctype html>
   }
 
   function renderStats() {
-    $('stat-processes').textContent = data.stats.processes;
-    $('stat-done').textContent = completedProcesses.size;
+    const collection = activeCollection();
+    const processKeys = new Set(collection.process_keys);
+    $('stat-processes').textContent = collection.count;
+    $('stat-done').textContent = [...completedProcesses].filter((processKey) => processKeys.has(processKey)).length;
     $('stat-documents').textContent = data.stats.priority_documents ?? data.stats.documents ?? 0;
     $('stat-all-documents').textContent = data.stats.all_documents ?? data.stats.documents ?? 0;
     $('stat-found').textContent = data.stats.found;
@@ -1116,11 +1193,35 @@ HTML_TEMPLATE = r'''<!doctype html>
 
   function matchingIndexes() {
     const query = state.query.trim().toLocaleLowerCase('pt-BR');
-    if (!query) return data.processes.map((_, index) => index);
-    return data.processes.map((process, index) => {
+    const indexes = collectionIndexes();
+    if (!query) return indexes;
+    return indexes.map((index) => {
+      const process = data.processes[index];
       const names = process.blocks.map((block) => block.interested).join(' ');
       return `${process.process} ${names}`.toLocaleLowerCase('pt-BR').includes(query) ? index : -1;
     }).filter((index) => index >= 0);
+  }
+
+  function renderCollection() {
+    const collection = activeCollection();
+    $('collection-name').textContent = collection.label;
+    const toggle = $('collection-toggle');
+    toggle.hidden = collections.length < 2;
+    const next = collections[(state.collectionIndex + 1) % collections.length];
+    toggle.title = `Alternar para ${next.label} (${next.count})`;
+    toggle.setAttribute('aria-label', toggle.title);
+  }
+
+  function switchCollection() {
+    state.collectionIndex = (state.collectionIndex + 1) % collections.length;
+    const indexes = collectionIndexes();
+    state.processIndex = indexes[0] ?? 0;
+    state.blockIndex = 0;
+    state.documentIndex = 0;
+    state.evidence = null;
+    setFollowPortal(false);
+    renderStats();
+    render();
   }
 
   function renderProcessOptions() {
@@ -1145,7 +1246,8 @@ HTML_TEMPLATE = r'''<!doctype html>
     status.className = `status ${process.status === 'complete' ? 'complete' : process.status === 'pending' ? 'pending' : ''}`;
     $('process-done').checked = completedProcesses.has(process.process);
     $('process-done').disabled = progressPending || !process.process;
-    $('process-count').textContent = `${state.processIndex + 1} / ${data.processes.length}`;
+    const indexes = collectionIndexes();
+    $('process-count').textContent = `${Math.max(0, indexes.indexOf(state.processIndex)) + 1} / ${indexes.length}`;
     const blockSelect = $('block-select');
     blockSelect.innerHTML = process.blocks.length ? process.blocks.map((block, index) => `<option value="${index}">${esc(block.interested)}</option>`).join('') : '<option value="0">Não identificado</option>';
     state.blockIndex = Math.min(state.blockIndex, Math.max(0, process.blocks.length - 1));
@@ -1303,7 +1405,7 @@ HTML_TEMPLATE = r'''<!doctype html>
 
   function selectDocument(documentId, eventId, page, rects = []) { const process = currentProcess(); const documents = process.all_documents || process.documents; const index = documents.findIndex((document) => document.pdf_url && ((documentId && document.document_id === documentId) || (!documentId && String(document.event) === String(eventId)))); if (index < 0) { notify('PDF da evidência não está disponível neste lote.'); return; } state.documentIndex = index; state.evidence = { documentId: documents[index].document_id, page: page || 1, rects }; renderDocuments(); notify(`PDF posicionado no Evento ${eventId || documents[index].event}, página ${page || 1}.`); }
 
-  function render() { renderProcessOptions(); renderIdentity(); renderFields(); renderPending(); renderDocuments(); }
+  function render() { renderCollection(); renderProcessOptions(); renderIdentity(); renderFields(); renderPending(); renderDocuments(); }
   $('search-process').addEventListener('input', (event) => { state.query = event.target.value; renderProcessOptions(); render(); });
   $('process-select').addEventListener('change', (event) => { setFollowPortal(false); state.processIndex = Number(event.target.value); state.blockIndex = 0; state.documentIndex = 0; render(); });
   $('block-select').addEventListener('change', (event) => { state.blockIndex = Number(event.target.value); renderFields(); renderPending(); });
@@ -1313,8 +1415,9 @@ HTML_TEMPLATE = r'''<!doctype html>
   $('pdf-rotate').addEventListener('click', () => { pdfView.rotation = (pdfView.rotation + 90) % 360; rerenderCurrentPdf(); });
   $('pdf-view-reset').addEventListener('click', resetPdfView);
   $('follow-toggle').addEventListener('click', () => setFollowPortal(!followPortal));
-  $('prev-process').addEventListener('click', () => { if (state.processIndex > 0) { setFollowPortal(false); state.processIndex--; state.blockIndex = 0; state.documentIndex = 0; render(); } });
-  $('next-process').addEventListener('click', () => { if (state.processIndex < data.processes.length - 1) { setFollowPortal(false); state.processIndex++; state.blockIndex = 0; state.documentIndex = 0; render(); } });
+  $('collection-toggle').addEventListener('click', switchCollection);
+  $('prev-process').addEventListener('click', () => { const indexes = matchingIndexes(); const position = indexes.indexOf(state.processIndex); if (position > 0) { setFollowPortal(false); state.processIndex = indexes[position - 1]; state.blockIndex = 0; state.documentIndex = 0; render(); } });
+  $('next-process').addEventListener('click', () => { const indexes = matchingIndexes(); const position = indexes.indexOf(state.processIndex); if (position >= 0 && position < indexes.length - 1) { setFollowPortal(false); state.processIndex = indexes[position + 1]; state.blockIndex = 0; state.documentIndex = 0; render(); } });
   $('process-done').addEventListener('change', (event) => { void setProcessCompleted(event.target.checked); });
   let storedSplit = 42;
   try {
@@ -1389,6 +1492,7 @@ def write_html(
     pdf_link_root: str | None = None,
     archive_index_path: Path | None = None,
     visual_evidence_path: Path | None = None,
+    collections_path: Path | None = None,
 ) -> None:
     payload = build_interface_payload(
             manifest_path,
@@ -1396,6 +1500,7 @@ def write_html(
             pdf_link_root=pdf_link_root,
             archive_index_path=archive_index_path,
             visual_evidence_path=visual_evidence_path,
+            collections_path=collections_path,
         )
     cycle_path = output_path.parent / "ciclo-acervo.json"
     if cycle_path.exists():
@@ -1432,6 +1537,11 @@ def main() -> int:
         type=Path,
         help="Sidecar de evidências geométricas para a mesa offline.",
     )
+    parser.add_argument(
+        "--collections",
+        type=Path,
+        help="Coleções nomeadas e ordens independentes para alternância na mesa.",
+    )
     args = parser.parse_args()
     write_html(
         args.manifest,
@@ -1440,6 +1550,7 @@ def main() -> int:
         pdf_link_root=args.pdf_link_root,
         archive_index_path=args.archive_index,
         visual_evidence_path=args.visual_evidence,
+        collections_path=args.collections,
     )
     payload = build_interface_payload(
         args.manifest,
@@ -1447,6 +1558,7 @@ def main() -> int:
         pdf_link_root=args.pdf_link_root,
         archive_index_path=args.archive_index,
         visual_evidence_path=args.visual_evidence,
+        collections_path=args.collections,
     )
     print(json.dumps(payload["stats"], ensure_ascii=False))
     return 0

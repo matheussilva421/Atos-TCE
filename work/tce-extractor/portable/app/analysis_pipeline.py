@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 from tempfile import NamedTemporaryFile
 from typing import Any
 import unicodedata
@@ -1056,6 +1057,7 @@ def run_local_pipeline(
     extension_data_path = root / "dados-complementar-ato.json"
     visual_evidence_path = root / "evidencias-visuais.json"
     legal_context_path = root / "fundamentos-contexto.v1.json"
+    collections_path = root / "colecoes-processos.json"
 
     index = write_index(root, index_path)
     classified = classify_archive(
@@ -1066,18 +1068,22 @@ def run_local_pipeline(
         geometry_cache_path=geometry_cache_path,
     )
     _write_json_atomic(classified_index_path, classified)
+    execution_manifest = build_target_manifest(classified)
     manifest = build_target_manifest(classified, archive_root=root)
+    with tempfile.TemporaryDirectory(prefix="tce-analysis-manifest-", dir=root) as temporary:
+        execution_manifest_path = Path(temporary) / "manifest.json"
+        _write_json_atomic(execution_manifest_path, execution_manifest)
+        extraction = run_manifest(
+            execution_manifest_path,
+            markdown_path,
+            checkpoint_path,
+            run_id=run_id,
+            resume=resume,
+            tesseract=str(tesseract),
+            tessdata_dir=Path(tessdata),
+            geometry_cache_path=geometry_cache_path,
+        )
     _write_json_atomic(manifest_path, manifest)
-    extraction = run_manifest(
-        manifest_path,
-        markdown_path,
-        checkpoint_path,
-        run_id=run_id,
-        resume=resume,
-        tesseract=str(tesseract),
-        tessdata_dir=Path(tessdata),
-        geometry_cache_path=geometry_cache_path,
-    )
     write_visual_evidence(manifest_path, checkpoint_path, visual_evidence_path)
     write_html(
         manifest_path,
@@ -1086,6 +1092,7 @@ def run_local_pipeline(
         pdf_link_root=None,
         archive_index_path=classified_index_path,
         visual_evidence_path=visual_evidence_path,
+        collections_path=collections_path if collections_path.is_file() else None,
     )
     dataset = export_extension_dataset(checkpoint_path, extension_data_path)
     write_legal_contexts(

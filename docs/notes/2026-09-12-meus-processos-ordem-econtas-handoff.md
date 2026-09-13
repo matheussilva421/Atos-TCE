@@ -181,3 +181,97 @@
 - Push confirmado: `main` avançou de `3d5e90b` para `565f446` em
   `origin/main` (`https://github.com/matheussilva421/Atos-TCE.git`).
 - Working tree esperado após o commit documental final: limpo e sincronizado.
+
+## Aquisição autorizada dos 156 pendentes e mesa com duas coleções
+
+- O operador autorizou explicitamente `Todos`: baixar os 156 pendentes da
+  fotografia congelada, aplicar OCR/análise e gerar um ZIP único com HTML,
+  extensão e JSON. Também pediu um botão no HTML para alternar entre os 165
+  `Meus Processos` e os 156 `Processos no Setor`, sempre nas respectivas ordens.
+- Deduplicação prévia: 155 das 156 chaves já existem no acervo dos 165; somente
+  `103433/2023` é nova. O pacote consolidado terá 166 processos físicos, mas
+  duas coleções lógicas independentes com contagens 165 e 156.
+- TDD do alternador: dois testes RED falharam pela ausência de
+  `collections_path` e `collection-toggle`; após a implementação ficaram 2/2
+  verdes. O empacotador privado ganhou regressão própria e ficou 1/1 verde.
+- O HTML agora aceita `colecoes-processos.json` schema v1, recusa coleções
+  ausentes/duplicadas, preserva a ordem de cada lista e alterna por um botão sem
+  duplicar os registros compartilhados. Pipeline completo, incremental,
+  serviço local e empacotador propagam o sidecar quando presente.
+- Cópia de trabalho preservadora:
+  `.staging-combined-sector-20260912`. O perfil/cookies do Chrome foi excluído
+  da cópia por estar em uso e por ser proibido no pacote final; nenhum dado de
+  autenticação será empacotado.
+- Snapshot de aquisição materializado em
+  `.staging-combined-sector-20260912/acervo-tce/automacao/analises/analysis-0423080e3c0cd6a2d7dd6bfe.json`:
+  156 itens, quatro lotes internos de 50, zero bloqueados, hash
+  `0423080e3c0cd6a2d7dd6bfe1a0713c372a1b4c6d6a1633134b5d1bf27c863a6`.
+- Sessão e-Contas confirmada via Chrome de trabalho/CDP `9222`, setor `CBP`.
+  O portal enumerou 400 processos e encontrou todas as 156 chaves sem
+  substituição. Aquisição progressiva iniciada com no máximo dois downloads,
+  sem abrir, preencher ou enviar atos.
+
+## Fechamento da aquisição, OCR e pacote combinado
+
+- Aquisição congelada concluída para 156/156 processos. Os 155 já presentes
+  foram reutilizados; `103433/2023` foi adquirido separadamente com 25 PDFs
+  válidos (16.683.664 bytes). Duas capas históricas desse processo retornaram
+  HTTP 400 e permanecem registradas como falhas granulares; nenhum resultado
+  íntegro foi descartado.
+- A primeira tentativa do processo novo ficou sem PDFs por restrição de rede
+  do executor. Seus 35 JSONs de eventos foram movidos de forma recuperável para
+  `tmp/quarentena-103433-2023-rede-bloqueada`; a retomada limpa autenticada
+  baixou os 25 documentos reais.
+- Causa da mesa vazia identificada e corrigida por TDD: o pipeline usava o
+  manifesto portátil com `pdf_path` relativo durante a execução do OCR. O
+  executor agora recebe um manifesto temporário com caminhos absolutos; somente
+  os JSONs publicados/empacotados recebem caminhos relativos. O processo real
+  `101444/2026` passou de "PDF ausente" para seis campos encontrados; gênero
+  continua pendente por falta de evidência segura.
+- A publicação incremental agora chama `build_target_manifest(...,
+  archive_root=root)` e semeia a mesa pelo manifesto canônico antes de mesclar o
+  processo corrente. Isso impede caminhos absolutos no pacote e impede uma
+  revisão parcial de apagar processos das coleções. Revisões inválidas foram
+  preservadas em `tmp/publicacoes-invalidas-20260912-2030` e
+  `tmp/publicacoes-superadas-20260912-2100`, fora do ZIP.
+- `process_collections.py` cria deterministicamente as duas vistas: 165 chaves
+  na ordem original de Meus Processos e 156 na ordem da fotografia da Área
+  Restrita. O sidecar preserva também todos os interessados observados; a mesa
+  injeta esses interessados sem duplicar os 155 processos sobrepostos.
+- Reprocessamento local final: 166 processos físicos, 367 documentos
+  prioritários, 3.325 documentos exibíveis e 174 registros por
+  processo/interessado. Para `101444/2026`, foram confirmados modalidade,
+  fundamento legal, DOE, cargo, matrícula e nascimento, com PDF de duas páginas
+  efetivamente pintado.
+- ZIP final: `outputs/TCE-Meus-Processos-165-e-Setor-156-2026-09-12.zip`,
+  1.275.188.371 bytes, 7.508 arquivos, 166 processos, 3.755 eventos, 3.273 PDFs,
+  21 arquivos da extensão, 174 registros JSON, CRC aprovado e SHA-256
+  `6c48e47081bf8bf77b2872340aa12c1c2ede1d956fa36de365cbf505784eaac8`.
+  Hash registrado no `.zip.sha256` adjacente.
+- Extração limpa de aceite:
+  `.verify-combined-final-20260912-2110`, 7.508 arquivos. Auditoria privada:
+  `ok=true`, zero achados. `ABRIR-MESA.cmd` iniciou `/review` em
+  `127.0.0.1:18745`; validação visual confirmou 156 → 165 → 156, nomes,
+  seis campos encontrados e PDF.js/iframe pintado. A aba final ficou aberta na
+  vista `Processos no Setor`.
+
+### Testes desta continuação
+
+- Node completo: 367/367, zero falhas.
+- Python focado final: 51/51, zero falhas.
+- Python amplo: 420 executados, 407 aprovados, 8 ignorados e 5 falhas. Uma falha
+  introduzida pela separação dos dois manifestos foi corrigida e passou no gate
+  focado. As quatro restantes são baselines preexistentes fora deste diff:
+  duas expectativas antigas de `webNavigation`, uma captura visual do painel e
+  uma expectativa antiga de download via `arrayBuffer()`.
+- Empacotador: CRC aprovado. Auditoria privada da extração final: zero
+  achados. Gate visual real: aprovado.
+
+### Retomada segura
+
+1. A mesa final já está aberta; se o serviço for encerrado, executar
+   `ABRIR-MESA.cmd` dentro de uma extração integral do ZIP.
+2. Não abrir `complementar-ato.html` diretamente dentro do ZIP; usar sempre
+   `/review` para PDF.js, JSON e assets locais.
+3. Nenhum ato foi preenchido, concluído ou enviado. A mesa continua somente
+   leitura e os botões `Copiar` apenas colocam valores na área de transferência.

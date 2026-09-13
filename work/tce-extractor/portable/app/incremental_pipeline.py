@@ -138,11 +138,16 @@ def publish_results(
                 build_extension_dataset(checkpoint, generated_at=published_at),
             )
             if review_manifest is not None:
-                manifest_processes = {
-                    str(item.get("process", "")): copy.deepcopy(dict(item))
-                    for item in review_manifest.get("processes", [])
-                    if isinstance(item, Mapping) and str(item.get("process", ""))
-                }
+                manifest_processes = {}
+                canonical_manifest_path = root / "pdfs-alvo-manifest.json"
+                if canonical_manifest_path.is_file():
+                    canonical_manifest = _read_json(canonical_manifest_path)
+                    for item in canonical_manifest.get("processes", []):
+                        if isinstance(item, Mapping) and str(item.get("process", "")):
+                            manifest_processes[str(item["process"])] = copy.deepcopy(dict(item))
+                for item in review_manifest.get("processes", []):
+                    if isinstance(item, Mapping) and str(item.get("process", "")):
+                        manifest_processes[str(item["process"])] = copy.deepcopy(dict(item))
                 previous_manifest_path = None
                 if pointer:
                     previous_manifest_path = publication_root / str(pointer["revision"]) / "manifest.json"
@@ -167,6 +172,7 @@ def publish_results(
                     checkpoint_path,
                     archive_index_path=archive_index_path,
                     visual_evidence_path=_sidecar_path(root, "evidencias-visuais.json"),
+                    collections_path=_sidecar_path(root, "colecoes-processos.json"),
                 )
                 review_payload["live_revision"] = revision
                 _atomic_json(temporary_root / "review-data.json", review_payload)
@@ -221,11 +227,12 @@ def analyze_process(archive_root: Path, process_key: str, *, tesseract, tessdata
         tessdata,
         geometry_cache_path=root / "cache-ocr-geometria.json",
     )
-    manifest = build_target_manifest(classified)
+    execution_manifest = build_target_manifest(classified)
+    manifest = build_target_manifest(classified, archive_root=root)
     with tempfile.TemporaryDirectory(prefix="tce-process-", dir=root) as temporary:
         scratch = Path(temporary)
         selected_manifest = scratch / "manifest.json"
-        selected_manifest.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+        selected_manifest.write_text(json.dumps(execution_manifest, ensure_ascii=False), encoding="utf-8")
         checkpoint = scratch / "checkpoint.json"
         output = scratch / "resultado.md"
         run_manifest(

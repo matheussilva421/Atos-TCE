@@ -124,6 +124,11 @@ class AnalysisPipelineTests(unittest.TestCase):
                 "version": 1,
                 "processes": [{"process": "103439/2023", "documents": []}],
             }
+            build_calls = []
+
+            def fake_build_manifest(_classified, **kwargs):
+                build_calls.append(kwargs)
+                return manifest
 
             def fake_run_manifest(manifest_path, markdown_path, checkpoint_path, **kwargs):
                 Path(checkpoint_path).write_text(
@@ -135,7 +140,7 @@ class AnalysisPipelineTests(unittest.TestCase):
             with (
                 patch("analysis_pipeline.write_index", return_value=index),
                 patch("analysis_pipeline.classify_archive", return_value=classified),
-                patch("analysis_pipeline.build_target_manifest", return_value=manifest),
+                patch("analysis_pipeline.build_target_manifest", side_effect=fake_build_manifest),
                 patch("analysis_pipeline.run_manifest", side_effect=fake_run_manifest),
                 patch("analysis_pipeline.write_html"),
             ):
@@ -147,6 +152,7 @@ class AnalysisPipelineTests(unittest.TestCase):
                 )
 
             expected_path = root / "dados-complementar-ato.json"
+            self.assertEqual(build_calls, [{}, {"archive_root": root}])
             self.assertTrue(expected_path.is_file())
             self.assertEqual(summary.extension_data_path, expected_path)
             self.assertEqual(

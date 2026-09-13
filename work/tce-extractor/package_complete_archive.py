@@ -342,6 +342,7 @@ def _refresh_staged_review_html(staging_root: Path, distribution: str) -> bool:
     if not callable(writer):
         raise ImportError(f"write_html ausente no gerador HTML: {generator_path}")
     visual_evidence_path = archive / "evidencias-visuais.json"
+    collections_path = archive / "colecoes-processos.json"
     writer(
         manifest_path,
         checkpoint_path,
@@ -349,6 +350,7 @@ def _refresh_staged_review_html(staging_root: Path, distribution: str) -> bool:
         pdf_link_root=None,
         archive_index_path=archive_index_path,
         visual_evidence_path=visual_evidence_path if visual_evidence_path.is_file() else None,
+        collections_path=collections_path if collections_path.is_file() else None,
     )
     return True
 

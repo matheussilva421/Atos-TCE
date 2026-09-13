@@ -543,11 +543,13 @@ class BatchRunnerTests(unittest.TestCase):
                     "index",
                     "classification",
                     "manifest",
+                    "manifest",
                     "extraction",
                     "html",
                     "extension",
                 ],
             )
+            self.assertEqual(build.call_count, 2)
             write_index.assert_called_once_with(root, root / "indice-local.json")
             classify.assert_called_once_with(
                 index,
@@ -556,9 +558,15 @@ class BatchRunnerTests(unittest.TestCase):
                 root / "runtime" / "tessdata",
                 geometry_cache_path=root / "cache-ocr-geometria.json",
             )
-            build.assert_called_once_with(classified, archive_root=root)
+            self.assertEqual(build.call_args_list[0].args, (classified,))
+            self.assertEqual(build.call_args_list[0].kwargs, {})
+            self.assertEqual(build.call_args_list[1].args, (classified,))
+            self.assertEqual(build.call_args_list[1].kwargs, {"archive_root": root})
+            execution_manifest_path = extract.call_args.args[0]
+            self.assertEqual(execution_manifest_path.name, "manifest.json")
+            self.assertEqual(execution_manifest_path.parent.parent, root)
             extract.assert_called_once_with(
-                root / "pdfs-alvo-manifest.json",
+                execution_manifest_path,
                 root / "doc.md",
                 root / "checkpoint-extracao.json",
                 run_id="pipeline-run",
@@ -574,6 +582,7 @@ class BatchRunnerTests(unittest.TestCase):
                 pdf_link_root=None,
                 archive_index_path=root / "indice-classificado.json",
                 visual_evidence_path=root / "evidencias-visuais.json",
+                collections_path=None,
             )
             export.assert_called_once_with(
                 root / "checkpoint-extracao.json",

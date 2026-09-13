@@ -54,13 +54,16 @@ class IncrementalPipelineTests(unittest.TestCase):
             with (
                 patch("incremental_pipeline.scan_archive", return_value=index),
                 patch("incremental_pipeline.classify_archive", return_value=classified) as classify,
-                patch("incremental_pipeline.build_target_manifest", return_value=manifest),
+                patch("incremental_pipeline.build_target_manifest", return_value=manifest) as build_manifest,
                 patch("incremental_pipeline.run_manifest", side_effect=fake_run_manifest),
             ):
                 result = analyze_process(root, "1/2023", tesseract="tesseract", tessdata="tessdata")
 
             selected_index = classify.call_args.args[0]
             self.assertEqual([item["key"] for item in selected_index["processes"]], ["1/2023"])
+            self.assertEqual(build_manifest.call_count, 2)
+            self.assertEqual(build_manifest.call_args_list[0].kwargs, {})
+            self.assertEqual(build_manifest.call_args_list[1].kwargs["archive_root"], root)
             self.assertEqual(result["status"], "partial")
             self.assertEqual(current_results(root)["1/2023"]["status"], "partial")
 
@@ -170,6 +173,51 @@ class IncrementalPipelineTests(unittest.TestCase):
             self.assertEqual(review["live_revision"], 1)
             self.assertEqual(document["pdf_url"], "acervo-tce/processos/1-2023/evento-0009/resolucao.pdf")
             self.assertNotIn(str(root), json.dumps(review, ensure_ascii=False))
+
+    def test_incremental_review_seeds_manifest_from_canonical_archive(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            canonical = {
+                "version": 1,
+                "processes": [
+                    {"process": "1/2023", "documents": []},
+                    {"process": "2/2023", "documents": []},
+                ],
+            }
+            (root / "pdfs-alvo-manifest.json").write_text(
+                json.dumps(canonical), encoding="utf-8"
+            )
+            (root / "colecoes-processos.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "default_collection": "sector_finalistic",
+                        "collections": [
+                            {"id": "my_processes", "label": "Meus Processos", "process_keys": ["1/2023"]},
+                            {"id": "sector_finalistic", "label": "Processos no Setor", "process_keys": ["2/2023"]},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            publish_results(
+                root,
+                {
+                    "1/2023": {"status": "partial", "blocks": []},
+                    "2/2023": {"status": "partial", "blocks": []},
+                },
+                review_manifest={"version": 1, "processes": [{"process": "2/2023", "documents": []}]},
+                review_index={"version": 1, "processes": []},
+            )
+
+            published = json.loads(
+                (root / "publicacoes" / "1" / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                [item["process"] for item in published["processes"]],
+                ["1/2023", "2/2023"],
+            )
 
 
 if __name__ == "__main__":

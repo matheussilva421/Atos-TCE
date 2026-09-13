@@ -1478,6 +1478,7 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
                     manifest, checkpoint,
                     archive_index_path=_safe_file(root, "indice-classificado.json"),
                     visual_evidence_path=_safe_file(root, "evidencias-visuais.json"),
+                    collections_path=_safe_file(root, "colecoes-processos.json"),
                 )
                 payload["manual_review"] = True
             else:
