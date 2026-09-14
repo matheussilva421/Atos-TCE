@@ -118,6 +118,33 @@ def _hash_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8", errors="replace")).hexdigest()
 
 
+def classify_request_failure(
+    failure_type: str,
+    *,
+    is_navigation: bool,
+    resource_type: str,
+) -> str:
+    """Classify browser diagnostics without treating expected transitions as defects."""
+
+    normalized = str(failure_type).upper()
+    if "ERR_INVALID_AUTH_CREDENTIALS" in normalized:
+        return "auth_challenge"
+    if "ERR_ABORTED" in normalized and (
+        is_navigation or resource_type in {"document", "image", "media"}
+    ):
+        return "navigation_abort"
+    return "request_failed"
+
+
+def classify_page_error(url: str) -> str:
+    """Separate Chrome's internal error page from a page-script exception."""
+
+    normalized = str(url).lower()
+    if normalized.startswith("chrome-error://") or normalized.startswith("chromewebdata"):
+        return "browser_error_page"
+    return "page_error"
+
+
 def _sha256_tree(root: Path) -> str:
     digest = hashlib.sha256()
     for path in sorted(
@@ -227,23 +254,31 @@ class QaPortalRecorder:
         )
         page.on(
             "pageerror",
-            lambda error: self.errors.append(
+            lambda error: self._record_or_error(
+                classify_page_error(str(getattr(page, "url", ""))),
                 {
                     "kind": "pageerror",
                     "url": self._page_url(page),
                     "message_sha256": _hash_text(str(error)),
-                }
+                },
             ),
         )
         page.on(
             "requestfailed",
-            lambda request: self.errors.append(
+            lambda request: self._record_or_error(
+                classify_request_failure(
+                    str(request.failure or "unknown"),
+                    is_navigation=bool(request.is_navigation_request()),
+                    resource_type=str(request.resource_type),
+                ),
                 {
                     "kind": "requestfailed",
                     "url": _safe_url(str(request.url)),
                     "method": str(request.method),
                     "failure_type": str(request.failure or "unknown"),
-                }
+                    "is_navigation": bool(request.is_navigation_request()),
+                    "resource_type": str(request.resource_type),
+                },
             ),
         )
         page.on(
@@ -256,6 +291,12 @@ class QaPortalRecorder:
                 }
             ),
         )
+
+    def _record_or_error(self, classification: str, event: dict[str, Any]) -> None:
+        if classification in {"auth_challenge", "navigation_abort", "browser_error_page"}:
+            self._record({"kind": classification, **event})
+            return
+        self.errors.append(event)
 
     def start(self) -> dict[str, str]:
         """Start Chrome and expose only observation controls."""
@@ -326,22 +367,32 @@ class QaPortalRecorder:
             try:
                 portal.goto(self.config.portal_url, wait_until="domcontentloaded", timeout=45_000)
             except Exception as error:
+                classification = classify_request_failure(
+                    str(error),
+                    is_navigation=True,
+                    resource_type="document",
+                )
                 self._record(
                     {
-                        "kind": "portal_navigation_failed",
+                        "kind": (
+                            classification
+                            if classification != "request_failed"
+                            else "portal_navigation_failed"
+                        ),
                         "url": _safe_url(self.config.portal_url),
                         "error_type": type(error).__name__,
                         "message_sha256": _hash_text(str(error)),
                     }
                 )
-                self.errors.append(
-                    {
-                        "kind": "portal_navigation_failed",
-                        "url": _safe_url(self.config.portal_url),
-                        "error_type": type(error).__name__,
-                        "message_sha256": _hash_text(str(error)),
-                    }
-                )
+                if classification == "request_failed":
+                    self.errors.append(
+                        {
+                            "kind": "portal_navigation_failed",
+                            "url": _safe_url(self.config.portal_url),
+                            "error_type": type(error).__name__,
+                            "message_sha256": _hash_text(str(error)),
+                        }
+                    )
             self._record({"kind": "recorder_ready", "extension_id_present": bool(extension_id)})
             return {
                 "run_id": self._run_id,
@@ -438,6 +489,7 @@ class QaPortalRecorder:
             package_root=self.config.package_root,
             package_sha256=_sha256_tree(self.config.package_root),
             git_revision=_git_revision(self.config.package_root),
+            run_id=self._run_id,
             browser={
                 "name": "Google Chrome" if self.config.browser == "chrome" else "Chromium QA",
                 "executable": "local" if self.config.browser == "chrome" else "playwright-managed",

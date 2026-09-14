@@ -20,6 +20,8 @@ from qa_portal_recorder import (
     RecorderConfig,
     build_launch_args,
     build_structural_capture_script,
+    classify_page_error,
+    classify_request_failure,
     extension_worker_matches,
     validate_qa_profile,
 )
@@ -67,6 +69,7 @@ class QaWorkflowContractTests(unittest.TestCase):
             package_root=Path("C:/TCE"),
             package_sha256="a" * 64,
             git_revision="main",
+            run_id="qa-stable-id",
             browser={"name": "Chrome", "version": "130"},
             safety_mode="observe_only",
             status="BLOCKED",
@@ -77,6 +80,7 @@ class QaWorkflowContractTests(unittest.TestCase):
         )
 
         self.assertEqual(document["schema"], QA_RUN_SCHEMA)
+        self.assertEqual(document["run_id"], "qa-stable-id")
         self.assertEqual(validate_run_document(document), document)
 
     def test_rejects_values_or_unknown_top_level_fields_in_a_run(self) -> None:
@@ -190,6 +194,33 @@ class QaWorkflowContractTests(unittest.TestCase):
                 expected,
             )
         )
+
+    def test_classifies_expected_browser_and_auth_navigation_diagnostics(self) -> None:
+        self.assertEqual(
+            classify_request_failure(
+                "net::ERR_INVALID_AUTH_CREDENTIALS",
+                is_navigation=True,
+                resource_type="document",
+            ),
+            "auth_challenge",
+        )
+        self.assertEqual(
+            classify_request_failure(
+                "net::ERR_ABORTED",
+                is_navigation=True,
+                resource_type="document",
+            ),
+            "navigation_abort",
+        )
+        self.assertEqual(
+            classify_request_failure(
+                "net::ERR_CONNECTION_RESET",
+                is_navigation=False,
+                resource_type="xhr",
+            ),
+            "request_failed",
+        )
+        self.assertEqual(classify_page_error("chromewebdata/"), "browser_error_page")
 
 
 if __name__ == "__main__":

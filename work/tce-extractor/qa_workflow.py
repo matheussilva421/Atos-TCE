@@ -94,6 +94,7 @@ def build_run_document(
     package_root: Path,
     package_sha256: str,
     git_revision: str,
+    run_id: str | None = None,
     browser: Mapping[str, Any],
     safety_mode: str,
     status: str,
@@ -107,7 +108,7 @@ def build_run_document(
     now = datetime.now(timezone.utc).isoformat()
     document = {
         "schema": QA_RUN_SCHEMA,
-        "run_id": f"qa-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}",
+        "run_id": run_id or f"qa-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}",
         "created_at": now,
         "package": {"name": package_root.name, "sha256": package_sha256},
         "git": {"revision": git_revision},

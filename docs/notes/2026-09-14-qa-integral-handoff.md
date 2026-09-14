@@ -16,6 +16,8 @@
 - Perfil privado exato `dados-locais/chrome-qa-profile`; o CLI agora separa a raiz privada do pacote com `--private-root`.
 - Detecção segura do service worker alvo; workers de componentes do Chrome não são aceitos como extensão Atos-TCE.
 - Fechamento/relatório `BLOCKED` em falhas de inicialização.
+- Identidade da execução preservada entre pasta privada e `run.json`.
+- Classificação explícita de desafio inicial de autenticação, abortos de navegação e página interna `chromewebdata`, evitando falso positivo no campo `errors`.
 - Opção explícita `--browser chromium` para fixture/QA quando o Chrome instalado estiver impedido por política; o padrão continua sendo Chrome instalado.
 - `npm test` publicado no app web.
 - Correções TDD de teste de abas, manifesto `webNavigation`, download autenticado via `fetch`, OCR com runtime empacotado, arquivos de runtime/licença, verificação de documentação e compatibilidade PowerShell.
@@ -24,13 +26,13 @@
 
 - Extensão fonte: 369/369.
 - Web: 6/6, agora também por `npm test`.
-- Python completo: 434 executados, 434 aprovados, 0 falhas, 8 skips.
-- Contratos QA: 14/14.
+- Python completo: 435 executados, 435 aprovados, 0 falhas, 8 skips.
+- Contratos QA: 15/15.
 - Verificação completa via Windows PowerShell 5.1: 1024 executados, 1022 aprovados, 0 falhas, 2 skips.
 - PowerShell: `Test-TcePortable.ps1` 122/122; documentação 19/19; verificação 43/43; limpeza 307/307; menu 87/87.
 - Chromium QA: manifesto, service worker e `sidepanel/panel.html` carregados; trace/HAR privados gerados.
 - Chrome instalado: bloqueado pela política/ambiente gerenciado; o gravador registrou somente o componente Google Network Speech e encerrou como `BLOCKED`.
-- Contratos QA finais: 14/14.
+- Contratos QA finais: 15/15.
 - Auditoria private da referência após retirar `dados-locais`: aprovada.
 - O gate chamado via `pwsh` apresentou falso negativo por `PSModulePath`; o mesmo gate via Windows PowerShell 5.1 passou integralmente.
 
@@ -47,11 +49,13 @@
 - Browser: Chromium QA, `observe_only`, sem conclusão/envio/assinatura/tramitação.
 - Foram registrados 83 eventos estruturais, incluindo `ProcessonoSetor.asp` e `ComplementarAto.asp`; não houve `submit_attempt`.
 - A sessão teve 6 falhas de rede/console, portanto permanece observacional `BLOCKED`; não há `PASS_REAL`.
+- O HAR mostrou o `401` apenas no bootstrap sem sessão e `200` após login; o novo diagnóstico não reclassifica essa execução antiga retroativamente.
 
 ## Pendência imediata
 
-1. Repetir preflight real depois de corrigir `ERR_INVALID_AUTH_CREDENTIALS`/erro de console; só então avaliar `PASS_REAL`.
-2. Tentar commit/push; se `.git` continuar somente leitura, registrar os comandos para execução manual.
+1. Repetir preflight real em uma sessão humana autenticada; o probe automático foi bloqueado por `net::ERR_NETWORK_ACCESS_DENIED`.
+2. Confirmar três preflights consecutivos, releitura exata dos sete campos e ausência de submit antes de qualquer classificação `PASS_REAL`.
+3. Tentar commit/push das correções do gravador; se `.git` continuar somente leitura, registrar os comandos para execução manual.
 
 ## Segurança e retomada
 
