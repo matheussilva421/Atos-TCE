@@ -35,6 +35,8 @@
 - Contratos QA finais: 15/15.
 - Auditoria private da referência após retirar `dados-locais`: aprovada.
 - O gate chamado via `pwsh` apresentou falso negativo por `PSModulePath`; o mesmo gate via Windows PowerShell 5.1 passou integralmente.
+- A matriz final foi regenerada usando a referência imutável em `Versions/...`; a tentativa com `work/tce-extractor/portable` foi descartada porque a fonte não distribui o runtime portátil.
+- Matriz final atual: `BLOCKED=5`, `PASS_FIXTURE=24`, `PASS_PACKAGE=1`, total de 30 funções; nenhum `FAIL_REPRODUCED`.
 
 ## Relatórios
 
@@ -69,3 +71,5 @@
 - Branch: `main`.
 - Commit: `508a506 feat: add integral QA workflow and validated fixes`.
 - Push: realizado para `origin/main`.
+- Commit atual: `b21762e fix: classify isolated QA browser diagnostics`.
+- Push atual: realizado para `origin/main`.

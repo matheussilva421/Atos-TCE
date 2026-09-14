@@ -1,8 +1,8 @@
 # Relatório QA integral
 
 - Schema: `qa-matrix-v1`
-- Execução: `qa-20260914T150159Z`
-- Commit: `46587c68b3f4199ec5afe3497cda49af1a5bc911`
+- Execução: `qa-20260914T180904Z`
+- Commit: `b21762efe73c09a61665d67bae90a20bb3d692cf`
 
 ## Resumo
 

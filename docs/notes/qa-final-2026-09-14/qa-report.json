@@ -1,9 +1,9 @@
 {
   "schema": "qa-matrix-v1",
-  "created_at": "2026-09-14T15:02:02.568803+00:00",
+  "created_at": "2026-09-14T18:09:07.762569+00:00",
   "metadata": {
-    "run_id": "qa-20260914T150159Z",
-    "commit": "46587c68b3f4199ec5afe3497cda49af1a5bc911",
+    "run_id": "qa-20260914T180904Z",
+    "commit": "b21762efe73c09a61665d67bae90a20bb3d692cf",
     "package_sha256": "aa847c5173ba0bfee0a9b75ee0b0374eabddca8036c707f4f11406ca2a9478cf"
   },
   "summary": {
@@ -25,7 +25,7 @@
         "status": "PASS_PACKAGE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 31.821,
+        "duration_seconds": 94.507,
         "output_sha256": "d3e61eda1d806732a1657a82c2ac3e4c144435682d3f6aafe8924f545202680a",
         "output_lines": 10,
         "evidence": "bounded command exit code and output hash"
@@ -44,8 +44,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 1.005,
-        "output_sha256": "2c4bdbacda91b135a5b0282d7e718e2162765222404f1a5648c9bf6e636c4e5d",
+        "duration_seconds": 0.827,
+        "output_sha256": "d0777a260927ad7ec118b0ccfe7bd120cfc5cd2f63dcbccf500949be0c251ae6",
         "output_lines": 107,
         "evidence": "bounded command exit code and output hash"
       }
@@ -63,8 +63,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 1.005,
-        "output_sha256": "2c4bdbacda91b135a5b0282d7e718e2162765222404f1a5648c9bf6e636c4e5d",
+        "duration_seconds": 0.827,
+        "output_sha256": "d0777a260927ad7ec118b0ccfe7bd120cfc5cd2f63dcbccf500949be0c251ae6",
         "output_lines": 107,
         "evidence": "bounded command exit code and output hash"
       }
@@ -82,7 +82,7 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 0.132,
+        "duration_seconds": 0.125,
         "output_sha256": "604cb3943ff3d1bad4a67e6a47942fcd30f2ff4738abb626c81151ab2008aef1",
         "output_lines": 1,
         "evidence": "bounded command exit code and output hash"
@@ -101,8 +101,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 1.005,
-        "output_sha256": "2c4bdbacda91b135a5b0282d7e718e2162765222404f1a5648c9bf6e636c4e5d",
+        "duration_seconds": 0.827,
+        "output_sha256": "d0777a260927ad7ec118b0ccfe7bd120cfc5cd2f63dcbccf500949be0c251ae6",
         "output_lines": 107,
         "evidence": "bounded command exit code and output hash"
       }
@@ -120,8 +120,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 1.005,
-        "output_sha256": "2c4bdbacda91b135a5b0282d7e718e2162765222404f1a5648c9bf6e636c4e5d",
+        "duration_seconds": 0.827,
+        "output_sha256": "d0777a260927ad7ec118b0ccfe7bd120cfc5cd2f63dcbccf500949be0c251ae6",
         "output_lines": 107,
         "evidence": "bounded command exit code and output hash"
       }
@@ -139,8 +139,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 1.005,
-        "output_sha256": "2c4bdbacda91b135a5b0282d7e718e2162765222404f1a5648c9bf6e636c4e5d",
+        "duration_seconds": 0.827,
+        "output_sha256": "d0777a260927ad7ec118b0ccfe7bd120cfc5cd2f63dcbccf500949be0c251ae6",
         "output_lines": 107,
         "evidence": "bounded command exit code and output hash"
       }
@@ -158,8 +158,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 1.005,
-        "output_sha256": "2c4bdbacda91b135a5b0282d7e718e2162765222404f1a5648c9bf6e636c4e5d",
+        "duration_seconds": 0.827,
+        "output_sha256": "d0777a260927ad7ec118b0ccfe7bd120cfc5cd2f63dcbccf500949be0c251ae6",
         "output_lines": 107,
         "evidence": "bounded command exit code and output hash"
       }
@@ -177,8 +177,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 1.005,
-        "output_sha256": "2c4bdbacda91b135a5b0282d7e718e2162765222404f1a5648c9bf6e636c4e5d",
+        "duration_seconds": 0.827,
+        "output_sha256": "d0777a260927ad7ec118b0ccfe7bd120cfc5cd2f63dcbccf500949be0c251ae6",
         "output_lines": 107,
         "evidence": "bounded command exit code and output hash"
       }
@@ -196,8 +196,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 1.005,
-        "output_sha256": "2c4bdbacda91b135a5b0282d7e718e2162765222404f1a5648c9bf6e636c4e5d",
+        "duration_seconds": 0.827,
+        "output_sha256": "d0777a260927ad7ec118b0ccfe7bd120cfc5cd2f63dcbccf500949be0c251ae6",
         "output_lines": 107,
         "evidence": "bounded command exit code and output hash"
       }
@@ -215,8 +215,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 1.005,
-        "output_sha256": "2c4bdbacda91b135a5b0282d7e718e2162765222404f1a5648c9bf6e636c4e5d",
+        "duration_seconds": 0.827,
+        "output_sha256": "d0777a260927ad7ec118b0ccfe7bd120cfc5cd2f63dcbccf500949be0c251ae6",
         "output_lines": 107,
         "evidence": "bounded command exit code and output hash"
       }
@@ -234,8 +234,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 1.005,
-        "output_sha256": "2c4bdbacda91b135a5b0282d7e718e2162765222404f1a5648c9bf6e636c4e5d",
+        "duration_seconds": 0.827,
+        "output_sha256": "d0777a260927ad7ec118b0ccfe7bd120cfc5cd2f63dcbccf500949be0c251ae6",
         "output_lines": 107,
         "evidence": "bounded command exit code and output hash"
       }
@@ -253,8 +253,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 1.005,
-        "output_sha256": "2c4bdbacda91b135a5b0282d7e718e2162765222404f1a5648c9bf6e636c4e5d",
+        "duration_seconds": 0.827,
+        "output_sha256": "d0777a260927ad7ec118b0ccfe7bd120cfc5cd2f63dcbccf500949be0c251ae6",
         "output_lines": 107,
         "evidence": "bounded command exit code and output hash"
       }
@@ -272,8 +272,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 1.005,
-        "output_sha256": "2c4bdbacda91b135a5b0282d7e718e2162765222404f1a5648c9bf6e636c4e5d",
+        "duration_seconds": 0.827,
+        "output_sha256": "d0777a260927ad7ec118b0ccfe7bd120cfc5cd2f63dcbccf500949be0c251ae6",
         "output_lines": 107,
         "evidence": "bounded command exit code and output hash"
       }
@@ -291,8 +291,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 0.792,
-        "output_sha256": "7ef402cd15fab0554d9bbde0c3ad17b22073576e74ae42856831e55495a1c9a7",
+        "duration_seconds": 0.629,
+        "output_sha256": "999ba10700041b7ad2244c74c24f7c46c6b65b9fc759b2e2154337fd5621dcb8",
         "output_lines": 18,
         "evidence": "source web unit suite; target package has separate static audit"
       }
@@ -310,8 +310,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 0.792,
-        "output_sha256": "7ef402cd15fab0554d9bbde0c3ad17b22073576e74ae42856831e55495a1c9a7",
+        "duration_seconds": 0.629,
+        "output_sha256": "999ba10700041b7ad2244c74c24f7c46c6b65b9fc759b2e2154337fd5621dcb8",
         "output_lines": 18,
         "evidence": "source web unit suite; target package has separate static audit"
       }
@@ -329,8 +329,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 0.792,
-        "output_sha256": "7ef402cd15fab0554d9bbde0c3ad17b22073576e74ae42856831e55495a1c9a7",
+        "duration_seconds": 0.629,
+        "output_sha256": "999ba10700041b7ad2244c74c24f7c46c6b65b9fc759b2e2154337fd5621dcb8",
         "output_lines": 18,
         "evidence": "source web unit suite; target package has separate static audit"
       }
@@ -348,8 +348,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 1.548,
-        "output_sha256": "5a501eebdb42f97b6deb5a0157366d53142c40daf8122289a7b4609f217d9177",
+        "duration_seconds": 1.505,
+        "output_sha256": "bd3854d2af01535e71276fb81621fdd8e500bf43e56dba5849ccee6497b28729",
         "output_lines": 390,
         "evidence": "source extension Node suite; target package has separate static audit"
       }
@@ -367,8 +367,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 1.548,
-        "output_sha256": "5a501eebdb42f97b6deb5a0157366d53142c40daf8122289a7b4609f217d9177",
+        "duration_seconds": 1.505,
+        "output_sha256": "bd3854d2af01535e71276fb81621fdd8e500bf43e56dba5849ccee6497b28729",
         "output_lines": 390,
         "evidence": "source extension Node suite; target package has separate static audit"
       }
@@ -386,8 +386,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 1.548,
-        "output_sha256": "5a501eebdb42f97b6deb5a0157366d53142c40daf8122289a7b4609f217d9177",
+        "duration_seconds": 1.505,
+        "output_sha256": "bd3854d2af01535e71276fb81621fdd8e500bf43e56dba5849ccee6497b28729",
         "output_lines": 390,
         "evidence": "source extension Node suite; target package has separate static audit"
       }
@@ -405,8 +405,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 50.148,
-        "output_sha256": "394b8b3b786ee3252f8dc0c6986c87b5b3920ec0128f1a897241495fb3b2f2cb",
+        "duration_seconds": 14.11,
+        "output_sha256": "d8a96d7e4b2f1d9ac69445f1afe16d0eb822868ac4dc30ae9eef3d69b496bb0a",
         "output_lines": 5,
         "evidence": "bounded command exit code and output hash"
       }
@@ -424,8 +424,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 1.548,
-        "output_sha256": "5a501eebdb42f97b6deb5a0157366d53142c40daf8122289a7b4609f217d9177",
+        "duration_seconds": 1.505,
+        "output_sha256": "bd3854d2af01535e71276fb81621fdd8e500bf43e56dba5849ccee6497b28729",
         "output_lines": 390,
         "evidence": "source extension Node suite; target package has separate static audit"
       }
@@ -443,8 +443,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 1.548,
-        "output_sha256": "5a501eebdb42f97b6deb5a0157366d53142c40daf8122289a7b4609f217d9177",
+        "duration_seconds": 1.505,
+        "output_sha256": "bd3854d2af01535e71276fb81621fdd8e500bf43e56dba5849ccee6497b28729",
         "output_lines": 390,
         "evidence": "source extension Node suite; target package has separate static audit"
       }
@@ -462,8 +462,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 1.548,
-        "output_sha256": "5a501eebdb42f97b6deb5a0157366d53142c40daf8122289a7b4609f217d9177",
+        "duration_seconds": 1.505,
+        "output_sha256": "bd3854d2af01535e71276fb81621fdd8e500bf43e56dba5849ccee6497b28729",
         "output_lines": 390,
         "evidence": "source extension Node suite; target package has separate static audit"
       }
@@ -481,8 +481,8 @@
         "status": "PASS_FIXTURE",
         "returncode": 0,
         "timed_out": false,
-        "duration_seconds": 1.548,
-        "output_sha256": "5a501eebdb42f97b6deb5a0157366d53142c40daf8122289a7b4609f217d9177",
+        "duration_seconds": 1.505,
+        "output_sha256": "bd3854d2af01535e71276fb81621fdd8e500bf43e56dba5849ccee6497b28729",
         "output_lines": 390,
         "evidence": "source extension Node suite; target package has separate static audit"
       }
