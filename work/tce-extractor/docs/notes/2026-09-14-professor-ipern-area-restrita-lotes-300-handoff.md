@@ -177,7 +177,7 @@ O usuário confirmou que o marcador voltou a estar carregado. A retomada do
 mesmo `analysis-0e2f3c9e...json`, lote 1, foi iniciada em 14/09/2026 no Chrome
 isolado autenticado, com nova enumeração/reconciliação de 1.227 processos e
 300/300 chaves válidas. Até a última atualização desta nota, a execução havia
-alcançado 27/300 itens, reaproveitando PDFs existentes e baixando novos
+alcançado 100/300 itens, reaproveitando PDFs existentes e baixando novos
 documentos; um erro HTTP 400 de documento individual ficou isolado no registro
 de falhas. O coletor segue sem OCR nesta etapa porque nenhum runtime de OCR foi
 passado ao comando; a preparação local será executada depois da aquisição.
