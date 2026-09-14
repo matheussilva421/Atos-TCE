@@ -257,6 +257,52 @@ test("reads and locks the marker already selected in the Area Restrita without a
   assert.equal(chromeApi.calls.some(([, message]) => message.payload?.action === "filter_marker"), false);
 });
 
+test("v3 analysis queries workbook keys absent from the marker and preserves input order", async () => {
+  const pendingSignature = {
+    kind: "red_complement_icon",
+    alt: "Complementar Ato",
+    title: "Complementar Ato",
+    src: "red.png",
+  };
+  const markerPage = {
+    ...markerSnapshot("list", 1, [
+      { ...identity("101/2023", "ana da silva", "act-1"), needsComplement: true, actionSignature: pendingSignature },
+    ], [{ action: "find_process", enabled: true }]),
+    source_scope: "sector_finalistic",
+  };
+  const exactSearchResult = {
+    ...markerSnapshot("list", 2, [], [{ action: "find_process", enabled: true }]),
+    source_scope: "sector_finalistic",
+  };
+  const chromeApi = chromeMock([markerPage, exactSearchResult]);
+  const controller = createAutomationController({ chromeApi, bridge: bridgeMock() });
+
+  const result = await controller.analyze({
+    spec: {
+      ...runSpec(),
+      datasetSha256: null,
+      analysisOnly: true,
+      sourceScope: "sector_finalistic",
+      lotSize: 300,
+      acquisitionSource: "econtas",
+      inputListId: `input-${"b".repeat(24)}`,
+      inputSha256: "c".repeat(64),
+      inputUniqueCount: 2,
+      inputKeys: ["101/2023", "202/2024"],
+    },
+    eventId: "analysis-input-list",
+  });
+
+  assert.deepEqual(result.rows.map((row) => row.process_key), ["101/2023", "202/2024"]);
+  assert.equal(result.rows[0].area_restrita.classification, "PRECISA_COMPLEMENTAR");
+  assert.equal(result.rows[1].area_restrita.classification, "NAO_ENCONTRADO_AREA_RESTRITA");
+  const exactQuery = chromeApi.calls.find(([, message]) => (
+    message.type === MESSAGE_TYPES.PORTAL_NAVIGATE && message.payload.action === "find_process"
+  ));
+  assert.equal(exactQuery[1].payload.process_key, "202/2024");
+  assert.equal(controller.status().status, "stopped");
+});
+
 test("resets a marker analysis to the first page before collecting every page", async () => {
   const middle = {
     ...markerSnapshot("list", 6, [identity("106/2026", "middle", "act-6")], [

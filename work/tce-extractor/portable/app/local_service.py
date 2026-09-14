@@ -33,6 +33,11 @@ from automation_report import render_run_reports
 from acquisition import build_collector_command, validate_acquisition_request, validate_source_scope
 from analysis_preview import AnalysisPreviewStore, create_preview
 from batch_scope import validate_batch_spec
+from process_list import (
+    ProcessListStore,
+    import_process_workbook_bytes,
+    write_analysis_report,
+)
 from automation_store import (
     ActiveRunError,
     AutomationStore,
@@ -923,6 +928,7 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
         self.workflow_state = workflow_state
         self.automation_store = automation_store
         self.analysis_previews = AnalysisPreviewStore(self.workflow_root)
+        self.process_lists = ProcessListStore(self.workflow_root)
         self._acquisition_lock = threading.RLock()
         self._acquisition_jobs: dict[str, dict[str, object]] = {}
         self.service_revision = self.workflow_state.snapshot()["revision"]
@@ -1334,6 +1340,51 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             return
         self._send(200, _project_analysis_snapshot(saved))
 
+    def _import_process_list(self) -> None:
+        try:
+            payload = self._read_json()
+            _require_exact_keys(payload, {"filename", "content_base64"})
+            manifest = import_process_workbook_bytes(
+                self.server_state.workflow_root,
+                payload["filename"],
+                payload["content_base64"],
+            )
+        except _BodyTooLarge as problem:
+            self._error(problem.status, problem.code, str(problem))
+            return
+        except (ValueError, TypeError, UnicodeError, json.JSONDecodeError) as error:
+            self._error(400, "INVALID_PROCESS_LIST", str(error))
+            return
+        self._send(200, manifest)
+
+    def _create_process_list_report(self, input_list_id: str) -> None:
+        try:
+            manifest = self.server_state.process_lists.load(input_list_id)
+            payload = self._read_json()
+            _require_exact_keys(payload, {"classifications"})
+            classifications = payload["classifications"]
+            if not isinstance(classifications, dict):
+                raise ValueError("classifications deve ser um objeto")
+            for key, value in classifications.items():
+                if not isinstance(key, str) or not isinstance(value, dict):
+                    raise ValueError("classificação inválida")
+            report_path = self.server_state.workflow_root / "automacao" / "relatorios" / f"area-restrita-{input_list_id}.xlsx"
+            summary = write_analysis_report(report_path, manifest, classifications)
+        except _BodyTooLarge as problem:
+            self._error(problem.status, problem.code, str(problem))
+            return
+        except (ValueError, TypeError, UnicodeError, json.JSONDecodeError) as error:
+            self._error(400, "INVALID_PROCESS_LIST_REPORT", str(error))
+            return
+        self._send(
+            200,
+            {
+                "input_list_id": input_list_id,
+                "relative_path": report_path.relative_to(self.server_state.workflow_root).as_posix(),
+                "summary": summary,
+            },
+        )
+
     def _create_analysis_lots(self, analysis_id: str) -> None:
         if not ANALYSIS_ID_RE.fullmatch(analysis_id):
             self._error(404, "ANALYSIS_NOT_FOUND", "análise não encontrada")
@@ -1625,6 +1676,23 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             return
         if not self._require_auth(allow_missing_origin=True):
             return
+        process_list_parts = [unquote(part) for part in parsed.path.split("/") if part]
+        if parsed.path == "/api/v1/process-lists/active":
+            try:
+                active = self.server_state.process_lists.active()
+            except ValueError as error:
+                self._error(409, "ACTIVE_PROCESS_LIST_INVALID", str(error))
+                return
+            self._send(200, active if active is not None else {"active": None})
+            return
+        if len(process_list_parts) == 4 and process_list_parts[:3] == ["api", "v1", "process-lists"]:
+            try:
+                manifest = self.server_state.process_lists.load(process_list_parts[3])
+            except ValueError:
+                self._error(404, "PROCESS_LIST_NOT_FOUND", "lista de processos não encontrada")
+                return
+            self._send(200, manifest)
+            return
         analysis_parts = [unquote(part) for part in parsed.path.split("/") if part]
         if (
             len(analysis_parts) == 6
@@ -1810,6 +1878,17 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             )
             return
         if not self._require_auth():
+            return
+        process_list_parts = [unquote(part) for part in parsed.path.split("/") if part]
+        if parsed.path == "/api/v1/process-lists/import":
+            self._import_process_list()
+            return
+        if (
+            len(process_list_parts) == 5
+            and process_list_parts[:3] == ["api", "v1", "process-lists"]
+            and process_list_parts[4] == "report"
+        ):
+            self._create_process_list_report(process_list_parts[3])
             return
         if parsed.path == "/api/v1/analysis/preview":
             self._create_analysis_preview()

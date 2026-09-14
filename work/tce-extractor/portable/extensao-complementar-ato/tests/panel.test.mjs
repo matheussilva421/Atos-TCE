@@ -171,6 +171,9 @@ function buildPanelDocument() {
   addElement(documentRef, "button", "analysis-acquisition-button");
   addElement(documentRef, "p", "analysis-acquisition-status");
   addElement(documentRef, "p", "analysis-status");
+  addElement(documentRef, "button", "process-list-import-button");
+  addElement(documentRef, "input", "process-list-file", { type: "file" });
+  addElement(documentRef, "p", "process-list-status");
   addElement(documentRef, "input", "search-process", { type: "search" });
   addElement(documentRef, "input", "search-interested", { type: "search" });
   addElement(documentRef, "div", "search-results");
@@ -737,6 +740,90 @@ test("runs a read-only Area Restrita analysis, shows the count, and creates dete
   for (let index = 0; index < 3; index += 1) await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(bridgeCalls[2], ["acquire", analysisId, { selection: "lot", lotNumber: 1 }]);
   assert.match(documentRef.getElementById("analysis-acquisition-status").textContent, /iniciada|started/iu);
+});
+
+test("uses the active authoritative process list for v3 analysis and confirms each 300-process lot", async () => {
+  const dataset = await makeDataset();
+  const manifest = {
+    schema_version: 1,
+    input_list_id: `input-${"b".repeat(24)}`,
+    input_sha256: "c".repeat(64),
+    source_filename: "Complementar Ato - Professor IPERN.xlsx",
+    sheet_name: "Planilha2",
+    row_count: 2,
+    unique_count: 2,
+    duplicate_count: 0,
+    ordered_unique_keys: ["103439/2023", "103440/2023"],
+    rows: [
+      { source_row: 2, process_key: "103439/2023", duplicate_of_row: null },
+      { source_row: 3, process_key: "103440/2023", duplicate_of_row: null },
+    ],
+  };
+  const calls = [];
+  const confirmations = [];
+  const analysisId = `analysis-${"d".repeat(24)}`;
+  const client = {
+    async getDataset() { return { api_version: 1, revision: 1, dataset }; },
+    async getState() { return { revision: 1 }; },
+    async publishSelection() { return { accepted: true, revision: 1 }; },
+    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v1" }; },
+    async listAutomationRuns() { return { runs: [], next_cursor: null }; },
+    async getActiveProcessList() { calls.push(["active-list"]); return manifest; },
+    async createAnalysisPreview(input) { calls.push(["preview", input]); return { analysis_id: analysisId, preview: { needs_complement: 1, eligible: 1, blocked: 1, lot_count: 1 }, queue: [{}], blocked: [{}] }; },
+    async createAnalysisLots(id) { calls.push(["lots", id]); return { analysis_id: id, lots: [{ lot_number: 1, lot_id: "lot-1", items: [{}] }] }; },
+    async startAnalysisAcquisition(id, selection) { calls.push(["acquire", id, selection]); return { api_version: 1, analysis_id: id, job_id: "acq-" + "e".repeat(24), lot_number: selection.lotNumber, status: "started", pid: 4321 }; },
+  };
+  const analysisResult = {
+    source_scope: "sector_finalistic",
+    marker: { label: "PROFESSOR - IPERN", value: "marker-2" },
+    area_snapshot_sha256: "a".repeat(64),
+    rows: [{
+      process_key: "103439/2023",
+      interested_key: "maria de souza",
+      area_restrita: {
+        scope: "sector_finalistic",
+        marker_label: "PROFESSOR - IPERN",
+        marker_value: "marker-2",
+        classification: "PRECISA_COMPLEMENTAR",
+        needs_complement: true,
+        action_observed: "Complementar Ato",
+        action_signature: { kind: "red_complement_icon", alt: "Complementar Ato", title: "Complementar Ato", src: "red.png" },
+        snapshot_hash: "b".repeat(64),
+      },
+    }],
+  };
+  const { app, documentRef } = await startApp({
+    chromeApi: (() => {
+      const api = makeRuntime({ dataset, snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })] });
+      const sendMessage = api.runtime.sendMessage;
+      api.runtime.sendMessage = async (message) => message.type === MESSAGE_TYPES.AUTO_ANALYZE
+        ? { ok: true, payload: analysisResult }
+        : sendMessage(message);
+      return api;
+    })(),
+    dataset,
+    snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })],
+    pairingFactory: async () => "token",
+    bridgeClientFactory: () => client,
+    confirmFn: (message) => { confirmations.push(message); return true; },
+  });
+  documentRef.getElementById("bridge-pairing-code").value = "12345678";
+  documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
+  await waitUntil(() => Boolean(app.getState().processList), "active process list did not load");
+  assert.match(documentRef.getElementById("process-list-status").textContent, /2.*únic/iu, JSON.stringify(calls));
+  documentRef.getElementById("automation-lot-size").value = "50";
+  assert.equal(await app.startAnalysis(), true);
+  assert.equal(calls.find(([name]) => name === "preview")[1].spec.schema_version, 3);
+  assert.equal(calls.find(([name]) => name === "preview")[1].spec.lot_size, 300);
+  assert.equal(calls.find(([name]) => name === "preview")[1].spec.input_list_id, manifest.input_list_id);
+  assert.equal(documentRef.getElementById("automation-auto-submit").checked, false);
+  assert.equal(documentRef.getElementById("automation-auto-submit").disabled, true);
+  assert.equal(await app.createAnalysisLots(), true);
+  documentRef.getElementById("analysis-selection-mode").value = "lot";
+  documentRef.getElementById("analysis-lot-number").value = "1";
+  assert.equal(await app.startAnalysisAcquisition(), true);
+  assert.equal(confirmations.length, 1);
+  assert.deepEqual(calls.find(([name]) => name === "acquire"), ["acquire", analysisId, { selection: "lot", lotNumber: 1 }]);
 });
 
 test("surfaces the internal Area Restrita analysis reason without exposing private payload data", async () => {
@@ -1741,7 +1828,7 @@ test("has structurally associated labels, keyboard focus styles, and disabled in
   const labelTargets = [...html.matchAll(/<label\b[^>]*\bfor="([^"]+)"[^>]*>/giu)].map((match) => match[1]);
   const buttonLabels = [...html.matchAll(/<button\b[^>]*>([^<]+)<\/button>/giu)].map((match) => match[1].trim());
 
-  assert.deepEqual(labelTargets, ["search-process", "search-interested", "reviewed-checkbox", "bridge-base-url", "bridge-pairing-code", "automation-marker", "automation-source-scope", "automation-lot-size", "analysis-selection-mode", "analysis-lot-number"]);
+  assert.deepEqual(labelTargets, ["search-process", "search-interested", "reviewed-checkbox", "bridge-base-url", "bridge-pairing-code", "process-list-file", "automation-marker", "automation-source-scope", "automation-lot-size", "analysis-selection-mode", "analysis-lot-number"]);
   assert.equal(labelTargets.every((target) => inputIds.has(target)), true);
   assert.match(inputTags.find((tag) => /\bid="dataset-file"/iu.test(tag)), /\baria-label="[^"]+"/iu);
   assert.ok(buttonLabels.length >= 5);

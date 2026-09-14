@@ -13,6 +13,11 @@
 /work/tce-extractor/*
 !/work/tce-extractor/*.py
 !/work/tce-extractor/*.ps1
+!/work/tce-extractor/QA-DEPENDENCIAS.md
+!/work/tce-extractor/requirements-qa.txt
+!/work/tce-extractor/docs/
+!/work/tce-extractor/docs/notes/
+!/work/tce-extractor/docs/notes/*.md
 !/work/tce-extractor/tests/
 !/work/tce-extractor/portable/
 /work/tce-extractor/portable/*

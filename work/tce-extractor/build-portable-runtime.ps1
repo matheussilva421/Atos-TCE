@@ -106,6 +106,8 @@ $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | Convert
 $expectedVersions = @{
     python = '3.14.4'
     pymupdf = '1.28.2'
+    openpyxl = '3.1.5'
+    et_xmlfile = '2.0.0'
     tesseract = '5.4.0.20240606'
     sevenzip = '26.02'
 }
@@ -235,7 +237,7 @@ with zipfile.ZipFile(wheel_path) as wheel:
 '@
     & $HostPython -c $zipExtractScript $WheelPath $Destination
     if ($LASTEXITCODE -ne 0) {
-        throw "Extração direta da wheel PyMuPDF falhou com código $LASTEXITCODE"
+        throw "Extração direta da wheel $WheelPath falhou com código $LASTEXITCODE"
     }
 }
 
@@ -428,6 +430,34 @@ $wheel = $wheels[0]
 Assert-FixedHash -Path $wheel.FullName -Expected $manifest.pymupdf.sha256 -Label 'PyMuPDF 1.28.2 wheel'
 Expand-VerifiedWheel -HostPython $hostPython.Source -WheelPath $wheel.FullName -Destination $sitePackages
 
+# Spreadsheet import is part of the portable runtime contract.  These wheels
+# are pure Python, but are still downloaded, hash-checked and extracted with
+# the same transaction-local rules as PyMuPDF; pip is never used at runtime.
+foreach ($wheelSpec in @(
+    [pscustomobject]@{ component = 'openpyxl'; distribution = 'openpyxl'; directory = 'openpyxl' },
+    [pscustomobject]@{ component = 'et_xmlfile'; distribution = 'et-xmlfile'; directory = 'et_xmlfile' }
+)) {
+    $component = $manifest.($wheelSpec.component)
+    $componentDestination = Join-Path $downloadRoot $wheelSpec.directory
+    [IO.Directory]::CreateDirectory($componentDestination) | Out-Null
+    $componentArtifact = [string]$component.artifact
+    $previousComponentWheel = Join-Path (Join-Path $previousDownloadRoot $wheelSpec.directory) $componentArtifact
+    if (-not (Test-Path -LiteralPath $previousComponentWheel -PathType Leaf)) {
+        $previousComponentWheel = Join-Path (Join-Path $previousVerifiedDownloadRoot $wheelSpec.directory) $componentArtifact
+    }
+    $componentWheelPath = Join-Path $componentDestination $componentArtifact
+    if (Test-Path -LiteralPath $previousComponentWheel -PathType Leaf) {
+        Copy-VerifiedOrDownload -Uri $component.source -Destination $componentWheelPath -ExpectedHash $component.sha256 -Label "$($component.name) $($component.version) wheel" -ExistingPath $previousComponentWheel
+    } else {
+        & $hostPython.Source -m pip download --no-deps --only-binary=:all: --dest $componentDestination "$($wheelSpec.distribution)==$($component.version)"
+        if ($LASTEXITCODE -ne 0) { throw "pip download de $($component.name) falhou com código $LASTEXITCODE" }
+    }
+    $componentWheels = @(Get-ChildItem -LiteralPath $componentDestination -File -Filter '*.whl' | Where-Object { $_.Name -ieq $componentArtifact })
+    if ($componentWheels.Count -ne 1) { throw "Wheel $($component.name) esperada não encontrada de forma única em $componentDestination" }
+    Assert-FixedHash -Path $componentWheels[0].FullName -Expected $component.sha256 -Label "$($component.name) $($component.version) wheel"
+    Expand-VerifiedWheel -HostPython $hostPython.Source -WheelPath $componentWheels[0].FullName -Destination $sitePackages
+}
+
 $tesseractInstaller = Join-Path $downloadRoot 'tesseract-ocr-w64-setup-5.4.0.20240606.exe'
 $previousTesseractInstaller = Join-Path $previousDownloadRoot 'tesseract-ocr-w64-setup-5.4.0.20240606.exe'
 if (-not (Test-Path -LiteralPath $previousTesseractInstaller -PathType Leaf)) {
@@ -518,6 +548,12 @@ $pythonLicenseCount = Copy-RequiredLicenseFiles -SourceRoot $pythonRoot -Destina
 $pymupdfDistInfo = @(Get-ChildItem -LiteralPath $sitePackages -Directory -Filter '*pymupdf*.dist-info')
 if ($pymupdfDistInfo.Count -ne 1) { throw "Metadados .dist-info do PyMuPDF não encontrados de forma única." }
 $pymupdfLicenseCount = Copy-RequiredLicenseFiles -SourceRoot $pymupdfDistInfo[0].FullName -DestinationRoot (Join-Path $licensesRoot 'PyMuPDF') -Label 'PyMuPDF'
+$openpyxlDistInfo = @(Get-ChildItem -LiteralPath $sitePackages -Directory -Filter 'openpyxl-*.dist-info')
+if ($openpyxlDistInfo.Count -ne 1) { throw "Metadados .dist-info do openpyxl não encontrados de forma única." }
+$openpyxlLicenseCount = Copy-RequiredLicenseFiles -SourceRoot $openpyxlDistInfo[0].FullName -DestinationRoot (Join-Path $licensesRoot 'openpyxl') -Label 'openpyxl'
+$etXmlfileDistInfo = @(Get-ChildItem -LiteralPath $sitePackages -Directory -Filter 'et_xmlfile-*.dist-info')
+if ($etXmlfileDistInfo.Count -ne 1) { throw "Metadados .dist-info do et-xmlfile não encontrados de forma única." }
+$etXmlfileLicenseCount = Copy-RequiredLicenseFiles -SourceRoot $etXmlfileDistInfo[0].FullName -DestinationRoot (Join-Path $licensesRoot 'et-xmlfile') -Label 'et-xmlfile'
 $tesseractLicenseCount = Copy-RequiredLicenseFiles -SourceRoot $extractedTesseractRoot -DestinationRoot (Join-Path $licensesRoot 'Tesseract') -Label 'Tesseract extraído'
 
 $pythonExe = Join-Path $pythonRoot 'python.exe'
@@ -525,9 +561,9 @@ $tesseractExe = Join-Path $tesseractRoot 'tesseract.exe'
 $oldPath = $env:Path
 try {
     $env:Path = "$env:SystemRoot\System32;$env:SystemRoot"
-    $pythonProbe = @(& $pythonExe -B -s -c "import os, pathlib, sys; assert sys.version_info[:3] == (3, 14, 4), sys.version; import pymupdf; module = pathlib.Path(pymupdf.__file__).resolve(); root = pathlib.Path(sys.argv[1]).resolve(); assert str(module).lower().startswith(str(root).lower() + os.sep), (module, root); assert pymupdf.__version__ == '1.28.2', pymupdf.__version__; print(pymupdf.__version__); print('pymupdf_file=' + str(module)); print(sys.executable)" $BuildRoot 2>&1) -join "`n"
-    if ($LASTEXITCODE -ne 0 -or $pythonProbe -notmatch '(?m)^1\.28\.2$') {
-        throw "Validação PyMuPDF/Python isolada falhou no build temporário: $pythonProbe"
+    $pythonProbe = @(& $pythonExe -B -s -c "import os, pathlib, sys; assert sys.version_info[:3] == (3, 14, 4), sys.version; root = pathlib.Path(sys.argv[1]).resolve(); import pymupdf, openpyxl, et_xmlfile; module = pathlib.Path(pymupdf.__file__).resolve(); assert openpyxl.__file__; assert et_xmlfile.__file__; assert pymupdf.__version__ == '1.28.2', pymupdf.__version__; assert openpyxl.__version__ == '3.1.5', openpyxl.__version__; assert et_xmlfile.__version__ == '2.0.0', et_xmlfile.__version__; modules = (pymupdf, openpyxl, et_xmlfile); assert all(str(pathlib.Path(module.__file__).resolve()).lower().startswith(str(root).lower() + os.sep) for module in modules), [module.__file__ for module in modules]; print('pymupdf=' + pymupdf.__version__); print('openpyxl=' + openpyxl.__version__); print('et_xmlfile=' + et_xmlfile.__version__); print('pymupdf_file=' + str(module)); print(sys.executable)" $BuildRoot 2>&1) -join "`n"
+    if ($LASTEXITCODE -ne 0 -or $pythonProbe -notmatch '(?m)^pymupdf=1\.28\.2$' -or $pythonProbe -notmatch '(?m)^openpyxl=3\.1\.5$' -or $pythonProbe -notmatch '(?m)^et_xmlfile=2\.0\.0$') {
+        throw "Validação Python/PyMuPDF/openpyxl isolada falhou no build temporário: $pythonProbe"
     }
     $tesseractOutput = @(& $tesseractExe --tessdata-dir $tessdataRoot --list-langs 2>&1)
     $tesseractProbe = ($tesseractOutput | ForEach-Object { [string]$_ }) -join "`n"
@@ -565,7 +601,7 @@ $manifestOutput['build'] = [ordered]@{
     tesseract_source_version = $manifest.tesseract.version
     tesseract_source_path_recorded = $false
     sevenzip_source_kind = 'verified-extra-archive-and-standalone'
-    license_file_counts = [ordered]@{ python = $pythonLicenseCount; pymupdf = $pymupdfLicenseCount; tesseract = $tesseractLicenseCount }
+    license_file_counts = [ordered]@{ python = $pythonLicenseCount; pymupdf = $pymupdfLicenseCount; openpyxl = $openpyxlLicenseCount; et_xmlfile = $etXmlfileLicenseCount; tesseract = $tesseractLicenseCount }
     included_files = @($includedFiles)
 }
 $manifestOutputPath = Join-Path $BuildRoot 'runtime-manifest.json'
@@ -581,6 +617,6 @@ Publish-Staging -BuildRoot $BuildRoot -StagingRoot $StagingRoot -BackupRoot $Bac
     tesseract_languages = $tesseractProbe
     runtime_files = @($includedFiles).Count
     manifest_validation = $manifestValidation
-    licenses = [ordered]@{ python = $pythonLicenseCount; pymupdf = $pymupdfLicenseCount; tesseract = $tesseractLicenseCount }
+    licenses = [ordered]@{ python = $pythonLicenseCount; pymupdf = $pymupdfLicenseCount; openpyxl = $openpyxlLicenseCount; et_xmlfile = $etXmlfileLicenseCount; tesseract = $tesseractLicenseCount }
     manifest = (Join-Path $StagingRoot 'runtime-manifest.json')
 } | ConvertTo-Json -Depth 10

@@ -125,7 +125,7 @@ def load_frozen_queue(path: Path, *, lot_number: int | None = None) -> dict[str,
     """
 
     value = _load_json(Path(path))
-    if value.get("schema_version") not in (1, 2):
+    if value.get("schema_version") not in (1, 2, 3):
         raise ValueError("schema_version da fila congelada incompatível")
     _validate_identity(value)
     spec = value.get("spec")

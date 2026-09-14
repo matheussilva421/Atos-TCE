@@ -68,8 +68,8 @@ function Invoke-TcePortableRuntimeProbe {
     }
     $pythonOutput = @()
     try {
-        $pythonOutput = @(& $Runtime.Python -B -s -c 'import pymupdf; print(pymupdf.__version__)' 2>&1)
-        if ($LASTEXITCODE -ne 0) { Add-TcePortableError $errors ('Python falhou no teste PyMuPDF: ' + (ConvertTo-TcePortableDiagnosticText $pythonOutput)) }
+        $pythonOutput = @(& $Runtime.Python -B -s -c 'import et_xmlfile, openpyxl, pymupdf; print("pymupdf=" + pymupdf.__version__); print("openpyxl=" + openpyxl.__version__); print("et_xmlfile=" + et_xmlfile.__version__)' 2>&1)
+        if ($LASTEXITCODE -ne 0) { Add-TcePortableError $errors ('Python falhou no teste de dependências QA: ' + (ConvertTo-TcePortableDiagnosticText $pythonOutput)) }
     } catch { Add-TcePortableError $errors 'Python portatil nao pode ser executado' }
     $tesseractOutput = @()
     try {

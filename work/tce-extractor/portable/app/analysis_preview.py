@@ -17,8 +17,8 @@ except ImportError:  # direct script-compatible import used by existing tools
     from batch_scope import build_preview, freeze_queue, split_lots
 
 
-SCHEMA_VERSION = 2
-SUPPORTED_SCHEMA_VERSIONS = frozenset({1, 2})
+SCHEMA_VERSION = 3
+SUPPORTED_SCHEMA_VERSIONS = frozenset({1, 2, 3})
 _ANALYSIS_ID_RE = re.compile(r"^analysis-[0-9a-f]{24}$")
 
 
@@ -51,7 +51,7 @@ def create_preview(
     frozen = freeze_queue(spec, rows, observed_at=observed_at)
     return {
         **frozen,
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": frozen["schema_version"],
         "preview": preview,
     }
 

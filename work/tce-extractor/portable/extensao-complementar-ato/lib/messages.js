@@ -40,11 +40,12 @@ export const MESSAGE_TYPES = Object.freeze({
 const MESSAGE_TYPE_SET = new Set(Object.values(MESSAGE_TYPES));
 const MESSAGE_KEYS = ["schemaVersion", "type", "requestId", "payload"];
 const MATCH_KIND_SET = new Set(["exact", "probable", "tie"]);
-const PORTAL_ACTION_SET = new Set(["first_page", "next_page", "open_act", "select_interested", "return_list", "filter_marker"]);
+const PORTAL_ACTION_SET = new Set(["first_page", "next_page", "open_act", "select_interested", "return_list", "filter_marker", "find_process"]);
 const PORTAL_ROLE_SET = new Set(["list", "interested", "form", "buttons", "unknown"]);
 const PORTAL_SOURCE_SCOPE_SET = new Set(["sector_finalistic", "my_processes"]);
 const PORTAL_EVENT_SET = new Set(["snapshot", "navigation", "manual_navigation", "sector_changed", "frame_unavailable"]);
-const PORTAL_IDENTITY_KEYS = ["processKey", "interestedOriginal", "interestedNormalized", "portalActId", "pending", "selected", "needsComplement"];
+const PORTAL_IDENTITY_KEYS = ["processKey", "interestedOriginal", "interestedNormalized", "portalActId", "pending", "selected", "needsComplement", "classification", "actionObserved", "actionSignature"];
+const AREA_CLASSIFICATION_SET = new Set(["PRECISA_COMPLEMENTAR", "ATO_COMPLEMENTADO", "NAO_ENCONTRADO_AREA_RESTRITA", "AMBIGUO", "BLOQUEADO"]);
 
 function invalid(message) {
   throw new SchemaValidationError(`message ${message}`);
@@ -182,6 +183,25 @@ function validatePortalIdentity(value, label = "portal identity") {
   if (Object.hasOwn(value, "pending") && typeof value.pending !== "boolean") invalid(`${label}.pending must be a boolean`);
   if (Object.hasOwn(value, "selected") && typeof value.selected !== "boolean") invalid(`${label}.selected must be a boolean`);
   if (Object.hasOwn(value, "needsComplement") && typeof value.needsComplement !== "boolean") invalid(`${label}.needsComplement must be a boolean`);
+  if (Object.hasOwn(value, "classification") && (typeof value.classification !== "string" || !AREA_CLASSIFICATION_SET.has(value.classification))) {
+    invalid(`${label}.classification is invalid`);
+  }
+  if (Object.hasOwn(value, "actionObserved") && value.actionObserved !== null
+    && (typeof value.actionObserved !== "string" || value.actionObserved.length > 256)) {
+    invalid(`${label}.actionObserved must be a string or null`);
+  }
+  if (Object.hasOwn(value, "actionSignature") && value.actionSignature !== null) {
+    const signature = value.actionSignature;
+    if (!isRecord(signature)
+      || Object.keys(signature).some((key) => !["kind", "alt", "title", "src"].includes(key))
+      || typeof signature.kind !== "string"
+      || signature.kind !== "red_complement_icon"
+      || typeof signature.alt !== "string"
+      || typeof signature.title !== "string"
+      || typeof signature.src !== "string") {
+      invalid(`${label}.actionSignature is invalid`);
+    }
+  }
   const canonical = typeof value.processKey === "string"
     && value.processKey.length > 0
     && typeof value.interestedNormalized === "string"
@@ -327,7 +347,7 @@ function validatePayload(type, payload) {
       exactKeysFrom(
         spec,
         ["sector", "datasetSha256", "rulesVersion", "sourceScope", "lotSize", "acquisitionSource"],
-        ["tabId", "marker", "analysisOnly"],
+        ["tabId", "marker", "analysisOnly", "inputListId", "inputSha256", "inputUniqueCount", "inputKeys"],
         "AUTO_ANALYZE spec",
       );
       nonEmptyString(spec.sector, "AUTO_ANALYZE sector");
@@ -341,6 +361,12 @@ function validatePayload(type, payload) {
       if (!Number.isSafeInteger(spec.lotSize) || spec.lotSize < 1 || spec.lotSize > 1000) invalid("AUTO_ANALYZE lotSize is invalid");
       if (spec.acquisitionSource !== "econtas") invalid("AUTO_ANALYZE acquisitionSource is invalid");
       if (Object.hasOwn(spec, "tabId") && (!Number.isSafeInteger(spec.tabId) || spec.tabId < 0)) invalid("AUTO_ANALYZE tabId is invalid");
+      if (Object.hasOwn(spec, "inputListId") && (typeof spec.inputListId !== "string" || !/^input-[0-9a-f]{24}$/u.test(spec.inputListId))) invalid("AUTO_ANALYZE inputListId is invalid");
+      if (Object.hasOwn(spec, "inputSha256") && (typeof spec.inputSha256 !== "string" || !/^[0-9a-f]{64}$/u.test(spec.inputSha256))) invalid("AUTO_ANALYZE inputSha256 is invalid");
+      if (Object.hasOwn(spec, "inputUniqueCount") && (!Number.isSafeInteger(spec.inputUniqueCount) || spec.inputUniqueCount < 1 || spec.inputUniqueCount > 10000)) invalid("AUTO_ANALYZE inputUniqueCount is invalid");
+      if (Object.hasOwn(spec, "inputKeys")) {
+        if (!Array.isArray(spec.inputKeys) || spec.inputKeys.length > 10000 || spec.inputKeys.some((key) => typeof key !== "string" || !/^\d+\/\d{4}$/u.test(key))) invalid("AUTO_ANALYZE inputKeys is invalid");
+      }
       nonEmptyString(payload.eventId, "AUTO_ANALYZE eventId");
       break;
     }
@@ -399,7 +425,7 @@ function validatePayload(type, payload) {
       exactKeys(payload, [], "PORTAL_GET_SNAPSHOT payload");
       break;
     case MESSAGE_TYPES.PORTAL_NAVIGATE:
-      exactKeysFrom(payload, ["action", "expected_generation"], ["identity", "timeoutMs", "marker"], "PORTAL_NAVIGATE payload");
+      exactKeysFrom(payload, ["action", "expected_generation"], ["identity", "timeoutMs", "marker", "process_key"], "PORTAL_NAVIGATE payload");
       if (typeof payload.action !== "string" || !PORTAL_ACTION_SET.has(payload.action)) invalid("PORTAL_NAVIGATE action is unsupported");
       if (!Number.isSafeInteger(payload.expected_generation) || payload.expected_generation < 1) invalid("PORTAL_NAVIGATE expected_generation is invalid");
       if (Object.hasOwn(payload, "identity") && payload.identity !== null) validatePortalIdentity(payload.identity, "PORTAL_NAVIGATE identity");
@@ -411,6 +437,14 @@ function validatePayload(type, payload) {
         if (!payload.marker.trim()) invalid("PORTAL_NAVIGATE marker must not be blank");
       } else if (Object.hasOwn(payload, "marker")) {
         invalid("PORTAL_NAVIGATE marker is only valid for filter_marker");
+      }
+      if (Object.hasOwn(payload, "process_key")) {
+        if (typeof payload.process_key !== "string" || !/^\d+\/\d{4}$/u.test(payload.process_key)) {
+          invalid("PORTAL_NAVIGATE process_key is invalid");
+        }
+        if (payload.action !== "find_process") {
+          invalid("PORTAL_NAVIGATE process_key is only valid for find_process");
+        }
       }
       if (Object.hasOwn(payload, "timeoutMs") && (!Number.isSafeInteger(payload.timeoutMs) || payload.timeoutMs <= 0 || payload.timeoutMs > 30000)) invalid("PORTAL_NAVIGATE timeoutMs is invalid");
       break;

@@ -9,6 +9,9 @@ Componentes fixados:
   `LICENSE.txt` presente no arquivo oficial para `licenses/Python/`.
 - PyMuPDF 1.28.2, wheel Windows amd64 obtido do PyPI. O construtor copia os
   arquivos de licença presentes no `.dist-info` para `licenses/PyMuPDF/`.
+- openpyxl 3.1.5 e et-xmlfile 2.0.0, wheels fixadas obtidas do PyPI. Elas
+  sustentam a importação e geração de planilhas do fluxo de listas; o construtor
+  copia seus arquivos de licença para `licenses/openpyxl/` e `licenses/et-xmlfile/`.
 - Tesseract 5.4.0.20240606, instalador NSIS Windows amd64 da UB Mannheim. O
   instalador verificado é extraído com o `7z.exe` temporário; binários, idiomas
   e avisos são copiados somente da árvore extraída para `licenses/Tesseract/`.
@@ -21,8 +24,8 @@ artefatos de origem e hashes/tamanhos dos arquivos efetivamente incluídos.
 O SHA-256 do instalador Tesseract é um valor observado porque o upstream não
 publica checksum; o builder exige o valor fixado e falha em qualquer mudança.
 
-O builder nunca executa o instalador Tesseract, não instala Python, PyMuPDF ou
-Tesseract no computador de destino e não aceita `TesseractSource` nem uma
+O builder nunca executa o instalador Tesseract, não instala Python, PyMuPDF,
+openpyxl, et-xmlfile ou Tesseract no computador de destino e não aceita `TesseractSource` nem uma
 instalação local como fonte. Durante os gates, o `PATH` do processo é
 temporariamente restrito ao sistema; os executáveis testados são sempre os
 caminhos absolutos do build temporário. A árvore extraída precisa conter

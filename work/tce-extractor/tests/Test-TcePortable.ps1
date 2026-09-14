@@ -355,10 +355,11 @@ try {
         [pscustomobject]@{ statusCode = 403; expectedStatus = 'suspended'; expectedAuth = $false; expectedSuspended = $true; name = 'HTTP 403 sinaliza suspensão' }
     )) {
         $authState = [pscustomobject]@{ attempts = 0; status_code = $authCase.statusCode }
+        $authException = New-SyntheticHttpException -StatusCode $authCase.statusCode -RetryAfter '0'
         $authDownloader = {
             param($Document, $Destination)
             $authState.attempts++
-            throw (New-SyntheticHttpException -StatusCode $authState.status_code -RetryAfter '0')
+            throw $authException
         }.GetNewClosure()
         $authProcessKey = if ($authCase.statusCode -eq 401) { '103494/2026' } else { '103495/2026' }
         $authResult = Sync-TceProcessManifest -Manifest (New-RetryContractManifest -ProcessKey $authProcessKey) -ArchiveRoot (Join-Path $retryContractRoot ("auth-$($authCase.statusCode)")) -MaxDownloads 2 -Downloader $authDownloader

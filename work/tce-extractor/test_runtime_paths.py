@@ -95,10 +95,25 @@ class RuntimePathsTests(unittest.TestCase):
         self.assertEqual(manifest["python"]["version"], "3.14.4")
         self.assertEqual(manifest["pymupdf"]["version"], "1.28.2")
         self.assertEqual(manifest["tesseract"]["version"], "5.4.0.20240606")
-        for component in ("python", "pymupdf", "tesseract"):
+        for component in ("python", "pymupdf", "openpyxl", "et_xmlfile", "tesseract"):
             self.assertRegex(manifest[component]["sha256"], r"^[0-9a-f]{64}$")
             self.assertTrue(manifest[component]["source"])
             self.assertTrue(manifest[component]["license"])
+
+        self.assertEqual(manifest["openpyxl"]["version"], "3.1.5")
+        self.assertEqual(manifest["et_xmlfile"]["version"], "2.0.0")
+
+    def test_qa_requirements_are_pinned_to_runtime_versions(self):
+        requirements = (REPO_ROOT / "requirements-qa.txt").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(
+            requirements,
+            [
+                "et-xmlfile==2.0.0",
+                "openpyxl==3.1.5",
+                "playwright==1.58.0",
+                "PyMuPDF==1.28.2",
+            ],
+        )
 
     def test_builder_is_build_time_only_and_uses_staging(self):
         builder_path = REPO_ROOT / "build-portable-runtime.ps1"
@@ -107,6 +122,8 @@ class RuntimePathsTests(unittest.TestCase):
 
         self.assertIn("3.14.4", builder)
         self.assertIn("1.28.2", builder)
+        self.assertIn("3.1.5", builder)
+        self.assertIn("2.0.0", builder)
         self.assertIn("5.4.0.20240606", builder)
         self.assertIn("SHA256", builder)
         self.assertIn("staging", builder)
@@ -150,6 +167,8 @@ class RuntimePathsTests(unittest.TestCase):
 
         self.assertRegex(builder, r"(?m)&\s+\$pythonExe\s+-B\s+-s\s+-c")
         self.assertIn("pymupdf.__file__", builder)
+        self.assertIn("openpyxl.__file__", builder)
+        self.assertIn("et_xmlfile.__file__", builder)
         self.assertIn("staging-verified", builder)
         self.assertRegex(builder, r"(?m)\^?1\.28\.2")
 

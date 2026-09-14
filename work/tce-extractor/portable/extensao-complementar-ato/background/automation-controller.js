@@ -33,6 +33,13 @@ const TERMINAL_ITEM_STATES = new Set([
   "blocked",
 ]);
 const PROCESS_KEY_RE = /^\d+\/\d{4}$/u;
+const AREA_CLASSIFICATIONS = new Set([
+  "PRECISA_COMPLEMENTAR",
+  "ATO_COMPLEMENTADO",
+  "NAO_ENCONTRADO_AREA_RESTRITA",
+  "AMBIGUO",
+  "BLOQUEADO",
+]);
 const AUTO_SUBMIT_TTL_MS = 15_000;
 const UNRECOGNIZED_PORTAL_SCREEN_REASON = "portal screen not recognized; manual intervention required";
 /*
@@ -58,6 +65,19 @@ function normalizeInterested(value) {
 
 function identityKey(identity) {
   return `${identity?.processKey ?? ""}\u0000${identity?.interestedNormalized ?? ""}`;
+}
+
+function areaClassification(candidate) {
+  if (AREA_CLASSIFICATIONS.has(candidate?.classification)) return candidate.classification;
+  if (candidate?.needsComplement === true
+    && candidate?.actionSignature?.kind === "red_complement_icon") return "PRECISA_COMPLEMENTAR";
+  // v2 snapshots predate the semantic control signature. Keep their
+  // analysis compatible; v3 observations produced by the content script
+  // always carry the red-icon evidence before becoming eligible.
+  if (candidate?.needsComplement === true) return "PRECISA_COMPLEMENTAR";
+  const observed = normalizeInterested(candidate?.actionObserved ?? candidate?.action_observed ?? "");
+  if (observed === "ato complementado" || observed.includes("ato complementado")) return "ATO_COMPLEMENTADO";
+  return "AMBIGUO";
 }
 
 function eventId(prefix = "event") {
@@ -571,10 +591,8 @@ export function createAutomationController({
     return statusToPublic(state);
   }
 
-  function collectSnapshot(snapshot) {
-    if (state.queueFrozen) return;
+  function recordAreaObservations(snapshot) {
     for (const candidate of snapshot.identities ?? []) {
-      state.totals.discovered += 1;
       const rawKey = identityKey(candidate);
       if (!state.areaObservations.has(rawKey) && candidate?.processKey) {
         state.areaObservations.set(rawKey, {
@@ -583,6 +601,15 @@ export function createAutomationController({
           marker: clone(snapshot.marker),
         });
       }
+    }
+  }
+
+  function collectSnapshot(snapshot) {
+    if (state.queueFrozen) return;
+    recordAreaObservations(snapshot);
+    for (const candidate of snapshot.identities ?? []) {
+      state.totals.discovered += 1;
+      const rawKey = identityKey(candidate);
       if (state.seenIdentities.has(rawKey)) continue;
       state.seenIdentities.add(rawKey);
       state.totals.unique += 1;
@@ -600,29 +627,67 @@ export function createAutomationController({
   }
 
   async function analysisRows(spec) {
-    const rows = [];
+    const requestedKeys = Array.isArray(spec.inputKeys) && spec.inputKeys.length > 0
+      ? [...spec.inputKeys]
+      : [...new Set([...state.areaObservations.values()]
+        .map((observation) => observation.candidate?.processKey)
+        .filter((key) => typeof key === "string" && PROCESS_KEY_RE.test(key)))];
+    const observationsByProcess = new Map();
     for (const observation of state.areaObservations.values()) {
-      const candidate = observation.candidate;
-      const marker = observation.marker;
-      if (observation.source_scope !== spec.sourceScope || !isRecord(marker)
-        || typeof marker.label !== "string" || typeof marker.value !== "string") continue;
-      const identity = resolvedIdentity(candidate);
+      const key = observation.candidate?.processKey;
+      if (!PROCESS_KEY_RE.test(String(key ?? ""))) continue;
+      const observations = observationsByProcess.get(key) ?? [];
+      observations.push(observation);
+      observationsByProcess.set(key, observations);
+    }
+    const rows = [];
+    for (const processKey of requestedKeys) {
+      const observations = observationsByProcess.get(processKey) ?? [];
+      const firstObservation = observations[0] ?? null;
+      const marker = isRecord(firstObservation?.marker) ? firstObservation.marker : {
+        label: spec.marker,
+        value: spec.markerValue,
+      };
+      const identities = observations
+        .map((observation) => resolvedIdentity(observation.candidate))
+        .filter(Boolean);
+      const identityKeys = [...new Set(identities.map((identity) => identityKey(identity)))];
+      const candidate = identityKeys.length === 1
+        ? observations.find((observation) => identityKey(resolvedIdentity(observation.candidate)) === identityKeys[0])?.candidate
+        : null;
+      const classification = observations.length === 0
+        ? "NAO_ENCONTRADO_AREA_RESTRITA"
+        : identityKeys.length > 1
+          ? "AMBIGUO"
+          : areaClassification(candidate);
+      const identity = candidate ? resolvedIdentity(candidate) : null;
+      const actionSignature = classification === "PRECISA_COMPLEMENTAR"
+        && isRecord(candidate?.actionSignature)
+        ? clone(candidate.actionSignature)
+        : null;
+      const actionObserved = classification === "PRECISA_COMPLEMENTAR"
+        ? "Complementar Ato"
+        : classification === "ATO_COMPLEMENTADO"
+          ? "Ato Complementado"
+          : null;
       const snapshotHash = await sha256Hex({
-        source_scope: observation.source_scope,
+        source_scope: spec.sourceScope,
         marker,
+        process_key: processKey,
         identity: candidate,
-        needs_complement: candidate.needsComplement === true,
+        classification,
       });
       rows.push({
-        process_key: candidate.processKey,
+        process_key: processKey,
         interested_key: identity?.interestedNormalized ?? null,
         area_restrita: {
-          scope: observation.source_scope,
+          scope: spec.sourceScope,
           marker_label: marker.label,
           marker_value: marker.value,
-          needs_complement: candidate.needsComplement === true,
-          action_observed: candidate.needsComplement === true ? "Complementar Ato" : "Complementar Ato já concluído",
-          action_signature: isRecord(candidate.actionSignature) ? clone(candidate.actionSignature) : null,
+          classification,
+          needs_complement: classification === "PRECISA_COMPLEMENTAR",
+          action_observed: actionObserved,
+          action_signature: actionSignature,
           snapshot_hash: snapshotHash,
         },
       });
@@ -1224,6 +1289,7 @@ export function createAutomationController({
           expected_generation: expectedGeneration,
         };
         if (typeof options.marker === "string") payload.marker = options.marker;
+        if (typeof options.processKey === "string") payload.process_key = options.processKey;
         return sendPortalMessage(tabId, MESSAGE_TYPES.PORTAL_NAVIGATE, payload, frameId, navigation.token);
       };
       let response = await send(generation);
@@ -1396,6 +1462,81 @@ export function createAutomationController({
     }
     setPaused("pagination exceeded the safe page limit");
     return current;
+  }
+
+  async function queryMissingProcesses(tabId, initial, spec) {
+    if (!Array.isArray(spec.inputKeys) || spec.inputKeys.length === 0) return initial;
+    let current = initial;
+    const observedKeys = new Set([...state.areaObservations.values()]
+      .map((observation) => observation.candidate?.processKey)
+      .filter((key) => typeof key === "string"));
+    for (const processKey of spec.inputKeys) {
+      if (state.status === "paused") return null;
+      if (observedKeys.has(processKey)) continue;
+      if (!current || current.role !== "list"
+        || !markerMatches(current, spec.marker, spec.markerValue ?? null)
+        || (spec.sourceScope && current.source_scope !== spec.sourceScope)) {
+        setPaused("origem ou marcador mudou durante a consulta exata");
+        return null;
+      }
+      const find = actionFor(current, "find_process");
+      if (!find) {
+        setPaused("filtro exato de processo indisponível; intervenção manual necessária");
+        return null;
+      }
+      const frameId = state.frame?.frameId ?? 0;
+      const moved = await navigate(
+        tabId,
+        frameId,
+        "find_process",
+        null,
+        current.generation,
+        { beforeSnapshot: current, processKey },
+      );
+      if (!moved.ok) return null;
+      current = moved.snapshot ?? (await readPortalSnapshot(tabId, frameId))?.snapshot ?? null;
+      if (!current || current.role !== "list"
+        || !markerMatches(current, spec.marker, spec.markerValue ?? null)
+        || (spec.sourceScope && current.source_scope !== spec.sourceScope)) {
+        setPaused("a busca exata não confirmou origem e marcador");
+        return null;
+      }
+      const matches = (current.identities ?? []).filter((candidate) => candidate?.processKey === processKey);
+      if (matches.length > 0) {
+        recordAreaObservations({ ...current, identities: matches });
+        observedKeys.add(processKey);
+      } else {
+        state.areaObservations.set(`${processKey}\u0000__absent`, {
+          candidate: null,
+          processKey,
+          source_scope: current.source_scope,
+          marker: clone(current.marker),
+        });
+      }
+    }
+    return current;
+  }
+
+  async function restoreAnalysisList(tabId, current, original, spec) {
+    if (!current || state.status === "paused") return null;
+    let restored = current;
+    if (!markerMatches(restored, original.marker?.label, original.marker?.value ?? null)) {
+      restored = await ensureMarkerFilter(tabId, restored, original.marker?.label);
+    }
+    if (!restored || state.status === "paused") return null;
+    const first = actionFor(restored, "first_page");
+    if (!first) return restored;
+    const frameId = state.frame?.frameId ?? 0;
+    const moved = await navigate(tabId, frameId, "first_page", null, restored.generation, { beforeSnapshot: restored });
+    if (!moved.ok) return null;
+    restored = moved.snapshot ?? (await readPortalSnapshot(tabId, frameId))?.snapshot ?? null;
+    if (!restored || restored.role !== "list"
+      || !markerMatches(restored, original.marker?.label, original.marker?.value ?? null)
+      || (spec.sourceScope && restored.source_scope !== spec.sourceScope)) {
+      setPaused("a restauração do filtro original não foi confirmada");
+      return null;
+    }
+    return restored;
   }
 
   async function freezeQueue(spec, startEventId) {
@@ -1716,6 +1857,17 @@ export function createAutomationController({
     if (!discovered || state.status === "paused") {
       return { ok: false, error: state.pausedReason ?? "analysis paused", totals: state.totals };
     }
+    let restored = discovered;
+    if (Array.isArray(spec.inputKeys) && spec.inputKeys.length > 0) {
+      restored = await queryMissingProcesses(spec.tabId, discovered, spec);
+      if (!restored || state.status === "paused") {
+        return { ok: false, error: state.pausedReason ?? "analysis paused", totals: state.totals };
+      }
+      restored = await restoreAnalysisList(spec.tabId, restored, first.snapshot, spec);
+      if (!restored || state.status === "paused") {
+        return { ok: false, error: state.pausedReason ?? "analysis paused", totals: state.totals };
+      }
+    }
     const rows = await analysisRows(spec);
     const marker = rows[0]?.area_restrita
       ? { label: rows[0].area_restrita.marker_label, value: rows[0].area_restrita.marker_value }
@@ -1726,6 +1878,9 @@ export function createAutomationController({
       rows,
     });
     const result = {
+      ...(typeof spec.inputListId === "string" ? { input_list_id: spec.inputListId } : {}),
+      ...(typeof spec.inputSha256 === "string" ? { input_sha256: spec.inputSha256 } : {}),
+      ...(Number.isSafeInteger(spec.inputUniqueCount) ? { input_unique_count: spec.inputUniqueCount } : {}),
       source_scope: spec.sourceScope,
       marker,
       area_snapshot_sha256: areaSnapshotSha256,

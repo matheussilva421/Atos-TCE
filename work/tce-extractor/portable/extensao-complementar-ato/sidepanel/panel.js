@@ -80,6 +80,9 @@ const ELEMENT_IDS = Object.freeze([
   "analysis-acquisition-button",
   "analysis-acquisition-status",
   "analysis-status",
+  "process-list-import-button",
+  "process-list-file",
+  "process-list-status",
   "search-process",
   "search-interested",
   "search-results",
@@ -161,6 +164,39 @@ function econtasRowsForAnalysis(rows, dataset) {
       },
     };
   });
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function processListClassifications(rows, analysis = null) {
+  const lots = Array.isArray(analysis?.lots) ? analysis.lots : [];
+  const lotByKey = new Map(lots.flatMap((lot) => (
+    Array.isArray(lot?.items)
+      ? lot.items.map((item) => [item?.process_key, lot?.lot_number ?? null])
+      : []
+  )));
+  return Object.fromEntries(rows.map((row) => {
+    const area = row.area_restrita ?? {};
+    const econtas = row.econtas ?? {};
+    return [row.process_key, {
+      marker_present: area.classification !== "NAO_ENCONTRADO_AREA_RESTRITA",
+      marker_observed: area.marker_label ?? null,
+      area_status: area.classification ?? (area.needs_complement ? "PRECISA_COMPLEMENTAR" : "BLOQUEADO"),
+      action_signature: area.action_signature ?? null,
+      lot_number: lotByKey.get(row.process_key) ?? null,
+      econtas_status: econtas.match === "exact" ? "reconciliado" : "not_started",
+      documents_downloaded: 0,
+      error: null,
+    }];
+  }));
 }
 
 function fieldKind(field) {
@@ -257,6 +293,9 @@ export function createPanelApp({
     automationHistory: [],
     automationHistoryCursor: null,
     analysis: null,
+    processList: null,
+    processListReport: null,
+    analysisPhase: null,
     acquisitionJob: null,
     automationMode: "manual",
     refreshGeneration: 0,
@@ -428,12 +467,21 @@ export function createPanelApp({
       || lots.length === 0
       || acquisitionRunning;
     elements["analysis-status"].textContent = state.analysis?.preview
-      ? `Análise ${state.analysis.preview.needs_complement} processo(s) precisam complementar o ato · ${state.analysis.preview.eligible} pronto(s) para preflight · ${state.analysis.preview.acquisition_eligible ?? state.analysis.preview.eligible} no escopo de aquisição · ${state.analysis.preview.blocked} bloqueado(s) · ${state.analysis.preview.lot_count} lote(s).`
-      : "Nenhuma análise da lista autenticada foi criada.";
+      ? `${state.analysisPhase === "aguardando confirmação" ? "Aguardando confirmação. " : "Prévia congelada. "}${state.analysis.preview.needs_complement} processo(s) precisam complementar o ato · ${state.analysis.preview.eligible} elegível(is) · ${state.analysis.preview.absent ?? 0} ausente(s) · ${state.analysis.preview.ambiguous ?? 0} ambíguo(s) · ${state.analysis.preview.blocked} bloqueado(s) · ${state.analysis.preview.lot_count} lote(s).`
+      : state.analysisPhase ? `Fase: ${state.analysisPhase}.` : "Nenhuma análise da lista autenticada foi criada.";
     const acquisitionStatus = state.acquisitionJob;
     elements["analysis-acquisition-status"].textContent = acquisitionStatus
       ? `Aquisição do lote ${acquisitionStatus.lot_number}: ${acquisitionStatus.status}. Job ${acquisitionStatus.job_id}.`
       : "Nenhuma aquisição de lote iniciada.";
+    if (elements["process-list-status"]) {
+      elements["process-list-status"].textContent = state.processList
+        ? `Lista importada: ${state.processList.row_count} linha(s), ${state.processList.unique_count} processo(s) único(s), ${state.processList.duplicate_count} duplicidade(s).`
+        : "Nenhuma lista autoritativa importada.";
+    }
+    elements["automation-auto-submit"].checked = false;
+    elements["automation-auto-submit"].disabled = Boolean(state.processList)
+      || (state.automationCapabilities?.real_send_enabled !== true
+        && state.automationCapabilities?.pilot_enabled !== true);
     elements["refresh-button"].disabled = !state.dataset;
     elements["search-process"].disabled = !state.dataset;
     elements["search-interested"].disabled = !state.dataset;
@@ -550,6 +598,46 @@ export function createPanelApp({
     }
   }
 
+  async function refreshProcessList() {
+    if (!state.bridgeClient || typeof state.bridgeClient.getActiveProcessList !== "function") return false;
+    try {
+      const active = await state.bridgeClient.getActiveProcessList();
+      state.processList = active?.active === null ? null : active;
+      render();
+      return Boolean(state.processList);
+    } catch (error) {
+      state.processList = null;
+      setMessage(`Lista autoritativa indisponível: ${error instanceof Error ? error.message : String(error)}`, true);
+      render();
+      return false;
+    }
+  }
+
+  async function importProcessListSelected() {
+    const file = elements["process-list-file"]?.files?.[0];
+    if (!file || !state.bridgeClient?.importProcessList) return false;
+    try {
+      if (typeof file.arrayBuffer !== "function") throw new Error("leitura binária do .xlsx indisponível");
+      const manifest = await state.bridgeClient.importProcessList({
+        filename: file.name,
+        contentBase64: arrayBufferToBase64(await file.arrayBuffer()),
+      });
+      state.processList = manifest;
+      state.analysis = null;
+      state.processListReport = null;
+      state.analysisPhase = "lista importada";
+      setMessage("Lista importada; a análise usará a ordem congelada da planilha e lotes de 300.");
+      render();
+      return true;
+    } catch (error) {
+      setMessage(`Lista inválida ou rejeitada: ${error instanceof Error ? error.message : String(error)}`, true);
+      render();
+      return false;
+    } finally {
+      if (elements["process-list-file"]) elements["process-list-file"].value = "";
+    }
+  }
+
   function stopBridgePolling() {
     if (state.bridgePollTimer !== null) {
       clearTimeoutFn(state.bridgePollTimer);
@@ -607,6 +695,7 @@ export function createPanelApp({
       render();
       await syncBridgeDataset({ force: true });
       await refreshAutomationState();
+      await refreshProcessList();
       scheduleBridgePolling();
       scheduleAutomationPolling();
       return true;
@@ -646,6 +735,7 @@ export function createPanelApp({
       setBridgeStatus("Mesa local restaurada nesta sessão.");
       await syncBridgeDataset({ force: true });
       await refreshAutomationState();
+      await refreshProcessList();
       scheduleBridgePolling();
       scheduleAutomationPolling();
     } catch {
@@ -978,6 +1068,7 @@ export function createPanelApp({
           // turn a running acquisition into a false failure.
         }
       }
+      if (state.processList && state.acquisitionJob?.status === "completed") state.analysisPhase = "concluído";
       if (loadHistory && typeof bridgeClient.listAutomationRuns === "function") {
         const history = await bridgeClient.listAutomationRuns({ limit: 20 });
         state.automationHistory = Array.isArray(history?.runs) ? history.runs : [];
@@ -1102,7 +1193,9 @@ export function createPanelApp({
       return false;
     }
     const sourceScope = "sector_finalistic";
-    const lotSize = Number.parseInt(text(elements["automation-lot-size"]?.value).trim(), 10);
+    const hasAuthoritativeList = Boolean(state.processList);
+    const requestedLotSize = Number.parseInt(text(elements["automation-lot-size"]?.value).trim(), 10);
+    const lotSize = hasAuthoritativeList ? 300 : requestedLotSize;
     const context = state.snapshot?.bridgeContext;
     const spec = {
       sector: context?.sector ?? "*",
@@ -1113,6 +1206,15 @@ export function createPanelApp({
       lotSize,
       acquisitionSource: "econtas",
     };
+    if (hasAuthoritativeList) {
+      spec.inputListId = state.processList.input_list_id;
+      spec.inputSha256 = state.processList.input_sha256;
+      spec.inputUniqueCount = state.processList.unique_count;
+      spec.inputKeys = [...state.processList.ordered_unique_keys];
+      state.analysisPhase = "analisando marcador";
+      setMessage("Analisando o marcador selecionado e consultando as chaves ausentes da planilha.");
+      render();
+    }
     if (Number.isSafeInteger(context?.tab_id)) spec.tabId = context.tab_id;
     try {
       const response = await send(MESSAGE_TYPES.AUTO_ANALYZE, {
@@ -1125,7 +1227,7 @@ export function createPanelApp({
       }
       if (!isRecord(forwarded.payload.marker)) throw new Error("o marcador não foi confirmado na lista autenticada");
       const analysisSpec = {
-        schema_version: 2,
+        schema_version: hasAuthoritativeList ? 3 : 2,
         source_scope: forwarded.payload.source_scope,
         marker: forwarded.payload.marker,
         acquisition_source: "econtas",
@@ -1136,13 +1238,30 @@ export function createPanelApp({
         dataset_sha256: null,
         area_snapshot_sha256: forwarded.payload.area_snapshot_sha256,
       };
+      if (hasAuthoritativeList) {
+        analysisSpec.input_list_id = state.processList.input_list_id;
+        analysisSpec.input_sha256 = state.processList.input_sha256;
+        analysisSpec.input_unique_count = state.processList.unique_count;
+      }
+      const analysisRows = econtasRowsForAnalysis(forwarded.payload.rows, state.dataset);
       const snapshot = await state.bridgeClient.createAnalysisPreview({
         spec: analysisSpec,
-        rows: econtasRowsForAnalysis(forwarded.payload.rows, state.dataset),
+        rows: analysisRows,
         observedAt: new Date().toISOString(),
       });
       state.analysis = snapshot;
       state.acquisitionJob = null;
+      state.analysisPhase = hasAuthoritativeList ? "prévia congelada" : null;
+      if (hasAuthoritativeList && typeof state.bridgeClient.createProcessListReport === "function") {
+        try {
+          state.processListReport = await state.bridgeClient.createProcessListReport(
+            state.processList.input_list_id,
+            processListClassifications(analysisRows, snapshot),
+          );
+        } catch (error) {
+          setMessage(`Prévia criada, mas relatório da lista pendente: ${error instanceof Error ? error.message : String(error)}`, true);
+        }
+      }
       setMessage("Análise concluída sem alterar o portal. Revise a contagem antes de criar os lotes.");
       render();
       return true;
@@ -1157,6 +1276,22 @@ export function createPanelApp({
     if (!state.analysis?.analysis_id || !state.bridgeClient?.createAnalysisLots) return false;
     try {
       state.analysis = await state.bridgeClient.createAnalysisLots(state.analysis.analysis_id);
+      state.analysisPhase = state.processList ? "aguardando confirmação" : null;
+      if (state.processList && typeof state.bridgeClient.createProcessListReport === "function") {
+        const reportRows = [
+          ...(Array.isArray(state.analysis.queue) ? state.analysis.queue : []),
+          ...(Array.isArray(state.analysis.blocked) ? state.analysis.blocked : []),
+        ];
+        try {
+          state.processListReport = await state.bridgeClient.createProcessListReport(
+            state.processList.input_list_id,
+            processListClassifications(reportRows, state.analysis),
+          );
+        } catch {
+          // The immutable analysis and lots remain usable if report creation
+          // is temporarily unavailable; the status is visible in the panel.
+        }
+      }
       setMessage("Lotes criados a partir da fotografia imutável; nenhum envio foi iniciado.");
       render();
       return true;
@@ -1171,6 +1306,11 @@ export function createPanelApp({
     if (!state.bridgeClient?.startAnalysisAcquisition || !state.analysis?.analysis_id) return false;
     const selectionMode = text(elements["analysis-selection-mode"]?.value).trim() || "all";
     const lotNumber = Number.parseInt(text(elements["analysis-lot-number"]?.value).trim(), 10);
+    if (state.processList && selectionMode !== "lot") {
+      setMessage("Neste fluxo, confirme e baixe um lote de até 300 por vez.", true);
+      render();
+      return false;
+    }
     if (selectionMode === "lot" && (!Number.isSafeInteger(lotNumber) || lotNumber < 1)) {
       setMessage("Selecione um lote congelado antes de iniciar a aquisição.", true);
       render();
@@ -1178,6 +1318,12 @@ export function createPanelApp({
     }
     try {
       const selection = selectionMode === "lot" ? { selection: "lot", lotNumber } : { selection: "all" };
+      if (state.processList && !confirmFn(`Confirmar o download do lote ${lotNumber} (até 300 processos)? A reconciliação do e-Contas será exigida e nenhum ato será enviado.`)) {
+        setMessage("Download do lote cancelado antes da reconciliação ou de qualquer arquivo.");
+        render();
+        return false;
+      }
+      if (state.processList) state.analysisPhase = "baixando";
       state.acquisitionJob = await state.bridgeClient.startAnalysisAcquisition(state.analysis.analysis_id, selection);
       setMessage(selectionMode === "lot"
         ? `Aquisição/OCR do lote ${lotNumber} iniciada; nenhum ato foi enviado.`
@@ -1295,6 +1441,8 @@ export function createPanelApp({
       elements["analysis-preview-button"].addEventListener("click", () => { void startAnalysis(); });
       elements["analysis-lots-button"].addEventListener("click", () => { void createAnalysisLots(); });
       elements["analysis-acquisition-button"].addEventListener("click", () => { void startAnalysisAcquisition(); });
+      elements["process-list-import-button"]?.addEventListener("click", () => elements["process-list-file"]?.click?.());
+      elements["process-list-file"]?.addEventListener("change", () => { void importProcessListSelected(); });
       elements["search-process"].addEventListener("input", () => { render(); });
       elements["search-interested"].addEventListener("input", () => { render(); });
       elements["reviewed-checkbox"].addEventListener("change", () => { void setReviewed(elements["reviewed-checkbox"].checked); });
@@ -1335,6 +1483,7 @@ export function createPanelApp({
       setMessage(`Lote persistido inválido: ${error instanceof Error ? error.message : String(error)}`, true);
     }
     await refreshAutomationState();
+    await refreshProcessList();
     scheduleAutomationPolling();
     render();
     return getState();
@@ -1359,6 +1508,9 @@ export function createPanelApp({
       automationHistoryCursor: state.automationHistoryCursor,
       automationMode: state.automationMode,
       analysis: state.analysis,
+      processList: state.processList,
+      processListReport: state.processListReport,
+      analysisPhase: state.analysisPhase,
       acquisitionJob: state.acquisitionJob,
     };
   }
@@ -1376,6 +1528,7 @@ export function createPanelApp({
       stopBridgePolling,
     startAutomation,
     startAnalysis,
+    importProcessListSelected,
     createAnalysisLots,
     startAnalysisAcquisition,
     controlAutomation,

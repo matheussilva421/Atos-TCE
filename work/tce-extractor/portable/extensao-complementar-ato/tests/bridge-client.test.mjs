@@ -427,6 +427,79 @@ test('bridge exposes authenticated analysis preview and deterministic lot method
   assert.match(calls[2].url, /\/analysis\/analysis-aaaaaaaaaaaaaaaaaaaaaaaa\/lots$/u);
 });
 
+test('bridge accepts schema v3 analysis with authoritative input provenance', async () => {
+  const bridge = createBridgeClient({
+    baseUrl: 'http://127.0.0.1:18743',
+    token: 'test',
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        schema_version: 3,
+        analysis_id: `analysis-${'c'.repeat(24)}`,
+        dataset_sha256: 'd'.repeat(64),
+        preview: { total_seen: 1, eligible: 1, lot_count: 1 },
+        spec: {
+          input_list_id: `input-${'f'.repeat(24)}`,
+          input_sha256: 'a'.repeat(64),
+          input_unique_count: 1128,
+        },
+        queue: [],
+        blocked: [],
+      }),
+    }),
+  });
+  await bridge.createAnalysisPreview({
+    spec: {
+      schema_version: 3,
+      source_scope: 'sector_finalistic',
+      marker: { label: 'Marcador', value: 'm-1' },
+      acquisition_source: 'econtas',
+      lot_size: 300,
+      analysis_only: true,
+      auto_prepare: false,
+      auto_submit: false,
+      dataset_sha256: null,
+      area_snapshot_sha256: 'e'.repeat(64),
+      input_list_id: `input-${'f'.repeat(24)}`,
+      input_sha256: 'a'.repeat(64),
+      input_unique_count: 1128,
+    },
+    rows: [],
+    observedAt: '2026-09-14T12:00:00Z',
+  });
+});
+
+test('bridge imports and reads the active authoritative process list', async () => {
+  const calls = [];
+  const manifest = {
+    schema_version: 1,
+    input_list_id: `input-${'a'.repeat(24)}`,
+    input_sha256: 'b'.repeat(64),
+    source_filename: 'professor-ipern.xlsx',
+    sheet_name: 'Planilha2',
+    row_count: 1,
+    unique_count: 1,
+    duplicate_count: 0,
+    ordered_unique_keys: ['101/2023'],
+    rows: [{ source_row: 2, process_key: '101/2023', duplicate_of_row: null }],
+  };
+  const bridge = createBridgeClient({
+    baseUrl: 'http://127.0.0.1:18743',
+    token: 'test',
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return { ok: true, status: 200, json: async () => manifest };
+    },
+  });
+  const imported = await bridge.importProcessList({ filename: manifest.source_filename, contentBase64: 'UEsDBA==' });
+  const active = await bridge.getActiveProcessList();
+  assert.equal(imported.input_list_id, manifest.input_list_id);
+  assert.equal(active.input_list_id, manifest.input_list_id);
+  assert.equal(calls[0].options.method, 'POST');
+  assert.deepEqual(JSON.parse(calls[0].options.body), { filename: manifest.source_filename, content_base64: 'UEsDBA==' });
+});
+
 test('bridge exposes authenticated acquisition start and status for a frozen analysis lot', async () => {
   const calls = [];
   const analysisId = `analysis-${'a'.repeat(24)}`;

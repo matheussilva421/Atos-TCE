@@ -427,9 +427,13 @@ function Invoke-TceDownloadBatch {
                     }
                 }
             } catch { }
-            $message = [string]$Exception.Message
-            $match = [regex]::Match($message, '(?i)(?:HTTP\s*|\()(?<status>\d{3})\b')
-            if ($match.Success) { return [int]$match.Groups['status'].Value }
+            $currentException = $Exception
+            while ($null -ne $currentException) {
+                $message = [string]$currentException.Message
+                $match = [regex]::Match($message, '(?i)(?:HTTP\s*|\()(?<status>[45]\d{2})\b')
+                if ($match.Success) { return [int]$match.Groups['status'].Value }
+                $currentException = $currentException.InnerException
+            }
             return $null
         }
 
@@ -760,9 +764,14 @@ function Sync-TceProcessManifest {
         $downloadResults = @(Invoke-TceDownloadBatch -Jobs @($downloadJobs.ToArray()) -MaxDownloads $MaxDownloads -Downloader $Downloader -DownloaderContext $DownloaderContext)
         foreach ($downloadResult in $downloadResults) {
             $job = $downloadResult.job
-            $authRequired = $authRequired -or [bool]$downloadResult.auth_required
-            $suspended = $suspended -or [bool]$downloadResult.suspended
-            $rateLimited = $rateLimited -or [bool]$downloadResult.rate_limited
+            # Keep the typed flags for compatibility, but derive the control
+            # state from the discriminated status as well.  This protects the
+            # coordinator when a runspace/serialization boundary drops a
+            # boolean while preserving the worker's fail-closed result.
+            $downloadStatus = [string]$downloadResult.status
+            $authRequired = $authRequired -or [bool]$downloadResult.auth_required -or $downloadStatus -eq 'auth_required'
+            $suspended = $suspended -or [bool]$downloadResult.suspended -or $downloadStatus -eq 'suspended'
+            $rateLimited = $rateLimited -or [bool]$downloadResult.rate_limited -or $downloadStatus -eq 'rate_limited'
             $reduceConcurrency = $reduceConcurrency -or [bool]$downloadResult.reduce_concurrency
             $retryCount += [int]$downloadResult.retry_count
             if ($null -ne $downloadResult.retry_after_seconds) {

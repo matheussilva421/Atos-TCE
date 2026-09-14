@@ -431,6 +431,20 @@ test("automation messages are typed and reject payload extras", () => {
     marker: "PROFESSOR - IPERN - 2 RUBRICAS",
     expected_generation: 3,
   }, "marker-1"));
+  assert.doesNotThrow(() => createMessage(MESSAGE_TYPES.PORTAL_NAVIGATE, {
+    action: "find_process",
+    process_key: "202/2024",
+    expected_generation: 3,
+  }, "process-filter-1"));
+  assert.throws(
+    () => createMessage(MESSAGE_TYPES.PORTAL_NAVIGATE, {
+      action: "open_act",
+      process_key: "202/2024",
+      expected_generation: 3,
+      identity: identity(),
+    }, "process-filter-2"),
+    /only valid for find_process/i,
+  );
   assert.throws(
     () => createMessage(MESSAGE_TYPES.PORTAL_NAVIGATE, {
       action: "open_act",

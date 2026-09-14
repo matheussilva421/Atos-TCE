@@ -49,12 +49,16 @@ try {
 }
 
 $options = @(Get-TceMenuOptions | ForEach-Object key)
-Assert-Equal $options @(1, 2, 3, 4, 5, 6, 7, 8, 9, 10) 'oferece as opções legadas e o fluxo híbrido'
+Assert-Equal $options @(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11) 'oferece as opções legadas e o fluxo híbrido'
 Assert-Equal ((Get-TceMenuOptions | Where-Object key -eq 7).label) 'Diagnóstico do runtime' 'opção 7 descreve somente o diagnóstico do runtime'
 Assert-Equal ((Get-TceMenuOptions | Where-Object key -eq 9).label) 'Verificar ponte local' 'opção 9 verifica a conexão da ponte'
 Assert-Equal ((Get-TceMenuOptions | Where-Object key -eq 10).label) 'Baixar e preparar OCR de lote congelado' 'opção 10 executa aquisição/OCR do lote'
+Assert-Equal ((Get-TceMenuOptions | Where-Object key -eq 11).label) 'Analisar lista na Área Restrita e baixar em lotes de 300' 'opção 11 inicia o fluxo autoritativo da planilha'
 $menuText = Get-Content -LiteralPath $menuPath -Raw
 Assert-True ($menuText -match '\.operation\.lock') 'menu não inicia o serviço durante transferência do pacote'
+$choicePosition = $menuText.IndexOf('$choice = [int](Read-Host ''Escolha uma opção'')', [StringComparison]::Ordinal)
+$listPromptPosition = $menuText.IndexOf('$processListInputPath = ''''', [StringComparison]::Ordinal)
+Assert-True ($choicePosition -ge 0 -and $listPromptPosition -gt $choicePosition) 'menu somente solicita a planilha depois de selecionar a opção 11'
 
 $codes = Get-TceExitCodes
 $distinctCodes = @(
@@ -66,9 +70,10 @@ $distinctCodes = @(
     $codes.ExtensionData,
     $codes.Reset,
     $codes.Bridge,
-    $codes.Acquisition
+    $codes.Acquisition,
+    $codes.ProcessList
 ) | Sort-Object -Unique
-Assert-Equal $distinctCodes.Count 9 'códigos de runtime, autenticação, coleta, análise, HTML, extensão, reset, ponte e aquisição são distintos'
+Assert-Equal $distinctCodes.Count 10 'códigos de runtime, autenticação, coleta, análise, HTML, extensão, reset, ponte, aquisição e lista são distintos'
 
 $bridgePackageRoot = Join-Path ([IO.Path]::GetTempPath()) ('tce-menu-bridge-' + [guid]::NewGuid().ToString('N'))
 $bridgeArchiveRoot = Join-Path $bridgePackageRoot 'acervo-tce'
@@ -177,6 +182,7 @@ try {
     $diagnostics = { param([string]$PackageRoot) [void]$calls.Add('diagnose'); return 0 }
     $bridgeStatus = { param([string]$PackageRoot) [void]$calls.Add('bridge'); return 0 }
     $frozenAcquisition = { param([string]$ArchiveRoot) [void]$calls.Add('acquire'); return 0 }
+    $processListAnalysis = { param([string]$ArchiveRoot, [string]$PackageRoot) [void]$calls.Add('process-list'); return 0 }
 
     $common = @{
         ArchiveRoot = $archiveRoot
@@ -188,6 +194,7 @@ try {
         Diagnostics = $diagnostics
         BridgeStatus = $bridgeStatus
         FrozenAcquisition = $frozenAcquisition
+        ProcessListAnalysis = $processListAnalysis
     }
 
     Assert-Equal (Invoke-TceMenuAction -Action 1 @common) 0 'ação 1 conclui coleta'
@@ -224,6 +231,10 @@ try {
     [void]$calls.Clear()
     Assert-Equal (Invoke-TceMenuAction -Action 10 @common) 0 'ação 10 executa aquisição do lote congelado'
     Assert-Equal ($calls -join ',') 'acquire' 'ação 10 executa somente download e OCR do lote'
+
+    [void]$calls.Clear()
+    Assert-Equal (Invoke-TceMenuAction -Action 11 @common) 0 'ação 11 importa a lista e prepara a análise da Área Restrita'
+    Assert-Equal ($calls -join ',') 'process-list' 'ação 11 executa somente o fluxo de lista autoritativa'
 
     [void]$calls.Clear()
     $resetter = { param([string]$ArchiveRoot) [void]$calls.Add('reset'); return 0 }
@@ -318,7 +329,7 @@ foreach ($requiredText in @(
 )) {
     Assert-True ($readmeText.IndexOf($requiredText, [StringComparison]::OrdinalIgnoreCase) -ge 0) "README documenta: $requiredText"
 }
-Assert-True ($readmeText -match 'opções 1[–-]10') 'README reflete as dez opções atuais'
+Assert-True ($readmeText -match 'opções 1[–-]11') 'README reflete as onze opções atuais'
 Assert-True ($readmeText.IndexOf(($nao + ' submete'), [StringComparison]::OrdinalIgnoreCase) -ge 0) 'README atribui o limite à extensão'
 
 Write-Host "`nResultado: $script:passed passaram; $script:failed falharam."

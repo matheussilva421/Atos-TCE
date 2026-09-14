@@ -138,7 +138,7 @@ function validateAnalysisSpec(spec) {
   if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) {
     throw bridgeError('spec da análise inválida', 'INVALID_ANALYSIS');
   }
-  const expected = [
+  const legacyFields = [
     'schema_version',
     'source_scope',
     'marker',
@@ -150,11 +150,13 @@ function validateAnalysisSpec(spec) {
     'dataset_sha256',
     'area_snapshot_sha256',
   ];
+  const provenanceFields = [...legacyFields, 'input_list_id', 'input_sha256', 'input_unique_count'];
+  const expected = spec.schema_version === 3 ? provenanceFields : legacyFields;
   const keys = Object.keys(spec);
   if (keys.length !== expected.length || expected.some((key) => !Object.hasOwn(spec, key))) {
     throw bridgeError('spec da análise possui chaves inválidas', 'INVALID_ANALYSIS');
   }
-  if (spec.schema_version !== 2 || !['sector_finalistic', 'my_processes'].includes(spec.source_scope)) {
+  if (![2, 3].includes(spec.schema_version) || !['sector_finalistic', 'my_processes'].includes(spec.source_scope)) {
     throw bridgeError('origem da análise inválida', 'INVALID_ANALYSIS');
   }
   if (spec.marker === null || typeof spec.marker !== 'object' || Array.isArray(spec.marker)
@@ -176,17 +178,68 @@ function validateAnalysisSpec(spec) {
   if (typeof spec.area_snapshot_sha256 !== 'string' || !/^[0-9a-f]{64}$/u.test(spec.area_snapshot_sha256)) {
     throw bridgeError('hash da fotografia da Área Restrita inválido', 'INVALID_ANALYSIS');
   }
+  if (spec.schema_version === 3) {
+    if (typeof spec.input_list_id !== 'string' || !/^input-[0-9a-f]{24}$/u.test(spec.input_list_id)) {
+      throw bridgeError('input_list_id da análise inválido', 'INVALID_ANALYSIS');
+    }
+    if (typeof spec.input_sha256 !== 'string' || !/^[0-9a-f]{64}$/u.test(spec.input_sha256)) {
+      throw bridgeError('hash da lista de entrada inválido', 'INVALID_ANALYSIS');
+    }
+    if (!Number.isSafeInteger(spec.input_unique_count) || spec.input_unique_count < 1 || spec.input_unique_count > 10000) {
+      throw bridgeError('quantidade única da lista inválida', 'INVALID_ANALYSIS');
+    }
+  }
   return spec;
 }
 
 function validateAnalysisEnvelope(payload) {
   if (payload === null || typeof payload !== 'object' || Array.isArray(payload)
-    || payload.schema_version !== 1
+    || ![1, 2, 3].includes(payload.schema_version)
     || typeof payload.analysis_id !== 'string' || !ANALYSIS_ID_RE.test(payload.analysis_id)
     || typeof payload.dataset_sha256 !== 'string' || !/^[0-9a-f]{64}$/u.test(payload.dataset_sha256)) {
     throw invalidResponse('snapshot de análise inválido');
   }
   if (Object.hasOwn(payload, 'canonical_json')) throw invalidResponse('snapshot expõe conteúdo canônico interno');
+  if (payload.schema_version === 3) {
+    const spec = payload.spec;
+    if (spec === null || typeof spec !== 'object' || Array.isArray(spec)
+      || typeof spec.input_list_id !== 'string' || !/^input-[0-9a-f]{24}$/u.test(spec.input_list_id)
+      || typeof spec.input_sha256 !== 'string' || !/^[0-9a-f]{64}$/u.test(spec.input_sha256)
+      || !Number.isSafeInteger(spec.input_unique_count) || spec.input_unique_count < 1) {
+      throw invalidResponse('snapshot v3 sem proveniência da lista');
+    }
+  }
+  return payload;
+}
+
+const INPUT_LIST_ID_RE = /^input-[0-9a-f]{24}$/u;
+
+function validateProcessListManifest(payload) {
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw invalidResponse('manifesto da lista inválido');
+  }
+  if (payload.active === null) return payload;
+  if (payload.schema_version !== 1
+    || typeof payload.input_list_id !== 'string' || !INPUT_LIST_ID_RE.test(payload.input_list_id)
+    || typeof payload.input_sha256 !== 'string' || !/^[0-9a-f]{64}$/u.test(payload.input_sha256)
+    || !Array.isArray(payload.rows) || !Array.isArray(payload.ordered_unique_keys)
+    || !Number.isSafeInteger(payload.row_count) || payload.row_count < 1
+    || !Number.isSafeInteger(payload.unique_count) || payload.unique_count < 1
+    || !Number.isSafeInteger(payload.duplicate_count) || payload.duplicate_count < 0
+    || payload.rows.length !== payload.row_count
+    || payload.ordered_unique_keys.length !== payload.unique_count) {
+    throw invalidResponse('manifesto da lista inválido');
+  }
+  return payload;
+}
+
+function validateProcessListReport(payload) {
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)
+    || typeof payload.input_list_id !== 'string' || !INPUT_LIST_ID_RE.test(payload.input_list_id)
+    || typeof payload.relative_path !== 'string' || payload.relative_path.includes('..')
+    || payload.summary === null || typeof payload.summary !== 'object' || Array.isArray(payload.summary)) {
+    throw invalidResponse('relatório da lista inválido');
+  }
   return payload;
 }
 
@@ -486,6 +539,31 @@ export function createBridgeClient({ fetchImpl = globalThis.fetch, baseUrl, toke
       return request(since === undefined ? '/state' : `/state?since=${encodeURIComponent(since)}`, { validate: validateStateEnvelope });
     },
     async getDataset() { return request('/dataset', { validate: validateDatasetEnvelope }); },
+    async importProcessList({ filename, contentBase64 } = {}) {
+      if (typeof filename !== 'string' || !/^[^\\/]+\.xlsx$/iu.test(filename)
+        || typeof contentBase64 !== 'string' || !contentBase64) {
+        throw bridgeError('arquivo da lista inválido', 'INVALID_PROCESS_LIST');
+      }
+      return request('/process-lists/import', {
+        method: 'POST',
+        body: { filename, content_base64: contentBase64 },
+        validate: validateProcessListManifest,
+      });
+    },
+    async getActiveProcessList() {
+      return request('/process-lists/active', { validate: validateProcessListManifest });
+    },
+    async createProcessListReport(inputListId, classifications) {
+      if (typeof inputListId !== 'string' || !INPUT_LIST_ID_RE.test(inputListId)
+        || classifications === null || typeof classifications !== 'object' || Array.isArray(classifications)) {
+        throw bridgeError('relatório da lista inválido', 'INVALID_PROCESS_LIST_REPORT');
+      }
+      return request(`/process-lists/${encodeURIComponent(inputListId)}/report`, {
+        method: 'POST',
+        body: { classifications },
+        validate: validateProcessListReport,
+      });
+    },
     async createAnalysisPreview({ spec, rows, observedAt } = {}) {
       validateAnalysisSpec(spec);
       if (!Array.isArray(rows) || rows.length > 10000 || rows.some((row) => row === null || typeof row !== 'object' || Array.isArray(row))) {

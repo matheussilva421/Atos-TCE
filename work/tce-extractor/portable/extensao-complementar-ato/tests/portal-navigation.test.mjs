@@ -529,6 +529,53 @@ test("snapshots identities and observed actions without retaining nodes or URLs"
   assert.ok(snapshot.actions.every((action) => !Object.hasOwn(action, "url") && !Object.hasOwn(action, "node")));
 });
 
+test("find_process fills the exact number/year filter and remains navigation-only", async () => {
+  const documentRef = buildRestrictedListWithFormIdentityInputs();
+  const form = documentRef.getElementById("process-filter");
+  const consult = new FakeElement("button", { text: "Consultar", attrs: { "data-action": "consultar" } });
+  consult.onClick = () => {
+    documentRef.documentElement.setAttribute("data-page", "2");
+    documentRef.documentElement.dataset.page = "2";
+  };
+  form.append(consult);
+  const before = snapshotPortalScreen(documentRef);
+  assert.ok(before.actions.some((action) => action.action === "find_process"));
+  const result = await executeNavigation(documentRef, {
+    action: "find_process",
+    process_key: "100271/2026",
+    expected_generation: before.generation,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(documentRef.getElementById("txtNumeroProcesso").value, "100271");
+  assert.equal(documentRef.getElementById("txtAnoProcesso").value, "2026");
+  assert.equal(consult.clickCount, 1);
+});
+
+test("classifies only semantic red Complementar Ato and excludes completed or unlabeled controls", () => {
+  const completed = buildListDocument("1", [{ processKey: "103401/2023", interested: "Ana da Silva" }], { hasNext: false });
+  const completedImage = completed.querySelector("tr img");
+  completedImage.setAttribute("alt", "Ato Complementado");
+  completedImage.setAttribute("title", "Ato Complementado");
+  completedImage.setAttribute("src", "../../images/icone-ato-complementado-verde.png");
+  const completedIdentity = snapshotPortalScreen(completed).identities[0];
+  assert.equal(completedIdentity.classification, "ATO_COMPLEMENTADO");
+  assert.equal(completedIdentity.needsComplement, false);
+
+  const unlabeled = buildListDocument("1", [{ processKey: "103402/2023", interested: "Bruno de Souza" }], { hasNext: false });
+  const unlabeledImage = unlabeled.querySelector("tr img");
+  unlabeledImage.setAttribute("alt", "Complementar Ato");
+  unlabeledImage.setAttribute("title", "Complementar Ato");
+  unlabeledImage.setAttribute("src", "../../images/icone-acao-neutra.png");
+  const unlabeledIdentity = snapshotPortalScreen(unlabeled).identities[0];
+  assert.equal(unlabeledIdentity.classification, "AMBIGUO");
+  assert.equal(unlabeledIdentity.needsComplement, false);
+
+  const pending = buildListDocument("1", [{ processKey: "103403/2023", interested: "Carla de Lima" }], { hasNext: false });
+  const pendingIdentity = snapshotPortalScreen(pending).identities[0];
+  assert.equal(pendingIdentity.classification, "PRECISA_COMPLEMENTAR");
+  assert.equal(pendingIdentity.actionObserved, "Complementar Ato");
+});
+
 test("observes the selected marker and exposes a guarded marker-filter action", () => {
   const documentRef = buildListDocument("1", [{ processKey: "103401/2023", interested: "Ana da Silva" }]);
   const { select } = addMarkerFilter(documentRef, "PROFESSOR - IPERN - 2 RUBRICAS");
@@ -1099,7 +1146,7 @@ test("does not wait on the list frame when Area Restrita opens Complementar Ato 
       onclick: "window.parent.parent.addtabsinformacao('Complementar Ato', '../SISTEMAS/PROCESSO/ComplementarAto.asp');",
     },
   });
-  action.append(new FakeElement("img", { attrs: { alt: "Complementar Ato" } }));
+  action.append(new FakeElement("img", { attrs: { alt: "Complementar Ato", src: "../../images/icone-complementar-ato-vermelho.png" } }));
   row.append(action);
   tbody.append(row);
   table.append(tbody);
@@ -1202,7 +1249,7 @@ test("reads Interessado from its headed column when legacy action icons precede 
   const row = new FakeElement("tr", { attrs: { "data-process-key": "103401/2023" } });
   row.append(...["", "★", "P", "103401/2023", "", "IPERN", "Relator", "Ana da Silva", "PLENO"].map((value) => cell(value)));
   const action = new FakeElement("a", { attrs: { href: "/SISTEMAS/PROCESSO/ComplementarAto.asp" } });
-  action.append(new FakeElement("img", { attrs: { alt: "Complementar Ato" } }));
+  action.append(new FakeElement("img", { attrs: { alt: "Complementar Ato", src: "../../images/icone-complementar-ato-vermelho.png" } }));
   row.append(action);
   body.append(row);
   table.append(head, body);
@@ -1224,7 +1271,7 @@ test("reads Interessado from a legacy td header row used by the restricted porta
   const row = new FakeElement("tr", { attrs: { "data-process-key": "103401/2023" } });
   row.append(...["", "↻", "P", "103401/2023", "", "IPERN", "Relator", "Ana da Silva", "PLENO"].map((value) => cell(value)));
   const action = new FakeElement("a", { attrs: { href: "/SISTEMAS/PROCESSO/ComplementarAto.asp" } });
-  action.append(new FakeElement("img", { attrs: { alt: "Complementar Ato" } }));
+  action.append(new FakeElement("img", { attrs: { alt: "Complementar Ato", src: "../../images/icone-complementar-ato-vermelho.png" } }));
   row.append(action);
   body.append(row);
   table.append(head, body);

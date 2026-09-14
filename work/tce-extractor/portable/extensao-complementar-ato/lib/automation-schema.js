@@ -216,6 +216,10 @@ export function validateAutomationRunSpec(value) {
     "analysisId",
     "previewHash",
     "analysisOnly",
+    "inputListId",
+    "inputSha256",
+    "inputUniqueCount",
+    "inputKeys",
   ]);
   if (!Number.isSafeInteger(value.tabId) || value.tabId < 0) invalid("tabId is invalid", "INVALID_TAB_ID");
   nonEmptyString(value.sector, "sector");
@@ -258,6 +262,23 @@ export function validateAutomationRunSpec(value) {
   }
   if (Object.hasOwn(value, "analysisOnly") && typeof value.analysisOnly !== "boolean") {
     invalid("analysisOnly must be boolean", "INVALID_VALUE");
+  }
+  if (Object.hasOwn(value, "inputListId")
+    && (typeof value.inputListId !== "string" || !/^input-[0-9a-f]{24}$/u.test(value.inputListId))) {
+    invalid("inputListId is invalid", "INVALID_VALUE");
+  }
+  if (Object.hasOwn(value, "inputSha256")
+    && (typeof value.inputSha256 !== "string" || !SHA256_RE.test(value.inputSha256))) {
+    invalid("inputSha256 is invalid", "INVALID_VALUE");
+  }
+  if (Object.hasOwn(value, "inputUniqueCount")
+    && (!Number.isSafeInteger(value.inputUniqueCount) || value.inputUniqueCount < 1 || value.inputUniqueCount > MAX_QUEUE_ITEMS)) {
+    invalid("inputUniqueCount is invalid", "INVALID_VALUE");
+  }
+  if (Object.hasOwn(value, "inputKeys")
+    && (!Array.isArray(value.inputKeys) || value.inputKeys.length > MAX_QUEUE_ITEMS
+      || value.inputKeys.some((key) => typeof key !== "string" || !PROCESS_KEY_RE.test(key)))) {
+    invalid("inputKeys is invalid", "INVALID_VALUE");
   }
   if (Object.hasOwn(value, "pilotIdentity")) {
     if (value.pilotIdentity === null) invalid("pilotIdentity is required when present", "INVALID_IDENTITY");

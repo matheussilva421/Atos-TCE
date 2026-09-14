@@ -20,7 +20,9 @@ except ImportError:  # direct script-compatible import used by existing portable
     from filter_new_batch import FilterError, canonical_process_key
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+LEGACY_SCHEMA_VERSION = 2
+SUPPORTED_SCHEMA_VERSIONS = frozenset({LEGACY_SCHEMA_VERSION, SCHEMA_VERSION})
 SOURCE_SCOPES = frozenset({"sector_finalistic", "my_processes"})
 ACQUISITION_SOURCES = frozenset({"econtas"})
 ITEM_STATES = frozenset(
@@ -43,7 +45,7 @@ ITEM_STATES = frozenset(
         "blocked",
     }
 )
-_SPEC_KEYS = frozenset(
+_LEGACY_SPEC_KEYS = frozenset(
     {
         "schema_version",
         "source_scope",
@@ -57,9 +59,22 @@ _SPEC_KEYS = frozenset(
         "area_snapshot_sha256",
     }
 )
+_SPEC_KEYS = _LEGACY_SPEC_KEYS | frozenset(
+    {"input_list_id", "input_sha256", "input_unique_count"}
+)
 _MARKER_KEYS = frozenset({"label", "value"})
 _ACTION_SIGNATURE_KEYS = frozenset({"kind", "alt", "title", "src"})
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_INPUT_LIST_ID_RE = re.compile(r"^input-[0-9a-f]{24}$")
+_AREA_CLASSIFICATIONS = frozenset(
+    {
+        "PRECISA_COMPLEMENTAR",
+        "ATO_COMPLEMENTADO",
+        "NAO_ENCONTRADO_AREA_RESTRITA",
+        "AMBIGUO",
+        "BLOQUEADO",
+    }
+)
 _MATCHES = frozenset({"pending", "exact", "missing", "ambiguous", "conflict"})
 _OCR_STATES = frozenset({"not_run", "pending", "ready", "inconclusive", "failed"})
 
@@ -110,9 +125,13 @@ def _has_complement_action(value: str | None) -> bool:
 def validate_batch_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
     """Validate and return a defensive, closed batch specification."""
 
-    if not isinstance(spec, Mapping) or set(spec) != _SPEC_KEYS:
+    if not isinstance(spec, Mapping):
         raise _error("especificação de lote possui chaves inválidas ou ausentes")
-    if spec["schema_version"] != SCHEMA_VERSION:
+    schema_version = spec.get("schema_version")
+    expected_keys = _LEGACY_SPEC_KEYS if schema_version == LEGACY_SCHEMA_VERSION else _SPEC_KEYS
+    if set(spec) != expected_keys:
+        raise _error("especificação de lote possui chaves inválidas ou ausentes")
+    if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
         raise _error("versão da especificação de lote incompatível")
 
     source_scope = spec["source_scope"]
@@ -140,8 +159,8 @@ def validate_batch_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
 
     dataset_sha256 = _sha(spec["dataset_sha256"], "dataset_sha256", allow_none=True)
     area_snapshot_sha256 = _sha(spec["area_snapshot_sha256"], "area_snapshot_sha256")
-    return {
-        "schema_version": SCHEMA_VERSION,
+    normalized = {
+        "schema_version": schema_version,
         "source_scope": source_scope,
         "marker": normalized_marker,
         "acquisition_source": acquisition_source,
@@ -152,6 +171,21 @@ def validate_batch_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
         "dataset_sha256": dataset_sha256,
         "area_snapshot_sha256": area_snapshot_sha256,
     }
+    if schema_version == SCHEMA_VERSION:
+        input_list_id = spec["input_list_id"]
+        if not isinstance(input_list_id, str) or not _INPUT_LIST_ID_RE.fullmatch(input_list_id):
+            raise _error("input_list_id inválido")
+        input_unique_count = spec["input_unique_count"]
+        if type(input_unique_count) is not int or not 1 <= input_unique_count <= 10000:
+            raise _error("input_unique_count deve ser inteiro positivo")
+        normalized.update(
+            {
+                "input_list_id": input_list_id,
+                "input_sha256": _sha(spec["input_sha256"], "input_sha256"),
+                "input_unique_count": input_unique_count,
+            }
+        )
+    return normalized
 
 
 def _normalize_observation(raw: Mapping[str, Any], expected: Mapping[str, Any]) -> dict[str, Any]:
@@ -180,6 +214,14 @@ def _normalize_observation(raw: Mapping[str, Any], expected: Mapping[str, Any]) 
         raise _error("observação não pertence à origem solicitada")
     if type(area.get("needs_complement")) is not bool:
         raise _error("area_restrita.needs_complement deve ser booleano")
+    classification = area.get("classification")
+    if expected["schema_version"] == SCHEMA_VERSION:
+        if classification not in _AREA_CLASSIFICATIONS:
+            raise _error("area_restrita.classification inválida")
+        if area["needs_complement"] != (classification == "PRECISA_COMPLEMENTAR"):
+            raise _error("area_restrita.classification não confere com needs_complement")
+    else:
+        classification = "PRECISA_COMPLEMENTAR" if area["needs_complement"] else "ATO_COMPLEMENTADO"
     action = area.get("action_observed")
     if action is not None:
         action = _text(action, "area_restrita.action_observed", max_length=256)
@@ -215,13 +257,14 @@ def _normalize_observation(raw: Mapping[str, Any], expected: Mapping[str, Any]) 
     if ocr_status not in _OCR_STATES:
         raise _error("econtas.ocr_status inválido")
 
-    return {
+    normalized = {
         "process_key": process_key,
         "interested_key": interested_key,
         "area_restrita": {
             "scope": area_scope,
             "marker_label": marker_label,
             "marker_value": marker_value,
+            "classification": classification,
             "needs_complement": area["needs_complement"],
             "action_observed": action,
             "action_signature": action_signature,
@@ -235,11 +278,21 @@ def _normalize_observation(raw: Mapping[str, Any], expected: Mapping[str, Any]) 
         },
         "state": "discovered",
     }
+    for field in ("input_row", "duplicate_of_row"):
+        if field in raw:
+            value = raw[field]
+            if type(value) is not int or value < 1:
+                raise _error(f"{field} deve ser inteiro positivo")
+            normalized[field] = value
+    return normalized
 
 
 def _blocked_reason(item: Mapping[str, Any]) -> str | None:
     area = item["area_restrita"]
     econtas = item["econtas"]
+    classification = area["classification"]
+    if classification != "PRECISA_COMPLEMENTAR":
+        return None if classification == "ATO_COMPLEMENTADO" else classification.casefold()
     if not area["needs_complement"]:
         return None
     if not _has_complement_action(area["action_observed"]):
@@ -261,6 +314,9 @@ def _acquisition_block_reason(item: Mapping[str, Any]) -> str | None:
     """
 
     area = item["area_restrita"]
+    classification = area["classification"]
+    if classification != "PRECISA_COMPLEMENTAR":
+        return "already_complemented" if classification == "ATO_COMPLEMENTADO" else classification.casefold()
     if not area["needs_complement"]:
         return "already_complemented"
     if not _has_complement_action(area["action_observed"]):
@@ -291,7 +347,8 @@ def build_preview(spec: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]) ->
 
     validated = validate_batch_spec(spec)
     items = _normalize_rows(validated, rows)
-    needs = [item for item in items if item["area_restrita"]["needs_complement"]]
+    statuses = [item["area_restrita"]["classification"] for item in items]
+    needs = [item for item in items if item["area_restrita"]["classification"] == "PRECISA_COMPLEMENTAR"]
     available = [
         item
         for item in items
@@ -306,15 +363,18 @@ def build_preview(spec: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]) ->
     ]
     eligible = [item for item in needs if _blocked_reason(item) is None]
     acquisition_eligible = [item for item in needs if _acquisition_block_reason(item) is None]
-    blocked = [item for item in needs if _acquisition_block_reason(item) is not None]
+    blocked = [item for item in items if _acquisition_block_reason(item) is not None]
+    blocked_count = sum(status == "BLOQUEADO" for status in statuses) if validated["schema_version"] == SCHEMA_VERSION else len(blocked)
     return {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": validated["schema_version"],
         "source_scope": validated["source_scope"],
         "marker": deepcopy(validated["marker"]),
         "lot_size": validated["lot_size"],
         "total_seen": len(items),
         "needs_complement": len(needs),
-        "already_complemented": len(items) - len(needs),
+        "already_complemented": sum(status == "ATO_COMPLEMENTADO" for status in statuses),
+        "absent": sum(status == "NAO_ENCONTRADO_AREA_RESTRITA" for status in statuses),
+        "ambiguous": sum(status == "AMBIGUO" for status in statuses),
         "without_action": sum(
             _blocked_reason(item) == "without_action" for item in needs
         ),
@@ -327,7 +387,8 @@ def build_preview(spec: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]) ->
         ),
         "acquisition_eligible": len(acquisition_eligible),
         "eligible": len(eligible),
-        "blocked": len(blocked),
+        "blocked": blocked_count,
+        "area_blocked": len(blocked),
         "lot_count": (len(acquisition_eligible) + validated["lot_size"] - 1) // validated["lot_size"],
     }
 
@@ -357,7 +418,7 @@ def freeze_queue(
             blocked.append(item)
 
     payload = {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": validated["schema_version"],
         "observed_at": observed_at,
         "spec": validated,
         "queue": queue,

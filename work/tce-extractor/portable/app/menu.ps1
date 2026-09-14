@@ -36,7 +36,7 @@ $script:TceMenuAppRoot = if (-not [string]::IsNullOrWhiteSpace($MenuRoot)) {
 }
 
 function Get-TceExitCodes {
-    [pscustomobject]@{ Runtime = 10; Authentication = 20; Collection = 30; Analysis = 40; Html = 50; ExtensionData = 60; Reset = 70; Bridge = 80; Acquisition = 90 }
+    [pscustomobject]@{ Runtime = 10; Authentication = 20; Collection = 30; Analysis = 40; Html = 50; ExtensionData = 60; Reset = 70; Bridge = 80; Acquisition = 90; ProcessList = 100 }
 }
 
 function Get-TceMenuOptions {
@@ -51,6 +51,7 @@ function Get-TceMenuOptions {
         [pscustomobject]@{ key = 8; label = 'Zerar acervo e iniciar novo lote' }
         [pscustomobject]@{ key = 9; label = 'Verificar ponte local' }
         [pscustomobject]@{ key = 10; label = 'Baixar e preparar OCR de lote congelado' }
+        [pscustomobject]@{ key = 11; label = 'Analisar lista na Área Restrita e baixar em lotes de 300' }
     )
 }
 
@@ -336,7 +337,7 @@ function Test-TceLocalBridge {
 
 function Invoke-TceMenuAction {
     param(
-        [Parameter(Mandatory)][ValidateRange(1,10)][int]$Action,
+        [Parameter(Mandatory)][ValidateRange(1,11)][int]$Action,
         [Parameter(Mandatory)][string]$ArchiveRoot,
         [string]$PackageRoot,
         [scriptblock]$Collector,
@@ -347,6 +348,7 @@ function Invoke-TceMenuAction {
         [scriptblock]$Diagnostics,
         [scriptblock]$BridgeStatus,
         [scriptblock]$FrozenAcquisition,
+        [scriptblock]$ProcessListAnalysis,
         [scriptblock]$Resetter,
         [scriptblock]$ConfirmationReader
     )
@@ -376,6 +378,7 @@ function Invoke-TceMenuAction {
             }
             9 { Invoke-TceMenuStep $BridgeStatus $PackageRoot $codes.Bridge }
             10 { Invoke-TceMenuStep $FrozenAcquisition $ArchiveRoot $codes.Acquisition }
+            11 { Invoke-TceMenuStep $ProcessListAnalysis $ArchiveRoot $codes.ProcessList }
         }
         return 0
     } catch {
@@ -409,6 +412,7 @@ function Start-TcePortableMenu {
     $pipelinePath = Join-Path $appRoot 'analysis_pipeline.py'
     $extensionExporterPath = Join-Path $appRoot 'extension_exporter.py'
     $resetArchivePath = Join-Path $appRoot 'reset_archive.py'
+    $processListRegistrarPath = Join-Path $appRoot 'register_process_list.py'
     $htmlPath = Join-Path $archiveRoot 'complementar-ato.html'
 
     if ($OpenReview) {
@@ -465,7 +469,7 @@ function Start-TcePortableMenu {
     }.GetNewClosure()
     $diagnose = {
         param($root)
-        & $runtime.Python -s -c 'import pymupdf; print(pymupdf.__version__)'
+        & $runtime.Python -B -s -c 'import et_xmlfile, openpyxl, pymupdf; print("pymupdf=" + pymupdf.__version__); print("openpyxl=" + openpyxl.__version__); print("et_xmlfile=" + et_xmlfile.__version__)'
         if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
         & $runtime.Tesseract --tessdata-dir $runtime.Tessdata --list-langs
         return $LASTEXITCODE
@@ -476,7 +480,6 @@ function Start-TcePortableMenu {
         & $bridgeCheck -PackageRoot $root
         return $LASTEXITCODE
     }.GetNewClosure()
-
     $service = $null
     if ($LaunchLocalService) {
         try {
@@ -505,6 +508,12 @@ function Start-TcePortableMenu {
     Write-Host 'TCE/RN - pacote portátil (somente leitura)' -ForegroundColor Cyan
     foreach ($option in Get-TceMenuOptions) { Write-Host "$($option.key). $($option.label)" }
     $choice = [int](Read-Host 'Escolha uma opção')
+    $processListInputPath = ''
+    if ($choice -eq 11) {
+        $defaultListPath = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\Github\Atos-TCE\Complementar Ato - Professor IPERN.xlsx'
+        $processListInputPath = (Read-Host "Caminho da planilha .xlsx (ENTER usa $defaultListPath)").Trim()
+        if ([string]::IsNullOrWhiteSpace($processListInputPath)) { $processListInputPath = $defaultListPath }
+    }
     if ($choice -in @(1, 6, 8)) {
         $preparationMode = (Read-Host 'Modo de preparação [progressivo/completo] (progressivo)').Trim().ToLowerInvariant()
         if ([string]::IsNullOrWhiteSpace($preparationMode)) { $preparationMode = 'progressivo' }
@@ -513,6 +522,21 @@ function Start-TcePortableMenu {
             $preparationMode = 'progressivo'
         }
     }
+    $processListAnalysis = {
+        param($root)
+        if (-not (Test-Path -LiteralPath $processListInputPath -PathType Leaf)) {
+            throw "Planilha da lista não encontrada: $processListInputPath"
+        }
+        & $runtime.Python -B -s $processListRegistrarPath --root $root --input $processListInputPath
+        if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
+        $metadataPath = Get-TceLocalServiceMetadataPath -PackageRoot $packageRoot
+        if (-not (Test-Path -LiteralPath $metadataPath -PathType Leaf)) {
+            $started = Start-TceLocalService -PackageRoot $packageRoot -ArchiveRoot $archiveRoot -Python $runtime.Python
+            Write-Host "Ponte local iniciada na porta $($started.port); pareie a extensão com o código mostrado." -ForegroundColor Yellow
+        }
+        Write-Host 'Lista registrada. Abra o painel da extensão e use a análise da Área Restrita; a fase de download exigirá confirmação para cada lote de até 300.' -ForegroundColor Green
+        return 0
+    }.GetNewClosure()
     $collector = {
         param($root)
         & $collectorPath -Destino $root -ManterNavegadorAberto -ModoPreparacao $preparationMode -MaxDownloads 2 -Python $runtime.Python -Tesseract $runtime.Tesseract -Tessdata $runtime.Tessdata
@@ -551,7 +575,7 @@ function Start-TcePortableMenu {
         & $collectorPath -Destino $root -FilaCongelada $selectedFile.FullName -NumeroLote $lotNumber -EscopoPortal $sourceScope -NaoInterativo -ServiceChild -ManterNavegadorAberto -ModoPreparacao $preparationMode -MaxDownloads 2 -Python $runtime.Python -Tesseract $runtime.Tesseract -Tessdata $runtime.Tessdata
         return $LASTEXITCODE
     }.GetNewClosure()
-    return Invoke-TceMenuAction -Action $choice -ArchiveRoot $archiveRoot -PackageRoot $packageRoot -Collector $collector -Analyzer $analyzer -HtmlGenerator $html -Opener $open -ExtensionExporter $extension -Diagnostics $diagnose -BridgeStatus $bridgeStatus -FrozenAcquisition $frozenAcquisition -Resetter $resetter
+    return Invoke-TceMenuAction -Action $choice -ArchiveRoot $archiveRoot -PackageRoot $packageRoot -Collector $collector -Analyzer $analyzer -HtmlGenerator $html -Opener $open -ExtensionExporter $extension -Diagnostics $diagnose -BridgeStatus $bridgeStatus -FrozenAcquisition $frozenAcquisition -ProcessListAnalysis $processListAnalysis -Resetter $resetter
 }
 
 if ($MyInvocation.InvocationName -ne '.') {

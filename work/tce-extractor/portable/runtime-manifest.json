@@ -23,6 +23,24 @@
     "hash_source": "PyPI file metadata for pymupdf-1.28.2-cp310-abi3-win_amd64.whl",
     "license": "GNU AGPL v3 or applicable Artifex commercial license; license files from the wheel"
   },
+  "openpyxl": {
+    "name": "openpyxl",
+    "version": "3.1.5",
+    "source": "https://pypi.org/project/openpyxl/3.1.5/",
+    "artifact": "openpyxl-3.1.5-py2.py3-none-any.whl",
+    "sha256": "5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2",
+    "hash_source": "Observed SHA-256 of the PyPI wheel downloaded during the verified build",
+    "license": "MIT License; license files from the wheel"
+  },
+  "et_xmlfile": {
+    "name": "et-xmlfile",
+    "version": "2.0.0",
+    "source": "https://pypi.org/project/et-xmlfile/2.0.0/",
+    "artifact": "et_xmlfile-2.0.0-py3-none-any.whl",
+    "sha256": "7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa",
+    "hash_source": "Observed SHA-256 of the PyPI wheel downloaded during the verified build",
+    "license": "MIT License; license files from the wheel"
+  },
   "tesseract": {
     "name": "Tesseract OCR Windows build by UB Mannheim",
     "version": "5.4.0.20240606",
@@ -74,6 +92,8 @@
     "license_file_counts": {
       "python": 2,
       "pymupdf": 1,
+      "openpyxl": 1,
+      "et_xmlfile": 3,
       "tesseract": 2
     },
     "included_files": [
@@ -1382,4 +1402,3 @@
     ]
   }
 }
-

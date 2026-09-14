@@ -25,6 +25,10 @@ há quantidade fixa de processos codificada.
 
 Python e Tesseract já vêm no runtime; Node.js não é necessário. Não instale componentes no
 computador de destino. `TESTAR-PACOTE.ps1` faz a verificação offline sem login.
+Para validar o checkout antes de construir o ZIP, use um interpretador de QA
+com as versões fixadas em `..\requirements-qa.txt`; essas dependências são de
+desenvolvimento e não são instaladas no computador de destino. Veja
+`..\QA-DEPENDENCIAS.md`.
 
 ## Instalação e uso
 
@@ -33,7 +37,7 @@ computador de destino. `TESTAR-PACOTE.ps1` faz a verificação offline sem login
 2. Abra `chrome://extensions` → **Modo do desenvolvedor** → **Carregar sem compactação** e selecione a pasta `extensao-complementar-ato`.
 3. No outro computador, faça login novamente no e-Contas. Perfis autenticados,
    cookies e credenciais nunca entram no ZIP.
-4. Execute `INICIAR.cmd` (ou `INICIAR.bat`) e escolha uma das opções 1–10. A ponte local
+4. Execute `INICIAR.cmd` (ou `INICIAR.bat`) e escolha uma das opções 1–11. A ponte local
    é iniciada antes do menu. Para coletar, deixe **Meus Processos** visível na janela
    do Chrome/Edge e pressione `ENTER`. Use `INICIAR.bat ponte` para iniciar e verificar
    a conexão local sem abrir o menu.
@@ -173,13 +177,25 @@ clique **Preencher campos disponíveis** continuam deliberados.
    somente a linha com o ícone vermelho **Complementar Ato**. A prévia congela a
    ordem e **Criar lotes da análise** grava o snapshot em
    `acervo-tce\automacao\analises`.
-3. Após revisar a contagem, escolha **Todos os lotes** ou **Um lote** (padrão de
-   50 itens) e use **Baixar, aplicar OCR e atualizar a mesa**. A ponte chama o
-   coletor local com a fila congelada, localiza os processos no e-Contas e
-   executa OCR/preparação incremental.
+3. Para a lista autoritativa, use a opção **11 — Analisar lista na Área Restrita e
+   baixar em lotes de 300**. O menu importa `Complementar Ato - Professor IPERN.xlsx`
+   (ou outro `.xlsx` informado), preserva o original e registra manifesto SHA-256,
+   ordem e duplicidades. A extensão percorre o marcador selecionado e consulta por
+   número/ano os processos ausentes; somente o controle vermelho semântico
+   **Complementar Ato** entra na fila.
+4. Após revisar a prévia congelada, confirme **cada lote de até 300** no painel.
+   Antes de cada confirmação a ponte reconcilia todas as chaves exatamente no
+   e-Contas; ausência ou ambiguidade bloqueia aquele lote. A fila preserva a ordem
+   da primeira ocorrência da planilha, e duplicidades aparecem somente no relatório.
+   O coletor local baixa documentos, eventos e PDFs com checkpoint e executa
+   OCR/preparação incremental.
+5. O relatório derivado contém uma linha por linha original da planilha, status da
+   Área Restrita, assinatura sanitizada do controle, lote, estado do e-Contas,
+   documentos baixados e erro. O fluxo mantém `autoSubmit=false` e não preenche,
+   complementa, finaliza, tramita ou envia atos.
    O estado do job fica visível no painel;
    nenhum ato é preenchido ou enviado por essa etapa.
-4. Como fallback, a opção **10 — Baixar e preparar OCR de lote congelado** em
+6. Como fallback, a opção **10 — Baixar e preparar OCR de lote congelado** em
    `INICIAR.cmd` lista os snapshots locais e executa o mesmo coletor sem
    substituição de processo. A opção **9 — Verificar ponte local** confirma que
    o serviço loopback está respondendo.

@@ -1,4 +1,4 @@
-const ALLOWED_ACTIONS = new Set(["first_page", "next_page", "open_act", "select_interested", "return_list", "filter_marker"]);
+const ALLOWED_ACTIONS = new Set(["first_page", "next_page", "open_act", "select_interested", "return_list", "filter_marker", "find_process"]);
 const NAVIGATION_TIMEOUT_MS = 30_000;
 const LATE_SNAPSHOT_OBSERVER_TIMEOUT_MS = 30_000;
 const DOCUMENT_STATE = new WeakMap();
@@ -168,6 +168,26 @@ function markerFilterControls(documentRef) {
   return { select, submit: null };
 }
 
+function processFilterControls(documentRef) {
+  for (const form of queryAll(documentRef, "form")) {
+    const inputs = queryAll(form, "input, select");
+    const metadata = (control) => normalizeInterested([
+      getAttribute(control, "id"),
+      getAttribute(control, "name"),
+      getAttribute(control, "data-field"),
+      getAttribute(control, "aria-label"),
+    ].join(" "));
+    const number = inputs.find((control) => metadata(control).includes("numero") && getAttribute(control, "type") !== "hidden");
+    const year = inputs.find((control) => metadata(control).includes("ano"));
+    const submit = queryAll(form, "button, input, a").find((control) => {
+      const label = normalizeInterested(controlLabel(control));
+      return label === "consultar" || label.startsWith("consultar ");
+    });
+    if (number && year && submit) return { form, number, year, submit };
+  }
+  return null;
+}
+
 function isComplementActControl(control) {
   const label = normalizeInterested(controlLabel(control));
   if (label.includes("complementar ato")) return true;
@@ -188,9 +208,10 @@ function pendingComplementIconSignature(control) {
       getAttribute(candidate, "src"),
       getAttribute(candidate, "class"),
     ].join(" "));
-    return semantic.includes("complementar ato")
-      || semantic.includes("complementarato")
-      || (semantic.includes("complement") && (semantic.includes("vermelh") || semantic.includes("red") || semantic.includes("pendente")));
+    const red = semantic.includes("vermelh")
+      || semantic.includes("red")
+      || semantic.includes("pendente");
+    return red && (semantic.includes("complementar ato") || semantic.includes("complementarato"));
   }) ?? null;
   if (!image) return null;
   return {
@@ -432,7 +453,19 @@ function listIdentityEntries(documentRef) {
     const identity = identityFromRow(row, { processKey: processKeyFromText(textOf(row)) });
     const actionSignature = selectedControl ? pendingComplementIconSignature(selectedControl) : null;
     if (hasCanonicalIdentity(identity)) {
-      identity.needsComplement = Boolean(actionSignature);
+      const observedLabel = normalizeInterested(selectedControl ? controlLabel(selectedControl) : "");
+      const completed = observedLabel.includes("ato complementado");
+      identity.classification = actionSignature
+        ? "PRECISA_COMPLEMENTAR"
+        : completed
+          ? "ATO_COMPLEMENTADO"
+          : "AMBIGUO";
+      identity.needsComplement = identity.classification === "PRECISA_COMPLEMENTAR";
+      identity.actionObserved = actionSignature
+        ? "Complementar Ato"
+        : completed
+          ? "Ato Complementado"
+          : null;
       identity.actionSignature = actionSignature;
     }
     return {
@@ -695,6 +728,7 @@ function actionSnapshot(documentRef, role) {
     if (findFirstControl(documentRef)) actions.push({ action: "first_page", enabled: true, direction: "first" });
     if (next) actions.push({ action: "next_page", enabled: true, direction: next.direction });
     if (markerFilterControls(documentRef)?.submit) actions.push({ action: "filter_marker", enabled: true });
+    if (processFilterControls(documentRef)?.submit) actions.push({ action: "find_process", enabled: true });
   }
   if (role === "interested") {
     for (const entry of interestedIdentityEntries(documentRef)) {
@@ -799,6 +833,7 @@ function isProgress(documentRef, before, after, action, identity, requestedMarke
   if (action === "filter_marker") return after.role === "list"
     && after.generation !== before.generation
     && normalizeInterested(after.marker?.label) === normalizeInterested(requestedMarker);
+  if (action === "find_process") return after.role === "list" && after.generation !== before.generation;
   return false;
 }
 
@@ -817,6 +852,7 @@ function resolveControl(documentRef, action, identity) {
     return interestedIdentityEntries(documentRef).find((entry) => sameIdentity(entry.identity, identity))?.radio ?? null;
   }
   if (action === "filter_marker") return markerFilterControls(documentRef)?.select ?? null;
+  if (action === "find_process") return processFilterControls(documentRef)?.submit ?? null;
   return null;
 }
 
@@ -898,6 +934,25 @@ async function executeNavigation(documentRef = globalThis.document, request = {}
         controls.submit.click?.();
       },
       request.marker,
+    );
+  }
+  if (action === "find_process") {
+    const controls = processFilterControls(documentRef);
+    const keyMatch = typeof request.process_key === "string" ? request.process_key.match(/^(\d+)\/(\d{4})$/u) : null;
+    if (!controls || !keyMatch) return navigationError("PROCESS_FILTER_NOT_FOUND", "the exact process number/year filter is unavailable");
+    return waitForNavigation(
+      documentRef,
+      before,
+      action,
+      null,
+      Number.isInteger(request.timeoutMs) && request.timeoutMs > 0 ? Math.min(request.timeoutMs, NAVIGATION_TIMEOUT_MS) : NAVIGATION_TIMEOUT_MS,
+      () => {
+        controls.number.value = keyMatch[1];
+        controls.year.value = keyMatch[2];
+        dispatchControlEvents(documentRef, controls.number);
+        dispatchControlEvents(documentRef, controls.year);
+        controls.submit.click?.();
+      },
     );
   }
   if (getAttribute(control, "data-action") === "signal-only" || getAttribute(control, "data-action") === "submit") {

@@ -1,4 +1,5 @@
 import contextlib
+import base64
 from contextlib import redirect_stderr
 from http.client import RemoteDisconnected
 import io
@@ -15,6 +16,8 @@ import unittest
 from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+
+from openpyxl import Workbook
 
 APP_ROOT = Path(__file__).parent / "portable" / "app"
 sys.path.insert(0, str(APP_ROOT))
@@ -66,6 +69,104 @@ def running_server():
 
 
 class LocalServiceTests(unittest.TestCase):
+    def test_authenticated_process_list_import_active_query_and_report(self):
+        with TemporaryDirectory() as directory:
+            source = Path(directory) / "professor-ipern.xlsx"
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.title = "Planilha2"
+            sheet.append(["numero_processo", "ano_processo"])
+            sheet.append([101, 2023])
+            sheet.append([101, 2023])
+            workbook.save(source)
+            with running_server() as (root, server, base):
+                code = server.auth.issue_pairing_code()
+                _status, _headers, pair_body = json_request(
+                    f"{base}/api/v1/pair",
+                    method="POST",
+                    payload={"code": code},
+                    origin="chrome-extension://test-extension",
+                )
+                token = json.loads(pair_body)["token"]
+                imported_status, _headers, imported_body = json_request(
+                    f"{base}/api/v1/process-lists/import",
+                    method="POST",
+                    payload={
+                        "filename": source.name,
+                        "content_base64": base64.b64encode(source.read_bytes()).decode("ascii"),
+                    },
+                    token=token,
+                )
+                manifest = json.loads(imported_body)
+                self.assertEqual(imported_status, 200)
+                self.assertEqual(manifest["unique_count"], 1)
+                self.assertEqual(manifest["duplicate_count"], 1)
+                _status, _headers, active_body = json_request(
+                    f"{base}/api/v1/process-lists/active", token=token
+                )
+                active = json.loads(active_body)
+                self.assertEqual(active["input_list_id"], manifest["input_list_id"])
+                report_status, _headers, report_body = json_request(
+                    f"{base}/api/v1/process-lists/{manifest['input_list_id']}/report",
+                    method="POST",
+                    payload={
+                        "classifications": {
+                            "101/2023": {
+                                "marker_present": True,
+                                "marker_observed": "PROFESSOR - IPERN",
+                                "area_status": "PRECISA_COMPLEMENTAR",
+                                "action_signature": None,
+                                "lot_number": 1,
+                                "econtas_status": "not_started",
+                                "documents_downloaded": 0,
+                                "error": None,
+                            }
+                        }
+                    },
+                    token=token,
+                )
+                report = json.loads(report_body)
+                self.assertEqual(report_status, 200)
+                self.assertEqual(report["summary"]["linhas"], 2)
+                self.assertTrue((root / report["relative_path"]).is_file())
+
+    def test_authenticated_analysis_v3_preserves_input_provenance(self):
+        with running_server() as (_root, server, base):
+            code = server.auth.issue_pairing_code()
+            _status, _headers, pair_body = json_request(
+                f"{base}/api/v1/pair",
+                method="POST",
+                payload={"code": code},
+                origin="chrome-extension://test-extension",
+            )
+            token = json.loads(pair_body)["token"]
+            payload = {
+                "spec": {
+                    "schema_version": 3,
+                    "source_scope": "sector_finalistic",
+                    "marker": {"label": "Marcador", "value": "m-1"},
+                    "acquisition_source": "econtas",
+                    "lot_size": 300,
+                    "analysis_only": True,
+                    "auto_prepare": False,
+                    "auto_submit": False,
+                    "dataset_sha256": None,
+                    "area_snapshot_sha256": "b" * 64,
+                    "input_list_id": "input-" + "a" * 24,
+                    "input_sha256": "c" * 64,
+                    "input_unique_count": 1,
+                },
+                "observed_at": "2026-09-14T12:00:00+00:00",
+                "rows": [],
+            }
+            status, _headers, body = json_request(
+                f"{base}/api/v1/analysis/preview",
+                method="POST",
+                payload=payload,
+                token=token,
+            )
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body)["schema_version"], 3)
     def test_run_payload_preserves_hybrid_scope_and_frozen_lot_contract(self):
         payload = {
             "tab_id": 7,
