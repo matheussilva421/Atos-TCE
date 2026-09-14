@@ -9,8 +9,9 @@ O fluxo autoritativo da planilha foi implementado no checkout. A opção 11 do
 menu é `Analisar lista na Área Restrita e baixar em lotes de 300`; a opção 10
 continua sendo o caminho técnico legado para uma fila congelada já existente.
 Nenhum download ou envio foi iniciado nesta sessão. O primeiro lote foi
-reconciliado, mas permaneceu pendente de execução porque o Chrome controlado
-pela sessão não expõe uma porta DevTools/CDP local reutilizável.
+reconciliado. Uma janela Chrome isolada do perfil portátil foi aberta com
+DevTools/CDP local na porta `9222`; ela está aguardando login humano no
+e-Contas.
 
 O arquivo fonte foi preservado. A importação real de
 `Complementar Ato - Professor IPERN.xlsx` produziu:
@@ -96,10 +97,11 @@ esses arquivos de QA e os handoffs em `work/tce-extractor`.
   300 itens, `lot-1`, SHA-256
   `0e2f3c9e075f3c3c4db2360831790e0ee5b045c306589aabcd1dcb10f9506923`;
 - teste PowerShell após a correção schema v3: 123 aprovados, 0 falhas;
-- verificação do coletor contra o ambiente live: `Get-TceExistingPortalDevToolsPort`
-  não encontrou porta (`port=NONE`); o perfil portátil também ainda não
-  existe/autenticado. Portanto não foi aberto navegador paralelo nem iniciado
-  download sem sessão confirmada.
+- verificação inicial do coletor contra o Chrome CUA: não encontrou porta
+  (`port=NONE`); por isso foi aberto, com autorização do usuário, o perfil
+  portátil isolado em `portable/dados-locais/perfil-navegador`, com DevTools
+  confirmado na porta `9222`. O e-Contas está em login pendente; nenhum
+  download foi iniciado.
 
 O `TESTAR-PACOTE.ps1` ainda não pode aprovar este checkout porque o diretório
 `portable/runtime` não está materializado no repositório; o builder é o caminho
@@ -118,9 +120,8 @@ e este estado live do lote 1.
 
 ## Pendências e retomada
 
-1. Retomar pelo lote congelado já validado somente após disponibilizar um
-   Chrome autenticado com DevTools/CDP local para o coletor (ou executar o
-   pacote portátil pelo seu launcher e concluir login humano nessa janela).
+1. Concluir o login humano na janela portátil já aberta; só então validar a
+   sessão, setor e marcador antes de executar o lote congelado.
 2. Executar o builder em staging reservado para materializar o runtime e rodar
    `portable/TESTAR-PACOTE.ps1` contra o pacote gerado; conferir manifest,
    hashes, CRC/extração limpa e allowlist.
