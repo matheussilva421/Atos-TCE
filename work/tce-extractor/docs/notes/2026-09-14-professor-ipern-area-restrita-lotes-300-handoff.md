@@ -56,6 +56,9 @@ O arquivo fonte foi preservado. A importação real de
 - indisponibilidade transitória do endpoint `/api/Processo` passou a ter até
   quatro tentativas com backoff de 1/3/8 segundos, restritas a HTTP 502/503;
   códigos 400/401/403/429 continuam sem retry silencioso.
+- fotografia vazia também passou a falhar imediatamente quando o e-Contas
+  exibe `0 registros`, evitando espera artificial de até dez minutos e
+  bloqueando uma análise baseada em resultado vazio.
 - leitor PowerShell da fila congelada atualizado para aceitar schema v3, com
   teste regressivo específico;
 - `autoSubmit=false` no fluxo de lista e nenhuma ação de preenchimento,
@@ -100,6 +103,8 @@ esses arquivos de QA e os handoffs em `work/tce-extractor`.
   0 falhas;
 - `tests/Test-TcePortable.ps1` após o retry limitado para 502/503: 134
   aprovados, 0 falhas;
+- `tests/Test-TcePortable.ps1` após a guarda de resultado vazio: 136
+  aprovados, 0 falhas;
 - `tests/Test-PortableMenu.ps1`: 91 aprovados, 0 falhas;
 - importação/relatório da planilha fonte: 1.317 linhas verificadas;
 - `git diff --check`: verde.
@@ -143,6 +148,9 @@ esses arquivos de QA e os handoffs em `work/tce-extractor`.
   291 falhas de HTTP 502 posteriores do endpoint de processo. O acervo contém
   os PDFs já obtidos e os erros estão preservados para retomada; nenhum ato foi
   enviado.
+- uma retomada posterior encontrou o e-Contas autenticado, mas com o filtro
+  exibindo `Nenhum Processo Encontrado` e `0 registros`; foi interrompida antes
+  de persistir nova ordem ou baixar qualquer documento.
 
 O `TESTAR-PACOTE.ps1` ainda não pode aprovar este checkout porque o diretório
 `portable/runtime` não está materializado no repositório; o builder é o caminho
@@ -161,9 +169,10 @@ e este estado live do lote 1.
 
 ## Pendências e retomada
 
-1. Retomar a fila do lote 1 após a recuperação do endpoint e acompanhar os
-   retries 502/503 até o término ou pausa fail-closed; conferir checkpoint,
-   PDFs, eventos, erros e relatório reconciliado.
+1. Revalidar manualmente o marcador no e-Contas até a fotografia mostrar
+   processos; somente então retomar a fila do lote 1 e acompanhar os retries
+   502/503 até o término ou pausa fail-closed; conferir checkpoint, PDFs,
+   eventos, erros e relatório reconciliado.
 2. Executar o builder em staging reservado para materializar o runtime e rodar
    `portable/TESTAR-PACOTE.ps1` contra o pacote gerado; conferir manifest,
    hashes, CRC/extração limpa e allowlist.

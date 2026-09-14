@@ -146,8 +146,17 @@
     ) || null;
   }
 
+  function currentResultCount() {
+    const text = document.body.innerText || '';
+    const match = text.match(/exibindo\s+[\d.]+\s+registros?\s+de\s+([\d.]+)\s+no total/i);
+    if (!match) return null;
+    const count = Number(match[1].replace(/\./g, ''));
+    return Number.isInteger(count) ? count : null;
+  }
+
   async function waitForPageRows(pageNumber, previousSignature = null) {
     for (let attempt = 0; attempt < 120; attempt++) {
+      if (currentResultCount() === 0) return [];
       const rows = processRows();
       const pageAfter = currentPageNumber();
       const signature = rows.map(item => item.key).join('|');
@@ -160,6 +169,7 @@
 
   async function goToFirstPage() {
     for (let attempt = 0; attempt < 20; attempt++) {
+      if (currentResultCount() === 0) return false;
       if (currentPageNumber() === 1) {
         if ((await waitForPageRows(1)).length > 0) return true;
       }
@@ -189,7 +199,10 @@
     const wanted = new Set((Array.isArray(targetKeys) ? targetKeys : []).map(String));
     await applyMarkerFilter(marker);
     await selectLargestPageSize();
-    if (!await goToFirstPage()) throw new Error("O e-Contas não carregou a primeira página para enumeração.");
+    if (!await goToFirstPage()) {
+      if (currentResultCount() === 0) throw new Error("O e-Contas retornou zero processos após aplicar o marcador.");
+      throw new Error("O e-Contas não carregou a primeira página para enumeração.");
+    }
     const all = new Map();
     let unchanged = 0;
     const seenSignatures = new Set();

@@ -499,6 +499,8 @@ Assert-True ($driverText -match "normalizeMarker\(info\.resumo \|\| ''\) === 'CA
 Assert-True ($driverText -match 'if \(info &&[\s\S]*?&& !isCover\)') 'driver ignora capas sem descartar outros documentos do evento'
 Assert-True ($driverText -match 'response\.status === 502.*response\.status === 503') 'driver reconhece indisponibilidade transitória do e-Contas'
 Assert-True ($driverText -match 'attempt < 4[\s\S]*?await sleep') 'driver repete indisponibilidade transitória com backoff limitado'
+Assert-True ($driverText -match 'function currentResultCount\(\)') 'driver lê o total exibido pelo e-Contas antes da enumeração'
+Assert-True ($driverText -match 'currentResultCount\(\) === 0[\s\S]*?return false') 'driver falha fechado quando o filtro retorna zero processos'
 
 $baselineTestRoot = Join-Path ([IO.Path]::GetTempPath()) ("tce-portable-baseline-test-" + [guid]::NewGuid().ToString('N'))
 $baselineDirectory = Join-Path $baselineTestRoot 'baseline-directory'
