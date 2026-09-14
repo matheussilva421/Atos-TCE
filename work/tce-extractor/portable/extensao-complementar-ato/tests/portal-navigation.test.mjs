@@ -576,6 +576,17 @@ test("classifies only semantic red Complementar Ato and excludes completed or un
   assert.equal(pendingIdentity.actionObserved, "Complementar Ato");
 });
 
+test("recognizes the portal's real atov.png red Complementar Ato asset", () => {
+  const pending = buildListDocument("1", [{ processKey: "102375/2026", interested: "Maria da Silva" }], { hasNext: false });
+  const image = pending.querySelector("tr img");
+  image.setAttribute("alt", "Complementar Ato");
+  image.setAttribute("title", "Complementar Ato");
+  image.setAttribute("src", "../../images/atov.png");
+  const identity = snapshotPortalScreen(pending).identities[0];
+  assert.equal(identity.classification, "PRECISA_COMPLEMENTAR");
+  assert.equal(identity.actionSignature.src, "../../images/atov.png");
+});
+
 test("observes the selected marker and exposes a guarded marker-filter action", () => {
   const documentRef = buildListDocument("1", [{ processKey: "103401/2023", interested: "Ana da Silva" }]);
   const { select } = addMarkerFilter(documentRef, "PROFESSOR - IPERN - 2 RUBRICAS");

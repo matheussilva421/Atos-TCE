@@ -47,7 +47,7 @@ function Read-TceFrozenQueue {
     } catch {
         throw "Fila congelada inválida: $Path"
     }
-    if ($null -eq $value -or [int](Get-TceFrozenQueueProperty $value 'schema_version') -notin @(1, 2)) {
+    if ($null -eq $value -or [int](Get-TceFrozenQueueProperty $value 'schema_version') -notin @(1, 2, 3)) {
         throw 'schema_version da fila congelada incompatível.'
     }
 

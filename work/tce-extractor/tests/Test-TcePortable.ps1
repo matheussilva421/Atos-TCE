@@ -58,6 +58,57 @@ function Assert-Throws {
     }
 }
 
+Import-Module (Join-Path $testDirectory '..\portable\TceFrozenQueue.psm1') -Force
+$frozenV3TestRoot = Join-Path ([IO.Path]::GetTempPath()) ("tce-frozen-v3-test-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $frozenV3TestRoot -Force | Out-Null
+try {
+    $frozenV3CanonicalPayload = [ordered]@{
+        schema_version = 3
+        observed_at = '2026-09-14T00:00:00Z'
+        spec = [ordered]@{
+            schema_version = 3
+            source_scope = 'sector_finalistic'
+            marker = [ordered]@{ label = 'PROFESSOR - IPERN'; value = '5159' }
+            acquisition_source = 'econtas'
+            lot_size = 300
+            analysis_only = $true
+            auto_prepare = $false
+            auto_submit = $false
+            dataset_sha256 = $null
+            area_snapshot_sha256 = ('a' * 64)
+            input_list_id = 'input-' + ('b' * 24)
+            input_sha256 = ('c' * 64)
+            input_unique_count = 1128
+        }
+        queue = @([ordered]@{ process_key = '100064/2022' })
+        blocked = @()
+    }
+    $frozenV3CanonicalJson = $frozenV3CanonicalPayload | ConvertTo-Json -Compress -Depth 20
+    $frozenV3HashBytes = [Text.Encoding]::UTF8.GetBytes($frozenV3CanonicalJson)
+    $frozenV3Hash = ([BitConverter]::ToString(([Security.Cryptography.SHA256]::Create()).ComputeHash($frozenV3HashBytes))).Replace('-', '').ToLowerInvariant()
+    $frozenV3Payload = [ordered]@{
+        schema_version = 3
+        observed_at = $frozenV3CanonicalPayload.observed_at
+        spec = $frozenV3CanonicalPayload.spec
+        queue = $frozenV3CanonicalPayload.queue
+        blocked = $frozenV3CanonicalPayload.blocked
+        analysis_id = 'analysis-' + $frozenV3Hash.Substring(0, 24)
+        dataset_sha256 = $frozenV3Hash
+        canonical_json = $frozenV3CanonicalJson
+        lots = @([ordered]@{ lot_number = 1; lot_id = 'lot-1'; items = $frozenV3CanonicalPayload.queue })
+    }
+    $frozenV3Path = Join-Path $frozenV3TestRoot 'analysis-v3.json'
+    $frozenV3Payload | ConvertTo-Json -Compress -Depth 20 | Set-Content -LiteralPath $frozenV3Path -Encoding UTF8
+    try {
+        $loadedFrozenV3 = Read-TceFrozenQueue -Path $frozenV3Path -LotNumber 1
+        Assert-Equal $loadedFrozenV3.items[0].process_key '100064/2022' 'coletor aceita fila congelada schema v3'
+    } catch {
+        Assert-True $false ("coletor aceita fila congelada schema v3: $($_.Exception.Message)")
+    }
+} finally {
+    if (Test-Path -LiteralPath $frozenV3TestRoot) { Remove-Item -LiteralPath $frozenV3TestRoot -Recurse -Force }
+}
+
 $portalOrderTestRoot = Join-Path ([IO.Path]::GetTempPath()) ("tce-portal-order-test-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $portalOrderTestRoot -Force | Out-Null
 try {

@@ -208,7 +208,9 @@ function pendingComplementIconSignature(control) {
       getAttribute(candidate, "src"),
       getAttribute(candidate, "class"),
     ].join(" "));
-    const red = semantic.includes("vermelh")
+    const knownPortalRedAsset = /(?:^|[/\\_-])atov\.png(?:$|\s)/u.test(semantic);
+    const red = knownPortalRedAsset
+      || semantic.includes("vermelh")
       || semantic.includes("red")
       || semantic.includes("pendente");
     return red && (semantic.includes("complementar ato") || semantic.includes("complementarato"));
