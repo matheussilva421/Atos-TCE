@@ -32,6 +32,7 @@
 - Chrome instalado: bloqueado pela política/ambiente gerenciado; o gravador registrou somente o componente Google Network Speech e encerrou como `BLOCKED`.
 - Contratos QA finais: 14/14.
 - Auditoria private da referência após retirar `dados-locais`: aprovada.
+- O gate chamado via `pwsh` apresentou falso negativo por `PSModulePath`; o mesmo gate via Windows PowerShell 5.1 passou integralmente.
 
 ## Relatórios
 
@@ -62,5 +63,5 @@
 ## GitHub
 
 - Branch: `main`.
-- Commit/push: ainda não realizados.
-- Motivo: criação de refs foi bloqueada no `.git`; tentativa de commit será feita ao final, sem prometer sucesso antes da validação.
+- Commit: `508a506 feat: add integral QA workflow and validated fixes`.
+- Push: realizado para `origin/main`.
