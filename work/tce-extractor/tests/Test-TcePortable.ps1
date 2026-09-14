@@ -25,6 +25,8 @@ function Assert-True {
 
 $collectorScriptPath = Join-Path $testDirectory '..\portable\Coletar-Processos-TCE.ps1'
 $collectorText = Get-Content -LiteralPath $collectorScriptPath -Raw -Encoding UTF8
+$portalDriverPath = Join-Path $testDirectory '..\portable\TcePortal.Driver.js'
+$portalDriverText = Get-Content -LiteralPath $portalDriverPath -Raw -Encoding UTF8
 Assert-True ($collectorText -match "ValidateSet\('progressivo','completo'\).*ModoPreparacao") 'coletor oferece modo progressivo ou completo'
 Assert-True ($collectorText -match '\[switch\]\$ReutilizarOrdemPortal') 'coletor permite retomar usando uma ordem do portal já capturada'
 Assert-True ($collectorText -match 'MaxDownloads') 'coletor expõe limite de downloads'
@@ -36,6 +38,12 @@ Assert-True ($collectorText -match '\$collectionSuspended\s*=\s*\$false' -and $c
 Assert-True ($collectorText -match 'incremental_pipeline\.py') 'coletor referencia preparação incremental por processo'
 Assert-True ($collectorText -match 'ModoPreparacao.*progressivo|progressivo.*ModoPreparacao') 'coletor usa o modo de preparação para decidir a publicação'
 Assert-True ($collectorText -match 'collector\.json') 'coletor publica marcador de execução para bloquear transferência concorrente'
+Assert-True ($portalDriverText -match 'await selectLargestPageSize\(\);[\s\S]*?await goToFirstPage\(\)') 'driver seleciona 100 registros antes de varrer fila congelada'
+Assert-True ($portalDriverText -match 'async function goToFirstPage\(\)') 'driver volta à página 1 antes de varrer uma fila congelada'
+Assert-True (($portalDriverText -match 'async function advanceToNextPage\(signature, pageBefore\)') -and ($portalDriverText -match 'await waitForPageRows\(pageBefore === null \? null : pageBefore \+ 1, signature\)') -and ($portalDriverText -match 'return rows\.length > 0')) 'driver confirma página seguinte e linhas novas antes de avançar'
+Assert-True ($portalDriverText -match 'function pageButton\(number\)') 'driver prefere o link numérico exato da página seguinte'
+Assert-True ($portalDriverText -match 'async function waitForPageRows\(pageNumber, previousSignature') 'driver espera linhas preenchidas antes de considerar uma página pronta'
+Assert-True ($portalDriverText -match 'rows\.length > 0[\s\S]*?pageAfter === pageNumber') 'driver não confunde estado transitório vazio com página enumerada'
 
 function Assert-Throws {
     param(

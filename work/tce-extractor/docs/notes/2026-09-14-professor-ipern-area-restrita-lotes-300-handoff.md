@@ -8,10 +8,11 @@ Repositório: `C:\Users\slvma\Downloads\Github\Atos-TCE\work\tce-extractor`
 O fluxo autoritativo da planilha foi implementado no checkout. A opção 11 do
 menu é `Analisar lista na Área Restrita e baixar em lotes de 300`; a opção 10
 continua sendo o caminho técnico legado para uma fila congelada já existente.
-Nenhum download ou envio foi iniciado nesta sessão. O primeiro lote foi
-reconciliado. Uma janela Chrome isolada do perfil portátil foi aberta com
-DevTools/CDP local na porta `9222`; ela está aguardando login humano no
-e-Contas.
+O primeiro lote foi reconciliado e sua execução foi iniciada no Chrome isolado
+do perfil portátil, com DevTools/CDP local na porta `9222`, após login humano.
+Até o último checkpoint observado, os primeiros processos produziram
+metadados/eventos, mas nenhum PDF efetivamente baixado; não houve envio,
+complementação, tramitação ou finalização.
 
 O arquivo fonte foi preservado. A importação real de
 `Complementar Ato - Professor IPERN.xlsx` produziu:
@@ -42,6 +43,10 @@ O arquivo fonte foi preservado. A importação real de
   ocorrência da planilha, com confirmação humana por lote no painel;
 - reconciliação técnica da fila congelada no e-Contas antes da sincronização,
   checkpoint, deduplicação e limite de downloads existentes preservados;
+- driver de paginação endurecido para aguardar tabela preenchida por até 30
+  segundos, exigir página numérica correta e assinatura não vazia/nova; isso
+  corrigiu o bloqueio falso que ocorria durante a recarga assíncrona entre
+  páginas;
 - leitor PowerShell da fila congelada atualizado para aceitar schema v3, com
   teste regressivo específico;
 - `autoSubmit=false` no fluxo de lista e nenhuma ação de preenchimento,
@@ -78,6 +83,8 @@ esses arquivos de QA e os handoffs em `work/tce-extractor`.
 - `node --test` em `portable/extensao-complementar-ato`: 375 aprovados,
   0 falhas;
 - `tests/Test-TcePortable.ps1`: 122 aprovados, 0 falhas;
+- `tests/Test-TcePortable.ps1` após a correção do driver: 129 aprovados,
+  0 falhas;
 - `tests/Test-PortableMenu.ps1`: 91 aprovados, 0 falhas;
 - importação/relatório da planilha fonte: 1.317 linhas verificadas;
 - `git diff --check`: verde.
@@ -100,8 +107,13 @@ esses arquivos de QA e os handoffs em `work/tce-extractor`.
 - verificação inicial do coletor contra o Chrome CUA: não encontrou porta
   (`port=NONE`); por isso foi aberto, com autorização do usuário, o perfil
   portátil isolado em `portable/dados-locais/perfil-navegador`, com DevTools
-  confirmado na porta `9222`. O e-Contas está em login pendente; nenhum
-  download foi iniciado.
+  confirmado na porta `9222`; o usuário concluiu o login manualmente;
+- reprodução live do bug de paginação: a tabela ficava vazia por mais de 10
+  segundos após alguns cliques, embora o marcador já tivesse mudado; a janela
+  foi ampliada para 30 segundos e a reprodução passou a enumerar 1.227/1.227;
+- execução do lote 1 iniciada com a fila congelada: ordem do portal 1.227,
+  fila validada 300/300, sem download iniciado antes da reconciliação; no
+  último checkpoint observado estava em `[9/300]` e seguia em execução.
 
 O `TESTAR-PACOTE.ps1` ainda não pode aprovar este checkout porque o diretório
 `portable/runtime` não está materializado no repositório; o builder é o caminho
@@ -120,8 +132,8 @@ e este estado live do lote 1.
 
 ## Pendências e retomada
 
-1. Concluir o login humano na janela portátil já aberta; só então validar a
-   sessão, setor e marcador antes de executar o lote congelado.
+1. Acompanhar a execução do lote 1 até o término ou pausa fail-closed; conferir
+   checkpoint, PDFs, eventos, erros e relatório reconciliado.
 2. Executar o builder em staging reservado para materializar o runtime e rodar
    `portable/TESTAR-PACOTE.ps1` contra o pacote gerado; conferir manifest,
    hashes, CRC/extração limpa e allowlist.
@@ -130,13 +142,17 @@ e este estado live do lote 1.
 4. Somente com o piloto verde, analisar as 1.128 chaves e apresentar a prévia.
 5. Confirmar cada lote produtivo de até 300 individualmente; interromper se a
    reconciliação exata do e-Contas encontrar ausência ou ambiguidade.
-6. Para futuras alterações, verificar `git status`, adicionar somente os
+6. Montar o ZIP portátil final, preservando a planilha original e incluindo
+   scripts, runtime/dependências licenciadas, configuração de lotes 50/100/200/
+   300 ou outro tamanho, OCR opcional, gerador JSON da extensão, gerador HTML
+   com links relativos aos PDFs, manifests, README e handoff; validar a
+   extração limpa antes de entregar.
+7. Para futuras alterações, verificar `git status`, adicionar somente os
    arquivos da mudança com `git add --`, fazer commit nominal e `git push`.
 
-Para continuar, não recrie a fila: valide o arquivo `analysis-0e2f3c9e...json`,
-verifique a identidade do navegador autenticado e execute o coletor com
-`-FilaCongelada ... -NumeroLote 1 -EscopoPortal sector_finalistic
--NaoInterativo -Python C:\Python314\python.exe` somente quando o CDP local
-estiver disponível. A Área Restrita e o e-Contas devem permanecer autenticados
-por login humano; não automatizar credenciais nem submissão. Restaurar o
-clipboard CUA e a paginação do e-Contas já foi feito.
+Para continuar, não recrie a fila nem inicie um segundo coletor concorrente:
+consulte o processo atual, valide o checkpoint e retome com o mesmo arquivo
+`analysis-0e2f3c9e...json` somente após o término/pausa. A Área Restrita e o
+e-Contas devem permanecer autenticados por login humano; não automatizar
+credenciais nem submissão. Restaurar o clipboard CUA e a paginação do e-Contas
+já foi feito.

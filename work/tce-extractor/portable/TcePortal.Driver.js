@@ -125,10 +125,37 @@
     await sleep(1500);
   }
 
-  async function goToFirstPage(wanted = []) {
-    const expectedFirst = wanted[0] ? String(wanted[0]) : null;
+  function currentPageNumber() {
+    const current = document.querySelector("ul.ngx-pagination li.current");
+    const match = (current?.textContent || "").match(/(\d+)\s*$/u);
+    return match ? Number(match[1]) : null;
+  }
+
+  function pageButton(number) {
+    if (!Number.isInteger(number)) return null;
+    const wanted = `page ${number}`;
+    return [...document.querySelectorAll("ul.ngx-pagination a")].find(control =>
+      (control.textContent || "").replace(/\s+/g, " ").trim().toLowerCase() === wanted,
+    ) || null;
+  }
+
+  async function waitForPageRows(pageNumber, previousSignature = null) {
+    for (let attempt = 0; attempt < 120; attempt++) {
+      const rows = processRows();
+      const pageAfter = currentPageNumber();
+      const signature = rows.map(item => item.key).join('|');
+      if (rows.length > 0 && (pageNumber === null || pageAfter === pageNumber) &&
+        (previousSignature === null || signature !== previousSignature)) return rows;
+      await sleep(250);
+    }
+    return [];
+  }
+
+  async function goToFirstPage() {
     for (let attempt = 0; attempt < 20; attempt++) {
-      if (expectedFirst && processRows().some(row => row.key === expectedFirst)) return;
+      if (currentPageNumber() === 1) {
+        if ((await waitForPageRows(1)).length > 0) return true;
+      }
       const first = [...document.querySelectorAll("button, a, [role=button]")].find(control => {
         const label = (control.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
         return label === "page 1" || label === "1";
@@ -138,21 +165,24 @@
         continue;
       }
       first.click();
-      await sleep(800);
+      if ((await waitForPageRows(1)).length > 0) return true;
     }
+    return false;
+  }
+
+  async function advanceToNextPage(signature, pageBefore) {
+    const next = pageButton((pageBefore || 0) + 1) || nextButton();
+    if (!next) return false;
+    next.click();
+    const rows = await waitForPageRows(pageBefore === null ? null : pageBefore + 1, signature);
+    return rows.length > 0;
   }
 
   async function enumerateProcesses(targetKeys = [], marker = null) {
     const wanted = new Set((Array.isArray(targetKeys) ? targetKeys : []).map(String));
     await applyMarkerFilter(marker);
-    await goToFirstPage([...wanted]);
-    // A frozen lot is already bounded. Changing page size here triggers an
-    // asynchronous Angular reload that can move the grid away from page 1;
-    // keep the marker-filtered default page size for the bounded walk.
-    if (!wanted.size) {
-      await selectLargestPageSize();
-      await goToFirstPage([]);
-    }
+    await selectLargestPageSize();
+    if (!await goToFirstPage()) throw new Error("O e-Contas não carregou a primeira página para enumeração.");
     const all = new Map();
     let unchanged = 0;
     const seenSignatures = new Set();
@@ -168,11 +198,8 @@
       const signature = rows.map(item => item.key).join('|');
       if (seenSignatures.has(signature)) break;
       seenSignatures.add(signature);
-      next.click();
-      for (let attempt = 0; attempt < 30; attempt++) {
-        await sleep(200);
-        if (processRows().map(item => item.key).join('|') !== signature) break;
-      }
+      const pageBefore = currentPageNumber();
+      if (!await advanceToNextPage(signature, pageBefore)) break;
     }
     return [...all.values()];
   }
