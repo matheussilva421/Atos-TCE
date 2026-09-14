@@ -46,6 +46,16 @@ function Assert-ThrowsContaining {
     Assert-True ($null -ne $message -and $message.Contains($ExpectedText)) ($Name + ' (mensagem: ' + $message + ')')
 }
 
+function Get-TestPowerShellPath {
+    $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    if (Test-Path -LiteralPath $windowsPowerShell -PathType Leaf) { return $windowsPowerShell }
+    $bundledPowerShell = Join-Path $PSHOME 'pwsh.exe'
+    if (Test-Path -LiteralPath $bundledPowerShell -PathType Leaf) { return $bundledPowerShell }
+    $command = Get-Command pwsh.exe -ErrorAction SilentlyContinue
+    if ($null -ne $command) { return $command.Source }
+    throw 'Nenhum PowerShell executável foi encontrado para o fixture de processos.'
+}
+
 function Invoke-Analyzer {
     param(
         [string]$AnalyzerPath,
@@ -131,6 +141,7 @@ $symlinkManifestDirectoryTarget = Join-Path $outsideRoot 'manifest-leaf-target-d
 $aclManifestPath = Join-Path $fixtureRoot 'acl-result.json'
 $aclDirectory = Join-Path $fixtureRoot 'acl-denied'
 $aclApplied = $false
+$testPowerShell = Get-TestPowerShellPath
 
 New-Item -ItemType Directory -Path $fixtureRoot, $outsideTarget -Force | Out-Null
 
@@ -862,7 +873,7 @@ try {
         $sourceHolderReadyPath = Join-Path $outsideRoot 'source-holder.ready'
         $sourceHolderErrorPath = Join-Path $outsideRoot 'source-holder.err'
         if (Test-Path -LiteralPath $sourceHolderReadyPath) { Remove-Item -LiteralPath $sourceHolderReadyPath -Force }
-        $sourceHolder = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $sourceHolderScript, '-Path', $sourceLockFile, '-ReadyPath', $sourceHolderReadyPath) -PassThru -WindowStyle Hidden -RedirectStandardError $sourceHolderErrorPath
+        $sourceHolder = Start-Process -FilePath $testPowerShell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $sourceHolderScript, '-Path', $sourceLockFile, '-ReadyPath', $sourceHolderReadyPath) -PassThru -WindowStyle Hidden -RedirectStandardError $sourceHolderErrorPath
         try {
             $sourceHolderReady = $false
             $sourceHolderDeadline = (Get-Date).AddSeconds(20)
@@ -905,7 +916,7 @@ try {
         $profileHolderReadyPath = Join-Path $outsideRoot 'profile-holder.ready'
         $profileHolderErrorPath = Join-Path $outsideRoot 'profile-holder.err'
         if (Test-Path -LiteralPath $profileHolderReadyPath) { Remove-Item -LiteralPath $profileHolderReadyPath -Force }
-        $profileHolder = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $sourceHolderScript, '-Path', $lockedProfileFile, '-ReadyPath', $profileHolderReadyPath) -PassThru -WindowStyle Hidden -RedirectStandardError $profileHolderErrorPath
+        $profileHolder = Start-Process -FilePath $testPowerShell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $sourceHolderScript, '-Path', $lockedProfileFile, '-ReadyPath', $profileHolderReadyPath) -PassThru -WindowStyle Hidden -RedirectStandardError $profileHolderErrorPath
         try {
             $profileHolderReady = $false
             $profileHolderDeadline = (Get-Date).AddSeconds(20)
@@ -1114,7 +1125,7 @@ Start-Sleep -Seconds 120
             $holderOutput = Join-Path $outsideRoot 'lock-holder.out'
             $holderError = Join-Path $outsideRoot 'lock-holder.err'
             if (Test-Path -LiteralPath $holderOutput -PathType Leaf) { Remove-Item -LiteralPath $holderOutput -Force }
-            $holder = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $holderScript, '-Name', $lockName, '-ReadyPath', $holderOutput) -PassThru -WindowStyle Hidden -RedirectStandardError $holderError
+            $holder = Start-Process -FilePath $testPowerShell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $holderScript, '-Name', $lockName, '-ReadyPath', $holderOutput) -PassThru -WindowStyle Hidden -RedirectStandardError $holderError
             try {
                 $holderReady = $false
                 $holderDeadline = (Get-Date).AddSeconds(20)

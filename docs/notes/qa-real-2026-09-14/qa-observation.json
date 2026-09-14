@@ -1,0 +1,50 @@
+{
+  "schema": "qa-real-observation-v1",
+  "run_id": "qa-20260914T144623037910Z",
+  "qa_run_schema": "qa-run-v1",
+  "status": "BLOCKED",
+  "safety_mode": "observe_only",
+  "browser": "Chromium QA",
+  "package": {
+    "name": "TCE-Meus-Processos-165-e-Setor-156-Extensao-Reorganizada-2026-09-14",
+    "sha256": "aa847c5173ba0bfee0a9b75ee0b0374eabddca8036c707f4f11406ca2a9478cf"
+  },
+  "evidence": {
+    "events": 83,
+    "frame_navigated": 31,
+    "click": 25,
+    "change": 9,
+    "beforeunload": 14,
+    "console": 2,
+    "submit_attempt": 0,
+    "sensitive_values_recorded": false,
+    "routes": [
+      "https://novaarearestrita.tce.rn.gov.br/telaPrincipalMenu.asp",
+      "https://novaarearestrita.tce.rn.gov.br/SISTEMAS/Processo/ProcessonoSetor.asp",
+      "https://novaarearestrita.tce.rn.gov.br/SISTEMAS/PROCESSO/ComplementarAto.asp",
+      "https://novaarearestrita.tce.rn.gov.br/frameSession.asp",
+      "https://novaarearestrita.tce.rn.gov.br/telaDeTrabalho.asp"
+    ],
+    "controls": [
+      "cmbMarcadorFiltro",
+      "escolha",
+      "txtModalidade",
+      "txtFundamentoLegal",
+      "txtDataDOE",
+      "txtCargo",
+      "txtMatricula",
+      "txtDataNascimento"
+    ]
+  },
+  "errors": [
+    "ERR_INVALID_AUTH_CREDENTIALS",
+    "ERR_ABORTED",
+    "pageerror_hash_only"
+  ],
+  "artifacts": {
+    "trace": "dados-locais/qa-runs/qa-20260914T144623037910Z/trace.zip",
+    "har": "dados-locais/qa-runs/qa-20260914T144623037910Z/network.har",
+    "run": "dados-locais/qa-runs/qa-20260914T144623037910Z/run.json"
+  },
+  "decision": "No send, conclusion, signature, routing, or automatic retry occurred; repeat controlled preflight before any PASS_REAL classification."
+}

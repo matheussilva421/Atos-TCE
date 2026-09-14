@@ -178,7 +178,9 @@ def _assert_manifest_contract(test: unittest.TestCase) -> dict[str, Any]:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     test.assertEqual(manifest["manifest_version"], 3)
     test.assertEqual(manifest["version"], "1.1.0")
-    test.assertEqual(manifest["permissions"], ["storage", "sidePanel", "alarms"])
+    test.assertEqual(
+        manifest["permissions"], ["storage", "sidePanel", "alarms", "webNavigation"]
+    )
     test.assertEqual(
         manifest["host_permissions"], [f"https://{ALLOWED_HOST}/*", "http://127.0.0.1/*"]
     )
@@ -464,6 +466,8 @@ def run_smoke(
                     _assert_protected_form_unchanged(before, after)
                     test_state["negative_controls_unchanged"] = True
 
+                    panel.locator("#tab-details").click()
+                    panel.locator("#review-section").wait_for(state="visible")
                     panel.locator("#reviewed-checkbox").check()
                     panel.wait_for_function(
                         "() => document.querySelector('#reviewed-checkbox').checked === true",
@@ -491,6 +495,8 @@ def run_smoke(
                             );
                         }"""
                     )
+                    panel.locator("#tab-principal").click()
+                    panel.locator("#panel-tab-principal").wait_for(state="visible")
                     panel.locator("#refresh-button").click()
                     panel.wait_for_function(
                         "() => document.querySelector('#identity-status').textContent.includes('103487/2023')",
@@ -512,6 +518,8 @@ def run_smoke(
                         }"""
                     )
                     assert incomplete == 0
+                    panel.locator("#tab-principal").click()
+                    panel.locator("#panel-tab-principal").wait_for(state="visible")
                     panel.locator("#refresh-button").click()
                     panel.wait_for_function(
                         "() => document.querySelector('#screen-status').dataset.state === 'blocked'",
@@ -549,6 +557,8 @@ def run_smoke(
                         timeout=_remaining_timeout_ms(deadline, "restored panel navigation"),
                     )
                     restored_page.bring_to_front()
+                    restored_panel.locator("#tab-details").click()
+                    restored_panel.locator("#review-section").wait_for(state="visible")
                     restored_panel.wait_for_function(
                         "() => document.querySelector('#dataset-status').textContent.includes('2 processos')",
                         timeout=_remaining_timeout_ms(deadline, "persisted dataset"),

@@ -1,0 +1,462 @@
+{
+  "schema": "qa-matrix-v1",
+  "created_at": "2026-09-14T13:55:42.904560+00:00",
+  "metadata": {
+    "run_id": "qa-20260914T135539Z",
+    "commit": "46587c68b3f4199ec5afe3497cda49af1a5bc911",
+    "package_sha256": "aa847c5173ba0bfee0a9b75ee0b0374eabddca8036c707f4f11406ca2a9478cf"
+  },
+  "summary": {
+    "BLOCKED": 5,
+    "NOT_TESTED": 20,
+    "PASS_FIXTURE": 2,
+    "PASS_PACKAGE": 3
+  },
+  "functions": [
+    {
+      "id": "offline.package-audit",
+      "function": "Auditoria do pacote privado",
+      "layer": "offline",
+      "risk": "low",
+      "automation": "automatic",
+      "status": "PASS_PACKAGE",
+      "evidence": "bounded command exit code and output hash",
+      "execution": {
+        "matrix_id": "offline.package-audit",
+        "status": "PASS_PACKAGE",
+        "returncode": 0,
+        "timed_out": false,
+        "duration_seconds": 30.614,
+        "output_sha256": "d3e61eda1d806732a1657a82c2ac3e4c144435682d3f6aafe8924f545202680a",
+        "output_lines": 10,
+        "evidence": "bounded command exit code and output hash"
+      }
+    },
+    {
+      "id": "offline.launcher-bat",
+      "function": "INICIAR.bat delega ao launcher",
+      "layer": "offline",
+      "risk": "low",
+      "automation": "automatic",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "offline.launcher-bat",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "offline.launcher-cmd",
+      "function": "INICIAR.cmd inicia ponte/menu",
+      "layer": "offline",
+      "risk": "medium",
+      "automation": "fixture",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "offline.launcher-cmd",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "offline.review-launcher",
+      "function": "ABRIR-MESA.cmd abre mesa HTTP",
+      "layer": "offline",
+      "risk": "low",
+      "automation": "fixture",
+      "status": "PASS_FIXTURE",
+      "evidence": "bounded command exit code and output hash",
+      "execution": {
+        "matrix_id": "offline.review-launcher",
+        "status": "PASS_FIXTURE",
+        "returncode": 0,
+        "timed_out": false,
+        "duration_seconds": 0.125,
+        "output_sha256": "604cb3943ff3d1bad4a67e6a47942fcd30f2ff4738abb626c81151ab2008aef1",
+        "output_lines": 1,
+        "evidence": "bounded command exit code and output hash"
+      }
+    },
+    {
+      "id": "offline.menu-1",
+      "function": "Menu 1 coleta processos",
+      "layer": "offline",
+      "risk": "high",
+      "automation": "fixture",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "offline.menu-1",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "offline.menu-2",
+      "function": "Menu 2 analisa acervo",
+      "layer": "offline",
+      "risk": "medium",
+      "automation": "fixture",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "offline.menu-2",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "offline.menu-3",
+      "function": "Menu 3 gera HTML",
+      "layer": "offline",
+      "risk": "medium",
+      "automation": "fixture",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "offline.menu-3",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "offline.menu-4",
+      "function": "Menu 4 exporta dados da extensão",
+      "layer": "offline",
+      "risk": "high",
+      "automation": "fixture",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "offline.menu-4",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "offline.menu-5",
+      "function": "Menu 5 abre HTML existente",
+      "layer": "offline",
+      "risk": "low",
+      "automation": "fixture",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "offline.menu-5",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "offline.menu-6",
+      "function": "Menu 6 executa fluxo completo",
+      "layer": "offline",
+      "risk": "high",
+      "automation": "fixture",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "offline.menu-6",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "offline.menu-7",
+      "function": "Menu 7 diagnostica runtime",
+      "layer": "offline",
+      "risk": "low",
+      "automation": "automatic",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "offline.menu-7",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "offline.menu-8",
+      "function": "Menu 8 reseta acervo",
+      "layer": "offline",
+      "risk": "critical",
+      "automation": "fixture",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "offline.menu-8",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "offline.menu-9",
+      "function": "Menu 9 verifica ponte",
+      "layer": "offline",
+      "risk": "medium",
+      "automation": "fixture",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "offline.menu-9",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "offline.menu-10",
+      "function": "Menu 10 adquire lote congelado",
+      "layer": "offline",
+      "risk": "high",
+      "automation": "fixture",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "offline.menu-10",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "web.collections",
+      "function": "Alternância Meus Processos/Setor",
+      "layer": "web",
+      "risk": "medium",
+      "automation": "automatic",
+      "status": "PASS_PACKAGE",
+      "evidence": "bounded command exit code and output hash",
+      "execution": {
+        "matrix_id": "web.collections",
+        "status": "PASS_PACKAGE",
+        "returncode": 0,
+        "timed_out": false,
+        "duration_seconds": 0.642,
+        "output_sha256": "eba317546f68f557e319bdcbee40053825139a6b746cc0eaeac7261d6a8ba479",
+        "output_lines": 18,
+        "evidence": "bounded command exit code and output hash"
+      }
+    },
+    {
+      "id": "web.pdf-viewer",
+      "function": "Viewer PDF e evidências",
+      "layer": "web",
+      "risk": "medium",
+      "automation": "automatic",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "web.pdf-viewer",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "web.review-controls",
+      "function": "Busca, zoom, rotação, splitter e concluído",
+      "layer": "web",
+      "risk": "medium",
+      "automation": "automatic",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "web.review-controls",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "extension.panel-tabs",
+      "function": "Cinco abas do painel",
+      "layer": "extension",
+      "risk": "low",
+      "automation": "automatic",
+      "status": "PASS_PACKAGE",
+      "evidence": "bounded command exit code and output hash",
+      "execution": {
+        "matrix_id": "extension.panel-tabs",
+        "status": "PASS_PACKAGE",
+        "returncode": 0,
+        "timed_out": false,
+        "duration_seconds": 1.514,
+        "output_sha256": "9b051ff22c72a3fbc95383f232b601d2248d273b6753eaa974f946e3753a6ac7",
+        "output_lines": 390,
+        "evidence": "bounded command exit code and output hash"
+      }
+    },
+    {
+      "id": "extension.dataset",
+      "function": "Importação e atualização do lote",
+      "layer": "extension",
+      "risk": "high",
+      "automation": "fixture",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "extension.dataset",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "extension.search-review",
+      "function": "Pesquisa manual e Revisado",
+      "layer": "extension",
+      "risk": "medium",
+      "automation": "automatic",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "extension.search-review",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "extension.fill",
+      "function": "Preencher campos disponíveis",
+      "layer": "extension",
+      "risk": "critical",
+      "automation": "fixture",
+      "status": "PASS_FIXTURE",
+      "evidence": "bounded command exit code and output hash",
+      "execution": {
+        "matrix_id": "extension.fill",
+        "status": "PASS_FIXTURE",
+        "returncode": 0,
+        "timed_out": false,
+        "duration_seconds": 13.629,
+        "output_sha256": "6d6f072c71bb7cef21136032f313955650c53dae4fb4a9b5283dfca02ec7c2d4",
+        "output_lines": 5,
+        "evidence": "bounded command exit code and output hash"
+      }
+    },
+    {
+      "id": "extension.override",
+      "function": "Override individual de divergência",
+      "layer": "extension",
+      "risk": "critical",
+      "automation": "fixture",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "extension.override",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "extension.bridge",
+      "function": "Pareamento e reconexão da ponte",
+      "layer": "extension",
+      "risk": "high",
+      "automation": "fixture",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "extension.bridge",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "extension.analysis",
+      "function": "Análise do marcador e criação de lotes",
+      "layer": "extension",
+      "risk": "high",
+      "automation": "fixture",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "extension.analysis",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "extension.execution",
+      "function": "Execução, pausa, retomada e histórico",
+      "layer": "extension",
+      "risk": "critical",
+      "automation": "fixture",
+      "status": "NOT_TESTED",
+      "evidence": "no execution evidence",
+      "execution": {
+        "matrix_id": "extension.execution",
+        "status": "NOT_TESTED",
+        "evidence": "no execution evidence"
+      }
+    },
+    {
+      "id": "portal.observation",
+      "function": "Fluxo humano observado na Área Restrita",
+      "layer": "portal",
+      "risk": "high",
+      "automation": "manual",
+      "status": "BLOCKED",
+      "evidence": "human checkpoint required",
+      "execution": {
+        "matrix_id": "portal.observation",
+        "status": "BLOCKED",
+        "evidence": "human checkpoint required"
+      }
+    },
+    {
+      "id": "portal.marker",
+      "function": "Marcador já selecionado e paginação",
+      "layer": "portal",
+      "risk": "high",
+      "automation": "manual",
+      "status": "BLOCKED",
+      "evidence": "human checkpoint required",
+      "execution": {
+        "matrix_id": "portal.marker",
+        "status": "BLOCKED",
+        "evidence": "human checkpoint required"
+      }
+    },
+    {
+      "id": "portal.form",
+      "function": "Interessado, formulário e preflight",
+      "layer": "portal",
+      "risk": "critical",
+      "automation": "manual",
+      "status": "BLOCKED",
+      "evidence": "human checkpoint required",
+      "execution": {
+        "matrix_id": "portal.form",
+        "status": "BLOCKED",
+        "evidence": "human checkpoint required"
+      }
+    },
+    {
+      "id": "portal.reversible-fill",
+      "function": "Preenchimento reversível supervisionado",
+      "layer": "portal",
+      "risk": "critical",
+      "automation": "manual",
+      "status": "BLOCKED",
+      "evidence": "human checkpoint required",
+      "execution": {
+        "matrix_id": "portal.reversible-fill",
+        "status": "BLOCKED",
+        "evidence": "human checkpoint required"
+      }
+    },
+    {
+      "id": "portal.send-gate",
+      "function": "Gate futuro de conclusão/envio",
+      "layer": "portal",
+      "risk": "critical",
+      "automation": "manual",
+      "status": "BLOCKED",
+      "evidence": "human checkpoint required",
+      "execution": {
+        "matrix_id": "portal.send-gate",
+        "status": "BLOCKED",
+        "evidence": "human checkpoint required"
+      }
+    }
+  ]
+}

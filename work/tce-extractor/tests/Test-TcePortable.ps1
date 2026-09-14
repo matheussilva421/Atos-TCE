@@ -431,7 +431,8 @@ $driverText = Get-Content (Join-Path $PSScriptRoot '..\portable\TcePortal.Driver
 Assert-True (-not ($launcherText -match '103439|582647')) 'launcher nao fixa numeros de processos antigos'
 Assert-True ($launcherText -match '\[void\]\(\$socket\.ConnectAsync') 'conexão CDP não despeja objeto técnico no terminal'
 Assert-True (-not ($launcherText -match 'window\.open')) 'downloader não abre a área restrita para baixar documentos'
-Assert-True ($launcherText -match 'Invoke-TceDownload[\s\S]*\$session\.token') 'downloader usa o token da sessão do portal'
+Assert-True ($launcherText -match 'Invoke-TceBrowserDownload[\s\S]*\$script:PortalToken') 'download autenticado usa o token efêmero da sessão'
+Assert-True ($launcherText -match 'fetch\([\s\S]*arrayBuffer\(\)[\s\S]*FromBase64String') 'download autenticado ocorre na página e materializa bytes localmente'
 Assert-True ($driverText -match '/api/Processo/.*?/eventos' -and $driverText -match '/api/informacao/') 'driver usa APIs de eventos e arquivos'
 
 $baselineTestRoot = Join-Path ([IO.Path]::GetTempPath()) ("tce-portable-baseline-test-" + [guid]::NewGuid().ToString('N'))

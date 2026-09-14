@@ -168,8 +168,37 @@ function Invoke-TceBrowserDownload {
         [Parameter(Mandatory)][string]$Destination,
         [AllowNull()][object]$Context = $null
     )
+    $documentId = [string](Get-TceObjectPropertyValue -InputObject $Document -Name 'id' -Default 'sem-id')
+    $documentUrl = [string](Get-TceObjectPropertyValue -InputObject $Document -Name 'url' -Default '')
+    if (-not $documentUrl) { throw "Documento $documentId não possui endereço de download." }
     $token = if ($null -ne $Context) { [string]$Context } else { [string]$script:PortalToken }
-    Invoke-TceDownload -Document $Document -Destination $Destination -Token $token
+    $payload = @{ url = $documentUrl; token = $token } | ConvertTo-Json -Compress
+    $expression = @'
+(async () => {
+    const input = __TCE_DOWNLOAD_PAYLOAD__;
+    const headers = input.token ? { Authorization: input.token } : {};
+    const response = await fetch(input.url, { credentials: 'include', headers });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const buffer = await response.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+    }
+    return btoa(binary);
+})()
+'@ -replace '__TCE_DOWNLOAD_PAYLOAD__', $payload
+    $result = Send-TceCdp -Method 'Runtime.evaluate' -Params @{ expression = $expression; awaitPromise = $true; returnByValue = $true }
+    if ($result.exceptionDetails) {
+        $description = $result.exceptionDetails.exception.description
+        if (-not $description) { $description = $result.exceptionDetails.text }
+        throw "Download autenticado do documento $documentId falhou: $description"
+    }
+    $encoded = [string]$result.result.value
+    if ([string]::IsNullOrWhiteSpace($encoded)) { throw "Download autenticado do documento $documentId retornou conteúdo vazio." }
+    $bytes = [Convert]::FromBase64String($encoded)
+    [IO.File]::WriteAllBytes($Destination, $bytes)
+    if ((Get-Item -LiteralPath $Destination).Length -eq 0) { throw "O arquivo baixado do documento $documentId veio vazio." }
 }
 
 function Wait-TcePage {

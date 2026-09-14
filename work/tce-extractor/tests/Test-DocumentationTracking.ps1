@@ -34,8 +34,14 @@ function Test-GitIgnored {
     # $RelativePath contra o diretorio de trabalho herdado e um caminho como
     # README.md passa a significar work/tce-extractor/README.md quando o
     # verificador executa este teste a partir de work/tce-extractor.
-    & git -C $RepoRoot -c safe.directory=$RepoRoot check-ignore -q -- $RelativePath 2>$null
-    return ($LASTEXITCODE -eq 0)
+    & git -C $RepoRoot check-ignore -q -- $RelativePath 2>$null
+    $gitExitCode = $LASTEXITCODE
+    if ($gitExitCode -ne 0) {
+        $gitArguments = @('-C', $RepoRoot, '-c', "safe.directory=$RepoRoot", 'check-ignore', '-q', '--', $RelativePath)
+        & git @gitArguments 2>$null
+        $gitExitCode = $LASTEXITCODE
+    }
+    return ($gitExitCode -eq 0)
 }
 
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
@@ -70,7 +76,7 @@ $hasCanonicalPlan = Test-Path -LiteralPath $canonicalPlanPath -PathType Leaf
 $sourcePlanIgnored = Test-GitIgnored $projectRoot $sourcePlan
 $reconciliationRegistered = $false
 
-if ($hasSourcePlan -and $hasCanonicalPlan) {
+if ($hasCanonicalPlan) {
     $canonicalText = [IO.File]::ReadAllText($canonicalPlanPath)
     $reconciliationRegistered =
         # Keep the matcher ASCII-safe for a UTF-8 script without a BOM under

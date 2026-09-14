@@ -19,6 +19,8 @@ from tce_extractor import (
 )
 from portable.app.evidence_geometry import read_page_words
 
+REPO_ROOT = Path(__file__).resolve().parent
+
 
 class DocumentClassificationTests(unittest.TestCase):
     def test_extract_fields_preserves_original_quote_and_geometry_when_words_are_supplied(self):
@@ -322,6 +324,18 @@ class FieldExtractionTests(unittest.TestCase):
         except ImportError as error:  # pragma: no cover - environment guard
             self.skipTest(str(error))
 
+        runtime_candidates = sorted(
+            (REPO_ROOT.parent.parent / "Versions").glob(
+                "TCE-*/runtime/tesseract/tesseract.exe"
+            )
+        )
+        if not runtime_candidates:
+            self.skipTest("runtime Tesseract empacotado não encontrado")
+        tesseract_path = runtime_candidates[0]
+        tessdata_path = tesseract_path.parent / "tessdata"
+        if not (tessdata_path / "por.traineddata").is_file():
+            self.skipTest("tessdata por.traineddata não encontrado")
+
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             image_path = root / "scan.png"
@@ -337,8 +351,8 @@ class FieldExtractionTests(unittest.TestCase):
 
             pages = extract_pdf_pages(
                 pdf_path,
-                tesseract=r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-                tessdata_dir=Path(__file__).parent.parent / "tessdata",
+                tesseract=str(tesseract_path),
+                tessdata_dir=tessdata_path,
             )
 
             self.assertIn("PROFESSOR", " ".join(pages).upper())
