@@ -71,5 +71,5 @@
 - Branch: `main`.
 - Commit: `508a506 feat: add integral QA workflow and validated fixes`.
 - Push: realizado para `origin/main`.
-- Commit atual: `b21762e fix: classify isolated QA browser diagnostics`.
-- Push atual: realizado para `origin/main`.
+- Commits do bloco: `b21762e fix: classify isolated QA browser diagnostics` e `a6427a4 docs: refresh final QA matrix`.
+- Push mais recente: `a6427a4` realizado para `origin/main`.
