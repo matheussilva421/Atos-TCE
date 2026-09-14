@@ -84,9 +84,9 @@ class PanelAccessibilityContractTests(unittest.TestCase):
             with self.subTest(target=target):
                 self.assertIn(target, parser.ids)
 
-    def test_safety_copy_remains_explicit_in_static_markup(self) -> None:
+    def test_panel_removes_fixed_warning_but_keeps_automation_safety_copy(self) -> None:
         markup = (PANEL / "panel.html").read_text(encoding="utf-8")
-        self.assertIn("não envia o ato", markup)
+        self.assertNotIn('id="permanent-warning"', markup)
         self.assertIn("não preenche nem envia atos", markup)
 
 

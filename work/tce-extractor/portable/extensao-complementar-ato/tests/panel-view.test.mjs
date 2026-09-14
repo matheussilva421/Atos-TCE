@@ -125,16 +125,15 @@ test("renderPanelView uses accessible tabs, text nodes, and field cards", () => 
     replaceChildren(...children) { this.children = children; },
     append(...children) { this.children = [...(this.children ?? []), ...children]; },
   };
-  const model = buildPanelViewModel({ record: record(), snapshot: snapshot(), matches: {}, selectedView: "current" });
+  const model = buildPanelViewModel({ record: record(), snapshot: snapshot(), matches: {}, selectedView: "details" });
   renderPanelView(root, model, {});
   const text = JSON.stringify(root);
-  assert.match(text, /Ato atual/u);
   assert.match(text, /Fundamentação/u);
   assert.match(text, /Professor/u);
   assert.doesNotMatch(text, /innerHTML/u);
 });
 
-test("renderPanelView moves tab focus with arrows, Home, and End", () => {
+test("renderPanelView renders execution and history into their separate tab roots", () => {
   const root = {
     ownerDocument: {
       createElement(tagName) {
@@ -155,17 +154,12 @@ test("renderPanelView moves tab focus with arrows, Home, and End", () => {
     replaceChildren(...children) { this.children = children; },
     append(...children) { this.children = [...(this.children ?? []), ...children]; },
   };
-  const selected = [];
-  renderPanelView(root, buildPanelViewModel({ record: record(), snapshot: snapshot() }), {
-    selectView(view) { selected.push(view); },
-  });
-  const tabs = root.children[0].children;
-  tabs[0].dispatchEvent({ type: "keydown", key: "ArrowRight", preventDefault() {} });
-  assert.equal(selected.at(-1), "execution");
-  tabs[1].dispatchEvent({ type: "keydown", key: "End", preventDefault() {} });
-  assert.equal(selected.at(-1), "history");
-  tabs[2].dispatchEvent({ type: "keydown", key: "Home", preventDefault() {} });
-  assert.equal(selected.at(-1), "current");
+  const execution = { ...root, children: [] };
+  const history = { ...root, children: [] };
+  renderPanelView({ details: root, execution, history }, buildPanelViewModel({ record: record(), snapshot: snapshot() }), {});
+  assert.match(JSON.stringify(root), /Fundamentação/u);
+  assert.match(JSON.stringify(execution), /Execução/u);
+  assert.match(JSON.stringify(history), /Histórico/u);
 });
 
 test("history renders persisted chronology separately from report download", () => {
@@ -199,8 +193,11 @@ test("history renders persisted chronology separately from report download", () 
       events: [{ type: "queue_frozen", created_at: "2026-09-09T12:01:00Z" }],
     }],
   });
-  renderPanelView(root, model, { openDetails() {}, openReport() {} });
-  const text = JSON.stringify(root);
+  const details = { ...root, children: [] };
+  const execution = { ...root, children: [] };
+  const history = { ...root, children: [] };
+  renderPanelView({ details, execution, history }, model, { openDetails() {}, openReport() {} });
+  const text = JSON.stringify(history);
   assert.match(text, /Abrir detalhes/u);
   assert.match(text, /queue_frozen/u);
   assert.match(text, /HTML/u);

@@ -32,6 +32,14 @@ const BRIDGE_ELEMENT_IDS = Object.freeze([
   "bridge-status",
 ]);
 
+const PANEL_TABS = Object.freeze([
+  ["principal", "tab-principal", "panel-tab-principal"],
+  ["details", "tab-details", "panel-tab-details"],
+  ["automation", "tab-automation", "panel-tab-automation"],
+  ["execution", "tab-execution", "panel-tab-execution"],
+  ["history", "tab-history", "panel-tab-history"],
+]);
+
 const FIELD_LABELS = Object.freeze({
   modalidade: "Modalidade",
   fundamento_legal: "Fundamento legal",
@@ -56,7 +64,6 @@ const ELEMENT_IDS = Object.freeze([
   "panel-message",
   "result-summary",
   "last-imported",
-  "permanent-warning",
   "import-button",
   "dataset-file",
   "refresh-button",
@@ -243,7 +250,7 @@ export function createPanelApp({
     automationPollTimer: null,
     bridgeSequence: 0,
     bridgeContext: null,
-    selectedView: "current",
+    selectedView: "principal",
     matches: {},
     automationRun: null,
     automationCapabilities: null,
@@ -269,6 +276,24 @@ export function createPanelApp({
     state.message = text(message);
     if (error) elements["panel-message"].setAttribute("data-state", "error");
     else elements["panel-message"].setAttribute("data-state", "info");
+  }
+
+  function updatePanelTabs() {
+    for (const [view, tabId, panelId] of PANEL_TABS) {
+      const tab = documentRef?.getElementById?.(tabId);
+      const panel = documentRef?.getElementById?.(panelId);
+      if (tab) {
+        tab.setAttribute("aria-selected", String(state.selectedView === view));
+        tab.setAttribute("tabindex", state.selectedView === view ? "0" : "-1");
+      }
+      if (panel) panel.hidden = state.selectedView !== view;
+    }
+  }
+
+  function selectPanelView(view) {
+    if (PANEL_TABS.some(([candidate]) => candidate === view)) state.selectedView = view;
+    else state.selectedView = "principal";
+    render();
   }
 
   function setBlocking(kind, screenText, identityText = "") {
@@ -345,6 +370,7 @@ export function createPanelApp({
 
   function render() {
     const focusedId = typeof documentRef?.activeElement?.id === "string" ? documentRef.activeElement.id : "";
+    updatePanelTabs();
     const datasetStatus = state.dataset
       ? `Lote importado: ${state.dataset.batch.process_count} processo${state.dataset.batch.process_count === 1 ? "" : "s"}, ${state.dataset.batch.record_count} interessado${state.dataset.batch.record_count === 1 ? "" : "s"}.`
       : "Nenhum lote importado.";
@@ -368,7 +394,6 @@ export function createPanelApp({
       selectedView: state.selectedView,
       mode: state.automationMode,
     });
-    elements["permanent-warning"].textContent = viewModel.banner.message;
     if (!state.message) elements["panel-message"].textContent = "";
     else elements["panel-message"].textContent = state.message;
     const canFill = Boolean(state.dataset && state.record && state.previewIdentity
@@ -415,11 +440,13 @@ export function createPanelApp({
     elements["review-section"].hidden = !state.record;
     elements["reviewed-checkbox"].disabled = !state.record;
     elements["reviewed-checkbox"].checked = state.reviewed;
-    renderPanelView(elements["preview-body"], viewModel, {
+    renderPanelView({
+      details: elements["preview-body"],
+      execution: documentRef?.getElementById?.("execution-body"),
+      history: documentRef?.getElementById?.("history-body"),
+    }, viewModel, {
       selectView(view) {
-        state.selectedView = view;
-        void chromeApi?.storage?.session?.set?.({ [STORAGE_KEYS.PANEL_VIEW]: view });
-        render();
+        selectPanelView(view);
       },
       overrideField(field) { void overrideField(field); },
       start() { void startAutomation(); },
@@ -958,7 +985,7 @@ export function createPanelApp({
       }
       const session = chromeApi?.storage?.session;
       const stored = typeof session?.get === "function"
-        ? await session.get([STORAGE_KEYS.AUTOMATION_RUN_ID, STORAGE_KEYS.PANEL_VIEW])
+        ? await session.get([STORAGE_KEYS.AUTOMATION_RUN_ID])
         : {};
       const storedRunId = stored?.[STORAGE_KEYS.AUTOMATION_RUN_ID];
       let run = null;
@@ -973,7 +1000,6 @@ export function createPanelApp({
       }
       state.automationRun = run;
       state.automationMode = run ? "automatic" : "manual";
-      if (typeof stored?.[STORAGE_KEYS.PANEL_VIEW] === "string") state.selectedView = stored[STORAGE_KEYS.PANEL_VIEW];
       if (run && typeof session?.set === "function") await session.set({ [STORAGE_KEYS.AUTOMATION_RUN_ID]: run.run_id });
       render();
       return true;
@@ -1274,10 +1300,26 @@ export function createPanelApp({
       elements["reviewed-checkbox"].addEventListener("change", () => { void setReviewed(elements["reviewed-checkbox"].checked); });
       bridgeElements["bridge-pairing-code"]?.addEventListener("input", () => { render(); });
       bridgeElements["bridge-connect-button"]?.addEventListener("click", () => { void beginBridgeConnection(); });
+      for (const [view, tabId] of PANEL_TABS) {
+        const tab = documentRef?.getElementById?.(tabId);
+        if (!tab) continue;
+        tab.addEventListener("click", () => { selectPanelView(view); });
+        tab.addEventListener("keydown", (event) => {
+          const key = event?.key;
+          if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(key)) return;
+          event.preventDefault?.();
+          const index = PANEL_TABS.findIndex(([candidate]) => candidate === state.selectedView);
+          const nextIndex = key === "Home" ? 0
+            : key === "End" ? PANEL_TABS.length - 1
+              : (index + (["ArrowRight", "ArrowDown"].includes(key) ? 1 : -1) + PANEL_TABS.length) % PANEL_TABS.length;
+          const nextView = PANEL_TABS[nextIndex][0];
+          selectPanelView(nextView);
+          documentRef?.getElementById?.(PANEL_TABS[nextIndex][1])?.focus?.();
+        });
+      }
       state.listenersInstalled = true;
     }
-    const storedView = await chromeApi?.storage?.session?.get?.([STORAGE_KEYS.PANEL_VIEW]);
-    if (typeof storedView?.[STORAGE_KEYS.PANEL_VIEW] === "string") state.selectedView = storedView[STORAGE_KEYS.PANEL_VIEW];
+    state.selectedView = "principal";
     await restoreBridge();
     try {
       const stored = await chromeApi?.storage?.local?.get?.([STORAGE_KEYS.DATASET]);

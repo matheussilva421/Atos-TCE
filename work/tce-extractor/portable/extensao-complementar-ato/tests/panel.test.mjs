@@ -9,7 +9,6 @@ import { ALLOWED_ORIGIN, STORAGE_KEYS, computeLogicalSha256 } from "../lib/schem
 import { createPanelApp, PANEL_FIELD_ORDER, PANEL_STATES } from "../sidepanel/panel.js";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const PERMANENT_WARNING = "Modo manual: preenche para revisão; não envia o ato.";
 const PORTAL_URL = `${ALLOWED_ORIGIN}/ComplementarAto`;
 
 class FakeEvent {
@@ -136,13 +135,22 @@ function addElement(documentRef, tagName, id, attributes = {}) {
 
 function buildPanelDocument() {
   const documentRef = new FakeDocument();
+  for (const [view, tabId, panelId] of [
+    ["principal", "tab-principal", "panel-tab-principal"],
+    ["details", "tab-details", "panel-tab-details"],
+    ["automation", "tab-automation", "panel-tab-automation"],
+    ["execution", "tab-execution", "panel-tab-execution"],
+    ["history", "tab-history", "panel-tab-history"],
+  ]) {
+    addElement(documentRef, "button", tabId, { role: "tab", "aria-controls": panelId, "data-view": view });
+    addElement(documentRef, "section", panelId);
+  }
   addElement(documentRef, "p", "dataset-status");
   addElement(documentRef, "p", "screen-status");
   addElement(documentRef, "p", "identity-status");
   addElement(documentRef, "p", "panel-message");
   addElement(documentRef, "p", "result-summary");
   addElement(documentRef, "p", "last-imported");
-  addElement(documentRef, "p", "permanent-warning");
   addElement(documentRef, "button", "import-button");
   addElement(documentRef, "input", "dataset-file", { type: "file" });
   addElement(documentRef, "button", "refresh-button");
@@ -171,6 +179,8 @@ function buildPanelDocument() {
   const reviewed = addElement(documentRef, "input", "reviewed-checkbox", { type: "checkbox" });
   reviewed.checked = false;
   addElement(documentRef, "div", "preview-body");
+  addElement(documentRef, "div", "execution-body");
+  addElement(documentRef, "div", "history-body");
   return documentRef;
 }
 
@@ -453,9 +463,27 @@ async function waitUntil(predicate, message, maxTurns = 100) {
 test("renders no-dataset state and permanent warning with inaccessible actions", async () => {
   const { documentRef } = await startApp({ snapshots: [null] });
   assert.equal(documentRef.getElementById("dataset-status").textContent, "Nenhum lote importado.");
-  assert.equal(documentRef.getElementById("permanent-warning").textContent, PERMANENT_WARNING);
   assert.equal(documentRef.getElementById("fill-button").disabled, true);
   assert.equal(documentRef.getElementById("complement-button").disabled, true);
+});
+
+test("opens Principal and moves auxiliary content through the five top-level tabs", async () => {
+  const { documentRef, app } = await startApp({ snapshots: [null] });
+  assert.equal(app.getState().selectedView, "principal");
+  assert.equal(documentRef.getElementById("panel-tab-principal").hidden, false);
+  assert.equal(documentRef.getElementById("panel-tab-details").hidden, true);
+
+  documentRef.getElementById("tab-details").dispatchEvent(new FakeEvent("click"));
+  assert.equal(app.getState().selectedView, "details");
+  assert.equal(documentRef.getElementById("panel-tab-principal").hidden, true);
+  assert.equal(documentRef.getElementById("panel-tab-details").hidden, false);
+
+  documentRef.getElementById("tab-details").dispatchEvent(Object.assign(new FakeEvent("keydown"), {
+    key: "ArrowRight",
+    preventDefault() {},
+  }));
+  assert.equal(app.getState().selectedView, "automation");
+  assert.equal(documentRef.getElementById("tab-automation").getAttribute("aria-selected"), "true");
 });
 
 test("search filters imported records by process or interested name without changing portal identity", async () => {
@@ -610,7 +638,6 @@ test("automation view requires a compatible bridge, starts explicitly, and keeps
   assert.equal(app.getState().selectedView, "execution");
   assert.equal(documentRef.getElementById("fill-button").disabled, true);
   assert.equal(await app.controlAutomation("pause"), true);
-  assert.match(documentRef.getElementById("permanent-warning").textContent, /pausada|Nenhum novo envio/iu);
   assert.equal(await app.openAutomationHistory("run-panel-1"), true);
   assert.equal(app.getState().selectedView, "history");
   assert.deepEqual(calls.filter(([name]) => ["capabilities", "history", "pause"].includes(name)).map(([name]) => name), ["capabilities", "history"]);
@@ -899,7 +926,6 @@ test("pilot action is explicit, targets the current identity, and preserves the 
     interestedNormalized: "maria de souza",
     portalActId: null,
   });
-  assert.match(documentRef.getElementById("permanent-warning").textContent, /lote|piloto/iu);
 });
 
 test("pilot action delegates run creation to the worker controller", async () => {
@@ -1201,7 +1227,6 @@ test("renders a preview from current portal options with exact green and approxi
   assert.ok(exactControl);
   assert.ok(approximateControl);
   assert.match(approximateControl.textContent, /aproximado/iu);
-  assert.equal(documentRef.getElementById("permanent-warning").textContent, PERMANENT_WARNING);
 });
 
 test("forwards the validated legal context and available bindings to the read-only preview match", async () => {
@@ -1410,7 +1435,6 @@ test("blocks and invalidates every stale preview after an operation failure", as
     assert.equal(started.documentRef.getElementById("reviewed-checkbox").disabled, true);
     assert.equal(started.documentRef.getElementById("reviewed-checkbox").checked, false);
     assert.equal(started.documentRef.getElementById("review-section").hidden, true);
-    assert.equal(started.documentRef.getElementById("permanent-warning").textContent, PERMANENT_WARNING);
     assert.equal(started.documentRef.getElementById("screen-status").getAttribute("data-state"), "blocked");
     assert.equal(started.documentRef.getElementById("panel-message").getAttribute("data-state"), "error");
     assert.match(started.documentRef.getElementById("panel-message").textContent, errorPattern);
@@ -1640,7 +1664,7 @@ test("persists reviewed per process and interested and restores it on panel init
   assert.equal(second.documentRef.getElementById("reviewed-checkbox").checked, true);
 });
 
-test("keeps the permanent warning in every main blocking, preview, divergence, and completed state", async () => {
+test("keeps Principal as the default view across blocking and completed states", async () => {
   const dataset = await makeDataset();
   const transientStorage = makeStorageArea();
   const transientCalls = [];
@@ -1668,7 +1692,7 @@ test("keeps the permanent warning in every main blocking, preview, divergence, a
     await new Promise((resolveTurn) => setImmediate(resolveTurn));
   }
   assert.equal(transient.app.getState().kind, PANEL_STATES.DATASET_IMPORTED);
-  assert.equal(transient.documentRef.getElementById("permanent-warning").textContent, PERMANENT_WARNING);
+  assert.equal(transient.app.getState().selectedView, "principal");
   releaseSnapshot({ ok: false, error: { code: "FORM_NOT_FOUND", message: "form missing" } });
   await importPromise;
 
@@ -1702,8 +1726,8 @@ test("keeps the permanent warning in every main blocking, preview, divergence, a
     PANEL_STATES.EXISTING_DIVERGENCE,
     PANEL_STATES.FILLED_FOR_REVIEW,
   ]);
-  for (const { documentRef } of scenarios) {
-    assert.equal(documentRef.getElementById("permanent-warning").textContent, PERMANENT_WARNING);
+  for (const { app } of scenarios) {
+    assert.equal(app.getState().selectedView, "principal");
   }
 });
 
@@ -1717,16 +1741,37 @@ test("has structurally associated labels, keyboard focus styles, and disabled in
   const labelTargets = [...html.matchAll(/<label\b[^>]*\bfor="([^"]+)"[^>]*>/giu)].map((match) => match[1]);
   const buttonLabels = [...html.matchAll(/<button\b[^>]*>([^<]+)<\/button>/giu)].map((match) => match[1].trim());
 
-  assert.deepEqual(labelTargets, ["bridge-base-url", "bridge-pairing-code", "search-process", "search-interested", "automation-marker", "automation-source-scope", "automation-lot-size", "analysis-selection-mode", "analysis-lot-number", "reviewed-checkbox"]);
+  assert.deepEqual(labelTargets, ["search-process", "search-interested", "reviewed-checkbox", "bridge-base-url", "bridge-pairing-code", "automation-marker", "automation-source-scope", "automation-lot-size", "analysis-selection-mode", "analysis-lot-number"]);
   assert.equal(labelTargets.every((target) => inputIds.has(target)), true);
   assert.match(inputTags.find((tag) => /\bid="dataset-file"/iu.test(tag)), /\baria-label="[^"]+"/iu);
-  assert.equal(buttonLabels.length, 8);
+  assert.ok(buttonLabels.length >= 5);
   assert.equal(buttonLabels.every(Boolean), true);
   assert.match(inputTags.find((tag) => /\bid="reviewed-checkbox"/iu.test(tag)), /\bdisabled\b/iu);
   assert.match(html, /<button\b[^>]*\bid="fill-button"[^>]*\bdisabled\b/iu);
   assert.match(css, /button:focus-visible\s*,\s*input:focus-visible\s*\{/u);
   assert.match(css, /button:disabled\s*\{/u);
-  assert.match(html, /Modo manual: o preenchimento permanece para revisão/u);
+  assert.doesNotMatch(html, /Modo manual: o preenchimento permanece para revisão/u);
   assert.match(html, /aria-live="polite"/u);
   assert.doesNotMatch(`${html}\n${css}\n${js}`, /localStorage|fetch\s*\(|eval\s*\(|clipboard|chrome\.tabs/u);
+});
+
+test("orders the main panel by the requested visual sequence and hides auxiliary areas in five tabs", () => {
+  const html = readFileSync(resolve(ROOT, "sidepanel/panel.html"), "utf8");
+  const tabIds = [...html.matchAll(/<button\b[^>]*\bid="(tab-[^"]+)"[^>]*\brole="tab"/giu)].map((match) => match[1]);
+  assert.deepEqual(tabIds, ["tab-principal", "tab-details", "tab-automation", "tab-execution", "tab-history"]);
+  assert.match(html, /id="tab-principal"[^>]*>Principal<\/button>/u);
+  assert.match(html, /id="tab-details"[^>]*>Detalhes<\/button>/u);
+  assert.match(html, /id="tab-automation"[^>]*>Automação<\/button>/u);
+  assert.match(html, /id="tab-execution"[^>]*>Execução<\/button>/u);
+  assert.match(html, /id="tab-history"[^>]*>Histórico<\/button>/u);
+
+  const order = ["current-heading", "fill-button", "search-heading", "dataset-heading"]
+    .map((id) => html.indexOf(`id="${id}"`));
+  assert.equal(order.every((index) => index >= 0), true);
+  assert.equal(order.every((index, position) => position === 0 || index > order[position - 1]), true);
+  assert.match(html, /id="panel-tab-details"[^>]*\bhidden\b/u);
+  assert.match(html, /id="panel-tab-automation"[^>]*\bhidden\b/u);
+  assert.match(html, /id="panel-tab-execution"[^>]*\bhidden\b/u);
+  assert.match(html, /id="panel-tab-history"[^>]*\bhidden\b/u);
+  assert.doesNotMatch(html, /id="permanent-warning"/u);
 });

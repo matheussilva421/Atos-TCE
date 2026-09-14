@@ -11,90 +11,115 @@
     <main id="panel-root">
       <header class="panel-header">
         <h1>Complementar Ato</h1>
-        <p id="permanent-warning" class="safety-warning" role="status" aria-live="polite">Modo manual: preenche para revisão; não envia o ato.</p>
       </header>
 
-      <section class="panel-section" aria-labelledby="dataset-heading">
-        <h2 id="dataset-heading">Dados documentais</h2>
-        <button id="import-button" type="button">Importar/Atualizar dados</button>
-        <input id="dataset-file" type="file" accept="application/json,.json" hidden aria-label="Escolha o arquivo JSON do lote">
-        <p id="dataset-status" aria-live="polite">Nenhum lote importado.</p>
-        <p id="last-imported"></p>
+      <nav id="panel-tabs" class="panel-tabs" role="tablist" aria-label="Áreas do painel">
+        <button id="tab-principal" type="button" role="tab" aria-controls="panel-tab-principal" aria-selected="true" tabindex="0">Principal</button>
+        <button id="tab-details" type="button" role="tab" aria-controls="panel-tab-details" aria-selected="false" tabindex="-1">Detalhes</button>
+        <button id="tab-automation" type="button" role="tab" aria-controls="panel-tab-automation" aria-selected="false" tabindex="-1">Automação</button>
+        <button id="tab-execution" type="button" role="tab" aria-controls="panel-tab-execution" aria-selected="false" tabindex="-1">Execução</button>
+        <button id="tab-history" type="button" role="tab" aria-controls="panel-tab-history" aria-selected="false" tabindex="-1">Histórico</button>
+      </nav>
+
+      <section id="panel-tab-principal" class="tab-panel" role="tabpanel" aria-labelledby="tab-principal">
+        <section class="panel-section current-section" aria-labelledby="current-heading">
+          <h2 id="current-heading">Tela atual</h2>
+          <p id="screen-status" role="status" aria-live="polite">Aguardando a tela Complementar Ato.</p>
+          <p id="identity-status" aria-live="polite">Processo e interessado ainda não detectados.</p>
+          <button id="refresh-button" type="button">Atualizar prévia</button>
+        </section>
+
+        <section class="panel-section fill-section" aria-labelledby="fill-heading">
+          <h2 id="fill-heading" class="visually-hidden">Preenchimento</h2>
+          <button id="fill-button" type="button" disabled>Preencher campos disponíveis</button>
+          <p id="result-summary" aria-live="polite"></p>
+        </section>
+
+        <section class="panel-section" aria-labelledby="search-heading">
+          <h2 id="search-heading">Pesquisa manual</h2>
+          <p>Use a pesquisa para localizar um registro divergente. Ela não seleciona nem altera o interessado no portal.</p>
+          <label for="search-process">Número do processo</label>
+          <input id="search-process" type="search" placeholder="Ex.: 103439/2023" disabled>
+          <label for="search-interested">Nome do interessado</label>
+          <input id="search-interested" type="search" placeholder="Ex.: Maria de Souza" disabled>
+          <div id="search-results" role="listbox" aria-live="polite">Importe um lote para pesquisar.</div>
+          <p id="search-selection" aria-live="polite"></p>
+        </section>
+
+        <section class="panel-section" aria-labelledby="dataset-heading">
+          <h2 id="dataset-heading">Dados documentais</h2>
+          <button id="import-button" type="button">Importar/Atualizar dados</button>
+          <input id="dataset-file" type="file" accept="application/json,.json" hidden aria-label="Escolha o arquivo JSON do lote">
+          <p id="dataset-status" aria-live="polite">Nenhum lote importado.</p>
+          <p id="last-imported"></p>
+        </section>
       </section>
 
-      <section class="panel-section current-section" aria-labelledby="current-heading">
-        <h2 id="current-heading">Tela atual</h2>
-        <p id="screen-status" role="status" aria-live="polite">Aguardando a tela Complementar Ato.</p>
-        <p id="identity-status" aria-live="polite">Processo e interessado ainda não detectados.</p>
-        <button id="refresh-button" type="button">Atualizar prévia</button>
-      </section>
-
-      <section class="panel-section" aria-labelledby="bridge-heading">
-        <h2 id="bridge-heading">Mesa local (opcional)</h2>
-        <p>Use o código exibido pelo iniciador portátil. A ponte acompanha seleção e conclusão; não preenche nem envia atos.</p>
-        <label for="bridge-base-url">Endereço local</label>
-        <input id="bridge-base-url" type="url" value="http://127.0.0.1:18743" autocomplete="off">
-        <label for="bridge-pairing-code">Código de pareamento</label>
-        <input id="bridge-pairing-code" type="text" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" placeholder="8 dígitos" autocomplete="one-time-code">
-        <button id="bridge-connect-button" type="button">Conectar mesa local</button>
-        <p id="bridge-status" role="status" aria-live="polite">Mesa local desconectada; o modo JSON manual continua disponível.</p>
-      </section>
-
-      <section class="panel-section" aria-labelledby="search-heading">
-        <h2 id="search-heading">Pesquisa manual</h2>
-        <p>Use a pesquisa para localizar um registro divergente. Ela não seleciona nem altera o interessado no portal.</p>
-        <label for="search-process">Número do processo</label>
-        <input id="search-process" type="search" placeholder="Ex.: 103439/2023" disabled>
-        <label for="search-interested">Nome do interessado</label>
-        <input id="search-interested" type="search" placeholder="Ex.: Maria de Souza" disabled>
-        <div id="search-results" role="listbox" aria-live="polite">Importe um lote para pesquisar.</div>
-        <p id="search-selection" aria-live="polite"></p>
-      </section>
-
-      <section class="panel-section" aria-labelledby="preview-heading">
-        <h2 id="preview-heading">Prévia</h2>
+      <section id="panel-tab-details" class="tab-panel panel-section" role="tabpanel" aria-labelledby="tab-details" hidden>
+        <h2 id="details-heading">Detalhes do ato</h2>
         <p id="panel-message" role="status" aria-live="polite"></p>
-        <button id="fill-button" type="button" disabled>Preencher campos disponíveis</button>
-        <p class="manual-mode-note">Modo manual: o preenchimento permanece para revisão.</p>
         <button id="complement-button" type="button" disabled>Sinalizar Complementar Ato</button>
-        <p id="result-summary" aria-live="polite"></p>
-        <label for="automation-marker">Marcador do lote (opcional)</label>
-        <input id="automation-marker" type="text" maxlength="256" placeholder="Ex.: PROFESSOR - IPERN - 2 RUBRICAS" autocomplete="off">
-        <p class="manual-mode-note">Se preenchido, o worker seleciona esse marcador, confirma o resultado e percorre todas as páginas antes de congelar a fila.</p>
-        <label for="automation-source-scope">Origem dos processos</label>
-        <select id="automation-source-scope">
-          <option value="sector_finalistic" selected>Proc./ Doc. Eletrônicos (processos no setor / finalísticos)</option>
-          <option value="my_processes">Meus Processos Eletrônicos</option>
-        </select>
-        <p class="manual-mode-note">A origem deve estar aberta na Área Restrita; a execução pausa se a rota autenticada não corresponder à opção.</p>
-        <label for="automation-lot-size">Tamanho do lote</label>
-        <select id="automation-lot-size">
-          <option value="50" selected>50 processos</option>
-          <option value="100">100 processos</option>
-          <option value="1">1 processo (piloto)</option>
-        </select>
-        <p class="manual-mode-note">O tamanho fica registrado no contrato do lote; a fila ainda é congelada antes de qualquer preenchimento.</p>
-        <button id="analysis-preview-button" type="button" disabled>Analisar pendências no portal</button>
-        <button id="analysis-lots-button" type="button" disabled>Criar lotes da análise</button>
-        <p id="analysis-status" role="status" aria-live="polite">Nenhuma análise da lista autenticada foi criada.</p>
-        <label for="analysis-selection-mode">Aquisição congelada</label>
-        <select id="analysis-selection-mode" aria-label="Aquisição congelada">
-          <option value="all" selected>Todos os lotes</option>
-          <option value="lot">Um lote</option>
-        </select>
-        <label for="analysis-lot-number">Número do lote (quando escolher um lote)</label>
-        <select id="analysis-lot-number" disabled aria-label="Lote para baixar e preparar OCR"></select>
-        <button id="analysis-acquisition-button" type="button" disabled>Baixar, aplicar OCR e atualizar a mesa</button>
-        <p id="analysis-acquisition-status" role="status" aria-live="polite">Nenhuma aquisição de lote iniciada.</p>
-        <label><input id="automation-auto-submit" type="checkbox"> Concluir automaticamente os atos elegíveis</label>
-        <p class="manual-mode-note">Disponível somente com qualificação de envio ativa. Ao marcar, o portal será preenchido e o botão Complementar Ato será clicado após a confirmação acima.</p>
+        <section id="review-section" class="review-section" aria-labelledby="review-heading" hidden>
+          <h3 id="review-heading">Revisão</h3>
+          <input id="reviewed-checkbox" type="checkbox" disabled>
+          <label for="reviewed-checkbox">Revisado</label>
+        </section>
         <div id="preview-body" class="panel-view-root"></div>
       </section>
 
-      <section id="review-section" class="panel-section review-section" aria-labelledby="review-heading" hidden>
-        <h2 id="review-heading">Revisão</h2>
-        <input id="reviewed-checkbox" type="checkbox" disabled>
-        <label for="reviewed-checkbox">Revisado</label>
+      <section id="panel-tab-automation" class="tab-panel" role="tabpanel" aria-labelledby="tab-automation" hidden>
+        <section class="panel-section" aria-labelledby="bridge-heading">
+          <h2 id="bridge-heading">Mesa local (opcional)</h2>
+          <p>Use o código exibido pelo iniciador portátil. A ponte acompanha seleção e conclusão; não preenche nem envia atos.</p>
+          <label for="bridge-base-url">Endereço local</label>
+          <input id="bridge-base-url" type="url" value="http://127.0.0.1:18743" autocomplete="off">
+          <label for="bridge-pairing-code">Código de pareamento</label>
+          <input id="bridge-pairing-code" type="text" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" placeholder="8 dígitos" autocomplete="one-time-code">
+          <button id="bridge-connect-button" type="button">Conectar mesa local</button>
+          <p id="bridge-status" role="status" aria-live="polite">Mesa local desconectada; o modo JSON manual continua disponível.</p>
+        </section>
+
+        <section class="panel-section" aria-labelledby="automation-heading">
+          <h2 id="automation-heading">Preparação da automação</h2>
+          <label for="automation-marker">Marcador do lote (opcional)</label>
+          <input id="automation-marker" type="text" maxlength="256" placeholder="Ex.: PROFESSOR - IPERN - 2 RUBRICAS" autocomplete="off">
+          <p class="manual-mode-note">Se preenchido, o worker seleciona esse marcador, confirma o resultado e percorre todas as páginas antes de congelar a fila.</p>
+          <label for="automation-source-scope">Origem dos processos</label>
+          <select id="automation-source-scope">
+            <option value="sector_finalistic" selected>Proc./ Doc. Eletrônicos (processos no setor / finalísticos)</option>
+            <option value="my_processes">Meus Processos Eletrônicos</option>
+          </select>
+          <p class="manual-mode-note">A origem deve estar aberta na Área Restrita; a execução pausa se a rota autenticada não corresponder à opção.</p>
+          <label for="automation-lot-size">Tamanho do lote</label>
+          <select id="automation-lot-size">
+            <option value="50" selected>50 processos</option>
+            <option value="100">100 processos</option>
+            <option value="1">1 processo (piloto)</option>
+          </select>
+          <p class="manual-mode-note">O tamanho fica registrado no contrato do lote; a fila ainda é congelada antes de qualquer preenchimento.</p>
+          <button id="analysis-preview-button" type="button" disabled>Analisar pendências no portal</button>
+          <button id="analysis-lots-button" type="button" disabled>Criar lotes da análise</button>
+          <p id="analysis-status" role="status" aria-live="polite">Nenhuma análise da lista autenticada foi criada.</p>
+          <label for="analysis-selection-mode">Aquisição congelada</label>
+          <select id="analysis-selection-mode" aria-label="Aquisição congelada">
+            <option value="all" selected>Todos os lotes</option>
+            <option value="lot">Um lote</option>
+          </select>
+          <label for="analysis-lot-number">Número do lote (quando escolher um lote)</label>
+          <select id="analysis-lot-number" disabled aria-label="Lote para baixar e preparar OCR"></select>
+          <button id="analysis-acquisition-button" type="button" disabled>Baixar, aplicar OCR e atualizar a mesa</button>
+          <p id="analysis-acquisition-status" role="status" aria-live="polite">Nenhuma aquisição de lote iniciada.</p>
+          <label><input id="automation-auto-submit" type="checkbox"> Concluir automaticamente os atos elegíveis</label>
+          <p class="manual-mode-note">Disponível somente com qualificação de envio ativa. Ao marcar, o portal será preenchido e o botão Complementar Ato será clicado após a confirmação acima.</p>
+        </section>
+      </section>
+
+      <section id="panel-tab-execution" class="tab-panel panel-section" role="tabpanel" aria-labelledby="tab-execution" hidden>
+        <div id="execution-body" class="panel-view-root"></div>
+      </section>
+
+      <section id="panel-tab-history" class="tab-panel panel-section" role="tabpanel" aria-labelledby="tab-history" hidden>
+        <div id="history-body" class="panel-view-root"></div>
       </section>
     </main>
     <script type="module" src="panel.js"></script>

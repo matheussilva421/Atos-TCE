@@ -20,11 +20,7 @@ const FIELD_LABELS = Object.freeze({
   genero: "Gênero",
 });
 
-const TABS = Object.freeze([
-  ["current", "Ato atual", "panel-current"],
-  ["execution", "Execução", "panel-execution"],
-  ["history", "Histórico", "panel-history"],
-]);
+const PANEL_VIEWS = Object.freeze(["principal", "details", "automation", "execution", "history"]);
 
 const KIND_LABELS = Object.freeze({ exact: "exato", probable: "aproximado", tie: "empate", "missing-source": "pendente" });
 
@@ -112,7 +108,7 @@ export function buildPanelViewModel({
   history = [],
   historyNextCursor = null,
   connection = {},
-  selectedView = "current",
+  selectedView = "principal",
   mode = "manual",
 } = {}) {
   const identity = identityFrom({ record, snapshot });
@@ -135,7 +131,7 @@ export function buildPanelViewModel({
     { id: "report", label: "Ver relatório parcial", enabled: Boolean(run?.run_id), disabledReason: "Relatório indisponível sem execução." },
   ];
   return {
-    selectedView: TABS.some(([id]) => id === selectedView) ? selectedView : "current",
+    selectedView: PANEL_VIEWS.includes(selectedView) ? selectedView : "principal",
     identity,
     connection: {
       connected: connection.connected === true,
@@ -175,10 +171,8 @@ function buttonFor(documentRef, action, handlers) {
   return button;
 }
 
-function renderCurrent(documentRef, root, model, handlers) {
-  const section = element(documentRef, "section", "", { id: "panel-current", role: "tabpanel", "aria-labelledby": "tab-current" });
-  const mode = element(documentRef, "p", model.banner.message, { id: "mode-status", role: model.banner.tone === "error" ? "alert" : "status", "data-tone": model.banner.tone });
-  section.append(mode);
+function renderDetails(documentRef, root, model, handlers) {
+  const section = element(documentRef, "section", "", { id: "panel-details-view" });
   const identity = element(documentRef, "p", `${text(model.identity.processKey) || "Processo não detectado"} · ${text(model.identity.interestedOriginal) || "Interessado não detectado"}`, { class: "panel-identity" });
   const legal = element(documentRef, "section", "", { class: "foundation-trail" });
   legal.append(element(documentRef, "h2", "Fundamentação"));
@@ -206,7 +200,7 @@ function renderCurrent(documentRef, root, model, handlers) {
 }
 
 function renderExecution(documentRef, root, model, handlers) {
-  const section = element(documentRef, "section", "", { id: "panel-execution", role: "tabpanel", "aria-labelledby": "tab-execution" });
+  const section = element(documentRef, "section", "", { id: "panel-execution-view" });
   const summary = model.runSummary;
   section.append(element(documentRef, "h2", "Execução"));
   section.append(element(documentRef, "p", model.run?.status ? `Estado: ${model.run.status}` : "Nenhuma execução iniciada."));
@@ -225,7 +219,7 @@ function renderExecution(documentRef, root, model, handlers) {
 }
 
 function renderHistory(documentRef, root, model, handlers) {
-  const section = element(documentRef, "section", "", { id: "panel-history", role: "tabpanel", "aria-labelledby": "tab-history" });
+  const section = element(documentRef, "section", "", { id: "panel-history-view" });
   section.append(element(documentRef, "h2", "Histórico"));
   const list = element(documentRef, "div", "", { class: "history-list" });
   for (const run of model.history) {
@@ -259,32 +253,19 @@ function renderHistory(documentRef, root, model, handlers) {
 }
 
 export function renderPanelView(root, model, handlers = {}) {
-  if (!root?.ownerDocument?.createElement || typeof root.replaceChildren !== "function") return;
-  const documentRef = root.ownerDocument;
-  root.replaceChildren();
-  const tabs = element(documentRef, "nav", "", { class: "panel-tabs", role: "tablist", "aria-label": "Áreas do painel" });
-  const tabNodes = [];
-  for (const [id, label, panelId] of TABS) {
-    const tab = element(documentRef, "button", label, { id: `tab-${id}`, type: "button", role: "tab", "aria-controls": panelId, "aria-selected": String(model.selectedView === id), tabindex: model.selectedView === id ? "0" : "-1" });
-    if (typeof handlers.selectView === "function") tab.addEventListener("click", () => handlers.selectView(id));
-    tabNodes.push(tab);
-    tabs.append(tab);
+  const detailsRoot = root?.details ?? root;
+  const executionRoot = root?.execution ?? null;
+  const historyRoot = root?.history ?? null;
+  if (!detailsRoot?.ownerDocument?.createElement || typeof detailsRoot.replaceChildren !== "function") return;
+  const documentRef = detailsRoot.ownerDocument;
+  detailsRoot.replaceChildren();
+  renderDetails(documentRef, detailsRoot, model, handlers);
+  if (executionRoot?.ownerDocument?.createElement && typeof executionRoot.replaceChildren === "function") {
+    executionRoot.replaceChildren();
+    renderExecution(documentRef, executionRoot, model, handlers);
   }
-  for (const [index, tab] of tabNodes.entries()) {
-    tab.addEventListener("keydown", (event) => {
-      const key = event?.key;
-      if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(key)) return;
-      event.preventDefault?.();
-      const nextIndex = key === "Home" ? 0
-        : key === "End" ? tabNodes.length - 1
-          : (index + (["ArrowRight", "ArrowDown"].includes(key) ? 1 : -1) + tabNodes.length) % tabNodes.length;
-      const next = tabNodes[nextIndex];
-      next.focus?.();
-      handlers.selectView?.(TABS[nextIndex][0]);
-    });
+  if (historyRoot?.ownerDocument?.createElement && typeof historyRoot.replaceChildren === "function") {
+    historyRoot.replaceChildren();
+    renderHistory(documentRef, historyRoot, model, handlers);
   }
-  root.append(tabs);
-  if (model.selectedView === "execution") renderExecution(documentRef, root, model, handlers);
-  else if (model.selectedView === "history") renderHistory(documentRef, root, model, handlers);
-  else renderCurrent(documentRef, root, model, handlers);
 }
