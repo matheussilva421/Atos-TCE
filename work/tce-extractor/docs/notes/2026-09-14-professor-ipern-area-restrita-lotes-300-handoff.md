@@ -89,10 +89,11 @@ dependências fixadas, não um runtime embutido incompleto.
 
 ## Git e isolamento
 
-O checkout estava na branch `main`, com alterações locais anteriores a este
+O checkout está na branch `main`, com alterações locais anteriores a este
 handoff preservadas. A criação do worktree/branch isolado foi tentada e recusada
 porque `.git/refs` está somente leitura (`unable to create directory ...`). O
-trabalho permanece no checkout atual; ainda falta commit e push explícitos.
+trabalho permanece no checkout atual. O commit `5d50a75` foi criado e enviado
+com sucesso para `origin/main`.
 
 ## Pendências e retomada
 
@@ -104,8 +105,8 @@ trabalho permanece no checkout atual; ainda falta commit e push explícitos.
 3. Somente com o piloto verde, analisar as 1.128 chaves e apresentar a prévia.
 4. Confirmar cada lote produtivo de até 300 individualmente; interromper se a
    reconciliação exata do e-Contas encontrar ausência ou ambiguidade.
-5. Após os gates, verificar `git status`, adicionar somente os arquivos da
-   mudança com `git add --`, fazer commit nominal e `git push`.
+5. Para futuras alterações, verificar `git status`, adicionar somente os
+   arquivos da mudança com `git add --`, fazer commit nominal e `git push`.
 
 Para continuar, rode primeiro as suítes acima, inspecione o diff e só depois
 use a extensão em modo leitura. A Área Restrita e o e-Contas devem permanecer
