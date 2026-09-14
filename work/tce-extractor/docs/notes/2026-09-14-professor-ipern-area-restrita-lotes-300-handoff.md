@@ -151,6 +151,10 @@ esses arquivos de QA e os handoffs em `work/tce-extractor`.
 - uma retomada posterior encontrou o e-Contas autenticado, mas com o filtro
   exibindo `Nenhum Processo Encontrado` e `0 registros`; foi interrompida antes
   de persistir nova ordem ou baixar qualquer documento.
+- depois de uma recarga controlada, os marcadores não chegaram a carregar e a
+  aplicação recusou `PROFESSOR - IPERN` como marcador inexistente; a tentativa
+  foi encerrada antes de nova ordem/download. O acervo parcial ficou com 16
+  processos materializados, 135 PDFs e 123.639.551 bytes.
 
 O `TESTAR-PACOTE.ps1` ainda não pode aprovar este checkout porque o diretório
 `portable/runtime` não está materializado no repositório; o builder é o caminho
@@ -169,10 +173,11 @@ e este estado live do lote 1.
 
 ## Pendências e retomada
 
-1. Revalidar manualmente o marcador no e-Contas até a fotografia mostrar
-   processos; somente então retomar a fila do lote 1 e acompanhar os retries
-   502/503 até o término ou pausa fail-closed; conferir checkpoint, PDFs,
-   eventos, erros e relatório reconciliado.
+1. Aguardar/revalidar o serviço do e-Contas até os marcadores carregarem e
+   `PROFESSOR - IPERN` voltar a produzir uma fotografia não vazia; somente
+   então retomar a fila do lote 1 e acompanhar os retries 502/503 até o
+   término ou pausa fail-closed; conferir checkpoint, PDFs, eventos, erros e
+   relatório reconciliado.
 2. Executar o builder em staging reservado para materializar o runtime e rodar
    `portable/TESTAR-PACOTE.ps1` contra o pacote gerado; conferir manifest,
    hashes, CRC/extração limpa e allowlist.
