@@ -47,6 +47,9 @@ O arquivo fonte foi preservado. A importação real de
   segundos, exigir página numérica correta e assinatura não vazia/nova; isso
   corrigiu o bloqueio falso que ocorria durante a recarga assíncrona entre
   páginas;
+- downloader do lote ajustado para usar a requisição HTTP autenticada direta
+  do coletor ao host da URL temporária (`novaarearestrita.tce.rn.gov.br`),
+  evitando o `fetch` cross-origin que falhava no contexto do e-Contas;
 - leitor PowerShell da fila congelada atualizado para aceitar schema v3, com
   teste regressivo específico;
 - `autoSubmit=false` no fluxo de lista e nenhuma ação de preenchimento,
@@ -85,6 +88,8 @@ esses arquivos de QA e os handoffs em `work/tce-extractor`.
 - `tests/Test-TcePortable.ps1`: 122 aprovados, 0 falhas;
 - `tests/Test-TcePortable.ps1` após a correção do driver: 129 aprovados,
   0 falhas;
+- `tests/Test-TcePortable.ps1` após a correção cross-origin do downloader: 130
+  aprovados, 0 falhas;
 - `tests/Test-PortableMenu.ps1`: 91 aprovados, 0 falhas;
 - importação/relatório da planilha fonte: 1.317 linhas verificadas;
 - `git diff --check`: verde.
@@ -113,7 +118,12 @@ esses arquivos de QA e os handoffs em `work/tce-extractor`.
   foi ampliada para 30 segundos e a reprodução passou a enumerar 1.227/1.227;
 - execução do lote 1 iniciada com a fila congelada: ordem do portal 1.227,
   fila validada 300/300, sem download iniciado antes da reconciliação; no
-  último checkpoint observado estava em `[9/300]` e seguia em execução.
+  último checkpoint observado chegou a `[17/300]`; a tentativa foi
+  interrompida para corrigir o downloader e não gravou PDFs;
+- probe live do endpoint de documento: `/api/informacao/2032884/pdf` retornou
+  200 e uma URL temporária; GET autenticado direto nessa URL retornou
+  `200 application/pdf` com 2.338.007 bytes, confirmando que a falha anterior
+  era CORS da origem, não ausência do documento.
 
 O `TESTAR-PACOTE.ps1` ainda não pode aprovar este checkout porque o diretório
 `portable/runtime` não está materializado no repositório; o builder é o caminho
@@ -132,8 +142,9 @@ e este estado live do lote 1.
 
 ## Pendências e retomada
 
-1. Acompanhar a execução do lote 1 até o término ou pausa fail-closed; conferir
-   checkpoint, PDFs, eventos, erros e relatório reconciliado.
+1. Retomar e acompanhar a execução do lote 1 até o término ou pausa
+   fail-closed; conferir checkpoint, PDFs, eventos, erros e relatório
+   reconciliado.
 2. Executar o builder em staging reservado para materializar o runtime e rodar
    `portable/TESTAR-PACOTE.ps1` contra o pacote gerado; conferir manifest,
    hashes, CRC/extração limpa e allowlist.

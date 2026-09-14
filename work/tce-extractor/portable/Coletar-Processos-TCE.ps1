@@ -534,7 +534,7 @@ try {
             }
             $downloader = {
                 param($document, $destination, $context)
-                Invoke-TceBrowserDownload -Document $document -Destination $destination -Context $context
+                Invoke-TceDownload -Document $document -Destination $destination -Token $script:PortalToken
             }
             $result = Sync-TceProcessManifest -Manifest $manifest -ArchiveRoot $Destino -MaxDownloads 1 -Downloader $downloader -DownloaderContext $null
             $totals.downloaded += $result.downloaded

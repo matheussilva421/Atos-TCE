@@ -493,6 +493,7 @@ Assert-True ($launcherText -match '\[void\]\(\$socket\.ConnectAsync') 'conexão 
 Assert-True (-not ($launcherText -match 'window\.open')) 'downloader não abre a área restrita para baixar documentos'
 Assert-True ($launcherText -match 'Invoke-TceBrowserDownload[\s\S]*\$script:PortalToken') 'download autenticado usa o token efêmero da sessão'
 Assert-True ($launcherText -match 'fetch\([\s\S]*arrayBuffer\(\)[\s\S]*FromBase64String') 'download autenticado ocorre na página e materializa bytes localmente'
+Assert-True ($launcherText -match 'Invoke-TceDownload -Document \$document -Destination \$destination -Token \$script:PortalToken') 'download temporário cruza a origem com requisição autenticada direta'
 Assert-True ($driverText -match '/api/Processo/.*?/eventos' -and $driverText -match '/api/informacao/') 'driver usa APIs de eventos e arquivos'
 
 $baselineTestRoot = Join-Path ([IO.Path]::GetTempPath()) ("tce-portable-baseline-test-" + [guid]::NewGuid().ToString('N'))
