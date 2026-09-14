@@ -50,6 +50,9 @@ O arquivo fonte foi preservado. A importação real de
 - downloader do lote ajustado para usar a requisição HTTP autenticada direta
   do coletor ao host da URL temporária (`novaarearestrita.tce.rn.gov.br`),
   evitando o `fetch` cross-origin que falhava no contexto do e-Contas;
+- por solicitação do usuário, documentos cujo resumo normalizado é `Capa` são
+  ignorados; outros eventos e documentos continuam elegíveis. Arquivos de capa
+  eventualmente baixados antes dessa decisão não foram apagados.
 - leitor PowerShell da fila congelada atualizado para aceitar schema v3, com
   teste regressivo específico;
 - `autoSubmit=false` no fluxo de lista e nenhuma ação de preenchimento,
@@ -90,6 +93,8 @@ esses arquivos de QA e os handoffs em `work/tce-extractor`.
   0 falhas;
 - `tests/Test-TcePortable.ps1` após a correção cross-origin do downloader: 130
   aprovados, 0 falhas;
+- `tests/Test-TcePortable.ps1` após a regra de ignorar capas: 132 aprovados,
+  0 falhas;
 - `tests/Test-PortableMenu.ps1`: 91 aprovados, 0 falhas;
 - importação/relatório da planilha fonte: 1.317 linhas verificadas;
 - `git diff --check`: verde.
@@ -124,6 +129,10 @@ esses arquivos de QA e os handoffs em `work/tce-extractor`.
   200 e uma URL temporária; GET autenticado direto nessa URL retornou
   `200 application/pdf` com 2.338.007 bytes, confirmando que a falha anterior
   era CORS da origem, não ausência do documento.
+- duas tentativas do lote foram pausadas para corrigir a origem do download e
+  a regra de capas; a segunda chegou a 6/300 e acumulou 18 PDFs antes da
+  pausa. A próxima retomada usa a mesma fila/checkpoint e não deve rebaixar
+  capas.
 
 O `TESTAR-PACOTE.ps1` ainda não pode aprovar este checkout porque o diretório
 `portable/runtime` não está materializado no repositório; o builder é o caminho

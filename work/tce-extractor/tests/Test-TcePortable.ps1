@@ -495,6 +495,8 @@ Assert-True ($launcherText -match 'Invoke-TceBrowserDownload[\s\S]*\$script:Port
 Assert-True ($launcherText -match 'fetch\([\s\S]*arrayBuffer\(\)[\s\S]*FromBase64String') 'download autenticado ocorre na página e materializa bytes localmente'
 Assert-True ($launcherText -match 'Invoke-TceDownload -Document \$document -Destination \$destination -Token \$script:PortalToken') 'download temporário cruza a origem com requisição autenticada direta'
 Assert-True ($driverText -match '/api/Processo/.*?/eventos' -and $driverText -match '/api/informacao/') 'driver usa APIs de eventos e arquivos'
+Assert-True ($driverText -match "normalizeMarker\(info\.resumo \|\| ''\) === 'CAPA'") 'driver identifica semanticamente documentos de capa'
+Assert-True ($driverText -match 'if \(info &&[\s\S]*?&& !isCover\)') 'driver ignora capas sem descartar outros documentos do evento'
 
 $baselineTestRoot = Join-Path ([IO.Path]::GetTempPath()) ("tce-portable-baseline-test-" + [guid]::NewGuid().ToString('N'))
 $baselineDirectory = Join-Path $baselineTestRoot 'baseline-directory'

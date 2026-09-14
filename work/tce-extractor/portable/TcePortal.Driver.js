@@ -228,8 +228,9 @@
 
     for (const event of events) {
       const info = event.informacao || null;
+      const isCover = !!(info && normalizeMarker(info.resumo || '') === 'CAPA');
       const documents = [];
-      if (info && (event.idInformacao || info.idInformacao)) {
+      if (info && (event.idInformacao || info.idInformacao) && !isCover) {
         const infoId = event.idInformacao || info.idInformacao;
         try {
           const pdf = await requestJson(`/api/informacao/${infoId}/pdf`);
