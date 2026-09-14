@@ -39,9 +39,10 @@
 
 ## GitHub e retomada
 
-- Antes do commit, conferir `git status`, `git diff --check` e o hash do ZIP.
-- Fazer commit das alterações da extensão, testes, handoff e checksum.
-- Fazer push para `origin/main` conforme as instruções do projeto.
+- `git diff --cached --check`: aprovado antes do commit.
+- Commit criado: `285755a` (`feat: reorganize extension side panel`).
+- Push concluído para `origin/main`.
+- O checksum `.zip.sha256` permanece como artefato local; o ZIP e o checksum estão no diretório `outputs/` e não fazem parte do commit.
 - Se for necessário revisar a interface, abrir o ZIP extraído e iniciar o fluxo portátil por HTTP; não usar `file://` para a mesa offline.
 
 ## Pendências
