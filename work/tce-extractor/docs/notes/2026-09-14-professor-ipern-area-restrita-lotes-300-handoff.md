@@ -53,6 +53,9 @@ O arquivo fonte foi preservado. A importação real de
 - por solicitação do usuário, documentos cujo resumo normalizado é `Capa` são
   ignorados; outros eventos e documentos continuam elegíveis. Arquivos de capa
   eventualmente baixados antes dessa decisão não foram apagados.
+- indisponibilidade transitória do endpoint `/api/Processo` passou a ter até
+  quatro tentativas com backoff de 1/3/8 segundos, restritas a HTTP 502/503;
+  códigos 400/401/403/429 continuam sem retry silencioso.
 - leitor PowerShell da fila congelada atualizado para aceitar schema v3, com
   teste regressivo específico;
 - `autoSubmit=false` no fluxo de lista e nenhuma ação de preenchimento,
@@ -95,6 +98,8 @@ esses arquivos de QA e os handoffs em `work/tce-extractor`.
   aprovados, 0 falhas;
 - `tests/Test-TcePortable.ps1` após a regra de ignorar capas: 132 aprovados,
   0 falhas;
+- `tests/Test-TcePortable.ps1` após o retry limitado para 502/503: 134
+  aprovados, 0 falhas;
 - `tests/Test-PortableMenu.ps1`: 91 aprovados, 0 falhas;
 - importação/relatório da planilha fonte: 1.317 linhas verificadas;
 - `git diff --check`: verde.
@@ -133,6 +138,11 @@ esses arquivos de QA e os handoffs em `work/tce-extractor`.
   a regra de capas; a segunda chegou a 6/300 e acumulou 18 PDFs antes da
   pausa. A próxima retomada usa a mesma fila/checkpoint e não deve rebaixar
   capas.
+- uma execução completa com a rede elevada reconciliou 1.227 processos e
+  percorreu 300/300 da fila; concluiu 101 downloads novos, 28 reutilizações e
+  291 falhas de HTTP 502 posteriores do endpoint de processo. O acervo contém
+  os PDFs já obtidos e os erros estão preservados para retomada; nenhum ato foi
+  enviado.
 
 O `TESTAR-PACOTE.ps1` ainda não pode aprovar este checkout porque o diretório
 `portable/runtime` não está materializado no repositório; o builder é o caminho
@@ -151,9 +161,9 @@ e este estado live do lote 1.
 
 ## Pendências e retomada
 
-1. Retomar e acompanhar a execução do lote 1 até o término ou pausa
-   fail-closed; conferir checkpoint, PDFs, eventos, erros e relatório
-   reconciliado.
+1. Retomar a fila do lote 1 após a recuperação do endpoint e acompanhar os
+   retries 502/503 até o término ou pausa fail-closed; conferir checkpoint,
+   PDFs, eventos, erros e relatório reconciliado.
 2. Executar o builder em staging reservado para materializar o runtime e rodar
    `portable/TESTAR-PACOTE.ps1` contra o pacote gerado; conferir manifest,
    hashes, CRC/extração limpa e allowlist.

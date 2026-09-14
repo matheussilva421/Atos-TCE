@@ -9,9 +9,16 @@
   const authHeaders = currentUser && currentUser.token ? { Authorization: currentUser.token } : {};
 
   async function requestJson(path) {
-    const response = await fetch(path, { credentials: 'include', headers: { Accept: 'application/json', ...authHeaders } });
-    if (!response.ok) throw new Error(`HTTP ${response.status} em ${path.split('?')[0]}`);
-    return response.json();
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const response = await fetch(path, { credentials: 'include', headers: { Accept: 'application/json', ...authHeaders } });
+      if (response.ok) return response.json();
+      const transient = response.status === 502 || response.status === 503;
+      if (!transient || attempt === 3) {
+        throw new Error(`HTTP ${response.status} em ${path.split('?')[0]}`);
+      }
+      await sleep([1000, 3000, 8000][attempt]);
+    }
+    throw new Error(`Indisponibilidade sem resposta em ${path.split('?')[0]}`);
   }
 
   function asArray(value) {

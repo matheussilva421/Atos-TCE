@@ -497,6 +497,8 @@ Assert-True ($launcherText -match 'Invoke-TceDownload -Document \$document -Dest
 Assert-True ($driverText -match '/api/Processo/.*?/eventos' -and $driverText -match '/api/informacao/') 'driver usa APIs de eventos e arquivos'
 Assert-True ($driverText -match "normalizeMarker\(info\.resumo \|\| ''\) === 'CAPA'") 'driver identifica semanticamente documentos de capa'
 Assert-True ($driverText -match 'if \(info &&[\s\S]*?&& !isCover\)') 'driver ignora capas sem descartar outros documentos do evento'
+Assert-True ($driverText -match 'response\.status === 502.*response\.status === 503') 'driver reconhece indisponibilidade transitória do e-Contas'
+Assert-True ($driverText -match 'attempt < 4[\s\S]*?await sleep') 'driver repete indisponibilidade transitória com backoff limitado'
 
 $baselineTestRoot = Join-Path ([IO.Path]::GetTempPath()) ("tce-portable-baseline-test-" + [guid]::NewGuid().ToString('N'))
 $baselineDirectory = Join-Path $baselineTestRoot 'baseline-directory'
