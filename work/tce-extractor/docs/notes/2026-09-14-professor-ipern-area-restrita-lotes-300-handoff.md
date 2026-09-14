@@ -111,8 +111,10 @@ dependências fixadas, não um runtime embutido incompleto.
 O checkout está na branch `main`, com alterações locais anteriores a este
 handoff preservadas. A criação do worktree/branch isolado foi tentada e recusada
 porque `.git/refs` está somente leitura (`unable to create directory ...`). O
-trabalho permanece no checkout atual. O commit `5d50a75` foi criado e enviado
-com sucesso para `origin/main`.
+trabalho permanece no checkout atual. Os commits `5d50a75`, `b38a61c` e
+`65f320e` foram criados e enviados com sucesso para `origin/main`; o último
+contém a compatibilidade schema v3 do coletor, o reconhecimento de `atov.png`
+e este estado live do lote 1.
 
 ## Pendências e retomada
 
