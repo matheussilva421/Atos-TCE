@@ -171,6 +171,22 @@ trabalho permanece no checkout atual. Os commits `5d50a75`, `b38a61c` e
 contém a compatibilidade schema v3 do coletor, o reconhecimento de `atov.png`
 e este estado live do lote 1.
 
+## Atualização de continuidade — marcador recarregado
+
+O usuário confirmou que o marcador voltou a estar carregado. A retomada do
+mesmo `analysis-0e2f3c9e...json`, lote 1, foi iniciada em 14/09/2026 no Chrome
+isolado autenticado, com nova enumeração/reconciliação de 1.227 processos e
+300/300 chaves válidas. Até a última atualização desta nota, a execução havia
+alcançado 27/300 itens, reaproveitando PDFs existentes e baixando novos
+documentos; um erro HTTP 400 de documento individual ficou isolado no registro
+de falhas. O coletor segue sem OCR nesta etapa porque nenhum runtime de OCR foi
+passado ao comando; a preparação local será executada depois da aquisição.
+
+Também foi corrigida a configuração do tamanho de lote no painel: listas
+autoritativas mantêm 300 como padrão, mas agora respeitam a escolha 50, 100,
+200 ou 300, sempre com teto de 300 e confirmação humana por lote. O teste RED
+foi reproduzido antes da alteração e a suíte do painel ficou verde depois.
+
 ## Pendências e retomada
 
 1. Aguardar/revalidar o serviço do e-Contas até os marcadores carregarem e

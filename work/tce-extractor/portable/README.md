@@ -178,12 +178,13 @@ clique **Preencher campos disponíveis** continuam deliberados.
    ordem e **Criar lotes da análise** grava o snapshot em
    `acervo-tce\automacao\analises`.
 3. Para a lista autoritativa, use a opção **11 — Analisar lista na Área Restrita e
-   baixar em lotes de 300**. O menu importa `Complementar Ato - Professor IPERN.xlsx`
+   baixar em lotes de até 300**. O menu importa `Complementar Ato - Professor IPERN.xlsx`
    (ou outro `.xlsx` informado), preserva o original e registra manifesto SHA-256,
    ordem e duplicidades. A extensão percorre o marcador selecionado e consulta por
    número/ano os processos ausentes; somente o controle vermelho semântico
    **Complementar Ato** entra na fila.
-4. Após revisar a prévia congelada, confirme **cada lote de até 300** no painel.
+4. Após revisar a prévia congelada, escolha o tamanho (50, 100, 200 ou 300) e
+   confirme **cada lote de até 300** no painel.
    Antes de cada confirmação a ponte reconcilia todas as chaves exatamente no
    e-Contas; ausência ou ambiguidade bloqueia aquele lote. A fila preserva a ordem
    da primeira ocorrência da planilha, e duplicidades aparecem somente no relatório.

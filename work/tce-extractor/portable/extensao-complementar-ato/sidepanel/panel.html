@@ -97,12 +97,13 @@
           <p class="manual-mode-note">A origem deve estar aberta na Área Restrita; a execução pausa se a rota autenticada não corresponder à opção.</p>
           <label for="automation-lot-size">Tamanho do lote</label>
           <select id="automation-lot-size">
-            <option value="300" selected>300 processos (lista autoritativa)</option>
+            <option value="300" selected>300 processos (padrão da lista autoritativa)</option>
             <option value="50">50 processos (fluxo legado)</option>
             <option value="100">100 processos</option>
+            <option value="200">200 processos</option>
             <option value="1">1 processo (piloto)</option>
           </select>
-          <p class="manual-mode-note">Na opção de lista autoritativa, o tamanho é fixado em até 300 processos e cada lote exige confirmação humana antes do download.</p>
+          <p class="manual-mode-note">Na opção de lista autoritativa, escolha 50, 100, 200 ou 300 processos; cada lote exige confirmação humana antes do download e nunca ultrapassa 300.</p>
           <button id="analysis-preview-button" type="button" disabled>Analisar pendências no portal</button>
           <button id="analysis-lots-button" type="button" disabled>Criar lotes da análise</button>
           <p id="analysis-status" role="status" aria-live="polite">Nenhuma análise da lista autenticada foi criada.</p>

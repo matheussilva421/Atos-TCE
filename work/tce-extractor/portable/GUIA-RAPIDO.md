@@ -13,6 +13,10 @@ Pacote portátil TCE/RN — 12/09/2026. Fluxo manual, sem automação de atos.
 
 Python, OCR Tesseract e português estão incluídos. É necessário Windows 10/11 com PowerShell e Chrome/Edge. O login é feito por você; não acompanha o ZIP. O pacote começa sem acervo. Para verificar os arquivos antes do uso, clique com o botão direito em TESTAR-PACOTE.ps1 e escolha Executar com PowerShell.
 
+Para uma lista autoritativa, a opção 11 permite escolher lotes de 50, 100, 200
+ou 300 processos (300 é o padrão); cada lote é reconciliado e confirmado
+separadamente antes do download.
+
 ## Uso diário: uma etapa por vez
 
 | Opção do INICIAR.cmd | Ação |

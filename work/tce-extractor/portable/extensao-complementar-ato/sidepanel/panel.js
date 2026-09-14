@@ -1195,7 +1195,11 @@ export function createPanelApp({
     const sourceScope = "sector_finalistic";
     const hasAuthoritativeList = Boolean(state.processList);
     const requestedLotSize = Number.parseInt(text(elements["automation-lot-size"]?.value).trim(), 10);
-    const lotSize = hasAuthoritativeList ? 300 : requestedLotSize;
+    const lotSize = hasAuthoritativeList
+      ? (Number.isSafeInteger(requestedLotSize) && requestedLotSize >= 1 && requestedLotSize <= 300
+        ? requestedLotSize
+        : 300)
+      : requestedLotSize;
     const context = state.snapshot?.bridgeContext;
     const spec = {
       sector: context?.sector ?? "*",

@@ -571,6 +571,10 @@ test("labels Area Restrita source scopes as distinct portal origins", () => {
   const html = readFileSync(resolve(ROOT, "sidepanel/panel.html"), "utf8");
   assert.match(html, /value="sector_finalistic"[^>]*>Proc\.\/ Doc\. Eletrônicos \(processos no setor \/ finalísticos\)</u);
   assert.match(html, /value="my_processes"[^>]*>Meus Processos Eletrônicos</u);
+  assert.match(html, /value="50"[^>]*>50 processos/u);
+  assert.match(html, /value="100"[^>]*>100 processos/u);
+  assert.match(html, /value="200"[^>]*>200 processos/u);
+  assert.match(html, /value="300"[^>]*>300 processos/u);
 });
 
 test("automation view requires a compatible bridge, starts explicitly, and keeps manual fill blocked while active", async () => {
@@ -742,7 +746,7 @@ test("runs a read-only Area Restrita analysis, shows the count, and creates dete
   assert.match(documentRef.getElementById("analysis-acquisition-status").textContent, /iniciada|started/iu);
 });
 
-test("uses the active authoritative process list for v3 analysis and confirms each 300-process lot", async () => {
+test("uses the selected lot size for v3 analysis and confirms each authoritative lot", async () => {
   const dataset = await makeDataset();
   const manifest = {
     schema_version: 1,
@@ -814,7 +818,7 @@ test("uses the active authoritative process list for v3 analysis and confirms ea
   documentRef.getElementById("automation-lot-size").value = "50";
   assert.equal(await app.startAnalysis(), true);
   assert.equal(calls.find(([name]) => name === "preview")[1].spec.schema_version, 3);
-  assert.equal(calls.find(([name]) => name === "preview")[1].spec.lot_size, 300);
+  assert.equal(calls.find(([name]) => name === "preview")[1].spec.lot_size, 50);
   assert.equal(calls.find(([name]) => name === "preview")[1].spec.input_list_id, manifest.input_list_id);
   assert.equal(documentRef.getElementById("automation-auto-submit").checked, false);
   assert.equal(documentRef.getElementById("automation-auto-submit").disabled, true);
