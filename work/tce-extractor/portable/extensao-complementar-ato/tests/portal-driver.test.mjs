@@ -68,6 +68,47 @@ test("rejects an exact process result without idProcesso before requesting event
   ]);
 });
 
+test("rejects a process result whose year representation is not exact", async () => {
+  const outcome = await captureManifest([
+    { numeroProcesso: PROCESS_NUMBER, anoProcesso: "02026", idProcesso: "padded-year-id" },
+  ]);
+
+  assert.ok(outcome.error, "manifest deve rejeitar ano com representação divergente");
+  assert.match(outcome.error.message, /12345\/2026/);
+  assert.deepEqual(outcome.error.calls, [
+    "/api/Processo?numeroProcesso=12345&anoProcesso=2026",
+  ]);
+});
+
+test("rejects an empty process result before requesting events", async () => {
+  const outcome = await captureManifest([]);
+
+  assert.ok(outcome.error, "manifest deve rejeitar resposta vazia");
+  assert.match(outcome.error.message, /12345\/2026/);
+  assert.deepEqual(outcome.error.calls, [
+    "/api/Processo?numeroProcesso=12345&anoProcesso=2026",
+  ]);
+});
+
+test("accepts numeric and canonical string year representations", async () => {
+  for (const [requestedYear, returnedYear] of [[2026, "2026"], ["2026", 2026]]) {
+    const { result, calls } = await runManifest([
+      { numeroProcesso: PROCESS_NUMBER, anoProcesso: returnedYear, idProcesso: "compatible-year-id" },
+    ], PROCESS_NUMBER, requestedYear);
+
+    assert.deepEqual(JSON.parse(JSON.stringify(result.process)), {
+      key: "12345/2026",
+      id: "compatible-year-id",
+      number: PROCESS_NUMBER,
+      year: 2026,
+    });
+    assert.deepEqual(calls, [
+      "/api/Processo?numeroProcesso=12345&anoProcesso=2026",
+      "/api/Processo/compatible-year-id/eventos?sortDesc=false&trazerInativas=true",
+    ]);
+  }
+});
+
 test("builds the manifest from the exact process result", async () => {
   const { result, calls } = await runManifest([
     { numeroProcesso: "99999", anoProcesso: 2025, idProcesso: "wrong-process-id" },

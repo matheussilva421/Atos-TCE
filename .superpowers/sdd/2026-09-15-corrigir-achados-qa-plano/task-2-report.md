@@ -4,6 +4,12 @@
 **Escopo:** `work/tce-extractor/portable/TcePortal.Driver.js` e teste Node isolado do driver
 **Restrições observadas:** pacote de referência preservado; sem rede, login ou envio no portal.
 
+## Fix round do review
+
+O review identificou que a correção anterior ainda comparava `anoProcesso` com `Number(...)`. Isso aceitava a representação textual divergente `"02026"` para a solicitação `2026`. O candidato já presente no worktree foi mantido e validado: a comparação agora usa `String(item.anoProcesso) === String(year)`, preservando `2026` numérico e `"2026"` textual, mas exigindo a representação exata para strings.
+
+Também foi mantida a regressão explícita para resposta vazia, que confirma rejeição antes de qualquer chamada a `/eventos`.
+
 ## Causa raiz
 
 `resolveProcess(number, year)` já procurava uma combinação exata de `numeroProcesso` e `anoProcesso`, mas usava `result[0]` quando não encontrava essa combinação. Assim, uma resposta divergente que contivesse `idProcesso` podia ser aceita e encaminhada por `buildManifest()` ao endpoint de eventos do processo errado.
@@ -20,7 +26,10 @@ O teste carrega o driver real em uma VM Node com `fetch` controlado e cobre:
 
 - resposta contendo somente processo divergente: rejeita e não chama `/eventos`;
 - resposta com combinação exata sem `idProcesso`: rejeita e não chama `/eventos`;
-- resposta com item divergente seguido do item exato: gera o manifest usando apenas o ID exato e chama somente o endpoint de eventos correspondente.
+- resposta com item divergente seguido do item exato: gera o manifest usando apenas o ID exato e chama somente o endpoint de eventos correspondente;
+- resposta com ano `"02026"`: rejeita a representação não exata e não chama `/eventos`;
+- resposta vazia: rejeita e não chama `/eventos`;
+- combinações cruzadas de ano numérico `2026` e string canônica `"2026"`: continuam aceitas.
 
 ## TDD
 
@@ -41,8 +50,8 @@ Após remover o fallback:
 
 ```text
 npm test -- tests/portal-driver.test.mjs
-3 testes executados
-3 passaram
+6 testes executados
+6 passaram
 0 falharam
 ```
 
@@ -50,8 +59,8 @@ npm test -- tests/portal-driver.test.mjs
 
 ```text
 npm test
-379 testes executados
-379 passaram
+382 testes executados
+382 passaram
 0 falharam
 0 cancelados
 ```
@@ -70,6 +79,6 @@ Não houve alteração em `Versions/TCE-Meus-Processos-165-e-Setor-156-Extensao-
 
 ## Preocupações
 
-- A validação de ano continua usando equivalência numérica (`Number(...)`), preservando o contrato anterior; a correção desta Task não amplia nem restringe esse formato.
+- A validação de ano usa igualdade textual após a conversão para string, o que aceita número `2026` e string `"2026"`, mas rejeita strings com padding, como `"02026"`.
 - A aceitação final em portal real permanece fora do escopo e não foi declarada.
-- O commit deve conter somente este relatório, o handoff da correção, o teste isolado e a alteração mínima do driver.
+- O commit desta rodada deve conter somente este relatório, o teste isolado e a alteração mínima do driver; mudanças não relacionadas do worktree não devem ser incluídas.
