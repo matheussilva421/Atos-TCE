@@ -78,6 +78,7 @@ _AREA_CLASSIFICATIONS = frozenset(
 )
 _MATCHES = frozenset({"pending", "exact", "missing", "ambiguous", "conflict"})
 _OCR_STATES = frozenset({"not_run", "pending", "ready", "inconclusive", "failed"})
+_LOCAL_EVIDENCE_OK_STATES = frozenset({"ready", "complete", "completed", "valid", "verified", "success"})
 
 
 def _error(message: str) -> ValueError:
@@ -154,6 +155,12 @@ def _has_local_document_evidence(document: object) -> bool:
             return True
     evidence = document.get("evidence")
     evidence_items = evidence if isinstance(evidence, list) else [evidence]
+    if evidence_items and any(
+        isinstance(item, Mapping)
+        and item.get("status", "ready") not in _LOCAL_EVIDENCE_OK_STATES
+        for item in evidence_items
+    ):
+        return False
     return any(
         isinstance(item, Mapping)
         and item.get("document_id") == document_id
@@ -302,7 +309,9 @@ def _normalize_observation(raw: Mapping[str, Any], expected: Mapping[str, Any]) 
     ocr_status = econtas.get("ocr_status", "not_run")
     if ocr_status not in _OCR_STATES:
         raise _error("econtas.ocr_status inválido")
-    if ocr_status == "ready" and not _has_local_documents(documents):
+    if ocr_status == "ready" and (
+        econtas_hash is None or not _has_local_documents(documents)
+    ):
         ocr_status = "not_run"
 
     normalized = {
@@ -347,7 +356,11 @@ def _blocked_reason(item: Mapping[str, Any]) -> str | None:
         return "without_action"
     if item["interested_key"] is None:
         return "identity_ambiguous"
-    if econtas["match"] != "exact" or not _has_local_documents(econtas["documents"]):
+    if (
+        econtas["match"] != "exact"
+        or econtas["snapshot_hash"] is None
+        or not _has_local_documents(econtas["documents"])
+    ):
         return "document_unavailable"
     if econtas["ocr_status"] != "ready":
         return "ocr_inconclusive" if econtas["ocr_status"] == "inconclusive" else "ocr_not_ready"
@@ -400,12 +413,15 @@ def build_preview(spec: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]) ->
     available = [
         item
         for item in items
-        if item["econtas"]["match"] == "exact" and _has_local_documents(item["econtas"]["documents"])
+        if item["econtas"]["match"] == "exact"
+        and item["econtas"]["snapshot_hash"] is not None
+        and _has_local_documents(item["econtas"]["documents"])
     ]
     ocr_ready = [
         item
         for item in items
         if item["econtas"]["match"] == "exact"
+        and item["econtas"]["snapshot_hash"] is not None
         and _has_local_documents(item["econtas"]["documents"])
         and item["econtas"]["ocr_status"] == "ready"
     ]

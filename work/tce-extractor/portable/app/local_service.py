@@ -73,6 +73,16 @@ ANALYSIS_ID_RE = re.compile(r"^analysis-[0-9a-f]{24}$")
 ACQUISITION_JOB_ID_RE = re.compile(r"^acq-[0-9a-f]{24}$")
 SOURCE_SCOPES = frozenset({"sector_finalistic", "my_processes"})
 ACQUISITION_SOURCES = frozenset({"econtas"})
+_COLLECTOR_SUMMARY_RE = re.compile(
+    r"Concluído\s+\([^\r\n)]*\)\.\s+Baixados:\s*(?P<downloaded>\d+);\s*"
+    r"reutilizados:\s*(?P<skipped>\d+);\s*deduplicados:\s*(?P<deduplicated>\d+);\s*"
+    r"processos com falha:\s*(?P<failed>\d+)\.",
+    re.IGNORECASE,
+)
+_COLLECTOR_ITEM_SUCCESS_RE = re.compile(
+    r"^\s*baixados:\s*\d+;\s*já existentes:\s*\d+;\s*duplicados:\s*\d+\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 _AUTOMATION_PAYLOAD_KEYS = frozenset(
     {
@@ -841,6 +851,30 @@ def _acquisition_status_payload(job: dict[str, object], status: str) -> dict[str
     return {"lot": lot, "lots": lots, "items": items}
 
 
+def _collector_outcome(log_path: object, expected_item_count: object) -> str:
+    """Require the collector's explicit per-item success protocol.
+
+    The PowerShell collector can print its final ``Concluído`` summary after
+    an auth failure and still exit with code zero.  A return code therefore
+    cannot be treated as the acquisition outcome on its own.
+    """
+
+    if not isinstance(log_path, Path) or not isinstance(expected_item_count, int) or expected_item_count <= 0:
+        return "missing"
+    try:
+        output = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return "missing"
+    summaries = list(_COLLECTOR_SUMMARY_RE.finditer(output))
+    if not summaries:
+        return "missing"
+    summary = summaries[-1]
+    if int(summary.group("failed")) != 0:
+        return "failed"
+    successful_items = len(_COLLECTOR_ITEM_SUCCESS_RE.findall(output))
+    return "success" if successful_items == expected_item_count else "incomplete"
+
+
 def _project_automation_snapshot(snapshot: dict, run_id: str, *, include_reports: bool = True) -> dict:
     items = [
         {
@@ -1047,6 +1081,8 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
                 "pid": process.pid,
                 "started_at": time.time(),
                 "lots": projected_lots,
+                "expected_item_count": sum(len(lot["items"]) for lot in projected_lots),
+                "log_path": log_path,
             }
             self._acquisition_jobs[job_id] = job
         result = {
@@ -1069,7 +1105,12 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
             if job is None or job["analysis_id"] != analysis_id:
                 raise _ApiProblem(404, "ACQUISITION_NOT_FOUND", "aquisição não encontrada")
             return_code = job["process"].poll()  # type: ignore[union-attr]
-            status = "running" if return_code is None else ("completed" if return_code == 0 else "failed")
+            collector_outcome = None
+            if return_code is None:
+                status = "running"
+            else:
+                collector_outcome = _collector_outcome(job.get("log_path"), job.get("expected_item_count"))
+                status = "completed" if return_code == 0 and collector_outcome == "success" else "failed"
             result: dict[str, object] = {
                 "api_version": API_VERSION,
                 "analysis_id": analysis_id,
@@ -1082,6 +1123,7 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
             result.update(_acquisition_status_payload(job, status))
             if return_code is not None:
                 result["return_code"] = return_code
+                result["collector_outcome"] = collector_outcome
             return result
 
     def server_close(self):

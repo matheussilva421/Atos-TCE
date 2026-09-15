@@ -53,6 +53,7 @@ const SELECT_FIELDS = new Set(["modalidade", "fundamento_legal"]);
 const MATCH_KINDS = new Set(["exact", "probable", "tie"]);
 const AUTOMATION_SOURCE_SCOPES = new Set(["sector_finalistic", "my_processes"]);
 const SHA256_RE = /^[0-9a-f]{64}$/u;
+const LOCAL_EVIDENCE_OK_STATUSES = new Set(["ready", "complete", "completed", "valid", "verified", "success"]);
 const KIND_LABELS = Object.freeze({
   exact: "exato",
   probable: "aproximado",
@@ -160,19 +161,23 @@ function localEvidenceDocuments(value) {
   if (!isRecord(value) || !Array.isArray(value.documents)) return [];
   return value.documents.flatMap((document) => {
     if (!isRecord(document)) return [];
+    const rawEvidence = Array.isArray(document.evidence) ? document.evidence : [];
+    if (rawEvidence.some((entry) => (
+      !isRecord(entry) || !LOCAL_EVIDENCE_OK_STATUSES.has(entry.status ?? "ready")
+    ))) return [];
     const documentId = [document.document_id, document.id, document.source_document_id]
       .find((candidate) => typeof candidate === "string" && candidate.trim());
     const sha256 = [document.sha256, document.pdf_sha256, document.document_sha256]
       .find((candidate) => typeof candidate === "string" && SHA256_RE.test(candidate));
     const hasArtifact = safeRelativeArtifact(document.relative_path);
-    const evidence = Array.isArray(document.evidence) ? document.evidence.flatMap((entry) => (
+    const evidence = rawEvidence.flatMap((entry) => (
       isRecord(entry)
         && entry.document_id === documentId
         && Number.isSafeInteger(entry.page)
         && entry.page > 0
         ? [{ document_id: documentId, page: entry.page, status: typeof entry.status === "string" ? entry.status : "ready" }]
         : []
-    )) : [];
+    ));
     if (typeof documentId !== "string" || typeof sha256 !== "string" || (!hasArtifact && evidence.length === 0)) return [];
     return [{
       document_id: documentId,

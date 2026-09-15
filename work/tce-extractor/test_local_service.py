@@ -272,7 +272,7 @@ class LocalServiceTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertEqual(len(json.loads(body)["lots"]), 1)
 
-    def test_authenticated_analysis_lot_starts_local_acquisition_without_real_send(self):
+    def test_authenticated_analysis_lot_rejects_zero_download_auth_failure_even_with_exit_zero(self):
         with running_server() as (root, server, base):
             code = server.auth.issue_pairing_code()
             _status, _headers, pair_body = json_request(
@@ -368,6 +368,24 @@ class LocalServiceTests(unittest.TestCase):
             self.assertEqual(running["lot"]["status"], "running")
             self.assertEqual(running["items"][0]["status"], "running")
             self.assertNotIn(str(root), json.dumps(running))
+            log_path = root / "automacao" / "coletas" / f"{started['job_id']}.log"
+            log_path.write_text(
+                "Sessão expirada ou não autorizada. Faça login novamente antes de retomar a coleta.\n"
+                "Concluído (progressivo). Baixados: 0; reutilizados: 0; deduplicados: 0; processos com falha: 1.\n",
+                encoding="utf-8",
+            )
+            process.poll.return_value = 0
+            status, _headers, body = json_request(
+                f"{base}/api/v1/analysis/{analysis_id}/acquire/{started['job_id']}",
+                token=token,
+                origin="chrome-extension://test-extension",
+            )
+            self.assertEqual(status, 200)
+            zero_download_auth_failure = json.loads(body)
+            self.assertEqual(zero_download_auth_failure["status"], "failed")
+            self.assertEqual(zero_download_auth_failure["lot"]["status"], "failed")
+            self.assertEqual(zero_download_auth_failure["items"][0]["status"], "failed")
+            self.assertNotEqual(zero_download_auth_failure["status"], "completed")
             process.poll.return_value = 23
             status, _headers, body = json_request(
                 f"{base}/api/v1/analysis/{analysis_id}/acquire/{started['job_id']}",

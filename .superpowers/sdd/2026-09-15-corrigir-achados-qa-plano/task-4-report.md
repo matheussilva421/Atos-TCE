@@ -71,6 +71,60 @@ Implementação mínima aplicada:
 - Não foram executados gates reais do portal; continuam fora do escopo local da
   Task 4.
 
+## Fix round — revisão P1/P2 (2026-09-15)
+
+### Causa e correção
+
+- **P1 — saída do coletor:** `local_service` não usa mais `return_code == 0`
+  como prova de conclusão. O protocolo atual do
+  `Coletar-Processos-TCE.ps1` foi inspecionado: ele grava uma linha de resumo
+  `Concluído (...)` e uma linha `baixados/reutilizados/duplicados` após cada
+  processo; falhas de autenticação podem manter o código 0 e registrar
+  `processos com falha: 1`. O serviço agora só retorna `completed` quando
+  encontra o resumo, zero processos com falha e uma linha de sucesso para cada
+  item esperado. Ausência, inconsistência ou falha explícita retorna `failed`;
+  o estado por lote/item acompanha essa decisão.
+- **P2 — evidência do painel:** `localEvidenceDocuments` agora aceita somente
+  entradas com status explícito de sucesso/validade (`ready`, `complete`,
+  `completed`, `valid`, `verified` ou `success`); `failed` e estados desconhecidos
+  não sustentam `exact`/`ready`.
+- **P2 — snapshot backend:** `batch_scope` exige `econtas.snapshot_hash` SHA-256
+  válido para `ocr_ready`, `eligible` e disponibilidade documental coerente.
+  Sem snapshot, a aquisição permanece `acquisition_eligible` quando os
+  bloqueios de Área Restrita permitem.
+
+### TDD da rodada
+
+RED escrito e executado antes da produção:
+
+1. autenticação com zero downloads, log de falha e exit 0: **falhou** porque o
+   serviço retornava `completed`;
+2. evidência local com `status: failed`: **falhou** porque o painel a promovia
+   para `exact`/`ready`;
+3. documento local válido sem `econtas.snapshot_hash`: **falhou** porque o
+   backend retornava `ocr_ready: 1`.
+
+GREEN após a implementação mínima: os três testes passaram. O teste P1 é uma
+regressão via HTTP do estado de aquisição e grava no log do job o protocolo de
+zero-download/auth-failure, preservando a observação pública sem expor paths.
+
+### Evidência de verificação da rodada
+
+- Python focado P1/P2: 2/2 passaram.
+- Node painel focado P2: 1/1 passou.
+- Python `test_area_restrita_analysis` + `test_local_service`: 35 casos,
+  34 passaram, 1 skipped, 0 falharam.
+- Node `tests/panel.test.mjs` + `tests/bridge-client.test.mjs`: 71/71
+  passaram, 0 falharam.
+- `python -m py_compile portable/app/batch_scope.py portable/app/local_service.py`:
+  passou.
+- `git diff --check`: passou.
+
+Limitação deliberada: o contrato de sucesso depende das frases/protocolo de
+log já emitidos pelo coletor; se o coletor mudar esse protocolo sem atualizar o
+seam, o serviço ficará `failed`/não concluído, nunca concluirá por inferência.
+`auto_submit`, envio e `Versions` continuam inalterados.
+
 ## Git e retomada
 
 Alterações limitadas aos arquivos de propriedade da Task 4. Commit local será

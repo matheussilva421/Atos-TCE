@@ -939,6 +939,80 @@ test("preserves ready acquisition evidence only when the analysis row carries a 
   assert.deepEqual(bridgeCalls[0].rows[0].econtas, analysisResult.rows[0].econtas);
 });
 
+test("does not promote failed local evidence to exact or ready", async () => {
+  const dataset = await makeDataset();
+  const bridgeCalls = [];
+  const analysisId = `analysis-${"1".repeat(24)}`;
+  const client = {
+    async getDataset() { return { api_version: 1, revision: 1, dataset }; },
+    async getState() { return { revision: 1 }; },
+    async publishSelection() { return { accepted: true, revision: 1 }; },
+    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v1" }; },
+    async listAutomationRuns() { return { runs: [], next_cursor: null }; },
+    async createAnalysisPreview(input) {
+      bridgeCalls.push(input);
+      return { analysis_id: analysisId, preview: { needs_complement: 1, eligible: 0, blocked: 1, lot_count: 0 }, queue: [], blocked: [{}] };
+    },
+  };
+  const chromeApi = makeRuntime({ dataset, snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })] });
+  const sendMessage = chromeApi.runtime.sendMessage;
+  chromeApi.runtime.sendMessage = async (message) => message.type === MESSAGE_TYPES.AUTO_ANALYZE
+    ? {
+      ok: true,
+      payload: {
+        source_scope: "my_processes",
+        marker: { label: "M", value: "m-1" },
+        area_snapshot_sha256: "a".repeat(64),
+        rows: [{
+          process_key: "103439/2023",
+          interested_key: "maria de souza",
+          area_restrita: {
+            scope: "my_processes",
+            marker_label: "M",
+            marker_value: "m-1",
+            classification: "PRECISA_COMPLEMENTAR",
+            needs_complement: true,
+            action_observed: "Complementar Ato",
+            action_signature: { kind: "red_complement_icon", alt: "Complementar Ato", title: "Complementar Ato", src: "red.png" },
+            snapshot_hash: "b".repeat(64),
+          },
+          econtas: {
+            match: "exact",
+            documents: [{
+              document_id: "doc-failed",
+              relative_path: "documentos/doc-failed.pdf",
+              sha256: "c".repeat(64),
+              evidence: [{ document_id: "doc-failed", page: 1, status: "failed" }],
+            }],
+            snapshot_hash: "d".repeat(64),
+            ocr_status: "ready",
+          },
+        }],
+      },
+    }
+    : sendMessage(message);
+  const { app, documentRef } = await startApp({
+    chromeApi,
+    dataset,
+    snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })],
+    pairingFactory: async () => "token",
+    bridgeClientFactory: () => client,
+  });
+  documentRef.getElementById("bridge-pairing-code").value = "12345678";
+  documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
+  await waitUntil(() => Boolean(app.getState().automationCapabilities), "bridge connection did not load capabilities for failed evidence");
+  documentRef.getElementById("automation-source-scope").value = "my_processes";
+  documentRef.getElementById("automation-lot-size").value = "50";
+
+  assert.equal(await app.startAnalysis(), true);
+  assert.deepEqual(bridgeCalls[0].rows[0].econtas, {
+    match: "missing",
+    documents: [],
+    snapshot_hash: null,
+    ocr_status: "not_run",
+  });
+});
+
 test("surfaces the internal Area Restrita analysis reason without exposing private payload data", async () => {
   const dataset = await makeDataset();
   const internalReason = "origem selecionada não corresponde à lista aberta; navegue para a tela escolhida antes de analisar";
