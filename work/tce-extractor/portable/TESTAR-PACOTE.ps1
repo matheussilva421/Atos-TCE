@@ -189,11 +189,13 @@ function Get-TcePortableNodeStatus {
         try { $package = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json } catch { Add-TcePortableError $errors ('package.json invalido: ' + $relative); continue }
         foreach ($field in @('dependencies', 'optionalDependencies', 'peerDependencies', 'bundledDependencies')) { if ($null -ne (Get-TceJsonProperty $package $field)) { Add-TcePortableError $errors ('package.json declara ' + $field + ': ' + $relative) } }
     }
-    foreach ($relative in @('INICIAR.bat', 'INICIAR.cmd', 'ABRIR-MESA.cmd', 'Coletar-Processos-TCE.ps1', 'TceFrozenQueue.psm1', 'app\menu.ps1', 'app\analysis_preview.py', 'app\analysis_pipeline.py', 'app\acquisition.py', 'app\batch_scope.py', 'app\evidence_geometry.py', 'app\bridge_auth.py', 'app\local_service.py', 'app\qualification.py', 'app\source_reconciliation.py', 'app\workflow_state.py', 'app\filter_new_batch.py', 'app\frozen_queue.py', 'app\extension_exporter.py', 'app\package_complete_archive.py')) {
+    foreach ($relative in @('INICIAR.bat', 'INICIAR.cmd', 'ABRIR-MESA.cmd', 'Coletar-Processos-TCE.ps1', 'TceFrozenQueue.psm1', 'app\menu.ps1', 'app\analysis_preview.py', 'app\materialize_area_analysis.py', 'app\analysis_pipeline.py', 'app\acquisition.py', 'app\batch_scope.py', 'app\evidence_geometry.py', 'app\bridge_auth.py', 'app\local_service.py', 'app\qualification.py', 'app\source_reconciliation.py', 'app\workflow_state.py', 'app\filter_new_batch.py', 'app\frozen_queue.py', 'app\extension_exporter.py', 'app\package_complete_archive.py')) {
         $path = Join-Path $root $relative
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
         if ((Get-Content -LiteralPath $path -Raw -Encoding UTF8) -match '(?i)(^|[^A-Za-z0-9_-])node(?:\.exe)?([^A-Za-z0-9_-]|$)') { Add-TcePortableError $errors ('arquivo operacional chama Node: ' + $relative) }
     }
+    if (-not (Test-Path -LiteralPath (Join-Path $root 'app\area_snapshot_transfer.html') -PathType Leaf)) { Add-TcePortableError $errors 'arquivo ausente: app\area_snapshot_transfer.html' }
+    if (-not (Test-Path -LiteralPath (Join-Path $root 'app\area_snapshot_receiver.py') -PathType Leaf)) { Add-TcePortableError $errors 'arquivo ausente: app\area_snapshot_receiver.py' }
     [pscustomobject]@{ IsValid = ($errors.Count -eq 0); Errors = $errors.ToArray() }
 }
 

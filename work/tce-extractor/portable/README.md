@@ -78,6 +78,23 @@ Essa etapa baixa os documentos do e-Contas e, se `-Python`, `-Tesseract` e
 `-Tessdata` forem fornecidos, executa a preparação/OCR incremental local. Ela
 não abre o formulário de Complementar Ato nem envia atos.
 
+Quando a fotografia sanitizada da Área Restrita for capturada pelo painel ou
+por uma sessão supervisionada, `app\materialize_area_analysis.py` permite
+reconstruir a análise v3 junto ao manifesto autoritativo da lista, preservando
+a ordem, as duplicidades e os lotes congelados. Ele não acessa o navegador,
+não transporta credenciais e só produz o JSON local da análise:
+
+```powershell
+Get-Content .\fotografia-area.json -Raw | & .\runtime\python\python.exe -B `
+  .\app\materialize_area_analysis.py `
+  --input-list .\acervo-tce\automacao\listas\input-<sha>.json `
+  --area-snapshot - --output-root .\acervo-tce --lot-size 300
+```
+
+O mesmo materializador aceita lotes menores (por exemplo `50`, `100` ou
+`200`). A fotografia deve ser a evidência completa do marcador selecionado;
+ausências continuam explícitas no relatório e não entram na fila.
+
 ## Checkpoint e processos novos
 
 Terminou o acervo inteiro? A opção **8 — Zerar acervo e iniciar novo lote** pede

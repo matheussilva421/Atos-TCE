@@ -248,6 +248,7 @@ try {
     foreach ($name in @(
         'archive_index.py',
         'analysis_preview.py',
+        'materialize_area_analysis.py',
         'acquisition.py',
         'analysis_pipeline.py',
         'batch_scope.py',
@@ -272,6 +273,9 @@ try {
     )) {
         Copy-PackageFile -SourcePath (Join-Path $portableRoot ('app\' + $name)) -RelativeDestination ('app\' + $name)
     }
+
+    Copy-PackageFile -SourcePath (Join-Path $portableRoot 'app\area_snapshot_transfer.html') -RelativeDestination 'app\area_snapshot_transfer.html'
+    Copy-PackageFile -SourcePath (Join-Path $portableRoot 'app\area_snapshot_receiver.py') -RelativeDestination 'app\area_snapshot_receiver.py'
 
     # The extension is a deployment inventory, not a recursive copy of the
     # portable directory. Every allowlisted production asset is required.

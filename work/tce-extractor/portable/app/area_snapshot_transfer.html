@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<title>Transferir fotografia da Área Restrita</title>
+<style>
+  body { font: 16px system-ui, sans-serif; margin: 2rem; max-width: 70rem; }
+  textarea { display: block; width: 100%; min-height: 24rem; margin: 1rem 0; }
+  button { font: inherit; padding: .5rem 1rem; }
+  #status { margin-left: 1rem; }
+</style>
+<h1>Transferir fotografia sanitizada</h1>
+<p>Cole a fotografia JSON capturada no navegador. Este arquivo apenas valida
+  a estrutura localmente e envia uma cópia para a ponte local em
+  <code>127.0.0.1</code>.</p>
+<textarea id="payload" aria-label="Fotografia JSON"></textarea>
+<button id="save" type="button">Salvar fotografia local</button>
+<output id="status" role="status"></output>
+<script>
+(() => {
+  const payload = document.getElementById('payload');
+  const status = document.getElementById('status');
+  document.getElementById('save').addEventListener('click', async () => {
+    try {
+      const value = JSON.parse(payload.value);
+      if (!value || value.schema_version !== 1 || value.source_scope !== 'sector_finalistic' ||
+          !value.marker || typeof value.marker.label !== 'string' ||
+          !Array.isArray(value.rows) || value.rows.length === 0) {
+        throw new Error('estrutura de fotografia inválida');
+      }
+      const response = await fetch('/snapshot', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: payload.value,
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'falha ao salvar');
+      status.textContent = 'Fotografia salva: ' + result.rows + ' linhas.';
+    } catch (error) {
+      status.textContent = 'Erro: ' + error.message;
+    }
+  });
+})();
+</script>

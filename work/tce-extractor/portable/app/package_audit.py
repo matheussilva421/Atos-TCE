@@ -85,7 +85,9 @@ _ALLOWLISTED_BINARY_SUFFIXES = {
     ".lib",
     ".pyd",
     ".pyc",
+    ".sqlite3",
     ".traineddata",
+    ".xlsx",
     ".zip",
 }
 _TEMPORARY_URL_RE = re.compile(

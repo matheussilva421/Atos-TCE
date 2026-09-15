@@ -197,6 +197,18 @@ class PackageAuditContractTests(unittest.TestCase):
                 "binary_unrecognized", {finding.code for finding in report.findings}
             )
 
+    def test_accepts_workbook_and_sqlite_as_known_private_binary_data(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = root / "acervo-tce"
+            archive.mkdir()
+            (archive / "input.xlsx").write_bytes(b"PK\x03\x04fixture")
+            (archive / "runs.sqlite3").write_bytes(b"SQLite format 3\x00fixture")
+            report = self.audit_package(root, distribution="private")
+            self.assertNotIn(
+                "binary_unrecognized", {finding.code for finding in report.findings}
+            )
+
     def test_rule_name_without_url_is_not_reported_as_temporary_url(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
