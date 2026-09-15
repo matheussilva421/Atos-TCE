@@ -231,7 +231,11 @@ class LocalServiceTests(unittest.TestCase):
                     },
                     "econtas": {
                         "match": "exact",
-                        "documents": [{"document_id": "doc-1"}],
+                        "documents": [{
+                            "document_id": "doc-1",
+                            "relative_path": "documentos/doc-1.pdf",
+                            "sha256": "d" * 64,
+                        }],
                         "snapshot_hash": "a" * 64,
                         "ocr_status": "ready",
                     },
@@ -269,7 +273,7 @@ class LocalServiceTests(unittest.TestCase):
             self.assertEqual(len(json.loads(body)["lots"]), 1)
 
     def test_authenticated_analysis_lot_starts_local_acquisition_without_real_send(self):
-        with running_server() as (_root, server, base):
+        with running_server() as (root, server, base):
             code = server.auth.issue_pairing_code()
             _status, _headers, pair_body = json_request(
                 f"{base}/api/v1/pair",
@@ -359,7 +363,23 @@ class LocalServiceTests(unittest.TestCase):
                 origin="chrome-extension://test-extension",
             )
             self.assertEqual(status, 200)
-            self.assertEqual(json.loads(body)["status"], "running")
+            running = json.loads(body)
+            self.assertEqual(running["status"], "running")
+            self.assertEqual(running["lot"]["status"], "running")
+            self.assertEqual(running["items"][0]["status"], "running")
+            self.assertNotIn(str(root), json.dumps(running))
+            process.poll.return_value = 23
+            status, _headers, body = json_request(
+                f"{base}/api/v1/analysis/{analysis_id}/acquire/{started['job_id']}",
+                token=token,
+                origin="chrome-extension://test-extension",
+            )
+            self.assertEqual(status, 200)
+            failed = json.loads(body)
+            self.assertEqual(failed["status"], "failed")
+            self.assertEqual(failed["lot"]["status"], "failed")
+            self.assertEqual(failed["items"][0]["status"], "failed")
+            self.assertNotEqual(failed["lot"]["status"], "completed")
 
     def test_portable_service_metadata_pairs_and_reaches_capabilities(self):
         """Exercise the package startup boundary, not only an in-process server."""

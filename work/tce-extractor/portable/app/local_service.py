@@ -805,6 +805,42 @@ def _automation_item_id(identity: dict) -> str:
     return str(identity.get("process_key", ""))
 
 
+def _acquisition_item_projection(item: object, index: int, lot_number: int) -> dict[str, int | str]:
+    raw_ordinal = item.get("ordinal") if isinstance(item, dict) else None
+    ordinal = raw_ordinal if isinstance(raw_ordinal, int) and raw_ordinal > 0 else index + 1
+    return {"item_id": f"item-{ordinal}", "ordinal": ordinal, "lot_number": lot_number}
+
+
+def _acquisition_lot_projection(lot: dict, status: str) -> dict[str, object]:
+    items = [
+        {"item_id": item["item_id"], "ordinal": item["ordinal"], "status": status}
+        for item in lot.get("items", [])
+        if isinstance(item, dict)
+    ]
+    return {
+        "lot_number": lot["lot_number"],
+        "status": status,
+        "item_count": len(items),
+        "items": items,
+    }
+
+
+def _acquisition_status_payload(job: dict[str, object], status: str) -> dict[str, object]:
+    lots = [
+        _acquisition_lot_projection(lot, status)
+        for lot in job.get("lots", [])
+        if isinstance(lot, dict)
+    ]
+    items = [item for lot in lots for item in lot["items"]]
+    lot = lots[0] if len(lots) == 1 else {
+        "lot_number": 0,
+        "status": status,
+        "item_count": len(items),
+        "items": items,
+    }
+    return {"lot": lot, "lots": lots, "items": items}
+
+
 def _project_automation_snapshot(snapshot: dict, run_id: str, *, include_reports: bool = True) -> dict:
     items = [
         {
@@ -968,6 +1004,19 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
                 ):
                     raise _ApiProblem(409, "ACQUISITION_ACTIVE", "a aquisição deste lote já está em execução")
             job_id = f"acq-{secrets.token_hex(12)}"
+            selected_lots = lots if request["selection"] == "all" else [lot]
+            projected_lots = [
+                {
+                    "lot_number": candidate["lot_number"],
+                    "items": [
+                        _acquisition_item_projection(item, index, candidate["lot_number"])
+                        for index, item in enumerate(candidate.get("items", []))
+                        if isinstance(item, dict)
+                    ],
+                }
+                for candidate in selected_lots
+                if isinstance(candidate, dict)
+            ]
             command = build_collector_command(
                 package_root=self.package_root,
                 workflow_root=self.workflow_root,
@@ -990,15 +1039,17 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
                     stderr=subprocess.STDOUT,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
-            self._acquisition_jobs[job_id] = {
+            job = {
                 "analysis_id": analysis_id,
                 "selection": request["selection"],
                 "lot_number": request["lot_number"],
                 "process": process,
                 "pid": process.pid,
                 "started_at": time.time(),
+                "lots": projected_lots,
             }
-        return {
+            self._acquisition_jobs[job_id] = job
+        result = {
             "api_version": API_VERSION,
             "analysis_id": analysis_id,
             "job_id": job_id,
@@ -1007,6 +1058,8 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
             "status": "started",
             "pid": process.pid,
         }
+        result.update(_acquisition_status_payload(job, "started"))
+        return result
 
     def analysis_acquisition_status(self, analysis_id: str, job_id: str) -> dict[str, object]:
         if not ANALYSIS_ID_RE.fullmatch(analysis_id) or not ACQUISITION_JOB_ID_RE.fullmatch(job_id):
@@ -1026,6 +1079,7 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
                 "status": status,
                 "pid": job["pid"],
             }
+            result.update(_acquisition_status_payload(job, status))
             if return_code is not None:
                 result["return_code"] = return_code
             return result

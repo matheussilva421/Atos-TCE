@@ -18,6 +18,99 @@ def control(kind, alt, title, src="icon.png"):
 
 
 class AreaRestritaAnalysisTests(unittest.TestCase):
+    def test_citation_only_document_cannot_be_ready_or_eligible(self):
+        from batch_scope import build_preview
+
+        spec = {
+            "schema_version": 3,
+            "source_scope": "sector_finalistic",
+            "marker": {"label": "M", "value": "1"},
+            "acquisition_source": "econtas",
+            "lot_size": 50,
+            "analysis_only": True,
+            "auto_prepare": False,
+            "auto_submit": False,
+            "dataset_sha256": None,
+            "area_snapshot_sha256": "a" * 64,
+            "input_list_id": "input-" + "b" * 24,
+            "input_sha256": "c" * 64,
+            "input_unique_count": 1,
+        }
+        row = {
+            "process_key": "1/2023",
+            "interested_key": "ana",
+            "area_restrita": {
+                "scope": "sector_finalistic",
+                "marker_label": "M",
+                "marker_value": "1",
+                "classification": "PRECISA_COMPLEMENTAR",
+                "needs_complement": True,
+                "action_observed": "Complementar Ato",
+                "action_signature": control("red_complement_icon", "Complementar Ato", "Complementar Ato"),
+                "snapshot_hash": "d" * 64,
+            },
+            "econtas": {
+                "match": "exact",
+                "documents": [{"label": "Resolucao_1.pdf"}],
+                "snapshot_hash": None,
+                "ocr_status": "ready",
+            },
+        }
+
+        preview = build_preview(spec, [row])
+
+        self.assertEqual(preview["ocr_ready"], 0)
+        self.assertEqual(preview["eligible"], 0)
+        self.assertEqual(preview["acquisition_eligible"], 1)
+
+    def test_local_document_identity_hash_and_artifact_can_be_ready(self):
+        from batch_scope import build_preview
+
+        spec = {
+            "schema_version": 3,
+            "source_scope": "sector_finalistic",
+            "marker": {"label": "M", "value": "1"},
+            "acquisition_source": "econtas",
+            "lot_size": 50,
+            "analysis_only": True,
+            "auto_prepare": False,
+            "auto_submit": False,
+            "dataset_sha256": None,
+            "area_snapshot_sha256": "a" * 64,
+            "input_list_id": "input-" + "b" * 24,
+            "input_sha256": "c" * 64,
+            "input_unique_count": 1,
+        }
+        row = {
+            "process_key": "1/2023",
+            "interested_key": "ana",
+            "area_restrita": {
+                "scope": "sector_finalistic",
+                "marker_label": "M",
+                "marker_value": "1",
+                "classification": "PRECISA_COMPLEMENTAR",
+                "needs_complement": True,
+                "action_observed": "Complementar Ato",
+                "action_signature": control("red_complement_icon", "Complementar Ato", "Complementar Ato"),
+                "snapshot_hash": "d" * 64,
+            },
+            "econtas": {
+                "match": "exact",
+                "documents": [{
+                    "document_id": "doc-1",
+                    "relative_path": "documentos/doc-1.pdf",
+                    "sha256": "e" * 64,
+                }],
+                "snapshot_hash": "f" * 64,
+                "ocr_status": "ready",
+            },
+        }
+
+        preview = build_preview(spec, [row])
+
+        self.assertEqual(preview["ocr_ready"], 1)
+        self.assertEqual(preview["eligible"], 1)
+
     def test_analysis_schema_v3_carries_authoritative_input_provenance(self):
         spec = validate_batch_spec(
             {

@@ -12,6 +12,7 @@ import hashlib
 import json
 import re
 import unicodedata
+from pathlib import PurePosixPath
 from typing import Any, Mapping, Sequence
 
 try:  # package import in tests/service
@@ -120,6 +121,51 @@ def _normalize_action(value: str | None) -> str:
 
 def _has_complement_action(value: str | None) -> bool:
     return "complementar ato" in _normalize_action(value)
+
+
+def _has_local_document_evidence(document: object) -> bool:
+    """Return whether a document has a safe local-artifact identity and hash."""
+
+    if not isinstance(document, Mapping):
+        return False
+    document_id = next(
+        (document.get(key) for key in ("document_id", "id", "source_document_id")
+         if isinstance(document.get(key), str) and document.get(key).strip()),
+        None,
+    )
+    document_hash = next(
+        (document.get(key) for key in ("sha256", "pdf_sha256", "document_sha256")
+         if isinstance(document.get(key), str) and _SHA256_RE.fullmatch(document.get(key))),
+        None,
+    )
+    if not document_id or not document_hash:
+        return False
+    relative_path = document.get("relative_path")
+    if isinstance(relative_path, str):
+        normalized_path = relative_path.replace("\\", "/")
+        path = PurePosixPath(normalized_path)
+        if (
+            normalized_path
+            and not path.is_absolute()
+            and ".." not in path.parts
+            and path.parts
+            and ":" not in path.parts[0]
+        ):
+            return True
+    evidence = document.get("evidence")
+    evidence_items = evidence if isinstance(evidence, list) else [evidence]
+    return any(
+        isinstance(item, Mapping)
+        and item.get("document_id") == document_id
+        and isinstance(item.get("page"), int)
+        and not isinstance(item.get("page"), bool)
+        and item["page"] > 0
+        for item in evidence_items
+    )
+
+
+def _has_local_documents(documents: Sequence[object]) -> bool:
+    return any(_has_local_document_evidence(document) for document in documents)
 
 
 def validate_batch_spec(spec: Mapping[str, Any]) -> dict[str, Any]:
@@ -256,6 +302,8 @@ def _normalize_observation(raw: Mapping[str, Any], expected: Mapping[str, Any]) 
     ocr_status = econtas.get("ocr_status", "not_run")
     if ocr_status not in _OCR_STATES:
         raise _error("econtas.ocr_status inválido")
+    if ocr_status == "ready" and not _has_local_documents(documents):
+        ocr_status = "not_run"
 
     normalized = {
         "process_key": process_key,
@@ -299,7 +347,7 @@ def _blocked_reason(item: Mapping[str, Any]) -> str | None:
         return "without_action"
     if item["interested_key"] is None:
         return "identity_ambiguous"
-    if econtas["match"] != "exact" or not econtas["documents"]:
+    if econtas["match"] != "exact" or not _has_local_documents(econtas["documents"]):
         return "document_unavailable"
     if econtas["ocr_status"] != "ready":
         return "ocr_inconclusive" if econtas["ocr_status"] == "inconclusive" else "ocr_not_ready"
@@ -352,13 +400,13 @@ def build_preview(spec: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]) ->
     available = [
         item
         for item in items
-        if item["econtas"]["match"] == "exact" and bool(item["econtas"]["documents"])
+        if item["econtas"]["match"] == "exact" and _has_local_documents(item["econtas"]["documents"])
     ]
     ocr_ready = [
         item
         for item in items
         if item["econtas"]["match"] == "exact"
-        and bool(item["econtas"]["documents"])
+        and _has_local_documents(item["econtas"]["documents"])
         and item["econtas"]["ocr_status"] == "ready"
     ]
     eligible = [item for item in needs if _blocked_reason(item) is None]

@@ -52,6 +52,7 @@ const FIELD_LABELS = Object.freeze({
 const SELECT_FIELDS = new Set(["modalidade", "fundamento_legal"]);
 const MATCH_KINDS = new Set(["exact", "probable", "tie"]);
 const AUTOMATION_SOURCE_SCOPES = new Set(["sector_finalistic", "my_processes"]);
+const SHA256_RE = /^[0-9a-f]{64}$/u;
 const KIND_LABELS = Object.freeze({
   exact: "exato",
   probable: "aproximado",
@@ -145,24 +146,67 @@ function availableNames(dataset, processKey) {
     .join(", ") || "nenhum";
 }
 
+function safeRelativeArtifact(value) {
+  if (typeof value !== "string" || !value.trim()) return false;
+  const normalized = value.replaceAll("\\", "/");
+  const parts = normalized.split("/");
+  return !normalized.startsWith("/")
+    && !normalized.startsWith("//")
+    && !parts.includes("..")
+    && !parts[0].includes(":");
+}
+
+function localEvidenceDocuments(value) {
+  if (!isRecord(value) || !Array.isArray(value.documents)) return [];
+  return value.documents.flatMap((document) => {
+    if (!isRecord(document)) return [];
+    const documentId = [document.document_id, document.id, document.source_document_id]
+      .find((candidate) => typeof candidate === "string" && candidate.trim());
+    const sha256 = [document.sha256, document.pdf_sha256, document.document_sha256]
+      .find((candidate) => typeof candidate === "string" && SHA256_RE.test(candidate));
+    const hasArtifact = safeRelativeArtifact(document.relative_path);
+    const evidence = Array.isArray(document.evidence) ? document.evidence.flatMap((entry) => (
+      isRecord(entry)
+        && entry.document_id === documentId
+        && Number.isSafeInteger(entry.page)
+        && entry.page > 0
+        ? [{ document_id: documentId, page: entry.page, status: typeof entry.status === "string" ? entry.status : "ready" }]
+        : []
+    )) : [];
+    if (typeof documentId !== "string" || typeof sha256 !== "string" || (!hasArtifact && evidence.length === 0)) return [];
+    return [{
+      document_id: documentId,
+      ...(hasArtifact ? { relative_path: document.relative_path.replaceAll("\\", "/") } : {}),
+      sha256,
+      ...(evidence.length > 0 ? { evidence } : {}),
+    }];
+  });
+}
+
+function econtasEvidenceFromRow(row) {
+  const source = isRecord(row?.econtas) ? row.econtas : null;
+  const documents = localEvidenceDocuments(source);
+  const snapshotHash = typeof source?.snapshot_hash === "string" && SHA256_RE.test(source.snapshot_hash)
+    ? source.snapshot_hash
+    : null;
+  const hasExactEvidence = source?.match === "exact" && documents.length > 0 && snapshotHash !== null;
+  const sourceStatus = source?.ocr_status;
+  const ocrStatus = hasExactEvidence && sourceStatus === "ready"
+    ? "ready"
+    : ["pending", "inconclusive", "failed"].includes(sourceStatus) ? sourceStatus : "not_run";
+  return {
+    match: hasExactEvidence ? "exact" : "missing",
+    documents: hasExactEvidence ? documents : [],
+    snapshot_hash: hasExactEvidence ? snapshotHash : null,
+    ocr_status: ocrStatus,
+  };
+}
+
 function econtasRowsForAnalysis(rows, dataset) {
   return rows.map((row) => {
-    const record = dataset?.records?.find((candidate) => (
-      candidate?.process?.key === row.process_key
-      && candidate?.interested?.normalized === row.interested_key
-    ));
-    const documents = [...new Set((record?.fields ? Object.values(record.fields) : [])
-      .map((field) => field?.citation?.document)
-      .filter((document) => typeof document === "string" && document.length > 0))]
-      .map((document) => ({ label: document }));
     return {
       ...row,
-      econtas: {
-        match: record ? "exact" : "missing",
-        documents,
-        snapshot_hash: null,
-        ocr_status: documents.length > 0 ? "ready" : "not_run",
-      },
+      econtas: econtasEvidenceFromRow(row),
     };
   });
 }
@@ -471,8 +515,12 @@ export function createPanelApp({
       ? `${state.analysisPhase === "aguardando confirmação" ? "Aguardando confirmação. " : "Prévia congelada. "}${state.analysis.preview.needs_complement} processo(s) precisam complementar o ato · ${state.analysis.preview.eligible} elegível(is) · ${state.analysis.preview.absent ?? 0} ausente(s) · ${state.analysis.preview.ambiguous ?? 0} ambíguo(s) · ${state.analysis.preview.blocked} bloqueado(s) · ${state.analysis.preview.lot_count} lote(s).`
       : state.analysisPhase ? `Fase: ${state.analysisPhase}.` : "Nenhuma análise da lista autenticada foi criada.";
     const acquisitionStatus = state.acquisitionJob;
+    const acquisitionItems = Array.isArray(acquisitionStatus?.items) ? acquisitionStatus.items : [];
+    const itemStatusSummary = acquisitionItems.length > 0
+      ? ` Itens: ${acquisitionItems.filter((item) => item.status === "completed").length} concluído(s), ${acquisitionItems.filter((item) => item.status === "failed").length} falho(s), ${acquisitionItems.filter((item) => !["completed", "failed"].includes(item.status)).length} pendente(s).`
+      : "";
     elements["analysis-acquisition-status"].textContent = acquisitionStatus
-      ? `Aquisição do lote ${acquisitionStatus.lot_number}: ${acquisitionStatus.status}. Job ${acquisitionStatus.job_id}.`
+      ? `Aquisição do lote ${acquisitionStatus.lot_number}: ${acquisitionStatus.status}. Job ${acquisitionStatus.job_id}.${itemStatusSummary}`
       : "Nenhuma aquisição de lote iniciada.";
     if (elements["process-list-status"]) {
       elements["process-list-status"].textContent = state.processList
@@ -1060,16 +1108,19 @@ export function createPanelApp({
       }
       if (state.acquisitionJob && typeof bridgeClient.getAnalysisAcquisition === "function") {
         try {
-          state.acquisitionJob = await bridgeClient.getAnalysisAcquisition(
+          const confirmation = state.acquisitionJob.confirmation;
+          const observedJob = await bridgeClient.getAnalysisAcquisition(
             state.acquisitionJob.analysis_id,
             state.acquisitionJob.job_id,
           );
+          state.acquisitionJob = confirmation ? { ...observedJob, confirmation } : observedJob;
         } catch {
           // Preserve the last local status; a transient bridge failure must not
           // turn a running acquisition into a false failure.
         }
       }
       if (state.processList && state.acquisitionJob?.status === "completed") state.analysisPhase = "concluído";
+      if (state.processList && state.acquisitionJob?.status === "failed") state.analysisPhase = "falhou";
       if (loadHistory && typeof bridgeClient.listAutomationRuns === "function") {
         const history = await bridgeClient.listAutomationRuns({ limit: 20 });
         state.automationHistory = Array.isArray(history?.runs) ? history.runs : [];
@@ -1334,7 +1385,20 @@ export function createPanelApp({
         return false;
       }
       if (state.processList) state.analysisPhase = "baixando";
-      state.acquisitionJob = await state.bridgeClient.startAnalysisAcquisition(state.analysis.analysis_id, selection);
+      const acquisitionJob = await state.bridgeClient.startAnalysisAcquisition(state.analysis.analysis_id, selection);
+      if (state.processList) {
+        const selectedLot = state.analysis.lots.find((lot) => lot?.lot_number === lotNumber);
+        state.acquisitionJob = {
+          ...acquisitionJob,
+          confirmation: {
+            confirmed: true,
+            lot_number: lotNumber,
+            item_count: Array.isArray(selectedLot?.items) ? selectedLot.items.length : 0,
+          },
+        };
+      } else {
+        state.acquisitionJob = acquisitionJob;
+      }
       setMessage(selectionMode === "lot"
         ? `Aquisição/OCR do lote ${lotNumber} iniciada; nenhum ato foi enviado.`
         : "Aquisição/OCR de todos os lotes iniciada; nenhum ato foi enviado.");
