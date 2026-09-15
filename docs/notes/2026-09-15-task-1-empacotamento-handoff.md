@@ -27,10 +27,17 @@ Task 1 implementada em main compartilhada, sem rede, login ou envio. O relatóri
 
 - RED focado: falhou pelas lacunas esperadas antes da implementação.
 - GREEN focado: 5/5.
-- Python: `python -m unittest -v test_package_audit` — 48 executados, 46 pass, 0 fail, 2 skips de symlink sem privilégio.
+- Python: `python -m unittest -v test_package_audit` — 49 executados, 47 pass, 0 fail, 2 skips de symlink sem privilégio.
 - PowerShell: `Test-TcePortable.ps1` — 136 pass, 0 fail.
 - `py_compile` e `git diff --check`: verdes.
 - Empacotamento físico: não executado porque `staging-task5-verified`/runtime verificado está ausente.
+
+## Fix round 1
+
+- P2.1 corrigido no teste privado: fixture agora é estruturalmente válida e exige `report.ok`; RED observado com findings estruturais antes da correção da fixture, GREEN 1/1.
+- P2.2 corrigido com subtestes que removem individualmente `process_list.py` e `register_process_list.py` de uma árvore válida; RED contra o auditor anterior 2/2 falhou como esperado, GREEN 2/2.
+- Suíte focada atualizada: 49 executados, 47 pass, 0 fail, 2 skips.
+- Produção não foi alterada nesta rodada.
 
 ## Retomada
 

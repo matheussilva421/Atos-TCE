@@ -202,11 +202,17 @@ class PackageAuditContractTests(unittest.TestCase):
     def test_accepts_workbook_and_sqlite_as_known_private_binary_data(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
+            self._make_runtime_package(root)
+            self._copy_production_extension(root)
             archive = root / "acervo-tce"
             archive.mkdir()
+            (archive / "dados-complementar-ato.json").write_text(
+                '{"records":[]}', encoding="utf-8"
+            )
             (archive / "input.xlsx").write_bytes(b"PK\x03\x04fixture")
             (archive / "runs.sqlite3").write_bytes(b"SQLite format 3\x00fixture")
             report = self.audit_package(root, distribution="private")
+            self.assertTrue(report.ok, report.findings)
             self.assertNotIn(
                 "binary_unrecognized", {finding.code for finding in report.findings}
             )
@@ -722,6 +728,21 @@ class PackageAuditContractTests(unittest.TestCase):
             self.assertIn(
                 ("extension_missing", "extensao-complementar-ato"), findings
             )
+
+    def test_public_audit_rejects_each_missing_authoritative_process_module(self):
+        for module in ("process_list.py", "register_process_list.py"):
+            with self.subTest(module=module), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                self._make_runtime_package(root)
+                self._copy_production_extension(root)
+                (root / "app" / module).unlink()
+
+                report = self.audit_package(root, distribution="public")
+
+                self.assertIn(
+                    ("app_file_missing", f"app/{module}"),
+                    {(finding.code, finding.path) for finding in report.findings},
+                )
 
     def test_rejects_extension_permission_remote_code_dynamic_code_and_unlisted_file(self):
         with tempfile.TemporaryDirectory() as temporary:
