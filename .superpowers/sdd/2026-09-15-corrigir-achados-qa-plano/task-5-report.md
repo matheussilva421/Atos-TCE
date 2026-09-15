@@ -128,3 +128,33 @@ Os cinco gates `BLOCKED` continuam sendo `portal.observation`,
 - `Versions/TCE-Meus-Processos-165-e-Setor-156-Extensao-Reorganizada-2026-09-14`: sem alterações; referência preservada.
 - Python focado: inconcluso/interrompido após warnings HTTP, sem contagem final.
 - Esta seção consolida somente resultados já obtidos; a matriz não foi alterada e não foram produzidos novos resultados. Não houve portal/login/envio.
+
+## Correção P1 — conflito de identidade na execução/preparação (15/09)
+
+Base observada antes deste fix: `c5dff4a` (`HEAD`), após o conteúdo do Task 5
+em `74646b6` e as correções documentais em `7062766`, `8d3716d` e `c5dff4a`.
+
+O finding era que `recordAreaObservations()` marcava conflito da mesma tupla
+`(processKey, interestedNormalized)`, mas `collectSnapshot()` ainda podia
+enfileirar a primeira observação e seguir até `APPLY_FIELDS`. O teste novo
+percorre `start()`/preparação e verifica que o conflito não é congelado na fila
+nem gera `APPLY_FIELDS`.
+
+A correção mínima fail-closed ficou em `background/automation-controller.js`:
+`collectSnapshot()` consulta a observação marcada antes de resolver/enfileirar
+e remove uma identidade já enfileirada antes do congelamento. Identidade
+ausente, fluxo sem conflito e análise permanecem preservados. Nenhum envio ou
+`auto_submit` foi liberado.
+
+TDD e gates desta correção:
+
+```text
+RED focado: 1 falha; pending obtido 0, esperado 1
+GREEN focado: 1/1
+automation-controller: 69/69
+Node completo da extensão: 390/390
+```
+
+Arquivos desta correção: `work/tce-extractor/portable/extensao-complementar-ato/background/automation-controller.js`,
+`work/tce-extractor/portable/extensao-complementar-ato/tests/automation-controller.test.mjs`,
+este relatório, o ledger e `docs/notes/2026-09-15-qa-final-handoff.md`.

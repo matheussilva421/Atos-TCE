@@ -1795,21 +1795,21 @@ function preparationFormSnapshot(fields = {}) {
   };
 }
 
-function preparationPortalSnapshots(sourceScope = null) {
+function preparationPortalSnapshots(sourceScope = null, listIdentities = [PREP_IDENTITY]) {
   const scoped = (entry) => ({ ...entry, source_scope: sourceScope });
   return {
-    list: scoped(snapshot("list", 1, [PREP_IDENTITY], [{ action: "open_act", enabled: true, identity: PREP_IDENTITY }])),
+    list: scoped(snapshot("list", 1, listIdentities, [{ action: "open_act", enabled: true, identity: PREP_IDENTITY }])),
     interested: scoped(snapshot("interested", 2, [{ ...PREP_IDENTITY, selected: false }], [{ action: "select_interested", enabled: true, identity: PREP_IDENTITY }])),
     form: scoped(snapshot("form", 3, [], [{ action: "return_list", enabled: true, identity: PREP_IDENTITY }])),
     returned: scoped(snapshot("list", 4, [PREP_IDENTITY], [])),
   };
 }
 
-function preparationChromeMock({ initialFields = {}, afterApplyFields = null, afterApplyPortal = null, submitResponse = null, sourceScope = null, startAt = "list", staleGenerationOnce = [], staleGenerationAlways = false } = {}) {
+function preparationChromeMock({ initialFields = {}, afterApplyFields = null, afterApplyPortal = null, submitResponse = null, sourceScope = null, startAt = "list", staleGenerationOnce = [], staleGenerationAlways = false, listIdentities = [PREP_IDENTITY] } = {}) {
   const calls = [];
   const removedListeners = [];
   const updatedListeners = [];
-  const pages = preparationPortalSnapshots(sourceScope);
+  const pages = preparationPortalSnapshots(sourceScope, listIdentities);
   let current = pages[startAt];
   let formFields = { ...initialFields };
   const staleReported = new Set();
@@ -1974,6 +1974,26 @@ test("prepares and verifies the discovered form through typed APPLY_FIELDS witho
   assert.match(verifiedEvent.payload.fieldResults.cargo.expectedHash, /^[0-9a-f]{64}$/u);
   assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO), false);
   assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.OVERRIDE_FIELD), false);
+});
+
+test("blocks a same-tuple area identity conflict before queue freeze and preparation", async () => {
+  const bridge = preparationBridge();
+  const conflictingIdentity = { ...PREP_IDENTITY, portalActId: "act-conflicting" };
+  const chromeApi = preparationChromeMock({ listIdentities: [PREP_IDENTITY, conflictingIdentity] });
+  const controller = createAutomationController({
+    chromeApi,
+    bridge,
+    resolveAutomaticAct: preparationResolverCalls([]),
+  });
+
+  const result = await controller.start({ spec: runSpec(), eventId: "start-conflicting-identity" });
+
+  const freezeCall = bridge.calls.find(([name]) => name === "freeze");
+  assert.equal(result.totals.pending, 1);
+  assert.deepEqual(result.items, []);
+  assert.ok(freezeCall);
+  assert.deepEqual(freezeCall[2].identities, []);
+  assert.equal(chromeApi.calls.some(([, message]) => message.type === MESSAGE_TYPES.APPLY_FIELDS), false);
 });
 
 test("retries the act navigation once when the portal reports a newer screen generation", async () => {

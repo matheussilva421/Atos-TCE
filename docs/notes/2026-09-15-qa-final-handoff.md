@@ -3,7 +3,8 @@
 Data: 15/09/2026
 Checkout: `C:\Users\slvma\Downloads\Github\Atos-TCE`
 Branch: `main` compartilhada
-Commit: `74646b65c6270f0df2821bfe917c4c6359b55611` (`test: close Task 5 package regression and QA handoff`)
+HEAD-base observado antes da correção P1: `c5dff4a` (`docs: record final Task 5 resumption verification`)
+Histórico real: conteúdo Task 5 em `74646b6`; documentação em `7062766`, `8d3716d` e `c5dff4a`.
 Push: não realizado
 
 ## Resumo
@@ -13,7 +14,7 @@ registrou a matriz QA final. A causa era de fixture: o auditor passou a exigir
 `app/process_list.py` e `app/register_process_list.py`, mas dois fixtures do
 empacotador completo não os incluíam. A produção já tinha o contrato correto.
 
-Foram alterados somente:
+No fechamento original do Task 5 foram alterados somente:
 
 - `work/tce-extractor/test_package_complete_archive.py`;
 - `work/tce-extractor/test_portable_end_to_end.py`;
@@ -105,7 +106,7 @@ MEMORY.md:28-36|note=[limites de QA manual e classificacao PASS_REAL/PASS_FIXTUR
 
 ## Verificação final desta retomada (15/09)
 
-- Estado Git antes deste novo commit: `main` em `7062766` (`HEAD`); não houve push.
+- Estado Git antes da correção P1: `main` em `c5dff4a` (`HEAD`); não houve push.
 - Node extensão: `389/389`.
 - Web: `6/6`.
 - PowerShell `Test-TcePortable`: `136/136`.
@@ -113,3 +114,12 @@ MEMORY.md:28-36|note=[limites de QA manual e classificacao PASS_REAL/PASS_FIXTUR
 - `Versions/TCE-Meus-Processos-165-e-Setor-156-Extensao-Reorganizada-2026-09-14`: sem alterações; referência preservada.
 - Python focado: inconcluso/interrompido após warnings HTTP, sem contagem final.
 - Esta seção consolida somente resultados já obtidos; a matriz não foi alterada e não foram produzidos novos resultados. Não houve portal/login/envio.
+
+## Correção P1 — conflito de identidade na execução/preparação (15/09)
+
+- Finding reproduzido em `work/tce-extractor/portable/extensao-complementar-ato/background/automation-controller.js`: `recordAreaObservations()` marcava conflito da mesma tupla `(processKey, interestedNormalized)`, mas `collectSnapshot()` ainda podia manter a identidade original na fila e levá-la à preparação.
+- Correção mínima fail-closed: `collectSnapshot()` bloqueia a chave conflitante antes de resolver/enfileirar e remove uma ocorrência previamente enfileirada antes do congelamento. Fluxos sem conflito e identidade ausente permanecem inalterados; `auto_submit`/envio não foram liberados.
+- Teste novo: `blocks a same-tuple area identity conflict before queue freeze and preparation`, percorrendo `start()` até a preparação e verificando fila congelada vazia e zero `APPLY_FIELDS`.
+- TDD: RED focado `1 falha` (`pending: 0` em vez de `1`); GREEN focado `1/1`; suíte `automation-controller` `69/69`; Node completo da extensão `390/390`.
+- Arquivos deste fix: `work/tce-extractor/portable/extensao-complementar-ato/background/automation-controller.js`, `work/tce-extractor/portable/extensao-complementar-ato/tests/automation-controller.test.mjs`, este handoff e o ledger/relatório do Task 5.
+- Não houve portal, login, `Versions/`, `auto_submit`, preenchimento real ou envio.

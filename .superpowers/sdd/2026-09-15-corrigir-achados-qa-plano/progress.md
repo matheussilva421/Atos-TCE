@@ -29,6 +29,7 @@
 - Task 3: complete (commits 409461c..20e6b8f; initial review P1 addressed in fix round; re-review approved).
 - Task 4: complete (commits 395c89e..499fb34; review P1/P2 fix rounds approved by LUNA; residuals closed).
 - Task 5: conteúdo concluído no commit `74646b65c6270f0df2821bfe917c4c6359b55611`; correção documental final no commit `8d3716d1b5584b27b3a6bc0052938dddfcba202e`; push não realizado.
+- Task 5: cadeia documental real confirmada em `7062766`, `8d3716d` e `c5dff4a`, com `c5dff4a` como HEAD observado antes da correção P1; não atribuir conteúdo de teste a esses commits documentais.
 
 ## Task 5 — fechamento QA e regressão final (2026-09-15)
 
@@ -40,3 +41,11 @@
 - Auditoria/empacotamento: auditoria pública direta da referência foi interrompida por ser longa e já havia mostrado achados esperados de acervo privado; empacotamento físico permanece bloqueado pela ausência de `staging-task5-verified`/runtime verificado. Não tocar em `Versions`.
 - Matriz final preservada: `PASS_REAL=0`, `PASS_PACKAGE=1`, `PASS_FIXTURE=24`, `FAIL_REPRODUCED=0`, `BLOCKED=5`, `NOT_TESTED=0`; nenhuma fixture ou teste local promoveu gate portal real.
 - Handoff final: `docs/notes/2026-09-15-qa-final-handoff.md`.
+
+## Correção P1 — conflito de identidade na execução/preparação (2026-09-15)
+
+- Finding reproduzido no caminho `start()`/preparação: conflito da mesma tupla `(processKey, interestedNormalized)` era marcado em `areaObservations`, mas a identidade original ainda podia entrar na fila e chegar a `APPLY_FIELDS`.
+- Correção mínima: `collectSnapshot()` bloqueia a observação conflitante antes do enfileiramento e remove uma ocorrência já enfileirada antes do congelamento. Análise, identidade ausente e fluxo sem conflito foram preservados; não houve alteração de envio/`auto_submit`.
+- TDD: RED `1 falha` (`pending` 0 vs. 1); GREEN `1/1`; `automation-controller` `69/69`; Node completo da extensão `390/390`.
+- Arquivos: `background/automation-controller.js`, `tests/automation-controller.test.mjs`, relatório Task 5 e handoff final.
+- Status: pronto para commit local, sem push; `Versions/` permanece intocado.

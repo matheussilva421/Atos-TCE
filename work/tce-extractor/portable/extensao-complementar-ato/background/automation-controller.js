@@ -634,6 +634,18 @@ export function createAutomationController({
     for (const candidate of snapshot.identities ?? []) {
       state.totals.discovered += 1;
       const rawKey = identityKey(candidate);
+      if (state.areaObservations.get(rawKey)?.conflict) {
+        const wasQueued = state.queue.some((identity) => identityKey(identity) === rawKey);
+        if (wasQueued) {
+          state.queue = state.queue.filter((identity) => identityKey(identity) !== rawKey);
+          state.totals.pending += 1;
+        } else if (!state.seenIdentities.has(rawKey)) {
+          state.seenIdentities.add(rawKey);
+          state.totals.unique += 1;
+          state.totals.pending += 1;
+        }
+        continue;
+      }
       if (state.seenIdentities.has(rawKey)) continue;
       state.seenIdentities.add(rawKey);
       state.totals.unique += 1;
