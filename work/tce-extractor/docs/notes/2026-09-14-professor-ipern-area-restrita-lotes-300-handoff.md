@@ -316,3 +316,18 @@ Os diretórios `staging-final` e `staging-verified` foram removidos após a
 validação para liberar espaço; nenhum arquivo em `acervo-tce` foi removido.
 O receptor loopback foi encerrado. Para retomar o acervo, abra o ZIP ou use
 diretamente `acervo-tce`; não é necessário repetir a coleta dos lotes 1–3.
+
+## Documento filtrado — processos ausentes
+
+Em 15/09/2026 foi criado o workbook
+`outputs/01a0a10f-5286-7cb0-95d1-d78b57c226af/processos-nao-encontrados-area-restrita-192.xlsx`.
+Ele contém exatamente 192 processos únicos classificados como
+`NAO_ENCONTRADO_AREA_RESTRITA`, preservando a ordem da primeira ocorrência na
+planilha. Cada linha registra número/ano, linha original, linhas duplicadas,
+classificação, marcador observado, estado do e-Contas, OCR e hash da
+fotografia. O resumo registra 381 linhas de origem, 189 duplicidades e zero
+downloads para esse subconjunto; a fonte original não foi alterada.
+
+Validação do workbook: 192 linhas de detalhe, 192 chaves únicas, 192
+classificações ausentes, zero downloads e zero erros de fórmula. A prévia
+visual da aba única foi conferida antes da limpeza dos arquivos auxiliares.
