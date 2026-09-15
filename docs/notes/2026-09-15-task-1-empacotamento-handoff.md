@@ -38,4 +38,5 @@ Depois do commit, revisar o hash e o status Git. Se o runtime verificado for dis
 
 ## GitHub
 
-Commit: será preenchido após o commit final.
+Commit de implementação: `605834f` (`fix: harden portable package audit`).
+O registro documental deste hash foi finalizado em commit posterior, sem alterar a implementação.

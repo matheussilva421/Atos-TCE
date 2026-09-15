@@ -67,4 +67,5 @@ Verificações adicionais: `python -m py_compile work/tce-extractor/portable/app
 
 ## GitHub
 
-Commit nominal da Task 1: será preenchido após a criação do commit final.
+Commit nominal da implementação da Task 1: `605834f` (`fix: harden portable package audit`).
+Este relatório e o handoff receberam uma atualização documental posterior para registrar o hash real.
