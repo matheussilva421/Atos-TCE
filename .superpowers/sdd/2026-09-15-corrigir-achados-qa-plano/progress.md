@@ -28,7 +28,7 @@
 - Task 2: complete (commits d00938e..ee5c6ae; review clean after focused re-review; 2 P2 addressed).
 - Task 3: complete (commits 409461c..20e6b8f; initial review P1 addressed in fix round; re-review approved).
 - Task 4: complete (commits 395c89e..499fb34; review P1/P2 fix rounds approved by LUNA; residuals closed).
-- Task 5: concluída localmente no commit `74646b65c6270f0df2821bfe917c4c6359b55611`; push não realizado.
+- Task 5: conteúdo concluído no commit `74646b65c6270f0df2821bfe917c4c6359b55611`; correção documental final no commit `8d3716d1b5584b27b3a6bc0052938dddfcba202e`; push não realizado.
 
 ## Task 5 — fechamento QA e regressão final (2026-09-15)
 
