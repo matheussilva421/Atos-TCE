@@ -51,6 +51,7 @@ const FIELD_LABELS = Object.freeze({
 });
 const SELECT_FIELDS = new Set(["modalidade", "fundamento_legal"]);
 const MATCH_KINDS = new Set(["exact", "probable", "tie"]);
+const AUTOMATION_SOURCE_SCOPES = new Set(["sector_finalistic", "my_processes"]);
 const KIND_LABELS = Object.freeze({
   exact: "exato",
   probable: "aproximado",
@@ -1192,7 +1193,12 @@ export function createPanelApp({
       render();
       return false;
     }
-    const sourceScope = "sector_finalistic";
+    const sourceScope = text(elements["automation-source-scope"]?.value).trim();
+    if (!AUTOMATION_SOURCE_SCOPES.has(sourceScope)) {
+      setMessage("Selecione uma origem válida para a análise.", true);
+      render();
+      return false;
+    }
     const hasAuthoritativeList = Boolean(state.processList);
     const requestedLotSize = Number.parseInt(text(elements["automation-lot-size"]?.value).trim(), 10);
     const lotSize = hasAuthoritativeList

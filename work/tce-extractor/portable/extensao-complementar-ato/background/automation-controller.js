@@ -80,6 +80,14 @@ function areaClassification(candidate) {
   return "AMBIGUO";
 }
 
+function sameAreaEvidence(left, right) {
+  return left?.portalActId === right?.portalActId
+    && left?.needsComplement === right?.needsComplement
+    && left?.classification === right?.classification
+    && left?.actionObserved === right?.actionObserved
+    && JSON.stringify(sortKeys(left?.actionSignature ?? null)) === JSON.stringify(sortKeys(right?.actionSignature ?? null));
+}
+
 function eventId(prefix = "event") {
   return `${prefix}-${Date.now()}`;
 }
@@ -600,6 +608,21 @@ export function createAutomationController({
           source_scope: snapshot.source_scope ?? null,
           marker: clone(snapshot.marker),
         });
+      } else if (candidate?.processKey && !state.areaObservations.get(rawKey)?.conflict) {
+        const existing = state.areaObservations.get(rawKey);
+        if (existing && !sameAreaEvidence(existing.candidate, candidate)) {
+          state.areaObservations.set(rawKey, {
+            candidate: {
+              processKey: candidate.processKey,
+              interestedNormalized: null,
+              portalActId: null,
+              pending: true,
+            },
+            source_scope: snapshot.source_scope ?? null,
+            marker: clone(snapshot.marker),
+            conflict: true,
+          });
+        }
       }
     }
   }
@@ -648,49 +671,48 @@ export function createAutomationController({
         label: spec.marker,
         value: spec.markerValue,
       };
-      const identities = observations
-        .map((observation) => resolvedIdentity(observation.candidate))
-        .filter(Boolean);
-      const identityKeys = [...new Set(identities.map((identity) => identityKey(identity)))];
-      const candidate = identityKeys.length === 1
-        ? observations.find((observation) => identityKey(resolvedIdentity(observation.candidate)) === identityKeys[0])?.candidate
-        : null;
-      const classification = observations.length === 0
-        ? "NAO_ENCONTRADO_AREA_RESTRITA"
-        : identityKeys.length > 1
-          ? "AMBIGUO"
-          : areaClassification(candidate);
-      const identity = candidate ? resolvedIdentity(candidate) : null;
-      const actionSignature = classification === "PRECISA_COMPLEMENTAR"
-        && isRecord(candidate?.actionSignature)
-        ? clone(candidate.actionSignature)
-        : null;
-      const actionObserved = classification === "PRECISA_COMPLEMENTAR"
-        ? "Complementar Ato"
-        : classification === "ATO_COMPLEMENTADO"
-          ? "Ato Complementado"
+      const rowObservations = observations.length === 0
+        ? [null]
+        : observations;
+      for (const observation of rowObservations) {
+        const candidate = observation?.candidate ?? null;
+        const identity = resolvedIdentity(candidate);
+        const classification = observation === null
+          ? "NAO_ENCONTRADO_AREA_RESTRITA"
+          : identity
+            ? areaClassification(candidate)
+            : "AMBIGUO";
+        const actionSignature = classification === "PRECISA_COMPLEMENTAR"
+          && isRecord(candidate?.actionSignature)
+          ? clone(candidate.actionSignature)
           : null;
-      const snapshotHash = await sha256Hex({
-        source_scope: spec.sourceScope,
-        marker,
-        process_key: processKey,
-        identity: candidate,
-        classification,
-      });
-      rows.push({
-        process_key: processKey,
-        interested_key: identity?.interestedNormalized ?? null,
-        area_restrita: {
-          scope: spec.sourceScope,
-          marker_label: marker.label,
-          marker_value: marker.value,
+        const actionObserved = classification === "PRECISA_COMPLEMENTAR"
+          ? "Complementar Ato"
+          : classification === "ATO_COMPLEMENTADO"
+            ? "Ato Complementado"
+            : null;
+        const snapshotHash = await sha256Hex({
+          source_scope: spec.sourceScope,
+          marker,
+          process_key: processKey,
+          identity: candidate,
           classification,
-          needs_complement: classification === "PRECISA_COMPLEMENTAR",
-          action_observed: actionObserved,
-          action_signature: actionSignature,
-          snapshot_hash: snapshotHash,
-        },
-      });
+        });
+        rows.push({
+          process_key: processKey,
+          interested_key: identity?.interestedNormalized ?? null,
+          area_restrita: {
+            scope: spec.sourceScope,
+            marker_label: marker.label,
+            marker_value: marker.value,
+            classification,
+            needs_complement: classification === "PRECISA_COMPLEMENTAR",
+            action_observed: actionObserved,
+            action_signature: actionSignature,
+            snapshot_hash: snapshotHash,
+          },
+        });
+      }
     }
     return rows;
   }

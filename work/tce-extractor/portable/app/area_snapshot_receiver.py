@@ -11,6 +11,7 @@ import tempfile
 
 
 MAX_BODY_BYTES = 2 * 1024 * 1024
+SOURCE_SCOPES = frozenset(("sector_finalistic", "my_processes"))
 
 
 def _validate_snapshot(body: bytes) -> dict:
@@ -23,7 +24,7 @@ def _validate_snapshot(body: bytes) -> dict:
     if (
         not isinstance(value, dict)
         or value.get("schema_version") != 1
-        or value.get("source_scope") != "sector_finalistic"
+        or value.get("source_scope") not in SOURCE_SCOPES
         or not isinstance(value.get("marker"), dict)
         or not isinstance(value["marker"].get("label"), str)
         or not value["marker"]["label"].strip()

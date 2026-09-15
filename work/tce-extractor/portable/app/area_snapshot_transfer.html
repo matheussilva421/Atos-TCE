@@ -17,12 +17,13 @@
 <output id="status" role="status"></output>
 <script>
 (() => {
+  const SOURCE_SCOPES = new Set(['sector_finalistic', 'my_processes']);
   const payload = document.getElementById('payload');
   const status = document.getElementById('status');
   document.getElementById('save').addEventListener('click', async () => {
     try {
       const value = JSON.parse(payload.value);
-      if (!value || value.schema_version !== 1 || value.source_scope !== 'sector_finalistic' ||
+      if (!value || value.schema_version !== 1 || !SOURCE_SCOPES.has(value.source_scope) ||
           !value.marker || typeof value.marker.label !== 'string' ||
           !Array.isArray(value.rows) || value.rows.length === 0) {
         throw new Error('estrutura de fotografia inválida');

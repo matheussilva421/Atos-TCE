@@ -32,6 +32,7 @@ AREA_CLASSIFICATIONS = frozenset(
         "BLOQUEADO",
     }
 )
+SOURCE_SCOPES = frozenset(("sector_finalistic", "my_processes"))
 
 
 def _canonical(value: object) -> str:
@@ -71,20 +72,26 @@ def materialize_analysis(
         raise ValueError("fotografia da Área Restrita inválida")
     marker = _marker(area_snapshot.get("marker"))
     source_scope = _require_text(area_snapshot.get("source_scope"), "source_scope")
-    if source_scope != "sector_finalistic":
-        raise ValueError("source_scope da fotografia deve ser sector_finalistic")
+    if source_scope not in SOURCE_SCOPES:
+        raise ValueError("source_scope da fotografia inválido")
 
-    area_by_key: dict[str, Mapping[str, Any]] = {}
+    area_by_process: dict[str, list[Mapping[str, Any]]] = {}
+    area_identities: set[tuple[str, str | None]] = set()
     for raw in area_snapshot["rows"]:
         if not isinstance(raw, Mapping):
             raise ValueError("linha da fotografia inválida")
         key = _require_text(raw.get("process_key"), "area.process_key")
-        if key in area_by_key:
-            raise ValueError(f"processo duplicado na fotografia: {key}")
+        interested_key = raw.get("interested_key")
+        if interested_key is not None:
+            interested_key = _require_text(interested_key, f"interested_key {key}")
+        identity = (key, interested_key)
+        if identity in area_identities:
+            raise ValueError(f"identidade duplicada na fotografia: {key}")
+        area_identities.add(identity)
         classification = raw.get("area_classification")
         if classification not in AREA_CLASSIFICATIONS:
             raise ValueError(f"classificação inválida na fotografia: {key}")
-        area_by_key[key] = raw
+        area_by_process.setdefault(key, []).append(raw)
 
     unique_rows: list[Mapping[str, Any]] = []
     seen: set[str] = set()
@@ -103,67 +110,68 @@ def materialize_analysis(
     observations: list[dict[str, Any]] = []
     for raw_input in unique_rows:
         key = str(raw_input["process_key"])
-        observed = area_by_key.get(key)
-        if observed is None:
-            classification = "NAO_ENCONTRADO_AREA_RESTRITA"
-            interested_key = None
-            action = None
-            signature = None
-            area_page = None
-        else:
-            classification = str(observed["area_classification"])
-            interested_key = observed.get("interested_key")
-            if interested_key is not None:
-                interested_key = _require_text(interested_key, f"interested_key {key}")
-            action = observed.get("action_observed")
-            if action is not None:
-                action = _require_text(action, f"action_observed {key}")
-            signature = observed.get("action_signature")
-            if signature is not None:
-                if not isinstance(signature, Mapping) or set(signature) != {"kind", "alt", "title", "src"}:
-                    raise ValueError(f"assinatura inválida na fotografia: {key}")
-                signature = {name: str(signature.get(name, "")) for name in ("kind", "alt", "title", "src")}
-            area_page = observed.get("area_page")
+        observed_rows = area_by_process.get(key) or [None]
+        for observed in observed_rows:
+            if observed is None:
+                classification = "NAO_ENCONTRADO_AREA_RESTRITA"
+                interested_key = None
+                action = None
+                signature = None
+                area_page = None
+            else:
+                classification = str(observed["area_classification"])
+                interested_key = observed.get("interested_key")
+                if interested_key is not None:
+                    interested_key = _require_text(interested_key, f"interested_key {key}")
+                action = observed.get("action_observed")
+                if action is not None:
+                    action = _require_text(action, f"action_observed {key}")
+                signature = observed.get("action_signature")
+                if signature is not None:
+                    if not isinstance(signature, Mapping) or set(signature) != {"kind", "alt", "title", "src"}:
+                        raise ValueError(f"assinatura inválida na fotografia: {key}")
+                    signature = {name: str(signature.get(name, "")) for name in ("kind", "alt", "title", "src")}
+                area_page = observed.get("area_page")
 
-        area_evidence = {
-            "process_key": key,
-            "interested_key": interested_key,
-            "area_classification": classification,
-            "action_observed": action,
-            "action_signature": signature,
-            "area_page": area_page,
-        }
-        observations.append(
-            {
+            area_evidence = {
                 "process_key": key,
                 "interested_key": interested_key,
-                "area_restrita": {
-                    "scope": source_scope,
-                    "marker_label": marker["label"],
-                    "marker_value": marker["value"],
-                    "classification": classification,
-                    "needs_complement": classification == "PRECISA_COMPLEMENTAR",
-                    "action_observed": action,
-                    "action_signature": signature,
-                    "snapshot_hash": _sha256(area_evidence),
-                },
-                "econtas": {
-                    "match": "exact",
-                    "documents": [],
-                    "snapshot_hash": None,
-                    "ocr_status": "not_run",
-                },
-                "input_row": int(raw_input["source_row"]),
-                "state": "discovered",
+                "area_classification": classification,
+                "action_observed": action,
+                "action_signature": signature,
+                "area_page": area_page,
             }
-        )
+            observations.append(
+                {
+                    "process_key": key,
+                    "interested_key": interested_key,
+                    "area_restrita": {
+                        "scope": source_scope,
+                        "marker_label": marker["label"],
+                        "marker_value": marker["value"],
+                        "classification": classification,
+                        "needs_complement": classification == "PRECISA_COMPLEMENTAR",
+                        "action_observed": action,
+                        "action_signature": signature,
+                        "snapshot_hash": _sha256(area_evidence),
+                    },
+                    "econtas": {
+                        "match": "exact",
+                        "documents": [],
+                        "snapshot_hash": None,
+                        "ocr_status": "not_run",
+                    },
+                    "input_row": int(raw_input["source_row"]),
+                    "state": "discovered",
+                }
+            )
 
     if not observations:
         raise ValueError("manifesto sem processos únicos")
     input_list_id = _require_text(input_manifest.get("input_list_id"), "input_list_id")
     input_sha256 = _require_text(input_manifest.get("input_sha256"), "input_sha256")
     input_unique_count = input_manifest.get("unique_count")
-    if type(input_unique_count) is not int or input_unique_count != len(observations):
+    if type(input_unique_count) is not int or input_unique_count != len(unique_rows):
         raise ValueError("unique_count do manifesto não confere com as linhas únicas")
     spec = {
         "schema_version": 3,

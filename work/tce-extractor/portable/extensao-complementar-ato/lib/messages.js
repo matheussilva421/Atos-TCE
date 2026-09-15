@@ -357,7 +357,6 @@ function validatePayload(type, payload) {
       if (Object.hasOwn(spec, "marker")) nonEmptyString(spec.marker, "AUTO_ANALYZE marker");
       if (Object.hasOwn(spec, "analysisOnly") && typeof spec.analysisOnly !== "boolean") invalid("AUTO_ANALYZE analysisOnly is invalid");
       if (!new Set(["sector_finalistic", "my_processes"]).has(spec.sourceScope)) invalid("AUTO_ANALYZE sourceScope is invalid");
-      if (spec.analysisOnly === true && spec.sourceScope !== "sector_finalistic") invalid("AUTO_ANALYZE analysis sourceScope is invalid");
       if (!Number.isSafeInteger(spec.lotSize) || spec.lotSize < 1 || spec.lotSize > 1000) invalid("AUTO_ANALYZE lotSize is invalid");
       if (spec.acquisitionSource !== "econtas") invalid("AUTO_ANALYZE acquisitionSource is invalid");
       if (Object.hasOwn(spec, "tabId") && (!Number.isSafeInteger(spec.tabId) || spec.tabId < 0)) invalid("AUTO_ANALYZE tabId is invalid");

@@ -216,6 +216,63 @@ test("analyzes every observed page into sanitized Area Restrita rows without fre
   assert.equal(controller.status().status, "stopped");
 });
 
+test("keeps one analysis row for each distinct interested identity in the same process", async () => {
+  const processKey = "103401/2023";
+  const page = {
+    ...markerSnapshot("list", 1, [
+      { ...identity(processKey, "ana da silva", "act-1"), needsComplement: true },
+      { ...identity(processKey, "beatriz souza", "act-2"), needsComplement: true },
+    ], []),
+    source_scope: "my_processes",
+  };
+  const controller = createAutomationController({ chromeApi: chromeMock([page]), bridge: bridgeMock() });
+
+  const result = await controller.analyze({
+    spec: {
+      ...runSpec(),
+      sourceScope: "my_processes",
+      lotSize: 50,
+      acquisitionSource: "econtas",
+      analysisOnly: true,
+    },
+    eventId: "analysis-two-interested",
+  });
+
+  assert.deepEqual(result.rows.map((row) => [row.process_key, row.interested_key]), [
+    [processKey, "ana da silva"],
+    [processKey, "beatriz souza"],
+  ]);
+  assert.equal(result.rows.every((row) => row.area_restrita.classification === "PRECISA_COMPLEMENTAR"), true);
+});
+
+test("blocks a conflicting portal identity instead of selecting one observation", async () => {
+  const processKey = "103401/2023";
+  const page = {
+    ...markerSnapshot("list", 1, [
+      { ...identity(processKey, "ana da silva", "act-1"), needsComplement: true },
+      { ...identity(processKey, "ana da silva", "act-2"), needsComplement: true },
+    ], []),
+    source_scope: "sector_finalistic",
+  };
+  const controller = createAutomationController({ chromeApi: chromeMock([page]), bridge: bridgeMock() });
+
+  const result = await controller.analyze({
+    spec: {
+      ...runSpec(),
+      sourceScope: "sector_finalistic",
+      lotSize: 50,
+      acquisitionSource: "econtas",
+      analysisOnly: true,
+    },
+    eventId: "analysis-conflicting-identity",
+  });
+
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].process_key, processKey);
+  assert.equal(result.rows[0].interested_key, null);
+  assert.equal(result.rows[0].area_restrita.classification, "AMBIGUO");
+});
+
 test("reads and locks the marker already selected in the Area Restrita without a typed marker or dataset", async () => {
   const bridge = bridgeMock();
   const actionSignature = {

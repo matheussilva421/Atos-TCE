@@ -162,7 +162,8 @@ function buildPanelDocument() {
   addElement(documentRef, "button", "complement-button");
   addElement(documentRef, "input", "automation-auto-submit", { type: "checkbox" });
   addElement(documentRef, "input", "automation-marker", { type: "text" });
-  addElement(documentRef, "select", "automation-source-scope");
+  const sourceScope = addElement(documentRef, "select", "automation-source-scope");
+  sourceScope.value = "sector_finalistic";
   addElement(documentRef, "select", "automation-lot-size");
   addElement(documentRef, "button", "analysis-preview-button");
   addElement(documentRef, "button", "analysis-lots-button");
@@ -678,14 +679,14 @@ test("runs a read-only Area Restrita analysis, shows the count, and creates dete
     },
   };
   const analysisResult = {
-    source_scope: "sector_finalistic",
+    source_scope: "my_processes",
     marker: { label: "PROFESSOR - IPERN - 2 RUBRICAS", value: "marker-2" },
     area_snapshot_sha256: "c".repeat(64),
     rows: [{
       process_key: "103439/2023",
       interested_key: "maria de souza",
       area_restrita: {
-        scope: "sector_finalistic",
+        scope: "my_processes",
         marker_label: "PROFESSOR - IPERN - 2 RUBRICAS",
         marker_value: "marker-2",
         needs_complement: true,
@@ -724,12 +725,12 @@ test("runs a read-only Area Restrita analysis, shows the count, and creates dete
   for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setImmediate(resolve));
   assert.match(documentRef.getElementById("analysis-status").textContent, /1.*complement/iu);
   assert.equal(bridgeCalls[0][0], "preview");
-  assert.equal(bridgeCalls[0][1].spec.source_scope, "sector_finalistic");
+  assert.equal(bridgeCalls[0][1].spec.source_scope, "my_processes");
   assert.equal(bridgeCalls[0][1].spec.lot_size, 50);
   assert.equal(bridgeCalls[0][1].spec.auto_submit, false);
   assert.equal(bridgeCalls[0][1].spec.dataset_sha256, null);
   assert.equal(bridgeCalls[0][1].spec.area_snapshot_sha256, "c".repeat(64));
-  assert.equal(analyzeSpec.sourceScope, "sector_finalistic");
+  assert.equal(analyzeSpec.sourceScope, "my_processes");
   assert.equal(analyzeSpec.datasetSha256, null);
   assert.equal(analyzeSpec.analysisOnly, true);
   assert.equal(Object.hasOwn(analyzeSpec, "marker"), false);
@@ -744,6 +745,44 @@ test("runs a read-only Area Restrita analysis, shows the count, and creates dete
   for (let index = 0; index < 3; index += 1) await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(bridgeCalls[2], ["acquire", analysisId, { selection: "lot", lotNumber: 1 }]);
   assert.match(documentRef.getElementById("analysis-acquisition-status").textContent, /iniciada|started/iu);
+});
+
+test("blocks Area Restrita analysis when the selected source scope is unknown", async () => {
+  const dataset = await makeDataset();
+  const bridgeCalls = [];
+  const client = {
+    async getDataset() { return { api_version: 1, revision: 1, dataset }; },
+    async getState() { return { revision: 1 }; },
+    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v1" }; },
+    async listAutomationRuns() { return { runs: [], next_cursor: null }; },
+    async createAnalysisPreview(input) { bridgeCalls.push(input); return { analysis_id: "analysis-invalid-scope", preview: {}, queue: [], blocked: [] }; },
+  };
+  const chromeApi = makeRuntime({
+    dataset,
+    snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })],
+  });
+  const workerCalls = [];
+  const sendMessage = chromeApi.runtime.sendMessage;
+  chromeApi.runtime.sendMessage = async (message) => {
+    workerCalls.push(message);
+    return sendMessage(message);
+  };
+  const { app, documentRef } = await startApp({
+    chromeApi,
+    dataset,
+    snapshots: [snapshot({ bridgeContext: { tab_id: 7, frame_id: 12, sector: "aposentadorias" } })],
+    pairingFactory: async () => "token",
+    bridgeClientFactory: () => client,
+  });
+  documentRef.getElementById("bridge-pairing-code").value = "12345678";
+  documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
+  await waitUntil(() => Boolean(app.getState().automationCapabilities), "bridge connection did not load capabilities for invalid scope");
+  documentRef.getElementById("automation-source-scope").value = "unknown_scope";
+  documentRef.getElementById("automation-lot-size").value = "50";
+
+  assert.equal(await app.startAnalysis(), false);
+  assert.equal(workerCalls.filter((message) => message.type === MESSAGE_TYPES.AUTO_ANALYZE).length, 0);
+  assert.equal(bridgeCalls.length, 0);
 });
 
 test("uses the selected lot size for v3 analysis and confirms each authoritative lot", async () => {

@@ -201,6 +201,27 @@ test("requires version, known type, requestId, and validated payload on every me
   );
 });
 
+test("accepts my_processes as a read-only Area Restrita analysis scope", () => {
+  const message = createMessage(
+    MESSAGE_TYPES.AUTO_ANALYZE,
+    {
+      spec: {
+        sector: "aposentadorias",
+        datasetSha256: null,
+        rulesVersion: "legal-foundation-v1",
+        sourceScope: "my_processes",
+        lotSize: 50,
+        acquisitionSource: "econtas",
+        analysisOnly: true,
+      },
+      eventId: "analysis-my-processes",
+    },
+    "request-analysis-my-processes",
+  );
+
+  assert.deepEqual(validateMessage(message), message);
+});
+
 test("validates an explicit Complementar Ato signal with current identity", () => {
   const message = createMessage(
     MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO,
