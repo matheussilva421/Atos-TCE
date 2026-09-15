@@ -269,7 +269,9 @@ try {
         'menu.ps1',
         'reset_archive.py',
         'package_audit.py',
-        'extension_exporter.py'
+        'extension_exporter.py',
+        'process_list.py',
+        'register_process_list.py'
     )) {
         Copy-PackageFile -SourcePath (Join-Path $portableRoot ('app\' + $name)) -RelativeDestination ('app\' + $name)
     }

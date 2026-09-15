@@ -36,6 +36,8 @@ class PackageAuditContractTests(unittest.TestCase):
         app.mkdir(parents=True, exist_ok=True)
         (app / "extension_exporter.py").write_text("pass", encoding="utf-8")
         (app / "package_complete_archive.py").write_text("pass", encoding="utf-8")
+        (app / "process_list.py").write_text("pass", encoding="utf-8")
+        (app / "register_process_list.py").write_text("pass", encoding="utf-8")
         runtime_file = root / "runtime" / "python.exe"
         runtime_file.parent.mkdir(parents=True, exist_ok=True)
         runtime_file.write_bytes(b"python-fixture")
@@ -208,6 +210,34 @@ class PackageAuditContractTests(unittest.TestCase):
             self.assertNotIn(
                 "binary_unrecognized", {finding.code for finding in report.findings}
             )
+
+    def test_public_audit_rejects_workbook_and_sqlite_outside_private_archive(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "private-export.xlsx").write_bytes(b"PK\x03\x04fixture")
+            (root / "private-runs.sqlite3").write_bytes(b"SQLite format 3\x00fixture")
+
+            report = self.audit_package(root, distribution="public")
+
+            self.assertFalse(report.ok)
+            findings_by_path = {finding.path for finding in report.findings}
+            self.assertIn("private-export.xlsx", findings_by_path)
+            self.assertIn("private-runs.sqlite3", findings_by_path)
+
+    def test_public_audit_rejects_workbook_and_sqlite_inside_archive(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = root / "acervo-tce"
+            archive.mkdir()
+            (archive / "private-export.xlsx").write_bytes(b"PK\x03\x04fixture")
+            (archive / "private-runs.sqlite3").write_bytes(b"SQLite format 3\x00fixture")
+
+            report = self.audit_package(root, distribution="public")
+
+            self.assertFalse(report.ok)
+            findings_by_path = {finding.path for finding in report.findings}
+            self.assertIn("acervo-tce/private-export.xlsx", findings_by_path)
+            self.assertIn("acervo-tce/private-runs.sqlite3", findings_by_path)
 
     def test_rule_name_without_url_is_not_reported_as_temporary_url(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -469,6 +499,8 @@ class PackageAuditContractTests(unittest.TestCase):
             app.mkdir()
             (app / "extension_exporter.py").write_text("pass", encoding="utf-8")
             (app / "package_complete_archive.py").write_text("pass", encoding="utf-8")
+            (app / "process_list.py").write_text("pass", encoding="utf-8")
+            (app / "register_process_list.py").write_text("pass", encoding="utf-8")
             self._copy_production_extension(root)
             runtime_file = root / "runtime" / "python" / "python.exe"
             runtime_file.parent.mkdir(parents=True)
@@ -685,6 +717,8 @@ class PackageAuditContractTests(unittest.TestCase):
             findings = {(finding.code, finding.path) for finding in report.findings}
             self.assertIn(("app_file_missing", "app/extension_exporter.py"), findings)
             self.assertIn(("app_file_missing", "app/package_complete_archive.py"), findings)
+            self.assertIn(("app_file_missing", "app/process_list.py"), findings)
+            self.assertIn(("app_file_missing", "app/register_process_list.py"), findings)
             self.assertIn(
                 ("extension_missing", "extensao-complementar-ato"), findings
             )
@@ -1108,6 +1142,8 @@ class PackagerContractTests(unittest.TestCase):
             "automation_store.py",
             "legal_context.py",
             "qualification.py",
+            "process_list.py",
+            "register_process_list.py",
         ):
             with self.subTest(module=module):
                 self.assertIn(f"'{module}'", packager)

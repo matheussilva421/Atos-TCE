@@ -85,11 +85,10 @@ _ALLOWLISTED_BINARY_SUFFIXES = {
     ".lib",
     ".pyd",
     ".pyc",
-    ".sqlite3",
     ".traineddata",
-    ".xlsx",
     ".zip",
 }
+_PRIVATE_ARCHIVE_BINARY_SUFFIXES = {".sqlite3", ".xlsx"}
 _TEMPORARY_URL_RE = re.compile(
     r"(?:https?://|/)[^\s\"']*consultaprocessotemp\b", re.IGNORECASE
 )
@@ -270,6 +269,14 @@ def _append_path_findings(
         report.add("forbidden_file", relative, "arquivo .pdf não é distribuível nesta distribuição")
     elif suffix in {".part", ".tmp"}:
         report.add("forbidden_file", relative, f"arquivo {suffix} não é distribuível")
+    elif suffix in _PRIVATE_ARCHIVE_BINARY_SUFFIXES and not (
+        distribution == "private" and is_acervo_path
+    ):
+        report.add(
+            "forbidden_file",
+            relative,
+            f"arquivo {suffix} só é permitido sob acervo-tce na distribuição privada",
+        )
 
     if parts and parts[-1] == "dados-complementar-ato.json" and not (
         distribution == "private" and is_acervo_path
@@ -384,9 +391,25 @@ def _decode_text(data: bytes) -> str:
     raise last_error
 
 
-def _read_text(path: Path, relative: str, report: AuditReport) -> str | None:
+def _read_text(
+    path: Path,
+    relative: str,
+    report: AuditReport,
+    *,
+    distribution: str = "public",
+) -> str | None:
     suffix = path.suffix.casefold()
-    if suffix in _ALLOWLISTED_BINARY_SUFFIXES or suffix in _FORBIDDEN_SUFFIXES:
+    is_acervo_path = PurePosixPath(relative.casefold()).parts[:1] == (_ACERVO_DIRECTORY,)
+    is_private_archive_binary = (
+        suffix in _PRIVATE_ARCHIVE_BINARY_SUFFIXES
+        and distribution == "private"
+        and is_acervo_path
+    )
+    if (
+        suffix in _ALLOWLISTED_BINARY_SUFFIXES
+        or suffix in _FORBIDDEN_SUFFIXES
+        or is_private_archive_binary
+    ):
         return None
     try:
         data = path.read_bytes()
@@ -489,8 +512,9 @@ def _audit_content(
     relative: str,
     *,
     scan_credentials: bool = True,
+    distribution: str = "public",
 ) -> None:
-    text = _read_text(path, relative, report)
+    text = _read_text(path, relative, report, distribution=distribution)
     if text is None:
         return
     _scan_text_fragments(
@@ -1166,7 +1190,12 @@ def _audit_required_app_files(
     app = root / "app"
     if not required and not app.is_dir():
         return
-    for name in ("extension_exporter.py", "package_complete_archive.py"):
+    for name in (
+        "extension_exporter.py",
+        "package_complete_archive.py",
+        "process_list.py",
+        "register_process_list.py",
+    ):
         path = app / name
         if not path.is_file():
             report.add(
@@ -1420,6 +1449,7 @@ def audit_package(root: Path, *, distribution: str = "public") -> AuditReport:
             report,
             path,
             relative,
+            distribution=distribution,
             scan_credentials=(
                 relative.casefold() not in trusted_vendor_files
                 and not is_ocr_classification_index
