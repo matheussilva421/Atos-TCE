@@ -112,7 +112,7 @@ Os cinco gates `BLOCKED` continuam sendo `portal.observation`,
 
 - Antes do commit Task 5: `main` estava `ahead 10` de `origin/main`; remoto
   observado em `c84bced`.
-- Commit Task 5: `7580181` (`test: close Task 5 package regression and QA handoff`); push não feito.
+- Commit Task 5: `74646b65c6270f0df2821bfe917c4c6359b55611` (`test: close Task 5 package regression and QA handoff`); push não feito.
 - Para retomar: conferir `git status`, repetir a suíte Python completa com um
   timeout externo controlado se necessário, e só depois considerar o audit/
   empacotamento quando `staging-task5-verified` existir. Não alterar `Versions`

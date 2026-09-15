@@ -3,7 +3,7 @@
 Data: 15/09/2026
 Checkout: `C:\Users\slvma\Downloads\Github\Atos-TCE`
 Branch: `main` compartilhada
-Commit: `7580181` (`test: close Task 5 package regression and QA handoff`)
+Commit: `74646b65c6270f0df2821bfe917c4c6359b55611` (`test: close Task 5 package regression and QA handoff`)
 Push: não realizado
 
 ## Resumo
@@ -84,7 +84,7 @@ formulário/preflight, preenchimento reversível e conclusão/envio. Não houve
 ## GitHub e retomada
 
 Antes do commit, `main` estava `ahead 10` de `origin/main`, com remoto em
-`c84bced`. O commit deste bloco é `7580181`; não houve push.
+`c84bced`. O commit deste bloco é `74646b65c6270f0df2821bfe917c4c6359b55611`; não houve push.
 
 Retomada segura:
 
