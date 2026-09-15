@@ -125,6 +125,34 @@ log já emitidos pelo coletor; se o coletor mudar esse protocolo sem atualizar o
 seam, o serviço ficará `failed`/não concluído, nunca concluirá por inferência.
 `auto_submit`, envio e `Versions` continuam inalterados.
 
+## Fix round — P2 residual de evidência local (2026-09-15)
+
+### Causa e correção
+
+`batch_scope._has_local_document_evidence` validava identidade/hash e retornava
+`True` imediatamente quando encontrava um `relative_path` seguro. Assim,
+`evidence.status = failed` ou um status desconhecido era ignorado quando o
+documento também possuía path. A validação de status explícito de sucesso foi
+movida para antes desse retorno antecipado. Documento com path, identidade e
+hash, mas sem `evidence`, continua válido; documento com `evidence` presente e
+status inválido é rejeitado.
+
+### TDD e verificação
+
+- RED adicionado em `test_area_restrita_analysis.py` para os status `failed` e
+  `unknown`, ambos com path, identidade, hash e snapshot. A execução inicial
+  falhou no caso `failed` com `ocr_ready: 1` em vez de `0`.
+- GREEN focado: 3/3, incluindo os dois status inválidos, o controle de path
+  sem `evidence` e a exigência de snapshot; `acquisition_eligible` permaneceu
+  `1` no caso bloqueado.
+- Regressão Python (`test_area_restrita_analysis` + `test_local_service`): 36
+  casos, 35 passaram, 1 skipped, 0 falharam.
+- Regressão Node (`tests/panel.test.mjs` + `tests/bridge-client.test.mjs`):
+  71/71 passaram, 0 falharam.
+- `py_compile` e `git diff --check`: passaram.
+
+Nenhum arquivo de envio, `auto_submit` ou `Versions` foi alterado.
+
 ## Git e retomada
 
 Alterações limitadas aos arquivos de propriedade da Task 4. Commit local será

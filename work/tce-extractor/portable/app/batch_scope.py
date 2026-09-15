@@ -141,6 +141,14 @@ def _has_local_document_evidence(document: object) -> bool:
     )
     if not document_id or not document_hash:
         return False
+    evidence = document.get("evidence")
+    evidence_items = evidence if isinstance(evidence, list) else [evidence]
+    if evidence_items and any(
+        isinstance(item, Mapping)
+        and item.get("status", "ready") not in _LOCAL_EVIDENCE_OK_STATES
+        for item in evidence_items
+    ):
+        return False
     relative_path = document.get("relative_path")
     if isinstance(relative_path, str):
         normalized_path = relative_path.replace("\\", "/")
@@ -153,14 +161,6 @@ def _has_local_document_evidence(document: object) -> bool:
             and ":" not in path.parts[0]
         ):
             return True
-    evidence = document.get("evidence")
-    evidence_items = evidence if isinstance(evidence, list) else [evidence]
-    if evidence_items and any(
-        isinstance(item, Mapping)
-        and item.get("status", "ready") not in _LOCAL_EVIDENCE_OK_STATES
-        for item in evidence_items
-    ):
-        return False
     return any(
         isinstance(item, Mapping)
         and item.get("document_id") == document_id
