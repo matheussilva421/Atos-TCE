@@ -72,6 +72,8 @@ def _build_fixture_zip(root: Path) -> tuple[Path, dict[str, object]]:
         "runtime_paths.py": ROOT / "portable" / "app" / "runtime_paths.py",
         "package_audit.py": ROOT / "portable" / "app" / "package_audit.py",
         "extension_exporter.py": ROOT / "portable" / "app" / "extension_exporter.py",
+        "process_list.py": ROOT / "portable" / "app" / "process_list.py",
+        "register_process_list.py": ROOT / "portable" / "app" / "register_process_list.py",
         "legal_context.py": ROOT / "portable" / "app" / "legal_context.py",
         "package_complete_archive.py": ROOT / "package_complete_archive.py",
         "batch_runner.py": ROOT / "batch_runner.py",

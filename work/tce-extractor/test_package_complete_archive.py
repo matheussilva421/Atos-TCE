@@ -18,6 +18,8 @@ class CompleteArchivePackageTests(unittest.TestCase):
         app.mkdir(parents=True)
         (app / "extension_exporter.py").write_text("pass", encoding="utf-8")
         (app / "package_complete_archive.py").write_text("pass", encoding="utf-8")
+        (app / "process_list.py").write_text("pass", encoding="utf-8")
+        (app / "register_process_list.py").write_text("pass", encoding="utf-8")
 
         project_root = Path(__file__).parent
         extension_source = project_root / "portable" / "extensao-complementar-ato"
@@ -105,6 +107,8 @@ class CompleteArchivePackageTests(unittest.TestCase):
             self.assertEqual(stats["extension_files"], len(EXTENSION_FILE_ALLOWLIST))
             with zipfile.ZipFile(destination) as package:
                 names = set(package.namelist())
+            self.assertIn("app/process_list.py", names)
+            self.assertIn("app/register_process_list.py", names)
             self.assertFalse(
                 any(
                     name.startswith("extensao-complementar-ato/tests/")
