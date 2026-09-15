@@ -102,3 +102,14 @@ MEMORY.md:28-36|note=[limites de QA manual e classificacao PASS_REAL/PASS_FIXTUR
 <rollout_ids>
 </rollout_ids>
 </oai-mem-citation>
+
+## Verificação final desta retomada (15/09)
+
+- Estado Git antes deste novo commit: `main` em `7062766` (`HEAD`); não houve push.
+- Node extensão: `389/389`.
+- Web: `6/6`.
+- PowerShell `Test-TcePortable`: `136/136`.
+- `git diff --check`: verde.
+- `Versions/TCE-Meus-Processos-165-e-Setor-156-Extensao-Reorganizada-2026-09-14`: sem alterações; referência preservada.
+- Python focado: inconcluso/interrompido após warnings HTTP, sem contagem final.
+- Esta seção consolida somente resultados já obtidos; a matriz não foi alterada e não foram produzidos novos resultados. Não houve portal/login/envio.

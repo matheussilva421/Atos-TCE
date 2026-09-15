@@ -117,3 +117,14 @@ Os cinco gates `BLOCKED` continuam sendo `portal.observation`,
   timeout externo controlado se necessário, e só depois considerar o audit/
   empacotamento quando `staging-task5-verified` existir. Não alterar `Versions`
   nem iniciar gates de portal sem autorização e sessão humana isolada.
+
+## Verificação final desta retomada (15/09)
+
+- Estado Git antes deste novo commit: `main` em `7062766` (`HEAD`); não houve push.
+- Node extensão: `389/389`.
+- Web: `6/6`.
+- PowerShell `Test-TcePortable`: `136/136`.
+- `git diff --check`: verde.
+- `Versions/TCE-Meus-Processos-165-e-Setor-156-Extensao-Reorganizada-2026-09-14`: sem alterações; referência preservada.
+- Python focado: inconcluso/interrompido após warnings HTTP, sem contagem final.
+- Esta seção consolida somente resultados já obtidos; a matriz não foi alterada e não foram produzidos novos resultados. Não houve portal/login/envio.
