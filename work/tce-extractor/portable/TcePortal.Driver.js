@@ -226,7 +226,7 @@
 
   async function resolveProcess(number, year) {
     const result = asArray(await requestJson(`/api/Processo?numeroProcesso=${encodeURIComponent(number)}&anoProcesso=${encodeURIComponent(year)}`));
-    const process = result.find(item => String(item.numeroProcesso) === String(number) && Number(item.anoProcesso) === Number(year)) || result[0];
+    const process = result.find(item => String(item.numeroProcesso) === String(number) && Number(item.anoProcesso) === Number(year));
     if (!process || !process.idProcesso) throw new Error(`Processo ${number}/${year} não foi resolvido pela API`);
     return process;
   }
