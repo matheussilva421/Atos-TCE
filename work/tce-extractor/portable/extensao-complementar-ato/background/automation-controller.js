@@ -42,6 +42,7 @@ const AREA_CLASSIFICATIONS = new Set([
 ]);
 const AUTO_SUBMIT_TTL_MS = 15_000;
 const UNRECOGNIZED_PORTAL_SCREEN_REASON = "portal screen not recognized; manual intervention required";
+const SOURCE_SCOPE_MISMATCH = "SOURCE_SCOPE_MISMATCH";
 /*
  * The act screen is the only surface where the queue may write fields. It is
  * reached either as the form document itself or as the sibling buttons
@@ -1411,6 +1412,10 @@ export function createAutomationController({
   async function discoverList(tabId, initial, spec = {}) {
     let current = await ensureMarkerFilter(tabId, initial, spec.marker);
     if (!current) return null;
+    if (spec.sourceScope && current.source_scope !== spec.sourceScope) {
+      setPaused(SOURCE_SCOPE_MISMATCH);
+      return current;
+    }
     const firstPage = actionFor(current, "first_page");
     if (firstPage) {
       const frameId = state.frame?.frameId ?? 0;
@@ -1425,6 +1430,10 @@ export function createAutomationController({
         setPaused("a primeira página não confirmou origem e marcador selecionados");
         return current;
       }
+      if (spec.sourceScope && current.source_scope !== spec.sourceScope) {
+        setPaused(SOURCE_SCOPE_MISMATCH);
+        return current;
+      }
     }
     const pageSignatures = new Set();
     let refreshBeforeAction = false;
@@ -1432,6 +1441,10 @@ export function createAutomationController({
       if (refreshBeforeAction) {
         current = await refreshListGeneration(tabId, current);
         refreshBeforeAction = false;
+      }
+      if (spec.sourceScope && current.source_scope !== spec.sourceScope) {
+        setPaused(SOURCE_SCOPE_MISMATCH);
+        return current;
       }
       if (spec.marker && !markerMatches(current, spec.marker, spec.markerValue ?? null)) {
         setPaused("o resultado da paginação perdeu o marcador solicitado");
@@ -1469,6 +1482,10 @@ export function createAutomationController({
       if (!nextSnapshot || nextSnapshot.role !== "list") {
         setPaused("list navigation did not produce a list screen");
         return current;
+      }
+      if (spec.sourceScope && nextSnapshot.source_scope !== spec.sourceScope) {
+        setPaused(SOURCE_SCOPE_MISMATCH);
+        return nextSnapshot;
       }
       if (spec.marker && !markerMatches(nextSnapshot, spec.marker, spec.markerValue ?? null)) {
         setPaused("a próxima página não confirmou o marcador solicitado");

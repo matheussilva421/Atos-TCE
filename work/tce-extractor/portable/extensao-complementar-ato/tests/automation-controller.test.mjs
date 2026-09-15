@@ -216,6 +216,43 @@ test("analyzes every observed page into sanitized Area Restrita rows without fre
   assert.equal(controller.status().status, "stopped");
 });
 
+test("pauses with SOURCE_SCOPE_MISMATCH before materializing a later page from another scope", async () => {
+  const bridge = bridgeMock();
+  const firstPage = {
+    ...markerSnapshot("list", 1, [
+      { ...identity("103401/2023", "ana da silva", "act-1"), needsComplement: true },
+    ], [{ action: "next_page", enabled: true }]),
+    source_scope: "sector_finalistic",
+  };
+  const mismatchedPage = {
+    ...markerSnapshot("list", 2, [
+      { ...identity("103402/2023", "bruno de souza", "act-2"), needsComplement: true },
+    ], []),
+    source_scope: "my_processes",
+  };
+  const chromeApi = chromeMock([firstPage, mismatchedPage]);
+  const controller = createAutomationController({ chromeApi, bridge });
+
+  const result = await controller.analyze({
+    spec: {
+      ...runSpec(),
+      marker: "PROFESSOR - IPERN - 2 RUBRICAS",
+      sourceScope: "sector_finalistic",
+      lotSize: 50,
+      acquisitionSource: "econtas",
+      analysisOnly: true,
+    },
+    eventId: "analysis-paginated-source-scope-mismatch",
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(controller.status().status, "paused");
+  assert.match(result.error, /SOURCE_SCOPE_MISMATCH/u);
+  assert.equal(controller.status().totals.unique, 1);
+  assert.equal(result.rows, undefined);
+  assert.equal(bridge.calls.some(([name]) => name === "freeze"), false);
+});
+
 test("keeps one analysis row for each distinct interested identity in the same process", async () => {
   const processKey = "103401/2023";
   const page = {

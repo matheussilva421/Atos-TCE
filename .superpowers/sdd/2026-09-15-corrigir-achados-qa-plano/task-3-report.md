@@ -18,6 +18,9 @@ alteração no pacote de referência `Versions/...`.
 - `automation-controller.js` agrupava observações por processo e convertia
   múltiplas identidades em uma única linha `AMBIGUO`. Observações conflitantes da
   mesma identidade podiam ser deduplicadas silenciosamente.
+- No fix round, `discoverList()` verificava `source_scope` apenas no snapshot
+  inicial de `analyze()`/`start()`. Uma página posterior com outro escopo podia
+  ser coletada e materializada.
 
 ## TDD — RED
 
@@ -33,6 +36,9 @@ Testes escritos antes das respectivas correções de produção:
 - Controlador: duas identidades no mesmo processo retornaram uma linha com
   `interested_key: null`; o teste de conflito também selecionava a primeira
   observação em vez de bloquear.
+- Fix round P1: a nova regressão falhou porque a segunda página com
+  `source_scope: my_processes` foi aceita; a análise retornou sucesso em vez de
+  pausar.
 
 ## Implementação GREEN
 
@@ -45,6 +51,9 @@ Testes escritos antes das respectivas correções de produção:
   mantém processos ausentes como identidade nula/bloqueada.
 - `automation-controller.js` emite uma linha por observação identitária e
   transforma divergência da mesma identidade em linha `AMBIGUO` sem identidade.
+- Fix round P1: `discoverList()` valida o escopo em cada snapshot de paginação e
+  pausa com `SOURCE_SCOPE_MISMATCH` antes de `collectSnapshot()` da página
+  divergente; a análise não continua nem produz linhas materializadas.
 - Os testes cobrem os dois escopos, dois interessados no mesmo processo,
   ausência e conflito; não houve relaxamento de `auto_submit`.
 
@@ -68,14 +77,14 @@ npm test -- tests/schema.test.mjs
 12 testes executados; 12 passaram; 0 falharam.
 
 npm test -- tests/automation-controller.test.mjs
-67 testes executados; 67 passaram; 0 falharam.
+68 testes executados; 68 passaram; 0 falharam.
 ```
 
 ### Regressão completa da extensão
 
 ```text
 npm test
-386 testes executados; 385 passaram; 1 falhou.
+387 testes executados; 386 passaram; 1 falhou.
 ```
 
 A única falha foi `automatic submission requires capability and an action-time
@@ -87,9 +96,27 @@ como falha independente da base, não como flakiness confirmada.
 ## Diff, Git e limitações
 
 - `git diff --check`: passou antes do commit final; a checagem staged também deve permanecer sem erros.
-- Alterações destinadas ao commit: somente os arquivos da Task 3, incluindo este
-  relatório e o novo teste do receptor.
+- Alterações destinadas ao commit: somente os arquivos da Task 3 nesta rodada:
+  `background/automation-controller.js`, `tests/automation-controller.test.mjs`
+  e este relatório.
 - `Versions/...` permanece inalterado.
 - Não houve push; o SHA será registrado após o commit.
 - Limitação: a regressão completa Node não ficou totalmente verde por causa da
   falha independente descrita acima.
+
+## Fix round P1 — evidência final
+
+Achado do reviewer: `discoverList()` validava a origem somente na primeira
+fotografia. Correção mínima: validar `source_scope` no snapshot atual de cada
+iteração e no retorno de `first_page`/`next_page`; qualquer divergência pausa
+com `SOURCE_SCOPE_MISMATCH`, sem coletar a página divergente e sem continuar a
+análise.
+
+```text
+RED: 1 teste novo falhou contra o código anterior; a página divergente foi aceita.
+GREEN: npm test -- tests/automation-controller.test.mjs — 68/68 passou.
+Python focado — 13/13 passou.
+Node completo — 387 total, 386 passaram, 1 falhou independentemente em
+tests/panel.test.mjs:932 (confirmação vazia no teste de envio automático).
+git diff --check — passou.
+```
