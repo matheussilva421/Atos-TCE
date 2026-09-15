@@ -4,7 +4,7 @@ Data: 15/09/2026
 Checkout: `C:\Users\slvma\Downloads\Github\Atos-TCE`
 Branch: `main` compartilhada
 Base da execução: `499fb34`
-Push: não realizado
+Push do código: realizado com sucesso para `https://github.com/matheussilva421/Atos-TCE.git`; `main` e `origin/main` alinhadas em `e899dcb` (`c84bced..e899dcb`).
 
 ## Escopo e segurança
 
@@ -110,9 +110,12 @@ Os cinco gates `BLOCKED` continuam sendo `portal.observation`,
 
 ## GitHub e retomada
 
-- Antes do commit Task 5: `main` estava `ahead 10` de `origin/main`; remoto
+- Antes do histórico publicado: `main` estava `ahead 10` de `origin/main`; remoto
   observado em `c84bced`.
-- Commit Task 5: `74646b65c6270f0df2821bfe917c4c6359b55611` (`test: close Task 5 package regression and QA handoff`); push não feito.
+- Conteúdo Task 5: `74646b6`; documentação: `7062766`, `8d3716d` e `c5dff4a`;
+  correção P1: `e899dcb` (`fix: block conflicting identity preparation`).
+- Push realizado com sucesso para `https://github.com/matheussilva421/Atos-TCE.git`,
+  no intervalo `c84bced..e899dcb`.
 - Para retomar: conferir `git status`, repetir a suíte Python completa com um
   timeout externo controlado se necessário, e só depois considerar o audit/
   empacotamento quando `staging-task5-verified` existir. Não alterar `Versions`
@@ -120,7 +123,8 @@ Os cinco gates `BLOCKED` continuam sendo `portal.observation`,
 
 ## Verificação final desta retomada (15/09)
 
-- Estado Git antes deste novo commit: `main` em `7062766` (`HEAD`); não houve push.
+- Estado Git antes da correção P1: `main` em `c5dff4a` (`HEAD`). A verificação
+  pós-push confirmou `main` e `origin/main` alinhadas em `e899dcb`.
 - Node extensão: `389/389`.
 - Web: `6/6`.
 - PowerShell `Test-TcePortable`: `136/136`.
@@ -128,6 +132,16 @@ Os cinco gates `BLOCKED` continuam sendo `portal.observation`,
 - `Versions/TCE-Meus-Processos-165-e-Setor-156-Extensao-Reorganizada-2026-09-14`: sem alterações; referência preservada.
 - Python focado: inconcluso/interrompido após warnings HTTP, sem contagem final.
 - Esta seção consolida somente resultados já obtidos; a matriz não foi alterada e não foram produzidos novos resultados. Não houve portal/login/envio.
+
+## Verificação pós-push (15/09)
+
+- Remoto: `https://github.com/matheussilva421/Atos-TCE.git`.
+- Push realizado com sucesso: `c84bced..e899dcb`.
+- `git status --short --branch` foi verificado imediatamente após o push e
+  mostrou `main...origin/main` alinhada; `HEAD` e `origin/main` estavam em
+  `e899dcb`.
+- Esta atualização posterior é somente documental; testes, matriz e código
+  publicado não foram alterados.
 
 ## Correção P1 — conflito de identidade na execução/preparação (15/09)
 

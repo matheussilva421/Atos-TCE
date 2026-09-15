@@ -28,7 +28,7 @@
 - Task 2: complete (commits d00938e..ee5c6ae; review clean after focused re-review; 2 P2 addressed).
 - Task 3: complete (commits 409461c..20e6b8f; initial review P1 addressed in fix round; re-review approved).
 - Task 4: complete (commits 395c89e..499fb34; review P1/P2 fix rounds approved by LUNA; residuals closed).
-- Task 5: conteúdo concluído no commit `74646b65c6270f0df2821bfe917c4c6359b55611`; correção documental final no commit `8d3716d1b5584b27b3a6bc0052938dddfcba202e`; push não realizado.
+- Task 5: conteúdo concluído em `74646b6`; documentação em `7062766`, `8d3716d` e `c5dff4a`; correção P1 em `e899dcb`; push realizado com sucesso para `https://github.com/matheussilva421/Atos-TCE.git` no intervalo `c84bced..e899dcb`.
 - Task 5: cadeia documental real confirmada em `7062766`, `8d3716d` e `c5dff4a`, com `c5dff4a` como HEAD observado antes da correção P1; não atribuir conteúdo de teste a esses commits documentais.
 
 ## Task 5 — fechamento QA e regressão final (2026-09-15)
@@ -48,4 +48,11 @@
 - Correção mínima: `collectSnapshot()` bloqueia a observação conflitante antes do enfileiramento e remove uma ocorrência já enfileirada antes do congelamento. Análise, identidade ausente e fluxo sem conflito foram preservados; não houve alteração de envio/`auto_submit`.
 - TDD: RED `1 falha` (`pending` 0 vs. 1); GREEN `1/1`; `automation-controller` `69/69`; Node completo da extensão `390/390`.
 - Arquivos: `background/automation-controller.js`, `tests/automation-controller.test.mjs`, relatório Task 5 e handoff final.
-- Status: pronto para commit local, sem push; `Versions/` permanece intocado.
+- Status: correção commitada em `e899dcb` e publicada; `main` e `origin/main` foram verificadas alinhadas nesse SHA; `Versions/` permanece intocado.
+
+## Verificação pós-push (2026-09-15)
+
+- Remoto: `https://github.com/matheussilva421/Atos-TCE.git`.
+- Push realizado com sucesso: `c84bced..e899dcb`.
+- `git status --short --branch` foi verificado após o push e mostrou `main...origin/main` sem divergência; `HEAD` e `origin/main` estavam em `e899dcb`.
+- Esta atualização é somente documental; testes, matriz e código não foram alterados.
