@@ -80,6 +80,34 @@ concluída. Nenhum ato foi preenchido, concluído ou enviado nesta análise.
   `Versions/TCE-Meus-Processos-165-e-Setor-156-Extensao-Reorganizada-2026-09-16-public-v2`:
   auditoria `public` sem achados e `TESTAR-PACOTE.ps1` 7/7.
 
+## Migração do estado de trabalho entre versões
+
+Comparação realizada entre
+`Versions/TCE-Meus-Processos-165-e-Setor-156-Extensao-Reorganizada-2026-09-14`
+e a versão privada
+`Versions/TCE-Meus-Processos-165-e-Setor-156-Extensao-Reorganizada-2026-09-16`:
+
+- O estado salvo está em `acervo-tce`; a cópia já foi feita e os arquivos de
+  trabalho têm os mesmos hashes nas duas versões.
+- O conjunto inclui `processos` (3.273 PDFs; 7.194 arquivos),
+  `automacao/execucoes.sqlite3`, `automacao/analises/*.json` e os arquivos
+  derivados da raiz: `checkpoint-extracao.json`, `checkpoint.json`,
+  `dados-complementar-ato.json`, `complementar-ato.html`, `doc.md`,
+  `evidencias-visuais.json`, `fundamentos-contexto.v1.json`,
+  `indice-classificado.json`, `indice-local.json`, `colecoes-processos.json`,
+  `ordem-portal.json`, `pdfs-alvo-manifest.json`, `progresso.json`,
+  `cache-ocr*.json` e `falhas.json`.
+- `.workflow-state.lock` é lock transitório e não deve ser migrado; deve ser
+  recriado pela versão ativa. `automacao/listas` está vazio no estado atual.
+- Não copiar `app`, `runtime`, `extensao-complementar-ato` ou os launchers da
+  versão antiga: a versão nova contém as correções. Não copiar
+  `dados-locais/bridge/service.json` nem códigos de pareamento; são estado
+  efêmero e potencialmente sensível.
+- A extração `public-v2` não contém `acervo-tce` por desenho. Para preservar o
+  trabalho, usar a extração/ZIP privado `final-v2`.
+- Nenhuma movimentação adicional foi executada nesta verificação; a fonte
+  antiga foi preservada.
+
 ## Pendências de release local
 
 - O release atual está reconstruído e validado offline, mas ainda não é uma
