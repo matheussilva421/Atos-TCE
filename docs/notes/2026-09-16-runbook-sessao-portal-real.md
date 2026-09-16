@@ -115,8 +115,17 @@ O envio NAO e executado neste runbook. Ele exige:
 
 ## Depois da sessao
 
-1. Converter a observacao em fixture sanitizada (ferramenta ainda nao existe
-   neste checkout; ver handoff de 16/09).
-2. Gerar automacao/qualificacao.json com versoes, hashes da fixture e o id do
-   evento real, usando write_qualification().
+1. Converter a observacao em fixture sanitizada, preservando a observacao
+   original e gravando o derivado em `automacao/fixtures`:
+
+       python real_portal_session.py ^
+         --fixture-input "<pasta-privada>\observacao-1.json" ^
+         --fixture-output "<pacote>\acervo-tce\automacao\fixtures\portal-real-1.json"
+
+   O comando imprime um JSON com `output` e `sha256`. O hash corresponde aos
+   bytes exatos do fixture gravado; ele e a entrada de `fixture_hashes`.
+   Observacao sem autenticacao, com erro de navegacao, origem inesperada,
+   contrato incompleto, deriva ou qualquer identidade de processo e recusada.
+2. Gerar `automacao/qualificacao.json` com versoes, hashes da fixture e o id
+   do evento real, usando `write_qualification()`.
 3. So entao considerar o envio supervisionado de um unico ato.

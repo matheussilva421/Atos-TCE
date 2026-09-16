@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
+import re
 import sys
 import tempfile
 import time
@@ -40,6 +42,129 @@ PORTAL_DEPENDENCY_IDS = (
 )
 PORTAL_SUBMIT_LABEL = 'Complementar Ato'
 PORTAL_BASELINE_SIGNALS = ('origin', 'complement_action_signal', 'select_count', 'form_count')
+_PROCESS_KEY_RE = re.compile(r'\b\d{5,8}\s*/\s*20\d{2}\b')
+_FIXTURE_KIND = 'real-portal-observation'
+_FIXTURE_STATUS = 'sanitized'
+
+
+def _assert_no_process_identity(value, path: str = 'observacao') -> None:
+    """Recusa qualquer texto que carregue identidade de processo ou pessoa."""
+
+    if isinstance(value, str):
+        if _PROCESS_KEY_RE.search(value):
+            raise ValueError(
+                f'{path} contem identidade de processo; fixture precisa ser sanitizada'
+            )
+        return
+    if isinstance(value, dict):
+        for key, child in value.items():
+            _assert_no_process_identity(child, f'{path}.{key}')
+        return
+    if isinstance(value, list):
+        for index, child in enumerate(value):
+            _assert_no_process_identity(child, f'{path}[{index}]')
+
+
+def build_sanitized_fixture(observation: dict) -> tuple[dict, str]:
+    """Convert a real-portal observation into a hashed, sanitized fixture.
+
+    A qualificacao registra ``fixture_hashes``, entao a fixture precisa existir
+    e ter hash SHA-256 estavel. O conteudo e estrutural: ids de controle, origem
+    e sinais booleanos. Identidade de processo/pessoa e qualquer indicio de envio
+    sao recusados em vez de virar fixture, e um portal que divergiu do contrato
+    nao pode ser promovido a fixture de qualificacao."""
+
+    if not isinstance(observation, dict):
+        raise ValueError('observacao invalida para fixture')
+    if observation.get('submission_performed_by_runner') is not False:
+        raise ValueError(
+            'submission_performed_by_runner precisa ser False: a fixture de '
+            'qualificacao nao pode conter envio'
+        )
+    portal = observation.get('portal')
+    if not isinstance(portal, dict):
+        raise ValueError('observacao sem bloco de portal')
+    expected_ids = list(PORTAL_DEPENDENCY_IDS)
+    if observation.get('profile_disposable') is not True:
+        raise ValueError('perfil da observacao precisa ser isolado e descartavel')
+    if observation.get('extension_id_present') is not True:
+        raise ValueError('observacao sem extensao carregada')
+    if observation.get('portal_extension_origin_match') is not True:
+        raise ValueError('observacao sem correspondencia segura da origem do portal')
+    if observation.get('portal_navigation_error_type') not in (None, ''):
+        raise ValueError('observacao contem erro de navegacao do portal')
+    _assert_no_process_identity(portal.get('known_ids'), 'portal.known_ids')
+    _assert_no_process_identity(portal.get('origin'), 'portal.origin')
+    _assert_no_process_identity(observation.get('captured_at'), 'observacao.captured_at')
+    _assert_no_process_identity(observation.get('browser'), 'observacao.browser')
+    if portal.get('origin') != f'https://{AREA_RESTRITA_HOST}':
+        raise ValueError('observacao contem origem de portal inesperada')
+    if portal.get('authenticated_ui_signal') is not True:
+        raise ValueError('observacao sem sinal de interface autenticada')
+    if portal.get('known_ids') != expected_ids:
+        raise ValueError('observacao nao expos todos os controles do contrato')
+    if observation.get('portal_contract_ids') != expected_ids:
+        raise ValueError('observacao nao corresponde ao contrato de controles')
+    drift = observation.get('portal_drift')
+    missing = observation.get('portal_missing_contract_ids')
+    if missing != []:
+        raise ValueError(
+            'portal divergiu do contrato; fixture recusada ate nova qualificacao'
+        )
+    if not isinstance(drift, dict) or drift.get('drift') is not False:
+        raise ValueError(
+            'portal divergiu do contrato; fixture recusada ate nova qualificacao'
+        )
+    fixture = {
+        'schema_version': 1,
+        'fixture_kind': _FIXTURE_KIND,
+        'fixture_status': _FIXTURE_STATUS,
+        'captured_at': observation.get('captured_at'),
+        'browser': observation.get('browser'),
+        'profile_disposable': observation.get('profile_disposable') is True,
+        'extension_id_present': observation.get('extension_id_present') is True,
+        'portal_origin': portal.get('origin'),
+        'portal_authenticated_ui_signal': portal.get('authenticated_ui_signal') is True,
+        'portal_extension_origin_match': (
+            observation.get('portal_extension_origin_match') is True
+        ),
+        'portal_contract_ids': expected_ids,
+        'portal_missing_contract_ids': [],
+        'portal_drift': {'drift': False},
+    }
+    payload = _serialize_fixture(fixture)
+    return fixture, hashlib.sha256(payload).hexdigest()
+
+
+def _serialize_fixture(fixture: dict) -> bytes:
+    """Return the canonical bytes used both for writing and hashing."""
+
+    return json.dumps(
+        fixture, ensure_ascii=False, sort_keys=True, separators=(',', ':')
+    ).encode('utf-8')
+
+
+def write_sanitized_fixture(input_path: Path, output_path: Path) -> tuple[Path, str]:
+    """Read one private observation and write its safe derived fixture.
+
+    The source observation is never replaced. The returned digest covers the
+    exact bytes written to ``output_path`` so it can be copied to the later
+    qualification record without a second serialization step.
+    """
+
+    source = Path(input_path).resolve()
+    output = Path(output_path).resolve()
+    if source == output:
+        raise ValueError('o fixture precisa ser gravado em arquivo separado')
+    try:
+        observation = json.loads(source.read_text(encoding='utf-8'))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError(f'observacao JSON invalida: {source}') from error
+    fixture, digest = build_sanitized_fixture(observation)
+    payload = _serialize_fixture(fixture)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(payload)
+    return output, digest
 
 
 def portal_dependency_ids() -> list[str]:
@@ -266,14 +391,44 @@ def _read_pairing_code(package: Path) -> tuple[str, int]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument('--package-root', type=Path, required=True)
+    parser.add_argument('--package-root', type=Path)
     parser.add_argument('--portal-url', default=AREA_RESTRITA_URL)
-    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--output', type=Path)
+    parser.add_argument(
+        '--fixture-input',
+        type=Path,
+        help='observacao JSON privada a converter em fixture sanitizada',
+    )
+    parser.add_argument(
+        '--fixture-output',
+        type=Path,
+        help='arquivo derivado que recebera a fixture sanitizada',
+    )
     parser.add_argument('--profile', type=Path)
     parser.add_argument('--executable', type=Path)
     parser.add_argument('--poll-seconds', type=float, default=5.0)
     parser.add_argument('--stay-open', action='store_true')
     args = parser.parse_args()
+
+    if args.fixture_input is not None or args.fixture_output is not None:
+        if args.fixture_input is None or args.fixture_output is None:
+            parser.error('--fixture-input e --fixture-output devem ser usados juntos')
+        try:
+            fixture_path, fixture_hash = write_sanitized_fixture(
+                args.fixture_input, args.fixture_output
+            )
+        except (OSError, ValueError) as error:
+            parser.error(str(error))
+        print(
+            json.dumps(
+                {'output': str(fixture_path), 'sha256': fixture_hash},
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    if args.package_root is None or args.output is None:
+        parser.error('--package-root e --output sao obrigatorios para abrir a sessao')
     portal_url = _normalize_portal_url(args.portal_url)
 
     package = args.package_root.resolve()
