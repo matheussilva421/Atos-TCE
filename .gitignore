@@ -28,6 +28,7 @@
 !/work/tce-extractor/portable/*.psm1
 !/work/tce-extractor/portable/*.js
 !/work/tce-extractor/portable/*.cmd
+!/work/tce-extractor/portable/*.bat
 !/work/tce-extractor/portable/GUIA-RAPIDO.*
 !/work/tce-extractor/portable/README.md
 !/work/tce-extractor/portable/app/
