@@ -22,7 +22,7 @@ class AutomationRecoveryTests(unittest.TestCase):
                 "tab_id": 7,
                 "sector": "aposentadorias",
                 "dataset_sha256": HASH,
-                "rules_version": "legal-foundation-v1",
+                "rules_version": "legal-foundation-v2",
                 "run_id": "run-recovery",
             },
             "run-create",

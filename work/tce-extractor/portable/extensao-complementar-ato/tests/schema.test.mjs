@@ -208,7 +208,7 @@ test("accepts my_processes as a read-only Area Restrita analysis scope", () => {
       spec: {
         sector: "aposentadorias",
         datasetSha256: null,
-        rulesVersion: "legal-foundation-v1",
+        rulesVersion: "legal-foundation-v2",
         sourceScope: "my_processes",
         lotSize: 50,
         acquisitionSource: "econtas",

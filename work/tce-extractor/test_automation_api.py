@@ -26,7 +26,7 @@ from qualification import expected_qualification_versions  # noqa: E402
 
 
 EXTENSION_ORIGIN = "chrome-extension://test-extension"
-RULES_VERSION = "legal-foundation-v1"
+RULES_VERSION = "legal-foundation-v2"
 
 
 def canonical_json(value: object) -> bytes:

@@ -1,6 +1,7 @@
 import { rankPortalOptions } from "../lib/matcher.js";
 import { createMessage, MESSAGE_TYPES } from "../lib/messages.js";
 import { isAutomaticLegalDecision, sameValue } from "../lib/automation-preflight.js";
+import { LEGAL_FOUNDATION_RULES_VERSION } from "../lib/legal-foundation.js";
 import {
   ALLOWED_FIELDS,
   STORAGE_KEYS,
@@ -1271,7 +1272,7 @@ export function createPanelApp({
       sector: context?.sector ?? "*",
       datasetSha256: null,
       analysisOnly: true,
-      rulesVersion: state.automationCapabilities?.rules_version ?? "legal-foundation-v1",
+      rulesVersion: state.automationCapabilities?.rules_version ?? LEGAL_FOUNDATION_RULES_VERSION,
       sourceScope,
       lotSize,
       acquisitionSource: "econtas",

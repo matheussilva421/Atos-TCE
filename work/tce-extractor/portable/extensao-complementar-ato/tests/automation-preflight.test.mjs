@@ -91,7 +91,7 @@ const context = {
   operative_text: "RESOLVE: Art. 40, § 5º.",
   pages: [],
   context_revision: 12,
-  rules_version: "legal-foundation-v1",
+  rules_version: "legal-foundation-v2",
 };
 
 const legalDecision = {
@@ -103,7 +103,7 @@ const legalDecision = {
   confidence: 0.96,
   margin: 0.20,
   hard_conflict: false,
-  rules_version: "legal-foundation-v1",
+  rules_version: "legal-foundation-v2",
 };
 
 function input(overrides = {}) {

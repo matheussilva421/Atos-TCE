@@ -172,7 +172,7 @@ class LocalServiceTests(unittest.TestCase):
             "tab_id": 7,
             "sector": "aposentadorias",
             "dataset_sha256": "a" * 64,
-            "rules_version": "legal-foundation-v1",
+            "rules_version": "legal-foundation-v2",
             "event_id": "start-hybrid-1",
             "marker": "Marcador",
             "marker_value": "marker-1",
