@@ -689,7 +689,7 @@ test("automation control messages are restricted to extension pages and use the 
     tabId: 7,
     sector: "aposentadorias",
     datasetSha256: "a".repeat(64),
-    rulesVersion: "legal-foundation-v1",
+    rulesVersion: "legal-foundation-v2",
   };
 
   const denied = await worker.handleMessage(
@@ -743,7 +743,7 @@ test("serializes concurrent AUTO_START requests before creating a second run", a
     tabId: 7,
     sector: "aposentadorias",
     datasetSha256: "a".repeat(64),
-    rulesVersion: "legal-foundation-v1",
+    rulesVersion: "legal-foundation-v2",
   };
 
   const first = worker.handleMessage(
@@ -852,7 +852,7 @@ test("does not create a second automation run when AUTO_START arrives after work
     sector: "aposentadorias",
     sourceScope: "sector_finalistic",
     datasetSha256: "a".repeat(64),
-    rulesVersion: "legal-foundation-v1",
+    rulesVersion: "legal-foundation-v2",
   };
   const session = storageMock({
     [STORAGE_KEYS.AUTOMATION_RUN_ID]: "run-existing",
@@ -903,7 +903,7 @@ test("does not apply a persisted spec from another run during rehydration", asyn
       sector: "meus-processos",
       sourceScope: "my_processes",
       datasetSha256: "b".repeat(64),
-      rulesVersion: "legal-foundation-v1",
+      rulesVersion: "legal-foundation-v2",
     },
   });
   const bridge = {
@@ -966,7 +966,7 @@ test("automation watchdog refreshes an active run and clears after an explicit s
     tabId: 7,
     sector: "aposentadorias",
     datasetSha256: "a".repeat(64),
-    rulesVersion: "legal-foundation-v1",
+    rulesVersion: "legal-foundation-v2",
   };
 
   const started = await worker.handleMessage(
@@ -985,7 +985,7 @@ test("automation watchdog refreshes an active run and clears after an explicit s
     createMessage(MESSAGE_TYPES.AUTO_STOP, { runId: "run-watchdog", eventId: "watchdog-stop", expectedRevision: 0 }, "watchdog-stop"),
     extensionSender(),
   );
-  assert.equal(stopped.ok, true);
+  assert.equal(stopped.ok, true, JSON.stringify(stopped));
   assert.deepEqual(alarms.cleared, ["automation-watchdog-v1"]);
 });
 
@@ -1230,7 +1230,7 @@ test("automation control rejects a content script even when its sender id is the
         tabId: 7,
         sector: "aposentadorias",
         datasetSha256: "a".repeat(64),
-        rulesVersion: "legal-foundation-v1",
+        rulesVersion: "legal-foundation-v2",
       },
       eventId: "start-content-script",
     }, "auto-content-script"),
@@ -1263,7 +1263,7 @@ async function assertAutomationRejectedForSender(senderValue) {
         tabId: 7,
         sector: "aposentadorias",
         datasetSha256: "a".repeat(64),
-        rulesVersion: "legal-foundation-v1",
+        rulesVersion: "legal-foundation-v2",
       },
       eventId: "identity-check-start",
     }],
@@ -1306,7 +1306,7 @@ test("automation messages preserve manual fallback when the old service has no b
         tabId: 7,
         sector: "aposentadorias",
         datasetSha256: "a".repeat(64),
-        rulesVersion: "legal-foundation-v1",
+        rulesVersion: "legal-foundation-v2",
       },
       eventId: "start-old-service",
     }, "auto-old-service"),
@@ -1362,7 +1362,7 @@ test("AUTO_START retries bridge discovery after credentials are paired late", as
       tabId: 7,
       sector: "aposentadorias",
       datasetSha256: "a".repeat(64),
-      rulesVersion: "legal-foundation-v1",
+      rulesVersion: "legal-foundation-v2",
     },
     eventId: "late-pair",
   }, "late-pair");
@@ -1401,7 +1401,7 @@ test("failed AUTO_START clears the active run and watchdog state", async () => {
     tabId: 7,
     sector: "aposentadorias",
     datasetSha256: "a".repeat(64),
-    rulesVersion: "legal-foundation-v1",
+    rulesVersion: "legal-foundation-v2",
   };
 
   const started = await worker.handleMessage(
@@ -1478,7 +1478,7 @@ test("AUTO_START resolves the authenticated worker bridge without exposing its t
       tabId: 7,
       sector: "aposentadorias",
       datasetSha256: "a".repeat(64),
-      rulesVersion: "legal-foundation-v1",
+      rulesVersion: "legal-foundation-v2",
     },
     eventId: "auto-authenticated",
   }, "auto-authenticated"), extensionSender());
@@ -1516,7 +1516,7 @@ test("contextual getMatch caches by identity, dataset, rules and revision", asyn
     operative_text: "RESOLVE: Art. 6º da EC 41/2003.",
     pages: [],
     context_revision: 1,
-    rules_version: "legal-foundation-v1",
+    rules_version: "legal-foundation-v2",
   };
   const payload = {
     processKey: PROCESS_KEY,
@@ -1524,7 +1524,7 @@ test("contextual getMatch caches by identity, dataset, rules and revision", asyn
     options: { fundamento_legal: [{ value: "ec41", label: "Art. 6 da EC 41/2003" }] },
     context,
     datasetSha256: dataset.batch.logical_sha256,
-    rulesVersion: "legal-foundation-v1",
+    rulesVersion: "legal-foundation-v2",
     contextRevision: 1,
   };
   const first = await worker.handleMessage(createMessage(MESSAGE_TYPES.GET_MATCH, payload, "match-context-1"), extensionSender());
@@ -1559,7 +1559,7 @@ test("contextual getMatch rejects backend context hash or revision mismatches", 
     operative_text: "RESOLVE: Art. 6º",
     pages: [],
     context_revision: 7,
-    rules_version: "legal-foundation-v1",
+    rules_version: "legal-foundation-v2",
   };
   const options = { fundamento_legal: [{ value: "art-6", label: "Art. 6º" }] };
 
@@ -1572,7 +1572,7 @@ test("contextual getMatch rejects backend context hash or revision mismatches", 
         options,
         context: { ...baseContext, dataset_sha256: "b".repeat(64) },
         datasetSha256: "b".repeat(64),
-        rulesVersion: "legal-foundation-v1",
+        rulesVersion: "legal-foundation-v2",
         contextRevision: 7,
       },
       "match-context-hash-mismatch",
@@ -1591,7 +1591,7 @@ test("contextual getMatch rejects backend context hash or revision mismatches", 
         options,
         context: baseContext,
         datasetSha256: dataset.batch.logical_sha256,
-        rulesVersion: "legal-foundation-v1",
+        rulesVersion: "legal-foundation-v2",
         contextRevision: 8,
       },
       "match-context-revision-mismatch",
@@ -1613,7 +1613,7 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
     operative_text: "RESOLVE: Art. 40, § 5º.",
     pages: [],
     context_revision: 12,
-    rules_version: "legal-foundation-v1",
+    rules_version: "legal-foundation-v2",
   };
   const surfaces = {
     list: {
@@ -1664,6 +1664,8 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
   const rankCalls = [];
   const applyCalls = [];
   const storage = storageMock();
+  let legalConfidence = 0.96;
+  let remoteRunStatus = "stopped";
   const ranker = (input) => {
     rankCalls.push(input);
     if (input.field === "fundamento_legal") {
@@ -1680,7 +1682,10 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
           rule_id: "EC41_COM_P5",
           option_value: input.options[0]?.value ?? optionValues.fundamento_legal,
           option_label: input.options[0]?.label ?? "Art. 40",
-          rules_version: "legal-foundation-v1",
+          confidence: legalConfidence,
+          margin: 0.20,
+          hard_conflict: false,
+          rules_version: "legal-foundation-v2",
         },
       };
     }
@@ -1696,6 +1701,7 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
   const bridge = {
     async createAutomationRun(spec, eventId) {
       bridgeCalls.push(["start", spec, eventId]);
+      remoteRunStatus = "running";
       return { api_version: 1, run_id: "run-fase6", revision: 0, status: "discovering", items: [], last_confirmed_item_id: null };
     },
     async getDataset() {
@@ -1715,9 +1721,10 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
       return { api_version: 1, run_id: runId, revision: 2, status: "running", items: [], last_confirmed_item_id: null };
     },
     async getAutomationRun(runId) {
-      return { api_version: 1, run_id: runId, revision: 2, status: "running", items: [], last_confirmed_item_id: null };
+      return { api_version: 1, run_id: runId, revision: 2, status: remoteRunStatus, items: [], last_confirmed_item_id: null };
     },
     async controlAutomationRun() {
+      remoteRunStatus = "stopped";
       return { api_version: 1, run_id: "run-fase6", revision: 3, status: "stopped", items: [], last_confirmed_item_id: null };
     },
   };
@@ -1763,7 +1770,7 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
     tabId: 7,
     sector: "aposentadorias",
     datasetSha256: dataset.batch.logical_sha256,
-    rulesVersion: "legal-foundation-v1",
+    rulesVersion: "legal-foundation-v2",
   };
 
   const denied = await worker.handleMessage(
@@ -1791,8 +1798,33 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
     method: "rule",
     rule_id: "EC41_COM_P5",
     option_value: optionValues.fundamento_legal,
-    rules_version: "legal-foundation-v1",
+    rules_version: "legal-foundation-v2",
   });
   assert.deepEqual(preparedEvent[2].payload.matchKinds, Object.fromEntries(Object.keys(values).map((field) => [field, "exact"])));
   assert.equal(bridgeCalls.some(([name, , event]) => name === "event" && event.type === "fields_verified"), true);
+
+  const stopped = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_STOP, {
+      runId: "run-fase6",
+      eventId: "fase6-stop-before-review",
+      expectedRevision: 2,
+    }, "fase6-stop-before-review"),
+    extensionSender(),
+  );
+  assert.equal(stopped.ok, true);
+
+  currentSurface = surfaces.list;
+  for (const fieldName of Object.keys(formValues)) formValues[fieldName] = "";
+  legalConfidence = 0.82;
+  const reviewRun = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_START, { spec, eventId: "fase6-review" }, "fase6-review"),
+    extensionSender(),
+  );
+  assert.equal(reviewRun.ok, true);
+  assert.deepEqual(formValues, Object.fromEntries(Object.keys(values).map((field) => [field, ""])));
+  assert.equal(applyCalls.length, 1, "review must not issue a second APPLY_FIELDS");
+  const pendingEvent = bridgeCalls.find(([name, , event]) => name === "event"
+    && event.type === "item_pending"
+    && event.payload?.legalDecision?.confidence === 0.82);
+  assert.ok(pendingEvent, "review decision must be preserved as an internal pending diagnostic");
 });

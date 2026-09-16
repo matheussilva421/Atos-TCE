@@ -7,6 +7,7 @@ import { createServiceWorker } from "../background/service-worker.js";
 import { MESSAGE_TYPES, createMessage } from "../lib/messages.js";
 import { ALLOWED_ORIGIN, STORAGE_KEYS, computeLogicalSha256 } from "../lib/schema.js";
 import { createPanelApp, PANEL_FIELD_ORDER, PANEL_STATES } from "../sidepanel/panel.js";
+import { buildPanelViewModel } from "../sidepanel/panel-view.js";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const PORTAL_URL = `${ALLOWED_ORIGIN}/ComplementarAto`;
@@ -595,7 +596,7 @@ test("automation view requires a compatible bridge, starts explicitly, and keeps
     async getState() { return { revision: 1 }; },
     async setCompleted() { return { revision: 2 }; },
     async getDataset() { return { api_version: 1, revision: 1, dataset }; },
-    async getAutomationCapabilities() { calls.push(["capabilities"]); return { api_version: 1, automation_schema: 1, legal_context_schema: 1, rules_version: "legal-foundation-v1", real_send_enabled: false }; },
+    async getAutomationCapabilities() { calls.push(["capabilities"]); return { api_version: 1, automation_schema: 1, legal_context_schema: 1, rules_version: "legal-foundation-v2", real_send_enabled: false }; },
     async listAutomationRuns() { calls.push(["history"]); return { api_version: 1, runs: [{ run_id: "run-panel-1", state: "paused", revision: 0, created_at: "2026-09-09T12:00:00Z", updated_at: "2026-09-09T12:00:00Z", totals: {} }], next_cursor: null }; },
     async getAutomationEvents(runId) { calls.push(["events", runId]); return { api_version: 1, events: [{ type: "queue_frozen", created_at: "2026-09-09T12:01:00Z" }], next_after: null, has_more: false }; },
     async createAutomationRun(spec, eventId) { calls.push(["start", spec, eventId]); return { ...run, spec, status: "discovering" }; },
@@ -663,7 +664,7 @@ test("runs a read-only Area Restrita analysis, shows the count, and creates dete
     async getDataset() { return { api_version: 1, revision: 1, dataset }; },
     async getState() { return { revision: 1 }; },
     async publishSelection() { return { accepted: true, revision: 1 }; },
-    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v1" }; },
+    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v2" }; },
     async listAutomationRuns() { return { runs: [], next_cursor: null }; },
     async createAnalysisPreview(input) {
       bridgeCalls.push(["preview", input]);
@@ -759,7 +760,7 @@ test("blocks Area Restrita analysis when the selected source scope is unknown", 
   const client = {
     async getDataset() { return { api_version: 1, revision: 1, dataset }; },
     async getState() { return { revision: 1 }; },
-    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v1" }; },
+    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v2" }; },
     async listAutomationRuns() { return { runs: [], next_cursor: null }; },
     async createAnalysisPreview(input) { bridgeCalls.push(input); return { analysis_id: "analysis-invalid-scope", preview: {}, queue: [], blocked: [] }; },
   };
@@ -815,7 +816,7 @@ test("uses the selected lot size for v3 analysis and confirms each authoritative
     async getDataset() { return { api_version: 1, revision: 1, dataset }; },
     async getState() { return { revision: 1 }; },
     async publishSelection() { return { accepted: true, revision: 1 }; },
-    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v1" }; },
+    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v2" }; },
     async listAutomationRuns() { return { runs: [], next_cursor: null }; },
     async getActiveProcessList() { calls.push(["active-list"]); return manifest; },
     async createAnalysisPreview(input) { calls.push(["preview", input]); return { analysis_id: analysisId, preview: { needs_complement: 1, eligible: 1, blocked: 1, lot_count: 1 }, queue: [{}], blocked: [{}] }; },
@@ -888,7 +889,7 @@ test("preserves ready acquisition evidence only when the analysis row carries a 
     async getDataset() { return { api_version: 1, revision: 1, dataset }; },
     async getState() { return { revision: 1 }; },
     async publishSelection() { return { accepted: true, revision: 1 }; },
-    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v1" }; },
+    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v2" }; },
     async listAutomationRuns() { return { runs: [], next_cursor: null }; },
     async createAnalysisPreview(input) { bridgeCalls.push(input); return { analysis_id: analysisId, preview: { needs_complement: 1, eligible: 1, blocked: 0, lot_count: 1 }, queue: [], blocked: [] }; },
   };
@@ -947,7 +948,7 @@ test("does not promote failed local evidence to exact or ready", async () => {
     async getDataset() { return { api_version: 1, revision: 1, dataset }; },
     async getState() { return { revision: 1 }; },
     async publishSelection() { return { accepted: true, revision: 1 }; },
-    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v1" }; },
+    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v2" }; },
     async listAutomationRuns() { return { runs: [], next_cursor: null }; },
     async createAnalysisPreview(input) {
       bridgeCalls.push(input);
@@ -1023,7 +1024,7 @@ test("surfaces the internal Area Restrita analysis reason without exposing priva
     async getDataset() { return { api_version: 1, revision: 1, dataset }; },
     async getState() { return { revision: 1 }; },
     async publishSelection() { return { accepted: true, revision: 1 }; },
-    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v1" }; },
+    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v2" }; },
     async listAutomationRuns() { return { runs: [], next_cursor: null }; },
     async createAnalysisPreview(input) {
       bridgeCalls.push(input);
@@ -1092,7 +1093,7 @@ test("automatic submission requires capability and an action-time confirmation",
         api_version: 1,
         automation_schema: 1,
         legal_context_schema: 1,
-        rules_version: "legal-foundation-v1",
+        rules_version: "legal-foundation-v2",
         real_send_enabled: true,
         pilot_enabled: false,
         pilot_consumes_remaining: false,
@@ -1158,7 +1159,7 @@ test("pilot action is explicit, targets the current identity, and preserves the 
         api_version: 1,
         automation_schema: 1,
         legal_context_schema: 1,
-        rules_version: "legal-foundation-v1",
+        rules_version: "legal-foundation-v2",
         real_send_enabled: false,
         pilot_enabled: true,
         pilot_consumes_remaining: true,
@@ -1239,7 +1240,7 @@ test("pilot action delegates run creation to the worker controller", async () =>
         api_version: 1,
         automation_schema: 1,
         legal_context_schema: 1,
-        rules_version: "legal-foundation-v1",
+        rules_version: "legal-foundation-v2",
         real_send_enabled: false,
         pilot_enabled: true,
         pilot_consumes_remaining: true,
@@ -1274,7 +1275,7 @@ test("automation status polls every two seconds without requiring a panel action
     async getDataset() { return { api_version: 1, revision: 1, dataset }; },
     async publishSelection() { return { accepted: true, revision: 1 }; },
     async getState() { return { revision: 1 }; },
-    async getAutomationCapabilities() { calls.push("capabilities"); return { api_version: 1, automation_schema: 1, legal_context_schema: 1, rules_version: "legal-foundation-v1", real_send_enabled: false }; },
+    async getAutomationCapabilities() { calls.push("capabilities"); return { api_version: 1, automation_schema: 1, legal_context_schema: 1, rules_version: "legal-foundation-v2", real_send_enabled: false }; },
     async listAutomationRuns() { calls.push("history"); return { api_version: 1, runs: [], next_cursor: null }; },
   };
   const setTimeoutFn = (callback, delay) => {
@@ -1503,6 +1504,113 @@ test("renders a preview from current portal options with exact green and approxi
   assert.match(approximateControl.textContent, /aproximado/iu);
 });
 
+test("renders legal crosswalk diagnostics with documentary source, suggestion, score, and differences", async () => {
+  const dataset = await makeDataset({
+    sourceOverrides: {
+      fundamento_legal: "RESOLVE: aposentadoria voluntária integral. Art. 7º da ECE nº 20/2020.",
+    },
+  });
+  const decision = {
+    status: "selected",
+    method: "similarity",
+    confidence: 0.94,
+    margin: 0.18,
+    hard_conflict: false,
+    option_value: "f-prof",
+    option_label: "Civil - EC41/2003 + EC47/2005, regra histórica",
+    reasons: ["crosswalk:ECE20_ART7_VOLUNTARY_TRANSITION"],
+    warnings: [],
+    documentary_foundation: {
+      operative_text: dataset.records[0].fields.fundamento_legal.source_value,
+      profile: {
+        evidence: ["modality:voluntary_contribution", "proventos:integral", "transition:true"],
+        references: [{ diploma_type: "ece", diploma_number: "20", diploma_year: "2020", article: "7" }],
+      },
+    },
+    portal_classification: {
+      option_value: "f-prof",
+      option_label: "Civil - EC41/2003 + EC47/2005, regra histórica",
+      class_id: "EC41_TRANSITION_GENERAL",
+      method: "similarity",
+      confidence: 0.94,
+      margin: 0.18,
+      reasons: ["crosswalk:ECE20_ART7_VOLUNTARY_TRANSITION"],
+      warnings: [],
+    },
+  };
+  const { documentRef } = await startApp({
+    dataset,
+    snapshots: [snapshot({ options: currentOptions() })],
+    matches: [{
+      record: dataset.records[0],
+      matches: fullMatches({ fundamento_legal: { ...fieldMatch({ optionValue: "f-prof", optionLabel: decision.option_label }), legalDecision: decision } }),
+      reviewed: false,
+    }],
+  });
+
+  const diagnostics = buildPanelViewModel({
+    record: dataset.records[0],
+    snapshot: snapshot({ options: currentOptions() }),
+    matches: { fundamento_legal: { legalDecision: decision } },
+  }).legalDiagnostics;
+  assert.equal(diagnostics.documentary, dataset.records[0].fields.fundamento_legal.source_value);
+  assert.equal(diagnostics.suggested, decision.option_label);
+  assert.equal(diagnostics.confidenceLabel, "94%");
+  assert.equal(diagnostics.marginLabel, "18 p.p.");
+  assert.deepEqual(diagnostics.coincidences, [
+    "aposentadoria voluntária por tempo de contribuição",
+    "proventos integrais",
+    "regra de transição",
+  ]);
+  assert.deepEqual(diagnostics.differences, [
+    "resolução usa ECE 20/2020",
+    "catálogo do portal usa classe histórica EC41/EC47",
+  ]);
+  assert.match(documentRef.getElementById("preview-body").textContent, /Fundamento documental:/u);
+  assert.match(documentRef.getElementById("preview-body").textContent, /Opção sugerida do portal:/u);
+  assert.match(documentRef.getElementById("preview-body").textContent, /94%/u);
+  assert.match(documentRef.getElementById("preview-body").textContent, /classe histórica EC41\/EC47/u);
+});
+
+test("renders the professor implicit-rule warning without copying sensitive record fields into legal diagnostics", () => {
+  const decision = {
+    status: "pending",
+    method: "none",
+    confidence: 0.79,
+    margin: 0.04,
+    hard_conflict: false,
+    option_value: null,
+    option_label: null,
+    documentary_foundation: {
+      operative_text: "RESOLVE: aposentadoria voluntária integral. Art. 7º da EC nº 41/2003.",
+      profile: {
+        professor_context: true,
+        professor_rule_explicit: false,
+        evidence: ["context:professor", "transition:true"],
+        references: [],
+      },
+    },
+    portal_classification: {
+      option_value: "f-prof",
+      option_label: "Civil - regra docente EC41/2003",
+      class_id: "EC41_TRANSITION_TEACHER",
+      method: "none",
+      confidence: 0.79,
+      margin: 0.04,
+      reasons: [],
+      warnings: ["Professor identificado pelo cargo, mas a regra docente não foi encontrada expressamente na fundamentação. Revisão recomendada."],
+    },
+  };
+  const model = buildPanelViewModel({
+    record: { fields: { fundamento_legal: { source_value: decision.documentary_foundation.operative_text } } },
+    snapshot: { fields: {}, process: {}, interested: null },
+    matches: { fundamento_legal: { legalDecision: decision } },
+  });
+
+  assert.match(model.legalDiagnostics.warnings[0], /regra docente não foi encontrada/iu);
+  assert.doesNotMatch(JSON.stringify(model.legalDiagnostics), /103\.870-2\/1|cpf|Maria de Souza/iu);
+});
+
 test("forwards the validated legal context and available bindings to the read-only preview match", async () => {
   const dataset = await makeDataset();
   const legalContext = {
@@ -1514,7 +1622,7 @@ test("forwards the validated legal context and available bindings to the read-on
     operative_text: "RESOLVE: Art. 40, § 1º.",
     pages: [],
     context_revision: 12,
-    rules_version: "legal-foundation-v1",
+    rules_version: "legal-foundation-v2",
   };
   const contextCalls = [];
   const bridge = {
@@ -1550,7 +1658,7 @@ test("forwards the validated legal context and available bindings to the read-on
   assert.deepEqual(contextCalls, [{ processKey: "103439/2023", interestedNormalized: "maria de souza" }]);
   assert.deepEqual(matchRequest.payload.context, legalContext);
   assert.equal(matchRequest.payload.datasetSha256, dataset.batch.logical_sha256);
-  assert.equal(matchRequest.payload.rulesVersion, "legal-foundation-v1");
+  assert.equal(matchRequest.payload.rulesVersion, "legal-foundation-v2");
   assert.equal(matchRequest.payload.contextRevision, 12);
   assert.equal(chromeApi.calls.some((message) => message.type === MESSAGE_TYPES.APPLY_FIELDS), false);
   assert.equal(chromeApi.calls.some((message) => message.type === MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO), false);

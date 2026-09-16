@@ -1,6 +1,7 @@
 import { rankPortalOptions } from "../lib/matcher.js";
 import { createMessage, MESSAGE_TYPES } from "../lib/messages.js";
-import { sameValue } from "../lib/automation-preflight.js";
+import { isAutomaticLegalDecision, sameValue } from "../lib/automation-preflight.js";
+import { LEGAL_FOUNDATION_RULES_VERSION } from "../lib/legal-foundation.js";
 import {
   ALLOWED_FIELDS,
   STORAGE_KEYS,
@@ -258,7 +259,11 @@ function createRows(record, snapshot, matches) {
   return PANEL_FIELD_ORDER.map((fieldName) => {
     const field = record.fields[fieldName];
     const match = SELECT_FIELDS.has(fieldName) ? matches?.[fieldName] : null;
-    const kind = match?.kind ?? fieldKind(field);
+    const kind = fieldName === "fundamento_legal"
+      && match?.legalDecision
+      && !isAutomaticLegalDecision(match.legalDecision)
+      ? "tie"
+      : match?.kind ?? fieldKind(field);
     const proposedValue = SELECT_FIELDS.has(fieldName)
       ? (match?.optionValue ?? null)
       : (field?.form_value ?? null);
@@ -1267,7 +1272,7 @@ export function createPanelApp({
       sector: context?.sector ?? "*",
       datasetSha256: null,
       analysisOnly: true,
-      rulesVersion: state.automationCapabilities?.rules_version ?? "legal-foundation-v1",
+      rulesVersion: state.automationCapabilities?.rules_version ?? LEGAL_FOUNDATION_RULES_VERSION,
       sourceScope,
       lotSize,
       acquisitionSource: "econtas",

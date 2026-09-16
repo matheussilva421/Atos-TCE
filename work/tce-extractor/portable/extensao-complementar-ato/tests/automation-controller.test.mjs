@@ -24,7 +24,7 @@ function runSpec() {
     tabId: 7,
     sector: "aposentadorias",
     datasetSha256: HASH,
-    rulesVersion: "legal-foundation-v1",
+    rulesVersion: "legal-foundation-v2",
   };
 }
 
@@ -1764,7 +1764,7 @@ function preparationContext() {
     operative_text: "RESOLVE: Art. 3º, incisos I a III e parágrafo único, da EC nº 47/2005.",
     pages: [],
     context_revision: 12,
-    rules_version: "legal-foundation-v1",
+    rules_version: "legal-foundation-v2",
   };
 }
 
@@ -2318,7 +2318,7 @@ test("auto-submit is explicit, issues one command after verification, and persis
     api_version: 1,
     automation_schema: 1,
     legal_context_schema: 1,
-    rules_version: "legal-foundation-v1",
+    rules_version: "legal-foundation-v2",
     real_send_enabled: true,
     pilot_enabled: false,
     pilot_consumes_remaining: false,
@@ -2366,7 +2366,7 @@ test("auto-submit targets a separately registered buttons frame and keeps the fo
     api_version: 1,
     automation_schema: 1,
     legal_context_schema: 1,
-    rules_version: "legal-foundation-v1",
+    rules_version: "legal-foundation-v2",
     real_send_enabled: true,
     pilot_enabled: false,
     pilot_consumes_remaining: false,
@@ -2401,7 +2401,7 @@ test("auto-submit pauses and records an unconfirmed outcome without issuing anot
     api_version: 1,
     automation_schema: 1,
     legal_context_schema: 1,
-    rules_version: "legal-foundation-v1",
+    rules_version: "legal-foundation-v2",
     real_send_enabled: true,
   });
   const chromeApi = preparationChromeMock({

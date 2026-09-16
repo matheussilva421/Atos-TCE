@@ -12,7 +12,7 @@ import {
   validateMessage,
 } from "../lib/messages.js";
 import { validateLegalContext } from "../lib/automation-schema.js";
-import { AUTOMATION_FIELDS } from "../lib/automation-preflight.js";
+import { AUTOMATION_FIELDS, isAutomaticLegalDecision } from "../lib/automation-preflight.js";
 import { createBridgeClient } from "../lib/bridge-client.js";
 import { createAutomationController } from "./automation-controller.js";
 
@@ -634,17 +634,21 @@ export function createServiceWorker({
       const optionValueIsPresent = Array.isArray(options) && options.some((option) => (
         isRecord(option) ? option.value === optionValue : option === optionValue
       ));
+      const legalDecisionAutomatic = field !== "fundamento_legal"
+        || isAutomaticLegalDecision(result?.legalDecision);
       if ((field === "modalidade" || field === "fundamento_legal")
         && typeof optionValue === "string"
         && optionValue.trim() !== ""
         && optionValueIsPresent
-        && (field !== "fundamento_legal" || result?.legalDecision?.status === "selected")) {
+        && legalDecisionAutomatic) {
         matchedValues[field] = optionValue;
       }
       const kind = result?.kind;
-      matches[field] = kind === "exact" || kind === "probable" || kind === "tie"
-        ? kind
-        : result?.legalDecision?.status === "pending" ? "tie" : "probable";
+      matches[field] = field === "fundamento_legal" && !legalDecisionAutomatic
+        ? "tie"
+        : kind === "exact" || kind === "probable" || kind === "tie"
+          ? kind
+          : "probable";
     }
     return {
       record: {

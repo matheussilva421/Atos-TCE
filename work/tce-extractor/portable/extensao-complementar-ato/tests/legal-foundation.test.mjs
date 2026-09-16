@@ -378,8 +378,8 @@ test("exposes only the public LegalDecision statuses and methods", () => {
       name: "similarity",
       context: contextFor("RESOLVE: Art. 1º da EC nº 20/2020."),
       options: [option(null, "similar", "Artigo 2º da EC nº 20/2020")],
-      status: "selected",
-      method: "similarity",
+      status: "pending",
+      method: "none",
     },
     {
       name: "pending",

@@ -91,7 +91,7 @@ const context = {
   operative_text: "RESOLVE: Art. 40, § 5º.",
   pages: [],
   context_revision: 12,
-  rules_version: "legal-foundation-v1",
+  rules_version: "legal-foundation-v2",
 };
 
 const legalDecision = {
@@ -100,7 +100,10 @@ const legalDecision = {
   rule_id: "EC41_SEM_P5",
   option_value: values.fundamento_legal,
   option_label: "Regra do professor",
-  rules_version: "legal-foundation-v1",
+  confidence: 0.96,
+  margin: 0.20,
+  hard_conflict: false,
+  rules_version: "legal-foundation-v2",
 };
 
 function input(overrides = {}) {
@@ -457,6 +460,22 @@ test("prepares fields for a selected legal decision based on similarity", () => 
   assert.deepEqual(result.fields, values);
   assert.deepEqual(result.preserved, {});
   assert.deepEqual(result.reasons, []);
+});
+
+test("requires v2 confidence and margin before preparing the legal field", () => {
+  for (const [name, decision, reason] of [
+    ["low confidence", { confidence: 0.82, margin: 0.20 }, "LEGAL_DECISION_REVIEW_REQUIRED"],
+    ["small margin", { confidence: 0.95, margin: 0.03 }, "LEGAL_DECISION_REVIEW_REQUIRED"],
+    ["hard conflict", { confidence: 0.99, margin: 0.30, hard_conflict: true }, "LEGAL_DECISION_REVIEW_REQUIRED"],
+  ]) {
+    const result = prepareAutomaticAct(input({
+      legalDecision: { ...legalDecision, ...decision },
+    }));
+
+    assert.equal(result.eligible, false, name);
+    assert.deepEqual(result.fields, {}, name);
+    assert.ok(result.reasons.includes(reason), name);
+  }
 });
 
 test("does not return private keys, DOM nodes, or token values", () => {

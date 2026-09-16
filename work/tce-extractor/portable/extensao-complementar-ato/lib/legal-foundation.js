@@ -1,4 +1,5 @@
 import { normalizeLegalText } from "./normalizer.js";
+import { classifyPortalLegalFoundation } from "./portal-legal-crosswalk.js";
 
 const RAW_ARTICLE_PATTERN = /\bart(?:s|igo|igos)?\.?\s*(\d+)\s*(?:º|ª|o)?(?:\s*[-–]\s*([a-z]))?/giu;
 const ARTICLE_PATTERN = /\bartigos?\s+(\d+)([a-z])?/giu;
@@ -181,7 +182,7 @@ export function parseLegalReferences(text) {
   });
 }
 
-export const LEGAL_FOUNDATION_RULES_VERSION = "legal-foundation-v1";
+export const LEGAL_FOUNDATION_RULES_VERSION = "legal-foundation-v2";
 
 const RULE_IDS = new Set(["EC41_SEM_P5", "EC41_COM_P5", "EC47_ART3"]);
 
@@ -297,7 +298,7 @@ function diplomaFamilyKeys(references) {
   return new Set(references.map(diplomaFamilyKey).filter(Boolean));
 }
 
-function hasIncompatibleDiplomaFamilies(references) {
+function legacyDiplomaFamilyConflict(references) {
   const types = new Set(references.map((reference) => reference.diploma?.type));
   return (types.has("ec") && types.has("ece"))
     || (types.has("cf") && types.has("ce"));
@@ -344,7 +345,7 @@ function scoreCandidate(sourceReferences, option, operativeText, sourceFamily) {
       && (candidateDiplomaFamilies.size === 0
         || sourceDiplomaFamilies.size === 0
         || sharedDiplomaFamily)
-      && !hasIncompatibleDiplomaFamilies([...sourceReferences, ...candidateReferences]);
+      && !legacyDiplomaFamilyConflict([...sourceReferences, ...candidateReferences]);
   if (!familyMatches) {
     return {
       candidateReferences,
@@ -476,6 +477,59 @@ function operativeTextFromContext(context) {
   return markers.length > 0 ? text.slice(markers.at(-1).index).trim() : text;
 }
 
+function adaptCrosswalkDecision(context, operativeText, classification) {
+  const references = parseLegalReferences(operativeText);
+  const selected = classification.status === "selected";
+  const publicRuleIds = new Set(["EC41_SEM_P5", "EC41_COM_P5", "EC47_ART3"]);
+  const ranking = classification.ranking.map((candidate) => ({
+    option_index: candidate.option_index,
+    option_value: candidate.option_value,
+    option_label: candidate.option_label,
+    rule_id: publicRuleIds.has(candidate.class_id) ? candidate.class_id : null,
+    score: Math.round(candidate.score * 100),
+    confidence: candidate.confidence,
+    margin: classification.margin,
+    hard_conflict: candidate.hard_conflict === true,
+    rejected: candidate.rejected === true,
+    method: selected && candidate === classification.ranking[0] ? candidate.method : "none",
+    reasons: candidate.reasons,
+    warnings: candidate.warnings,
+  }));
+  const decision = {
+    status: selected ? "selected" : "pending",
+    method: selected ? classification.method : "none",
+    rule_id: selected && publicRuleIds.has(classification.class_id) ? classification.class_id : null,
+    option_value: selected ? classification.option_value : null,
+    option_label: selected ? classification.option_label : null,
+    score: Math.round(classification.confidence * 100),
+    confidence: classification.confidence,
+    margin: classification.margin,
+    hard_conflict: classification.ranking.some((candidate) => candidate.hard_conflict === true),
+    reasons: [...classification.reasons, ...classification.warnings],
+    ranking,
+    citations: citationsFor(context),
+    rules_version: LEGAL_FOUNDATION_RULES_VERSION,
+    references,
+    documentary_foundation: {
+      operative_text: operativeText,
+      references: classification.profile.references,
+      profile: classification.profile,
+    },
+    portal_classification: {
+      option_value: classification.option_value,
+      option_label: classification.option_label,
+      class_id: classification.class_id,
+      method: classification.method,
+      confidence: classification.confidence,
+      margin: classification.margin,
+      reasons: classification.reasons,
+      warnings: classification.warnings,
+    },
+  };
+  if (!selected) decision.reasons.push(classification.reason ?? "manual-review-required");
+  return decision;
+}
+
 export function resolveLegalFoundation({ context, options = [] } = {}) {
   const operativeText = operativeTextFromContext(context);
   if (!context || context.resolution_status !== "complete" || !operativeText.trim()) {
@@ -492,56 +546,11 @@ export function resolveLegalFoundation({ context, options = [] } = {}) {
   if (hasContradiction(references)) {
     return baseDecision(context, ["contradictory-reference"], zeroRanking(options, "contradictory-reference"), 0);
   }
-  if (hasIncompatibleDiplomaFamilies(references)) {
-    return baseDecision(context, ["family-conflict"], zeroRanking(options, "family-conflict"), 0);
-  }
-
-  const families = sourceFamilies(references);
-  const hasEc41Reference = references.some((reference) => (
-    hasDiploma(reference, "ec", "41", "2003")
-    && ["6", "7"].includes(reference.article)
-  ));
-  const hasEc47Article3 = references.some((reference) => (
-    hasDiploma(reference, "ec", "47", "2005") && reference.article === "3"
-  ));
-  if (hasEc41Reference && hasEc47Article3) {
-    return baseDecision(context, ["family-conflict"], zeroRanking(options, "family-conflict"), 0);
-  }
-  if (families.length > 1 || families[0] === "EC41_PARTIAL" || families[0] === "CF40_P5") {
-    const reason = families.length > 1 ? "family-conflict" : "unsupported-family";
-    return baseDecision(context, [reason], zeroRanking(options, reason), 0);
-  }
-  const sourceFamily = families[0] ?? "OTHER";
-  const candidates = selectableOptions(options)
-    .map((option) => {
-      const scored = scoreCandidate(references, option, operativeText, sourceFamily);
-      return {
-        option_index: option.index,
-        option_value: option.value,
-        option_label: option.label,
-        rule_id: candidateRuleId(option, scored.candidateFamily),
-        score: scored.score,
-        method: scored.method,
-        reasons: scored.reasons,
-      };
-    })
-    .sort((left, right) => right.score - left.score || left.option_index - right.option_index);
-
-  if (candidates.length === 0) return baseDecision(context, ["no-selectable-options"], []);
-  const best = candidates[0];
-  if (best.score <= 0) return baseDecision(context, ["no-positive-signal"], candidates, 0);
-  const tied = candidates.filter((candidate) => candidate.score === best.score);
-  if (tied.length > 1) return baseDecision(context, ["equivalent-candidates", `tie:${tied.length}`], candidates, best.score);
-  return {
-    ...best,
-    status: "selected",
-    method: best.method,
-    rule_id: best.rule_id,
-    option_value: best.option_value,
-    option_label: best.option_label,
-    ranking: candidates,
-    citations: citationsFor(context),
-    rules_version: LEGAL_FOUNDATION_RULES_VERSION,
-    references,
-  };
+  const classification = classifyPortalLegalFoundation({
+    operativeText,
+    cargo: context.cargo ?? context.fields?.cargo?.form_value ?? "",
+    options,
+    hints: context.hints ?? {},
+  });
+  return adaptCrosswalkDecision(context, operativeText, classification);
 }
