@@ -51,17 +51,17 @@
       "expected_class_id": "EC41_ART2"
     },
     {
-      "case_id": "prof_incapacidade_integral",
+      "case_id": "cf40_iii_a_p5_prof_voluntary_integral",
       "synthetic": true,
-      "category": "incapacity",
-      "operative_text": "RESOLVE conceder aposentadoria por incapacidade permanente, com proventos integrais, a servidor ocupante do cargo de PROFESSOR.",
+      "category": "voluntary_integral",
+      "operative_text": "RESOLVE conceder aposentadoria voluntária por tempo de contribuição, com proventos integrais, a servidor ocupante do cargo de PROFESSOR, com fundamento no art. 40, § 1º, inciso III, alínea a, combinado com o § 5º, da Constituição Federal.",
       "hints": {"cargo": "PROFESSOR"},
-      "expected_family": "PROF_INVALIDEZ_INCAPACIDADE",
-      "option_class_ids": ["CF40_I", "EC41_TRANSITION_TEACHER"],
+      "expected_family": "PROF_VOLUNTARIA_CF40_III_A_P5",
+      "option_class_ids": ["CF40_III_A_P5", "CF40_III_B"],
       "expected_scope": "civil",
       "expected_status": "review",
       "expected_automatic": false,
-      "expected_class_id": "CF40_I"
+      "expected_class_id": "CF40_III_A_P5"
     },
     {
       "case_id": "ec47_general_voluntary_integral",
