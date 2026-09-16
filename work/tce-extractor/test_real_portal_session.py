@@ -13,10 +13,14 @@ from real_portal_session import (
     AREA_RESTRITA_URL,
     _normalize_portal_url,
     _sanitize_page,
+    build_recording_document,
     build_launch_args,
     build_sanitized_fixture,
     compare_portal_snapshot,
+    build_recording_launch_options,
+    is_portal_contract_ready,
     portal_dependency_ids,
+    validate_recording_root,
     validate_session_profile,
     write_sanitized_fixture,
 )
@@ -88,6 +92,64 @@ class RealPortalSessionProfileTests(unittest.TestCase):
         package = Path("C:/TCE")
 
         self.assertIsNone(validate_session_profile(package, None))
+
+    def test_recording_root_must_be_a_child_of_the_private_directory(self):
+        package = Path("C:/TCE")
+
+        recording = validate_recording_root(
+            package, Path("C:/TCE/dados-locais/real-portal-runs")
+        )
+
+        self.assertTrue(str(recording).replace("\\", "/").endswith("TCE/dados-locais/real-portal-runs"))
+
+        with self.assertRaisesRegex(ValueError, "dados-locais"):
+            validate_recording_root(package, Path("C:/TCE/public-recordings"))
+
+        with self.assertRaisesRegex(ValueError, "dados-locais"):
+            validate_recording_root(package, Path("C:/TCE/dados-locais"))
+
+    def test_recording_launch_options_keep_raw_artifacts_under_the_run_root(self):
+        options = build_recording_launch_options(Path("C:/TCE/dados-locais/run-1"))
+
+        self.assertEqual(
+            options["record_har_path"],
+            "C:/TCE/dados-locais/run-1/network.har",
+        )
+        self.assertEqual(options["record_har_content"], "attach")
+
+    def test_recording_document_keeps_action_structure_without_private_values(self):
+        document = build_recording_document(
+            package=Path("C:/TCE"),
+            run_id="real-portal-1",
+            events=[
+                {
+                    "kind": "page_event",
+                    "target": {"id": "txtCargo", "name": "cargo"},
+                    "value": "private-value",
+                }
+            ],
+            errors=[],
+            status="BLOCKED",
+        )
+
+        self.assertEqual(document["schema"], "real-portal-session-recording-v1")
+        self.assertEqual(document["steps"][0]["target"]["id"], "txtCargo")
+        self.assertNotIn("value", document["steps"][0])
+        self.assertEqual(document["artifacts"]["trace"], "trace.zip")
+
+    def test_contract_baseline_waits_for_authenticated_page_with_all_controls(self):
+        snapshot = {
+            "origin": "https://novaarearestrita.tce.rn.gov.br",
+            "authenticated_ui_signal": True,
+            "known_ids": list(portal_dependency_ids()),
+        }
+
+        self.assertTrue(is_portal_contract_ready(snapshot))
+        snapshot["authenticated_ui_signal"] = False
+        self.assertFalse(is_portal_contract_ready(snapshot))
+        snapshot["authenticated_ui_signal"] = True
+        snapshot["known_ids"] = snapshot["known_ids"][:-1]
+        self.assertFalse(is_portal_contract_ready(snapshot))
 
 
 

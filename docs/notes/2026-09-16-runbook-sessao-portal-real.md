@@ -5,36 +5,36 @@ o passo de envio continua atras de autorizacao nova, imediata e especifica.
 
 ## Pre-requisitos (verificados no checkout)
 
-- Pacote: Versions/TCE-Meus-Processos-165-e-Setor-156-Extensao-Reorganizada-2026-09-16-final-professor-ipern
-- Runner: work/tce-extractor/real_portal_session.py
-- Servico local: INICIAR.cmd do proprio pacote
+- Pasta pronta: `outputs/TCE-fixed-2026-09-16`
+- Launcher: `INICIAR-CAPTURA-AREA-RESTRITA.cmd` dentro da pasta pronta
+- Runner: `real_portal_session.py` dentro da pasta pronta
+- Serviço local: `INICIAR.cmd` da própria pasta pronta
 
-## Passo 1 - subir a ponte local
+A pasta pronta já contém 739 registros, 14.179 PDFs, o JSON da extensão, a
+extensão `1.1.0`, a ponte e o runtime. A extração em `Versions/` e os ZIPs
+originais foram preservados.
 
-    cd <pacote>
-    .\INICIAR.cmd
+## Passo 1 - iniciar a pasta pronta
 
-Deixe a janela aberta. Ele sobe o servico local e grava
-dados-locais/bridge/service.json com o codigo de pareamento. Sem esse arquivo o
-runner falha com "service.json sem codigo de pareamento valido".
+    cd <pasta-pronta>
+    .\INICIAR-CAPTURA-AREA-RESTRITA.cmd
 
-Para encerrar depois:
-
-    .\INICIAR.cmd parar
-
-## Passo 2 - iniciar a sessao isolada e fazer o login
-
-    python real_portal_session.py ^
-      --package-root "<pacote>" ^
-      --output "<pasta-privada>\observacao-1.json" ^
-      --stay-open
-
-O runner abre um Chrome descartavel com a extensao carregada, pareia o painel
-com a ponte e abre a Area Restrita. Faca o login manualmente na janela que
-abrir. Nao ha digitacao de credencial por automacao.
+O launcher abre a ponte, chama o runner e abre um Chrome descartável com a
+extensão carregada, pareia o painel com a ponte e abre a Área Restrita. Ele
+grava, em `dados-locais`, o
+`recording.json` sanitizado, o `trace.zip` e o `network.har`; cliques, mudancas,
+tentativas de envio, navegacoes, console e falhas ficam registrados apenas de
+forma estrutural. Faca o login manualmente na janela que abrir. Nao ha
+digitacao de credencial por automacao.
 
 Quando a sessao estiver pronta ele imprime REAL_PORTAL_SESSION_READY e passa a
 regravar o JSON de saida a cada ciclo (--poll-seconds, padrao 5s).
+
+## Passo 2 - fazer o login e navegar
+
+Faça o login manualmente na janela que abrir. Não há digitação de credencial
+por automação. A ponte grava `dados-locais/bridge/service.json` com o código de
+pareamento durante a inicialização.
 
 ## Passo 3 - conferir a evidencia capturada
 
@@ -44,6 +44,7 @@ O JSON de saida contem, sem texto privado:
 - portal_authenticated_ui_signal e portal.process_key_count
 - portal_drift (drift, reason, missing_ids, changed_signals)
 - portal_missing_contract_ids
+- recording.run_id, recording.event_count e recording.error_count
 - submission_performed_by_runner (precisa ser false)
 
 Se portal_drift.drift for true, PARE: o portal mudou em relacao ao contrato e a
@@ -94,7 +95,8 @@ ele tambem recusa quando nenhum campo mudou.
 
 ## Passo 5 - parar antes do envio
 
-Ao terminar, feche a janela do Chrome ou interrompa o runner, e encerre a ponte:
+Ao terminar, interrompa o runner com `Ctrl+C`, confira o caminho privado do
+`recording.json` e encerre a ponte:
 
     .\INICIAR.cmd parar
 

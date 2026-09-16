@@ -2,9 +2,9 @@
 
 This runner pairs the unpacked extension with the local service, opens the
 real portal in an isolated Chrome profile, and emits only a sanitized DOM
-inventory. It never submits an act by itself. The process stays alive when
-``--stay-open`` is used so an operator can inspect the browser before the
-next supervised phase.
+inventory plus a private structural action recording. It never submits an act
+by itself. The process stays alive when ``--stay-open`` is used so an operator
+can inspect the browser before the next supervised phase.
 """
 
 from __future__ import annotations
@@ -21,6 +21,12 @@ import time
 from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright
+from qa_portal_recorder import (
+    build_structural_capture_script,
+    classify_page_error,
+    classify_request_failure,
+)
+from qa_workflow import sanitize_event
 
 AREA_RESTRITA_URL = 'https://novaarearestrita.tce.rn.gov.br/telaPrincipalMenu.asp'
 AREA_RESTRITA_HOST = 'novaarearestrita.tce.rn.gov.br'
@@ -45,6 +51,181 @@ PORTAL_BASELINE_SIGNALS = ('origin', 'complement_action_signal', 'select_count',
 _PROCESS_KEY_RE = re.compile(r'\b\d{5,8}\s*/\s*20\d{2}\b')
 _FIXTURE_KIND = 'real-portal-observation'
 _FIXTURE_STATUS = 'sanitized'
+_RECORDING_DIRECTORY = 'real-portal-runs'
+
+
+def validate_recording_root(package_root: Path, recording_root: Path) -> Path:
+    """Keep raw browser recordings below the package's private directory."""
+
+    package = Path(package_root).resolve()
+    private_root = (package / PRIVATE_DIRECTORY).resolve()
+    recording = Path(recording_root).resolve()
+    try:
+        recording.relative_to(private_root)
+    except ValueError as error:
+        raise ValueError(
+            f'Gravacao bruta deve ficar dentro de {PRIVATE_DIRECTORY}'
+        ) from error
+    if recording == private_root:
+        raise ValueError(
+            f'Gravacao bruta deve ficar dentro de {PRIVATE_DIRECTORY}'
+        )
+    return recording
+
+
+def build_recording_launch_options(recording_root: Path) -> dict[str, str]:
+    """Return Playwright's private HAR configuration for one run."""
+
+    root = Path(recording_root).resolve()
+    return {
+        'record_har_path': (root / 'network.har').as_posix(),
+        'record_har_content': 'attach',
+    }
+
+
+def _safe_url(value: object) -> str:
+    """Remove query and fragment data from a recorded browser URL."""
+
+    try:
+        parsed = urlparse(str(value))
+    except ValueError:
+        return '[redacted-url]'
+    if not parsed.scheme or not parsed.netloc:
+        return '[redacted-url]'
+    return parsed._replace(query='', fragment='').geturl()
+
+
+def _hash_text(value: object) -> str:
+    return hashlib.sha256(str(value).encode('utf-8', errors='replace')).hexdigest()
+
+
+def _record_event(events: list[dict], event: dict) -> None:
+    safe = sanitize_event(event)
+    safe['sequence'] = len(events) + 1
+    safe['captured_at'] = datetime.now(timezone.utc).isoformat()
+    events.append(safe)
+
+
+def build_recording_document(
+    *,
+    package: Path,
+    run_id: str,
+    events: list[dict],
+    errors: list[dict],
+    status: str,
+) -> dict:
+    """Build the local action record without absolute paths or field values."""
+
+    return {
+        'schema': 'real-portal-session-recording-v1',
+        'run_id': run_id,
+        'package_name': package.name,
+        'status': status,
+        'safety_mode': 'observe_only',
+        'steps': [sanitize_event(event) for event in events],
+        'errors': [sanitize_event(error) for error in errors],
+        'artifacts': {
+            'trace': 'trace.zip',
+            'network': 'network.har',
+            'recording': 'recording.json',
+        },
+    }
+
+
+def _record_or_error(
+    events: list[dict], errors: list[dict], classification: str, event: dict
+) -> None:
+    if classification in {'auth_challenge', 'navigation_abort', 'browser_error_page'}:
+        _record_event(events, {'kind': classification, **event})
+        return
+    errors.append(sanitize_event(event))
+
+
+def _attach_recording_page(page, events: list[dict], errors: list[dict]) -> None:
+    """Record structural browser activity while excluding field contents."""
+
+    page.on(
+        'console',
+        lambda message: _record_event(
+            events,
+            {
+                'kind': 'console',
+                'level': str(message.type),
+                'url': _safe_url(getattr(page, 'url', '')),
+                'message_sha256': _hash_text(getattr(message, 'text', '')),
+            },
+        ),
+    )
+    page.on(
+        'pageerror',
+        lambda error: _record_or_error(
+            events,
+            errors,
+            classify_page_error(str(getattr(page, 'url', ''))),
+            {
+                'kind': 'pageerror',
+                'url': _safe_url(getattr(page, 'url', '')),
+                'message_sha256': _hash_text(error),
+            },
+        ),
+    )
+
+    def record_request_failure(request) -> None:
+        failure = str(request.failure or 'unknown')
+        _record_or_error(
+            events,
+            errors,
+            classify_request_failure(
+                failure,
+                is_navigation=bool(request.is_navigation_request()),
+                resource_type=str(request.resource_type),
+            ),
+            {
+                'kind': 'requestfailed',
+                'url': _safe_url(request.url),
+                'method': str(request.method),
+                'failure_type': failure,
+                'is_navigation': bool(request.is_navigation_request()),
+                'resource_type': str(request.resource_type),
+            },
+        )
+
+    page.on('requestfailed', record_request_failure)
+    page.on(
+        'framenavigated',
+        lambda frame: _record_event(
+            events,
+            {
+                'kind': 'frame_navigated',
+                'url': _safe_url(frame.url),
+                'is_main_frame': bool(frame == page.main_frame),
+            },
+        ),
+    )
+
+
+def _write_recording_document(
+    run_root: Path,
+    package: Path,
+    run_id: str,
+    events: list[dict],
+    errors: list[dict],
+    *,
+    status: str,
+) -> Path:
+    path = run_root / 'recording.json'
+    document = build_recording_document(
+        package=package,
+        run_id=run_id,
+        events=events,
+        errors=errors,
+        status=status,
+    )
+    path.write_text(
+        json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + '\n',
+        encoding='utf-8',
+    )
+    return path
 
 
 def _assert_no_process_identity(value, path: str = 'observacao') -> None:
@@ -171,6 +352,17 @@ def portal_dependency_ids() -> list[str]:
     """Return every portal control id the automation depends on."""
 
     return list(PORTAL_DEPENDENCY_IDS)
+
+
+def is_portal_contract_ready(snapshot: dict | None) -> bool:
+    """Return whether a snapshot is safe to establish the portal baseline."""
+
+    return (
+        isinstance(snapshot, dict)
+        and snapshot.get('origin') == f'https://{AREA_RESTRITA_HOST}'
+        and snapshot.get('authenticated_ui_signal') is True
+        and snapshot.get('known_ids') == portal_dependency_ids()
+    )
 
 
 def compare_portal_snapshot(baseline: dict | None, observed: dict | None) -> dict:
@@ -405,6 +597,11 @@ def main() -> int:
         help='arquivo derivado que recebera a fixture sanitizada',
     )
     parser.add_argument('--profile', type=Path)
+    parser.add_argument(
+        '--record-root',
+        type=Path,
+        help='pasta privada para trace, HAR e recording.json; por padrao fica em dados-locais',
+    )
     parser.add_argument('--executable', type=Path)
     parser.add_argument('--poll-seconds', type=float, default=5.0)
     parser.add_argument('--stay-open', action='store_true')
@@ -440,117 +637,219 @@ def main() -> int:
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
 
+    requested_recording_root = (
+        args.record_root
+        or package / PRIVATE_DIRECTORY / _RECORDING_DIRECTORY
+    )
+    recording_parent = validate_recording_root(package, requested_recording_root)
+    recording_id = f"real-portal-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}"
+    recording_root = recording_parent / recording_id
+    recording_root.mkdir(parents=True, exist_ok=False)
+    events: list[dict] = []
+    errors: list[dict] = []
+
+    def persist_recording() -> None:
+        _write_recording_document(
+            recording_root,
+            package,
+            recording_id,
+            events,
+            errors,
+            status='BLOCKED',
+        )
+
     with sync_playwright() as playwright:
         executable = args.executable.resolve() if args.executable else Path(playwright.chromium.executable_path)
-        context = playwright.chromium.launch_persistent_context(
-            user_data_dir=str(profile),
-            executable_path=str(executable),
-            headless=False,
-            args=build_launch_args(extension),
-        )
-        panel = context.new_page()
-        extension_id = _extension_id(context)
-        panel.goto(
-            f'chrome-extension://{extension_id}/sidepanel/panel.html',
-            wait_until='domcontentloaded',
-        )
-        panel.locator('#bridge-status').wait_for(state='visible', timeout=10_000)
-        panel.locator('#bridge-base-url').fill(f'http://127.0.0.1:{port}')
-        panel.locator('#bridge-pairing-code').fill(code)
-        panel.wait_for_function(
-            "() => document.querySelector('#bridge-connect-button')?.disabled === false",
-            timeout=10_000,
-        )
-        panel.locator('#bridge-connect-button').click()
+        context = None
         try:
+            launch_options = {
+                'user_data_dir': str(profile),
+                'executable_path': str(executable),
+                'headless': False,
+                'args': build_launch_args(extension),
+                **build_recording_launch_options(recording_root),
+            }
+            context = playwright.chromium.launch_persistent_context(**launch_options)
+            context.expose_binding(
+                'tceQaEvent',
+                lambda _source, event: _record_event(events, {'kind': 'page_event', **event})
+                if isinstance(event, dict)
+                else None,
+            )
+            context.add_init_script(build_structural_capture_script())
+            context.tracing.start(screenshots=True, snapshots=True, sources=True)
+            context.on('page', lambda page: _attach_recording_page(page, events, errors))
+            for existing_page in context.pages:
+                _attach_recording_page(existing_page, events, errors)
+            _record_event(events, {'kind': 'recorder_ready', 'extension_id_present': False})
+
+            panel = context.new_page()
+            extension_id = _extension_id(context)
+            _record_event(events, {'kind': 'extension_loaded', 'extension_id_present': bool(extension_id)})
+            panel.goto(
+                f'chrome-extension://{extension_id}/sidepanel/panel.html',
+                wait_until='domcontentloaded',
+            )
+            panel.locator('#bridge-status').wait_for(state='visible', timeout=10_000)
+            panel.locator('#bridge-base-url').fill(f'http://127.0.0.1:{port}')
+            panel.locator('#bridge-pairing-code').fill(code)
             panel.wait_for_function(
-                "() => document.querySelector('#bridge-status')?.textContent.includes('Mesa local conectada.')",
+                "() => document.querySelector('#bridge-connect-button')?.disabled === false",
                 timeout=10_000,
             )
-        except Exception:
-            print(json.dumps({
-                'pair_wait_failed': True,
-                'bridge_status': panel.locator('#bridge-status').inner_text(),
-                'panel_message_present': bool(panel.locator('#panel-message').inner_text()),
-            }, ensure_ascii=False))
-            raise
+            panel.locator('#bridge-connect-button').click()
+            try:
+                panel.wait_for_function(
+                    "() => document.querySelector('#bridge-status')?.textContent.includes('Mesa local conectada.')",
+                    timeout=10_000,
+                )
+            except Exception:
+                print(json.dumps({
+                    'pair_wait_failed': True,
+                    'bridge_status': panel.locator('#bridge-status').inner_text(),
+                    'panel_message_present': bool(panel.locator('#panel-message').inner_text()),
+                }, ensure_ascii=False))
+                raise
 
-        portal = context.new_page()
-        navigation_error = ''
-        try:
-            portal.goto(portal_url, wait_until='domcontentloaded', timeout=45_000)
-        except Exception as error:  # navigation can remain usable after a timeout
-            navigation_error = type(error).__name__
-        portal.wait_for_timeout(5_000)
-        # Contrato observado nesta execucao: os IDs que a automacao le na
-        # primeira captura. A comparacao posterior acusa mudanca do portal.
-        observed_baseline = None
+            portal = context.new_page()
+            navigation_error = ''
+            try:
+                portal.goto(portal_url, wait_until='domcontentloaded', timeout=45_000)
+            except Exception as error:  # navigation can remain usable after a timeout
+                navigation_error = type(error).__name__
+                _record_or_error(
+                    events,
+                    errors,
+                    classify_request_failure(
+                        str(error), is_navigation=True, resource_type='document'
+                    ),
+                    {
+                        'kind': 'portal_navigation_failed',
+                        'url': _safe_url(portal_url),
+                        'error_type': navigation_error,
+                        'message_sha256': _hash_text(error),
+                    },
+                )
+            portal.wait_for_timeout(5_000)
+            # Contrato observado nesta execucao: os IDs que a automacao le na
+            # primeira captura. A comparacao posterior acusa mudanca do portal.
+            observed_baseline = None
 
-        def capture() -> dict:
-            nonlocal observed_baseline
-            panel_snapshot = _sanitize_page(panel)
-            portal_snapshot = _sanitize_page(portal)
-            if observed_baseline is None:
-                observed_baseline = {
-                    'origin': portal_snapshot['origin'],
-                    'known_ids': portal_snapshot['known_ids'],
-                    'complement_action_signal': portal_snapshot['complement_action_signal'],
-                    'select_count': portal_snapshot['select_count'],
-                    'form_count': portal_snapshot['form_count'],
+            def capture() -> dict:
+                nonlocal observed_baseline
+                panel_snapshot = _sanitize_page(panel)
+                portal_snapshot = _sanitize_page(portal)
+                if observed_baseline is None and is_portal_contract_ready(portal_snapshot):
+                    observed_baseline = {
+                        'origin': portal_snapshot['origin'],
+                        'known_ids': portal_snapshot['known_ids'],
+                        'complement_action_signal': portal_snapshot['complement_action_signal'],
+                        'select_count': portal_snapshot['select_count'],
+                        'form_count': portal_snapshot['form_count'],
+                    }
+                drift = (
+                    compare_portal_snapshot(observed_baseline, portal_snapshot)
+                    if observed_baseline is not None
+                    else {
+                        'drift': False,
+                        'reason': 'awaiting_contract_snapshot',
+                        'missing_ids': [],
+                        'unexpected_ids': [],
+                        'changed_signals': [],
+                    }
+                )
+                return {
+                    'schema_version': 1,
+                    'captured_at': datetime.now(timezone.utc).isoformat(),
+                    'browser': executable.name,
+                    'profile_disposable': True,
+                    'extension_id_present': bool(extension_id),
+                    'pair_status': panel.locator('#bridge-status').inner_text(),
+                    'portal_navigation_error_type': navigation_error,
+                    'panel': panel_snapshot,
+                    'portal': portal_snapshot,
+                    'portal_contract_ids': portal_dependency_ids(),
+                    'portal_missing_contract_ids': [
+                        item for item in portal_dependency_ids()
+                        if item not in portal_snapshot['known_ids']
+                    ],
+                    'portal_drift': drift,
+                    'portal_extension_origin_match': portal_snapshot['origin'] == 'https://novaarearestrita.tce.rn.gov.br',
+                    'submission_performed_by_runner': False,
+                    'recording': {
+                        'run_id': recording_id,
+                        'event_count': len(events),
+                        'error_count': len(errors),
+                        'artifacts': {
+                            'trace': 'trace.zip',
+                            'network': 'network.har',
+                            'recording': 'recording.json',
+                        },
+                    },
                 }
-            drift = compare_portal_snapshot(observed_baseline, portal_snapshot)
-            return {
-                'schema_version': 1,
-                'captured_at': datetime.now(timezone.utc).isoformat(),
-                'browser': executable.name,
-                'profile_disposable': True,
-                'extension_id_present': bool(extension_id),
-                'pair_status': panel.locator('#bridge-status').inner_text(),
-                'portal_navigation_error_type': navigation_error,
-                'panel': panel_snapshot,
-                'portal': portal_snapshot,
-                'portal_contract_ids': portal_dependency_ids(),
-                'portal_missing_contract_ids': [
-                    item for item in portal_dependency_ids()
-                    if item not in portal_snapshot['known_ids']
-                ],
-                'portal_drift': drift,
-                'portal_extension_origin_match': portal_snapshot['origin'] == 'https://novaarearestrita.tce.rn.gov.br',
-                'submission_performed_by_runner': False,
-            }
 
-        evidence = capture()
-        output.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-        print(json.dumps({
-            'output': str(output),
-            'browser': executable.name,
-            'profile': str(profile),
-            'pair_status': evidence['pair_status'],
-            'portal_origin': evidence['portal']['origin'],
-            'portal_extension_origin_match': evidence['portal_extension_origin_match'],
-            'login_signal': evidence['portal']['login_signal'],
-            'portal_missing_contract_ids': evidence['portal_missing_contract_ids'],
-            'portal_drift': evidence['portal_drift'],
-            'submission_performed_by_runner': False,
-        }, ensure_ascii=False))
-        if args.stay_open:
-            print('REAL_PORTAL_SESSION_READY')
-            sys.stdout.flush()
-            reloaded_empty_portal = False
-            while True:
-                time.sleep(max(1.0, args.poll_seconds))
-                if not reloaded_empty_portal:
-                    current = _sanitize_page(portal)
-                    if current['body_length'] < 20:
-                        try:
-                            portal.reload(wait_until='domcontentloaded', timeout=30_000)
-                            portal.wait_for_timeout(5_000)
-                        except Exception:
-                            pass
-                        reloaded_empty_portal = True
-                evidence = capture()
-                output.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-        context.close()
+            def persist_evidence() -> dict:
+                current_evidence = capture()
+                output.write_text(
+                    json.dumps(current_evidence, ensure_ascii=False, indent=2) + '\n',
+                    encoding='utf-8',
+                )
+                persist_recording()
+                return current_evidence
+
+            evidence = persist_evidence()
+            print(json.dumps({
+                'output': str(output),
+                'recording_root': str(recording_root),
+                'browser': executable.name,
+                'profile': str(profile),
+                'pair_status': evidence['pair_status'],
+                'portal_origin': evidence['portal']['origin'],
+                'portal_extension_origin_match': evidence['portal_extension_origin_match'],
+                'login_signal': evidence['portal']['login_signal'],
+                'portal_missing_contract_ids': evidence['portal_missing_contract_ids'],
+                'portal_drift': evidence['portal_drift'],
+                'recording': evidence['recording'],
+                'submission_performed_by_runner': False,
+            }, ensure_ascii=False))
+            if args.stay_open:
+                print('REAL_PORTAL_SESSION_READY')
+                sys.stdout.flush()
+                reloaded_empty_portal = False
+                while True:
+                    time.sleep(max(1.0, args.poll_seconds))
+                    if not reloaded_empty_portal:
+                        current = _sanitize_page(portal)
+                        if current['body_length'] < 20:
+                            try:
+                                portal.reload(wait_until='domcontentloaded', timeout=30_000)
+                                portal.wait_for_timeout(5_000)
+                            except Exception:
+                                pass
+                            reloaded_empty_portal = True
+                    persist_evidence()
+        except KeyboardInterrupt:
+            _record_event(events, {'kind': 'human_stop'})
+            print('REAL_PORTAL_SESSION_STOPPED', flush=True)
+        finally:
+            if context is not None:
+                try:
+                    context.tracing.stop(path=str(recording_root / 'trace.zip'))
+                except Exception as error:
+                    errors.append({
+                        'kind': 'trace_stop_failed',
+                        'error_type': type(error).__name__,
+                        'message_sha256': _hash_text(error),
+                    })
+                try:
+                    context.close()
+                except Exception as error:
+                    errors.append({
+                        'kind': 'browser_close_failed',
+                        'error_type': type(error).__name__,
+                        'message_sha256': _hash_text(error),
+                    })
+            persist_recording()
     return 0
 
 
