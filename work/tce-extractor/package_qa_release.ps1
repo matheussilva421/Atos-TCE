@@ -23,7 +23,20 @@ foreach ($name in @('menu.ps1','reset_archive.py')) {
 foreach ($name in @('html_generator.py','package_complete_archive.py')) {
     Copy-Item -LiteralPath (Join-Path $projectRoot $name) -Destination (Join-Path $releaseRoot ('app\' + $name)) -Force
 }
-foreach ($relative in @('manifest.json','content\form-detector.js','background\service-worker.js','lib\matcher.js')) {
+foreach ($relative in @(
+    'manifest.json',
+    'content\form-detector.js',
+    'background\service-worker.js',
+    'background\automation-controller.js',
+    'lib\matcher.js',
+    'lib\automation-preflight.js',
+    'lib\legal-foundation.js',
+    'lib\legal-reference-parser-v2.js',
+    'lib\retirement-legal-profile.js',
+    'lib\portal-legal-crosswalk.js',
+    'sidepanel\panel.js',
+    'sidepanel\panel-view.js'
+)) {
     Copy-Item -LiteralPath (Join-Path $portableRoot ('extensao-complementar-ato\' + $relative)) -Destination (Join-Path $releaseRoot ('extensao-complementar-ato\' + $relative)) -Force
 }
 # Encoding-only normalization of generated Windows scripts; runtime stays byte-identical.

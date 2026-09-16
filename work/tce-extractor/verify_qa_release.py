@@ -19,7 +19,15 @@ with zipfile.ZipFile(archive) as bundle:
     for relative in ("app/reset_archive.py", "app/menu.ps1", "app/html_generator.py",
                      "extensao-complementar-ato/content/form-detector.js",
                      "extensao-complementar-ato/background/service-worker.js",
-                     "extensao-complementar-ato/lib/matcher.js"):
+                     "extensao-complementar-ato/background/automation-controller.js",
+                     "extensao-complementar-ato/lib/matcher.js",
+                     "extensao-complementar-ato/lib/automation-preflight.js",
+                     "extensao-complementar-ato/lib/legal-foundation.js",
+                     "extensao-complementar-ato/lib/legal-reference-parser-v2.js",
+                     "extensao-complementar-ato/lib/retirement-legal-profile.js",
+                     "extensao-complementar-ato/lib/portal-legal-crosswalk.js",
+                     "extensao-complementar-ato/sidepanel/panel.js",
+                     "extensao-complementar-ato/sidepanel/panel-view.js"):
         source = Path(__file__).parent / (relative.removeprefix("app/") if relative == "app/html_generator.py" else "portable/" + relative)
         assert bundle.read(relative) == source.read_bytes(), relative
     manifest = json.loads(bundle.read("extensao-complementar-ato/manifest.json"))

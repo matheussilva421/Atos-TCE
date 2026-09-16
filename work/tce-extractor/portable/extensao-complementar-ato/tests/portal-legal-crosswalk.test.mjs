@@ -75,3 +75,38 @@ test("keeps loose lexical similarity out of automatic selection", () => {
   assert.equal(result.automatic, false);
   assert.equal(result.method, "none");
 });
+
+test("covers the professor validation matrix with explicit expected outcomes", () => {
+  assert.equal(fixture.cases.length, 12);
+  const categoryCounts = fixture.cases.reduce((counts, testCase) => {
+    counts[testCase.category] = (counts[testCase.category] ?? 0) + 1;
+    return counts;
+  }, {});
+  assert.deepEqual(categoryCounts, {
+    voluntary_integral: 4,
+    voluntary_proportional: 3,
+    incapacity: 3,
+    ambiguous: 1,
+    negative: 1,
+  });
+  const knownClasses = new Set(portalOptions.map(({ class_id }) => class_id));
+
+  for (const testCase of fixture.cases) {
+    const allowedClasses = testCase.option_class_ids ?? [...knownClasses];
+    assert.ok(allowedClasses.length > 0, `${testCase.case_id}: empty option set`);
+    const options = portalOptions.filter(({ class_id }) => allowedClasses.includes(class_id));
+    assert.equal(options.length, allowedClasses.length, `${testCase.case_id}: fixture class is absent from catalog`);
+    const result = classifyPortalLegalFoundation({
+      operativeText: testCase.operative_text,
+      cargo: testCase.hints?.cargo,
+      options,
+    });
+
+    assert.equal(result.status, testCase.expected_status, testCase.case_id);
+    assert.equal(result.automatic, testCase.expected_automatic, testCase.case_id);
+    assert.equal(result.scope, testCase.expected_scope, testCase.case_id);
+    if (testCase.expected_class_id) assert.equal(result.class_id, testCase.expected_class_id, testCase.case_id);
+    if (testCase.expected_reason) assert.equal(result.reason, testCase.expected_reason, testCase.case_id);
+    assert.ok(result.profile.evidence.length > 0, `${testCase.case_id}: missing profile evidence`);
+  }
+});
