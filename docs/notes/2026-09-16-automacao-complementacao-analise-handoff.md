@@ -108,6 +108,24 @@ e a versão privada
 - Nenhuma movimentação adicional foi executada nesta verificação; a fonte
   antiga foi preservada.
 
+### Marcações "processo feito" no HTML
+
+- Quando o HTML é aberto pela mesa HTTP (`ABRIR-MESA.bat`), a marcação é
+  persistida em `acervo-tce/progresso.json`; `ordem-portal.json` preserva a
+  ordem, mas não é a fonte da marcação.
+- Quando o HTML é aberto diretamente como arquivo (`file://`) ou em modo
+  offline, a marcação fica no `localStorage` do navegador, na chave
+  `tce-completed-processes-v1` com o ciclo do acervo. Ela não fica dentro de
+  `complementar-ato.html`, `dados-complementar-ato.json` ou nos PDFs.
+- A verificação atual encontrou `progresso.json` vazio (`revision: 0`,
+  `processes: {}`) tanto na versão 2026-09-14 quanto na 2026-09-16. Portanto,
+  eventuais marcações feitas no HTML de outro PC ainda precisam ser
+  exportadas do navegador daquele PC ou recuperadas do `progresso.json` que
+  existia lá.
+- O checkbox `Revisado` da extensão é outro estado: fica no
+  `chrome.storage.local` do perfil do Chrome e não é migrado copiando a pasta
+  do pacote.
+
 ## Pendências de release local
 
 - O release atual está reconstruído e validado offline, mas ainda não é uma
