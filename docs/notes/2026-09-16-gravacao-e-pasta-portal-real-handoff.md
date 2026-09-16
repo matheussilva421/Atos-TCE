@@ -48,5 +48,6 @@ Qualquer envio exige autorização imediata e específica, um ato por vez.
 
 ## GitHub
 
-As alterações de código e documentação deste bloco ainda precisam ser
-commitadas e publicadas. A pasta em `outputs/` é privada e ignorada pelo Git.
+Estado final: `main` e `origin/main` estão alinhadas em `bd949c5`
+(`feat: record structural portal qualification sessions`). O commit e o push
+foram confirmados. A pasta em `outputs/` é privada e ignorada pelo Git.
