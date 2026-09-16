@@ -32,8 +32,14 @@ No resultado mesclado, passaram:
 Nenhum teste de portal autenticado, coleta, complementação ou envio foi
 executado durante a consolidação.
 
-## GitHub e retomada
+## GitHub e estado final
 
-Após o commit do merge e o push, a única branch mantida será `main`, alinhada
-com `origin/main`. A worktree e as referências local/remota da branch de
-trabalho deverão ser removidas somente depois de confirmar o commit publicado.
+O merge foi publicado na `main` no commit `ac8cb6a`. A única branch local e
+remota mantida é `main`, alinhada com `origin/main`; a worktree
+`.worktrees/fundamentacao-professores-crosswalk-v2` e a branch de trabalho
+foram removidas após a confirmação de que todos os commits estavam contidos
+na `main`.
+
+Última verificação: árvore de trabalho limpa, `main...origin/main = 0 0`,
+`2260266` contido na `main` e `git ls-remote --heads origin` retornando apenas
+`refs/heads/main`.
