@@ -39,9 +39,9 @@ GREEN:
 
 ## GitHub
 
-Estado no início deste bloco: `main` alinhada com `origin/main` em `8efba68`,
-com as três alterações deste bloco ainda não commitadas. O commit e o push
-serão feitos após este handoff ser adicionado.
+Estado final: `main` e `origin/main` estão alinhadas em `19eb141`
+(`feat: add sanitized portal fixture converter`). O commit e o push foram
+confirmados.
 
 ## Pendências e retomada
 
