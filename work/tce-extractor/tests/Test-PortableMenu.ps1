@@ -104,6 +104,12 @@ try {
     Assert-True (-not (Test-Path -LiteralPath $bridgePath)) 'parar serviço remove metadados da ponte'
     Assert-True (-not (Test-Path -LiteralPath $bridgeLockPath)) 'parar serviço remove o lock órfão do próprio PID'
 
+    [IO.File]::WriteAllText($bridgeLockPath, '{"schema_version":1,"kind":"transfer","pid":999999,"token":"stale"}')
+    $recovered = Start-TceLocalService -PackageRoot $bridgePackageRoot -ArchiveRoot $bridgeArchiveRoot -Python $bridgePython -ProcessStarter $fakeStarter
+    Assert-Equal $recovered.pid 4321 'iniciar serviço recupera lock de transferência obsoleto'
+    Assert-True (-not (Test-Path -LiteralPath $bridgeLockPath)) 'iniciar serviço remove lock obsoleto antes de iniciar'
+    Remove-Item -LiteralPath $bridgePath -Force -ErrorAction SilentlyContinue
+
     $readinessError = $null
     try {
         Wait-TceLocalServiceReady -MetadataPath $bridgePath -Process ([pscustomobject]@{ Id = 9876; HasExited = $true })

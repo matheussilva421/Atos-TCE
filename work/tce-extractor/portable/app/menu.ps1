@@ -168,6 +168,28 @@ function Get-TceLocalServiceMetadataPath {
     return Join-Path $canonicalPackage 'dados-locais\bridge\service.json'
 }
 
+function Remove-TceStaleOperationLock {
+    param([Parameter(Mandatory)][string]$LockPath)
+    if (-not (Test-Path -LiteralPath $LockPath -PathType Leaf)) { return }
+    try {
+        $lock = Get-Content -LiteralPath $LockPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($null -eq $lock -or $lock.pid -isnot [int] -or [int]$lock.pid -le 0) {
+            throw 'metadado de lock inválido'
+        }
+    } catch {
+        throw 'Lock de operação inválido; o serviço local não será iniciado.'
+    }
+    $owner = Get-Process -Id ([int]$lock.pid) -ErrorAction SilentlyContinue
+    if ($null -ne $owner -and -not $owner.HasExited) {
+        throw "Transferência ou outra operação portátil em andamento (PID $($lock.pid)); o serviço local não será iniciado."
+    }
+    try {
+        Remove-Item -LiteralPath $LockPath -Force -ErrorAction Stop
+    } catch {
+        throw 'Lock obsoleto não pôde ser removido; o serviço local não será iniciado.'
+    }
+}
+
 function Wait-TceLocalServiceReady {
     param(
         [Parameter(Mandatory)][string]$MetadataPath,
@@ -205,9 +227,7 @@ function Start-TceLocalService {
     $bridgeRoot = Join-Path $canonicalPackage 'dados-locais\bridge'
     $metadataPath = Get-TceLocalServiceMetadataPath -PackageRoot $canonicalPackage
     $operationLockPath = Join-Path $bridgeRoot '.operation.lock'
-    if (Test-Path -LiteralPath $operationLockPath -PathType Leaf) {
-        throw 'Transferência ou outra operação portátil em andamento; o serviço local não será iniciado.'
-    }
+    Remove-TceStaleOperationLock -LockPath $operationLockPath
     New-Item -ItemType Directory -Path $bridgeRoot -Force | Out-Null
 
     if (Test-Path -LiteralPath $metadataPath -PathType Leaf) {
