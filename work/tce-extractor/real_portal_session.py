@@ -22,6 +22,117 @@ from playwright.sync_api import sync_playwright
 
 AREA_RESTRITA_URL = 'https://novaarearestrita.tce.rn.gov.br/telaPrincipalMenu.asp'
 AREA_RESTRITA_HOST = 'novaarearestrita.tce.rn.gov.br'
+PRIVATE_DIRECTORY = 'dados-locais'
+
+# IDs que a automacao le no portal. Fonte: content/form-detector.js
+# FIELD_MAP/SENTINEL_IDS e o rotulo exato de envio em content/portal-submit.js.
+# Se o portal renomear qualquer um destes controles, a automacao precisa parar.
+PORTAL_DEPENDENCY_IDS = (
+    'txtModalidade',
+    'txtFundamentoLegal',
+    'txtDataDOE',
+    'txtCargo',
+    'txtMatricula',
+    'txtDataNascimento',
+    'txtGenero',
+    'txtNumeroProcesso',
+    'txtAnoProcesso',
+)
+PORTAL_SUBMIT_LABEL = 'Complementar Ato'
+PORTAL_BASELINE_SIGNALS = ('origin', 'complement_action_signal', 'select_count', 'form_count')
+
+
+def portal_dependency_ids() -> list[str]:
+    """Return every portal control id the automation depends on."""
+
+    return list(PORTAL_DEPENDENCY_IDS)
+
+
+def compare_portal_snapshot(baseline: dict | None, observed: dict | None) -> dict:
+    """Compare an observed structural snapshot against the known contract.
+
+    Retorna um relatorio de deriva; qualquer divergencia estrutural significa
+    que o portal mudou e que a automacao deve parar ate nova qualificacao.
+    """
+
+    if not isinstance(baseline, dict) or not isinstance(observed, dict):
+        return {
+            'drift': True,
+            'reason': 'observation_missing',
+            'missing_ids': [],
+            'unexpected_ids': [],
+            'changed_signals': [],
+        }
+    expected_ids = baseline.get('known_ids')
+    if not isinstance(expected_ids, list):
+        expected_ids = portal_dependency_ids()
+    observed_ids = observed.get('known_ids')
+    observed_ids = observed_ids if isinstance(observed_ids, list) else []
+    missing_ids = [item for item in expected_ids if isinstance(item, str) and item not in observed_ids]
+    unexpected_ids = [
+        item for item in observed_ids
+        if isinstance(item, str) and item not in expected_ids
+    ]
+    changed_signals = []
+    for signal in PORTAL_BASELINE_SIGNALS:
+        if signal in baseline and baseline.get(signal) != observed.get(signal):
+            changed_signals.append(signal)
+    drift = bool(missing_ids or changed_signals)
+    return {
+        'drift': drift,
+        'reason': 'structural_drift' if drift else 'unchanged',
+        'missing_ids': missing_ids,
+        'unexpected_ids': unexpected_ids,
+        'changed_signals': changed_signals,
+    }
+
+
+def _portable_path(path: Path) -> str:
+    return Path(path).resolve().as_posix()
+
+
+def build_launch_args(extension_root: Path) -> list[str]:
+    """Build the narrow extension-only launch configuration for this runner.
+
+    The qualification session must exercise the same TLS chain the operator
+    uses, so no certificate bypass is allowed here.
+    """
+
+    extension = _portable_path(extension_root)
+    return [
+        f'--disable-extensions-except={extension}',
+        f'--load-extension={extension}',
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--new-window',
+    ]
+
+
+def validate_session_profile(package_root: Path, profile_root: Path | None) -> Path | None:
+    """Require a persistent profile below the package's private data root.
+
+    ``None`` keeps the caller's disposable temporary profile; an explicit
+    profile must stay inside the private data directory so personal browser
+    state is never reused for qualification.
+    """
+
+    if profile_root is None:
+        return None
+    package = Path(package_root).resolve()
+    private_root = (package / PRIVATE_DIRECTORY).resolve()
+    profile = Path(profile_root).resolve()
+    try:
+        profile.relative_to(private_root)
+    except ValueError as error:
+        raise ValueError(
+            f'Perfil de qualificacao deve ficar dentro de {PRIVATE_DIRECTORY}'
+        ) from error
+    if profile == private_root:
+        raise ValueError(
+            f'Perfil de qualificacao deve ficar dentro de {PRIVATE_DIRECTORY}'
+        )
+    return profile
 
 
 def _normalize_portal_url(value: str | None) -> str:
@@ -39,7 +150,7 @@ def _normalize_portal_url(value: str | None) -> str:
 def _sanitize_page(page):
     return page.evaluate(
         """
-        () => {
+        (dependencyIds) => {
           const safeText = (value) => String(value || '').replace(/\\s+/gu, ' ').trim();
           const safeOrigin = (value) => {
             try { return new URL(value).origin; } catch (_) { return ''; }
@@ -76,11 +187,7 @@ def _sanitize_page(page):
             .filter((text) => /^(entrar|login|sair|próximo|avançar|voltar|complementar ato|salvar|cancelar)$/iu.test(text))
             .slice(0, 30);
           const knownIdAllowlist = [
-            'btnComplementar',
-            'formComplementar',
-            'iframeOBJ',
-            'txtModalidade',
-            'radioInteressado',
+            ...dependencyIds,
           ];
           const knownIds = knownIdAllowlist.filter((id) => Boolean(document.getElementById(id)));
           const routeText = `${location.pathname} ${location.hash}`;
@@ -124,7 +231,8 @@ def _sanitize_page(page):
               .filter(Boolean),
           };
         }
-        """
+        """,
+        portal_dependency_ids(),
     )
 
 
@@ -171,7 +279,8 @@ def main() -> int:
     package = args.package_root.resolve()
     extension = package / 'extensao-complementar-ato'
     code, port = _read_pairing_code(package)
-    profile = args.profile.resolve() if args.profile else Path(tempfile.mkdtemp(prefix='tce-real-chrome-'))
+    validated_profile = validate_session_profile(package, args.profile)
+    profile = validated_profile or Path(tempfile.mkdtemp(prefix='tce-real-chrome-'))
     profile.mkdir(parents=True, exist_ok=True)
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -182,15 +291,7 @@ def main() -> int:
             user_data_dir=str(profile),
             executable_path=str(executable),
             headless=False,
-            args=[
-                f'--disable-extensions-except={extension}',
-                f'--load-extension={extension}',
-                '--ignore-certificate-errors',
-                '--disable-gpu',
-                '--no-first-run',
-                '--no-default-browser-check',
-                '--new-window',
-            ],
+            args=build_launch_args(extension),
         )
         panel = context.new_page()
         extension_id = _extension_id(context)
@@ -226,9 +327,23 @@ def main() -> int:
         except Exception as error:  # navigation can remain usable after a timeout
             navigation_error = type(error).__name__
         portal.wait_for_timeout(5_000)
+        # Contrato observado nesta execucao: os IDs que a automacao le na
+        # primeira captura. A comparacao posterior acusa mudanca do portal.
+        observed_baseline = None
+
         def capture() -> dict:
+            nonlocal observed_baseline
             panel_snapshot = _sanitize_page(panel)
             portal_snapshot = _sanitize_page(portal)
+            if observed_baseline is None:
+                observed_baseline = {
+                    'origin': portal_snapshot['origin'],
+                    'known_ids': portal_snapshot['known_ids'],
+                    'complement_action_signal': portal_snapshot['complement_action_signal'],
+                    'select_count': portal_snapshot['select_count'],
+                    'form_count': portal_snapshot['form_count'],
+                }
+            drift = compare_portal_snapshot(observed_baseline, portal_snapshot)
             return {
                 'schema_version': 1,
                 'captured_at': datetime.now(timezone.utc).isoformat(),
@@ -239,6 +354,12 @@ def main() -> int:
                 'portal_navigation_error_type': navigation_error,
                 'panel': panel_snapshot,
                 'portal': portal_snapshot,
+                'portal_contract_ids': portal_dependency_ids(),
+                'portal_missing_contract_ids': [
+                    item for item in portal_dependency_ids()
+                    if item not in portal_snapshot['known_ids']
+                ],
+                'portal_drift': drift,
                 'portal_extension_origin_match': portal_snapshot['origin'] == 'https://novaarearestrita.tce.rn.gov.br',
                 'submission_performed_by_runner': False,
             }
@@ -253,6 +374,8 @@ def main() -> int:
             'portal_origin': evidence['portal']['origin'],
             'portal_extension_origin_match': evidence['portal_extension_origin_match'],
             'login_signal': evidence['portal']['login_signal'],
+            'portal_missing_contract_ids': evidence['portal_missing_contract_ids'],
+            'portal_drift': evidence['portal_drift'],
             'submission_performed_by_runner': False,
         }, ensure_ascii=False))
         if args.stay_open:

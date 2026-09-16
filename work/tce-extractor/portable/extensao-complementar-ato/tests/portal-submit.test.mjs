@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   classifyPortalOutcome,
+  createPortalOutcomeObserver,
+  installPortalOutcomeObserver,
+  readPortalOutcome,
   installPortalSubmit,
   submitVerifiedAct,
   waitForPortalOutcome,
@@ -44,6 +47,25 @@ function documentWith(...buttons) {
     querySelectorAll() { return buttons; },
   };
 }
+
+function outcomeDocument({ identityText = "103439/2023", interested = "Ana da Silva", complemented = true, body = "" } = {}) {
+  const rows = [
+    {
+      textContent: `${identityText} ${interested} ${complemented ? "Ato Complementado" : "Complementar Ato"}`,
+    },
+  ];
+  return {
+    body: { innerText: `${body} ${identityText} ${interested}` },
+    querySelectorAll(selector) {
+      if (selector.includes("tr")) return rows;
+      return [];
+    },
+    querySelector() { return null; },
+    getElementById() { return null; },
+    defaultView: {},
+  };
+}
+
 
 function state(overrides = {}) {
   return {
@@ -269,6 +291,232 @@ test("verifies the form in its sibling frame before consuming and clicking the b
   assert.equal(target.clickCount, 1);
 });
 
+test("outcome observer finds the persisted act in a sibling frame document", () => {
+  const previous = globalThis.TCEPortalNavigation;
+  const persistedDocument = {
+    querySelectorAll() { return []; },
+  };
+  const localDocument = {
+    querySelectorAll(selector) {
+      return selector === "iframe" ? [{ contentDocument: persistedDocument }] : [];
+    },
+  };
+  let asked = [];
+  globalThis.TCEPortalNavigation = {
+    snapshotPortalScreen(candidate) {
+      asked.push(candidate);
+      if (candidate !== persistedDocument) {
+        return { role: "form", identities: [] };
+      }
+      return {
+        role: "list",
+        identities: [
+          {
+            processKey: IDENTITY.processKey,
+            interestedNormalized: IDENTITY.interestedNormalized,
+            portalActId: IDENTITY.portalActId,
+            classification: "ATO_COMPLEMENTADO",
+          },
+        ],
+      };
+    },
+  };
+  try {
+    const value = readPortalOutcome(localDocument, { identity: IDENTITY });
+    assert.equal(value.persisted, true);
+    assert.equal(value.accepted, true);
+    assert.deepEqual(value.postRead.identity, IDENTITY);
+    assert.ok(asked.includes(persistedDocument));
+  } finally {
+    if (previous === undefined) delete globalThis.TCEPortalNavigation;
+    else globalThis.TCEPortalNavigation = previous;
+  }
+});
+test("production listener consumes and clicks once the outcome observer is installed", async () => {
+  const previousNav = globalThis.TCEPortalNavigation;
+  const previousOutcome = globalThis.TCEPortalOutcome;
+  globalThis.TCEPortalNavigation = {
+    snapshotPortalScreen() {
+      return {
+        role: "list",
+        identities: [
+          {
+            processKey: IDENTITY.processKey,
+            interestedNormalized: IDENTITY.interestedNormalized,
+            portalActId: IDENTITY.portalActId,
+            classification: "ATO_COMPLEMENTADO",
+          },
+        ],
+      };
+    },
+  };
+  try {
+    delete globalThis.TCEPortalOutcome;
+    installPortalOutcomeObserver({ documentRef: {}, target: globalThis });
+
+    const target = button();
+    let listener = null;
+    let consumed = 0;
+    const result = installPortalSubmit({
+      documentRef: documentWith(target),
+      chromeApi: {
+        runtime: {
+          onMessage: { addListener(handler) { listener = handler; } },
+          async sendMessage() { consumed += 1; return { ok: true, payload: { dispatch_allowed: true } }; },
+        },
+      },
+      readCurrentState: async () => state(),
+      now: () => 2_000,
+    });
+    assert.equal(result.registered, true);
+
+    const response = await new Promise((resolve) => {
+      listener(
+        {
+          schemaVersion: 1,
+          type: "AUTO_SUBMIT_COMMAND",
+          requestId: "submit-with-observer",
+          payload: { runId: "run-1", expectedRevision: 4, command: command() },
+        },
+        {},
+        resolve,
+      );
+    });
+
+    // Com o observador presente o envio deixa de ser bloqueado antes do clique
+    // e o resultado persistido e confirmado.
+    assert.equal(response.ok, true, JSON.stringify(response));
+    assert.equal(response.payload.status, "confirmed");
+    assert.equal(consumed, 1);
+    assert.equal(target.clickCount, 1);
+  } finally {
+    if (previousNav === undefined) delete globalThis.TCEPortalNavigation;
+    else globalThis.TCEPortalNavigation = previousNav;
+    if (previousOutcome === undefined) delete globalThis.TCEPortalOutcome;
+    else globalThis.TCEPortalOutcome = previousOutcome;
+  }
+});
+test("outcome observer reads persistence from the typed navigation snapshot", async () => {
+  const previous = globalThis.TCEPortalNavigation;
+  const previousOutcome = globalThis.TCEPortalOutcome;
+  const snapshots = [
+    {
+      role: "list",
+      identities: [
+        {
+          processKey: IDENTITY.processKey,
+          interestedNormalized: IDENTITY.interestedNormalized,
+          portalActId: IDENTITY.portalActId,
+          classification: "PRECISA_COMPLEMENTAR",
+        },
+      ],
+    },
+    {
+      role: "list",
+      identities: [
+        {
+          processKey: IDENTITY.processKey,
+          interestedNormalized: IDENTITY.interestedNormalized,
+          portalActId: IDENTITY.portalActId,
+          classification: "ATO_COMPLEMENTADO",
+        },
+      ],
+    },
+  ];
+  let index = 0;
+  globalThis.TCEPortalNavigation = {
+    snapshotPortalScreen() {
+      const value = snapshots[Math.min(index, snapshots.length - 1)];
+      index += 1;
+      return value;
+    },
+  };
+  try {
+    delete globalThis.TCEPortalOutcome;
+    assert.equal(installPortalOutcomeObserver({ documentRef: {}, target: globalThis }), true);
+    assert.equal(typeof globalThis.TCEPortalOutcome.read, "function");
+
+    const pending = readPortalOutcome(undefined, { identity: IDENTITY });
+    assert.equal(pending.accepted, true);
+    assert.equal(pending.persisted, false);
+
+    const done = readPortalOutcome(undefined, { identity: IDENTITY });
+    assert.equal(done.accepted, true);
+    assert.equal(done.persisted, true);
+    assert.deepEqual(done.postRead.identity, IDENTITY);
+    assert.equal(classifyPortalOutcome(done, { identity: IDENTITY }).status, "confirmed");
+  } finally {
+    if (previous === undefined) delete globalThis.TCEPortalNavigation;
+    else globalThis.TCEPortalNavigation = previous;
+    if (previousOutcome === undefined) delete globalThis.TCEPortalOutcome;
+    else globalThis.TCEPortalOutcome = previousOutcome;
+  }
+});
+
+test("outcome observer never confirms another identity or without navigation support", () => {
+  const previous = globalThis.TCEPortalNavigation;
+  try {
+    delete globalThis.TCEPortalNavigation;
+    // Sem o leitor tipado o resultado e unconfirmed; nada e inventado.
+    assert.deepEqual(readPortalOutcome(undefined, { identity: IDENTITY }), { timeout: true });
+
+    globalThis.TCEPortalNavigation = {
+      snapshotPortalScreen() {
+        return {
+          role: "list",
+          identities: [
+            {
+              processKey: "999999/2099",
+              interestedNormalized: "outra pessoa",
+              portalActId: "act-9",
+              classification: "ATO_COMPLEMENTADO",
+            },
+          ],
+        };
+      },
+    };
+    const other = readPortalOutcome(undefined, { identity: IDENTITY });
+    assert.equal(other.accepted, false);
+    assert.equal(other.persisted, false);
+    assert.equal(classifyPortalOutcome(other, { identity: IDENTITY }).status, "unconfirmed");
+  } finally {
+    if (previous === undefined) delete globalThis.TCEPortalNavigation;
+    else globalThis.TCEPortalNavigation = previous;
+  }
+});
+
+test("outcome observer subscription notifies only after persistence is observed", async () => {
+  const previous = globalThis.TCEPortalNavigation;
+  let complemented = false;
+  globalThis.TCEPortalNavigation = {
+    snapshotPortalScreen() {
+      return {
+        role: "list",
+        identities: [
+          {
+            processKey: IDENTITY.processKey,
+            interestedNormalized: IDENTITY.interestedNormalized,
+            portalActId: IDENTITY.portalActId,
+            classification: complemented ? "ATO_COMPLEMENTADO" : "PRECISA_COMPLEMENTAR",
+          },
+        ],
+      };
+    },
+  };
+  try {
+    const observer = createPortalOutcomeObserver({ documentRef: { defaultView: {} } });
+    const seen = [];
+    const unsubscribe = observer.subscribe({ identity: IDENTITY }, (value) => seen.push(value), { intervalMs: 0 });
+    assert.equal(seen.length, 0);
+    complemented = true;
+    const finalValue = observer.read({ identity: IDENTITY });
+    assert.equal(finalValue.persisted, true);
+    unsubscribe();
+  } finally {
+    if (previous === undefined) delete globalThis.TCEPortalNavigation;
+    else globalThis.TCEPortalNavigation = previous;
+  }
+});
 test("blocks the production listener before consuming or clicking when no outcome observer exists", async () => {
   const target = button();
   let listener;

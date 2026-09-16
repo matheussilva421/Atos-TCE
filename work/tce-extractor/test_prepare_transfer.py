@@ -188,6 +188,38 @@ class PrepareTransferTests(unittest.TestCase):
             self.assertFalse((bridge / ".operation.lock").exists())
             self.assertFalse((bridge / "collector.json").exists())
 
+    def test_transfer_accepts_a_marker_that_drains_between_check_and_read(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _fixture_zip, _fixture = _build_fixture_zip(root)
+            package = root / "source-package"
+            bridge = package / "dados-locais" / "bridge"
+            bridge.mkdir(parents=True)
+            marker = bridge / "collector.json"
+            marker.write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+            destination = root / "transfer.zip"
+
+            # A execução ativa drena exatamente entre a verificação de
+            # existência e a leitura do marcador. O Windows falha a leitura
+            # com OSError enquanto o arquivo é removido, o que antes era
+            # classificado como marcador inválido e recusava a transferência.
+            original_read_text = Path.read_text
+            state = {"raised": False}
+
+            def racing_read_text(self, *args, **kwargs):
+                if self == marker and not state["raised"]:
+                    state["raised"] = True
+                    original_read_text(self, *args, **kwargs)
+                    self.unlink()
+                    raise FileNotFoundError(2, "arquivo removido durante a leitura", str(self))
+                return original_read_text(self, *args, **kwargs)
+
+            with patch.object(Path, "read_text", racing_read_text):
+                result = prepare_transfer(package, destination)
+
+            self.assertTrue(destination.exists())
+            self.assertEqual(result["collector_active_at_start"], False)
+
     def test_transfer_does_not_overwrite_existing_destination(self):
         with TemporaryDirectory() as temporary:
             root = Path(temporary)

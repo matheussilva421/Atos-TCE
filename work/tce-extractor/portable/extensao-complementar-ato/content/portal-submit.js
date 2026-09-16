@@ -1,6 +1,7 @@
 const EXACT_SUBMIT_LABEL = "Complementar Ato";
 const COMMAND_TTL_MS = 15_000;
 const OUTCOME_TIMEOUT_MS = 30_000;
+const OUTCOME_POLL_MS = 1_000;
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -185,14 +186,202 @@ function waitForPortalOutcome({
   });
 }
 
-function defaultWaitForOutcome({ documentRef } = {}) {
+
+/*
+ * Observador de resultado do portal.
+ *
+ * O envio real exige prova posterior: `submitVerifiedAct` recusa clicar sem um
+ * observador registrado (`OUTCOME_OBSERVER_UNAVAILABLE`). Este objeto e o
+ * adaptador que produz essa prova lendo o DOM depois do clique - ele apenas
+ * LE o portal para decidir `accepted`/`persisted`; nunca clica, preenche ou
+ * navega.
+ *
+ * A evidencia de persistencia vem do snapshot tipado de portal-navigation
+ * (role `list` com a identidade esperada ja classificada como ATO_COMPLEMENTADO),
+ * que e a mesma leitura usada em toda a automacao. Sem essa leitura o resultado
+ * permanece `unconfirmed`, e o controlador pausa em vez de reenviar.
+ */
+function navigationReader() {
+  const adapter = globalThis.TCEPortalNavigation;
+  if (typeof adapter?.snapshotPortalScreen !== "function") return null;
+  return adapter.snapshotPortalScreen;
+}
+
+function complementedIn(snapshot, expected) {
+  if (!isRecord(snapshot) || !Array.isArray(snapshot.identities)) return null;
+  const wanted = expected?.identity;
+  if (!isRecord(wanted)) return null;
+  return snapshot.identities.find((candidate) => sameIdentity(candidate, wanted)) ?? null;
+}
+
+function readPortalOutcome(documentRef = globalThis.document, expected = {}) {
+  const readSnapshot = navigationReader();
+  if (typeof readSnapshot !== "function") return { timeout: true };
+  // O resultado pode ser renderizado no documento deste frame ou no topo
+  // (o portal usa frames irmaos para formulario e quadro de acoes). Ambos sao
+  // da mesma origem; leituras que falharem por acesso sao simplesmente
+  // ignoradas, sem inventar evidencia.
+  // A lista pode reaparecer no proprio documento, no documento de topo ou em
+  // um frame irmao do mesmo portal. Todos sao da mesma origem; qualquer leitura
+  // bloqueada por acesso e ignorada, sem inventar evidencia.
+  const candidates = [documentRef];
+  const pushDocument = (value) => {
+    if (value && !candidates.includes(value)) candidates.push(value);
+  };
+  const topWindow = globalThis.top;
+  if (topWindow && topWindow !== globalThis.self) {
+    try {
+      pushDocument(topWindow.document);
+    } catch {
+      /* acesso cross-document bloqueado */
+    }
+  }
+  for (const candidate of [...candidates]) {
+    let frames;
+    try {
+      frames = candidate?.querySelectorAll?.("iframe") ?? [];
+    } catch {
+      continue;
+    }
+    for (const frame of frames) {
+      try {
+        pushDocument(frame?.contentDocument);
+      } catch {
+        /* frame inacessivel */
+      }
+    }
+  }
+  let current = null;
+  let observed = false;
+  for (const candidate of candidates) {
+    let snapshot;
+    try {
+      snapshot = readSnapshot(candidate);
+    } catch {
+      continue;
+    }
+    if (!isRecord(snapshot)) continue;
+    observed = true;
+    const match = complementedIn(snapshot, expected);
+    if (isRecord(match)) {
+      current = match;
+      break;
+    }
+  }
+  if (!observed) return { timeout: true };
+  if (!isRecord(current)) {
+    return {
+      accepted: false,
+      persisted: false,
+      evidence: { signal: "identity_not_observed", read: true, source: "portal" },
+    };
+  }
+  const identity = {
+    processKey: current.processKey,
+    interestedNormalized: current.interestedNormalized,
+    portalActId: current.portalActId ?? null,
+  };
+  // `ATO_COMPLEMENTADO` e a unica classificacao que prova que o portal gravou o
+  // ato. `PRECISA_COMPLEMENTAR` continua disponivel e NAO confirma nada.
+  if (current.classification === "ATO_COMPLEMENTADO") {
+    return {
+      accepted: true,
+      persisted: true,
+      identity,
+      postRead: { identity, classification: current.classification },
+      evidence: { signal: "ato_complementado", read: true, source: "portal" },
+    };
+  }
+  return {
+    accepted: true,
+    persisted: false,
+    identity,
+    evidence: { signal: "still_pending", read: true, source: "portal" },
+  };
+}
+
+function createPortalOutcomeObserver({ documentRef = globalThis.document } = {}) {
+  const subscribers = new Set();
+  let timer = null;
+  let mutationObserver = null;
+  const stop = () => {
+    if (mutationObserver && typeof mutationObserver.disconnect === "function") mutationObserver.disconnect();
+    if (timer !== null && typeof globalThis.clearInterval === "function") globalThis.clearInterval(timer);
+    mutationObserver = null;
+    timer = null;
+  };
+  const deliver = (expected) => {
+    const value = readPortalOutcome(documentRef, expected);
+    // Somente persistencia observada e notificada; qualquer outra leitura
+    // mantem o resultado `unconfirmed` e deixa o controlador pausar.
+    if (value.persisted !== true) return;
+    for (const subscriber of [...subscribers]) {
+      try {
+        subscriber(value);
+      } catch {
+        /* um assinante com defeito nao pode interromper os demais */
+      }
+    }
+  };
+  const watch = (expected, { intervalMs = OUTCOME_POLL_MS } = {}) => {
+    const view = documentRef?.defaultView ?? globalThis;
+    const MutationObserverConstructor = view?.MutationObserver ?? globalThis.MutationObserver;
+    const target = documentRef?.body ?? documentRef?.documentElement ?? null;
+    if (typeof MutationObserverConstructor === "function" && target) {
+      try {
+        mutationObserver = new MutationObserverConstructor(() => deliver(expected));
+        mutationObserver.observe(target, { childList: true, subtree: true, characterData: true });
+      } catch {
+        mutationObserver = null;
+      }
+    }
+    const setIntervalFn = view?.setInterval ?? globalThis.setInterval;
+    if (intervalMs > 0 && typeof setIntervalFn === "function") {
+      timer = setIntervalFn(() => deliver(expected), intervalMs);
+    }
+  };
+  return Object.freeze({
+    read(expected) {
+      return readPortalOutcome(documentRef, expected);
+    },
+    subscribe(expected, notifySubscriber, options = {}) {
+      if (typeof notifySubscriber !== "function") return () => {};
+      subscribers.add(notifySubscriber);
+      watch(expected, options);
+      return () => {
+        subscribers.delete(notifySubscriber);
+        if (subscribers.size === 0) stop();
+      };
+    },
+  });
+}
+function installPortalOutcomeObserver({ documentRef = globalThis.document, target = globalThis } = {}) {
+  if (!documentRef || isRecord(target?.TCEPortalOutcome)) return false;
+  const observer = createPortalOutcomeObserver({ documentRef });
+  target.TCEPortalOutcome = Object.freeze({
+    // A identidade esperada e obrigatoria: sem ela o observador nao consegue
+    // distinguir o ato deste envio de qualquer outro listado no portal.
+    read(documentReference, expected) {
+      return observer.read(expected);
+    },
+    subscribe(documentReference, expected, notify) {
+      return observer.subscribe(expected, notify);
+    },
+  });
+  return true;
+}
+
+function defaultWaitForOutcome({ documentRef, command } = {}) {
   const adapter = globalThis.TCEPortalOutcome;
+  // A identidade do comando e repassada como expectativa; sem ela a leitura
+  // nao pode confirmar nada e o resultado permanece `unconfirmed`.
+  const expected = { identity: command?.identity ?? null };
   return waitForPortalOutcome({
     subscribe: typeof adapter?.subscribe === "function"
-      ? (notify) => adapter.subscribe(documentRef, notify)
+      ? (notify) => adapter.subscribe(documentRef, expected, notify)
       : null,
     readOutcome: typeof adapter?.read === "function"
-      ? () => adapter.read(documentRef)
+      ? () => adapter.read(documentRef, expected)
       : null,
   });
 }
@@ -404,15 +593,20 @@ if (typeof module === "object" && module !== null && module.exports) {
   module.exports.COMMAND_TTL_MS = COMMAND_TTL_MS;
   module.exports.OUTCOME_TIMEOUT_MS = OUTCOME_TIMEOUT_MS;
   module.exports.classifyPortalOutcome = classifyPortalOutcome;
+  module.exports.createPortalOutcomeObserver = createPortalOutcomeObserver;
+  module.exports.installPortalOutcomeObserver = installPortalOutcomeObserver;
+  module.exports.readPortalOutcome = readPortalOutcome;
   module.exports.installPortalSubmit = installPortalSubmit;
   module.exports.submitVerifiedAct = submitVerifiedAct;
   module.exports.waitForPortalOutcome = waitForPortalOutcome;
 } else {
   globalThis.TCEPortalSubmit = Object.freeze({
     classifyPortalOutcome,
+    createPortalOutcomeObserver,
     installPortalSubmit,
     submitVerifiedAct,
     waitForPortalOutcome,
   });
+  installPortalOutcomeObserver();
   if (globalThis.document && globalThis.chrome?.runtime?.onMessage) installPortalSubmit();
 }

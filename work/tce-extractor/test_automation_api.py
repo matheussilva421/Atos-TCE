@@ -1395,5 +1395,38 @@ class AutomationApiTests(unittest.TestCase):
             self.assertFalse(tail["has_more"])
 
 
+class OperationIndicatorsApiTests(unittest.TestCase):
+    def pair(self, server, base: str) -> str:
+        status, _headers, body = request_json(
+            f"{base}/api/v1/pair",
+            method="POST",
+            payload={"code": server.auth.issue_pairing_code()},
+            origin=EXTENSION_ORIGIN,
+        )
+        self.assertEqual(status, 200, body)
+        return body["token"]
+    def test_indicators_endpoint_requires_the_bridge_token(self):
+        with running_server() as (root, server, base):
+            write_fixture(root, "Ana")
+            status, _headers, body = request_json(
+                f"{base}/api/v1/automation/indicators", origin=EXTENSION_ORIGIN
+            )
+            self.assertEqual(status, 401)
+            self.assertEqual(body["error"]["code"], "UNAUTHORIZED")
+
+            token = self.pair(server, base)
+            status, _headers, body = request_json(
+                f"{base}/api/v1/automation/indicators", token=token
+            )
+            self.assertEqual(status, 200, body)
+            self.assertEqual(body["api_version"], 1)
+            self.assertEqual(body["schema_version"], 1)
+            self.assertEqual(body["runs_total"], 0)
+            self.assertEqual(body["confirmed_total"], 0)
+            self.assertEqual(body["failed_total"], 0)
+            self.assertEqual(body["items_total"], 0)
+
+
 if __name__ == "__main__":
+
     unittest.main()

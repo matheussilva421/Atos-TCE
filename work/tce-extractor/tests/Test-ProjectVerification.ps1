@@ -61,7 +61,7 @@ function New-TestCommandOverrides {
     )
 
     $shell = Get-TestPowerShell
-    $stages = @('extension', 'web', 'python', 'powershell', 'package', 'diff')
+    $stages = @('extension', 'web', 'python', 'powershell', 'package', 'automation', 'diff')
     $overrides = [ordered]@{}
     foreach ($stage in $stages) {
         $exitCode = if ($stage -eq $FailStage) { $FailCode } else { 0 }
@@ -121,23 +121,23 @@ exit $ExitCode
     $dryRunOverrides | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $overridePath -Encoding UTF8
     $dryRun = Invoke-TestScript -FilePath $verifierPath -Arguments @('-DryRun', '-CommandOverridesPath', $overridePath)
     Assert-Equal $dryRun.ExitCode 0 'dry run exits zero'
-    foreach ($stage in @('extension', 'web', 'python', 'powershell', 'package', 'diff')) {
+    foreach ($stage in @('extension', 'web', 'python', 'powershell', 'package', 'automation', 'diff')) {
         Assert-Contains $dryRun.Output $stage ('dry run lists ' + $stage + ' stage')
     }
     Assert-Contains $dryRun.Output 'Executed: 0' 'dry run reports zero executed commands'
-    Assert-Contains $dryRun.Output 'Skips: 6' 'dry run reports six skips'
+    Assert-Contains $dryRun.Output 'Skips: 7' 'dry run reports seven skips'
     Assert-True (-not (Test-Path -LiteralPath $markerPath)) 'dry run does not execute command doubles'
 
     $greenOverrides = New-TestCommandOverrides -FixturePath $fixturePath -Root $projectRoot -MarkerPath $markerPath
     $greenOverrides | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $overridePath -Encoding UTF8
     $green = Invoke-TestScript -FilePath $verifierPath -Arguments @('-CommandOverridesPath', $overridePath, '-LogRoot', (Join-Path $fixtureRoot 'green-logs'))
     Assert-Equal $green.ExitCode 0 'all stages green exits zero'
-    Assert-Contains $green.Output 'Executed: 6' 'green summary reports six executed stages'
-    Assert-Contains $green.Output 'Passed: 6' 'green summary reports six passed stages'
+    Assert-Contains $green.Output 'Executed: 7' 'green summary reports seven executed stages'
+    Assert-Contains $green.Output 'Passed: 7' 'green summary reports seven passed stages'
     Assert-Contains $green.Output 'Failed: 0' 'green summary reports zero failed stages'
     Assert-Contains $green.Output 'Skips: 0' 'green summary reports zero skips'
     Assert-Contains $green.Output 'Command:' 'green summary includes command field'
-    Assert-True ((Get-Content -LiteralPath $markerPath).Count -eq 6) 'all six command doubles executed once'
+    Assert-True ((Get-Content -LiteralPath $markerPath).Count -eq 7) 'all seven command doubles executed once'
 
     # Python em Windows precisa de um processo com console herdado para que
     # os.kill(pid, 0) consiga validar marcadores de runtime. O runner não pode
@@ -169,6 +169,7 @@ print("1 passed, 0 failed, 0 skipped")
         python = 12
         powershell = 13
         package = 14
+        automation = 16
         diff = 15
     }
     foreach ($stage in $expectedCodes.Keys) {

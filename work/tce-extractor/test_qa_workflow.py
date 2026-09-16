@@ -24,6 +24,7 @@ from qa_portal_recorder import (
     classify_request_failure,
     extension_worker_matches,
     validate_qa_profile,
+    validate_safety_mode,
 )
 
 ROOT = Path(__file__).resolve().parent
@@ -168,6 +169,18 @@ class QaWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("target.value", script)
         self.assertNotIn("textContent", script)
 
+    def test_reversible_fill_requires_a_runner_and_is_refused_otherwise(self) -> None:
+        # O modo de preenchimento reversivel era aceito pela configuracao sem
+        # nenhum caminho de escrita e sem restore: o operador acreditava estar
+        # no modo supervisionado e ficava apenas observando.
+        self.assertEqual(validate_safety_mode("observe_only", reversible_runner_available=False), "observe_only")
+        self.assertEqual(validate_safety_mode("observe_only", reversible_runner_available=True), "observe_only")
+        self.assertEqual(validate_safety_mode("reversible_fill", reversible_runner_available=True), "reversible_fill")
+        with self.assertRaisesRegex(ValueError, "reversivel|reversible"):
+            validate_safety_mode("reversible_fill", reversible_runner_available=False)
+        with self.assertRaisesRegex(ValueError, "modo"):
+            validate_safety_mode("submit", reversible_runner_available=True)
+
     def test_worker_matching_ignores_unrelated_chrome_component(self) -> None:
         expected = {
             "name": "Complementar Ato TCE/RN",
@@ -223,5 +236,40 @@ class QaWorkflowContractTests(unittest.TestCase):
         self.assertEqual(classify_page_error("chromewebdata/"), "browser_error_page")
 
 
+class RulesVersionBindingTests(unittest.TestCase):
+    """A versao das regras precisa bater entre servico e extensao."""
+
+    def test_service_and_extension_agree_on_the_rules_version(self):
+        import re as _re
+        import sys as _sys
+
+        app_root = Path(__file__).parent / "portable" / "app"
+        _sys.path.insert(0, str(app_root))
+        from local_service import RULES_VERSION as service_rules_version
+
+        source = (
+            Path(__file__).parent
+            / "portable"
+            / "extensao-complementar-ato"
+            / "lib"
+            / "legal-foundation.js"
+        ).read_text(encoding="utf-8")
+        match = _re.search(
+            r'export const LEGAL_FOUNDATION_RULES_VERSION = "([^"]+)"', source
+        )
+        self.assertIsNotNone(match, "rules version declaration not found")
+        self.assertEqual(match.group(1), service_rules_version)
+
+    def test_authoritative_plan_rule_is_the_declared_rules_version(self):
+        import sys as _sys
+
+        app_root = Path(__file__).parent / "portable" / "app"
+        _sys.path.insert(0, str(app_root))
+        from local_service import RULES_VERSION
+
+        self.assertEqual(RULES_VERSION, "legal-foundation-v2")
+
+
 if __name__ == "__main__":
+
     unittest.main()

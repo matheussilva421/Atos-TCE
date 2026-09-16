@@ -39,6 +39,27 @@ def _portable_path(path: Path) -> str:
     return path.as_posix()
 
 
+SAFETY_MODES = ("observe_only", "reversible_fill")
+
+
+def validate_safety_mode(safety_mode: str, *, reversible_runner_available: bool) -> str:
+    """Refuse a mode the recorder cannot actually execute.
+
+    O gravador local nao possui caminho de escrita nem de restauracao. Aceitar
+    ``reversible_fill`` sem um runner supervisionado faria o operador acreditar
+    que estava no modo reversivel quando apenas observava. O modo continua
+    fail-closed ate existir um runner verificado."""
+
+    if safety_mode not in SAFETY_MODES:
+        raise ValueError(f"modo de seguranca nao suportado: {safety_mode}")
+    if safety_mode == "reversible_fill" and not reversible_runner_available:
+        raise ValueError(
+            "preenchimento reversivel indisponivel: nenhum runner supervisionado "
+            "verificado esta configurado para este gravador"
+        )
+    return safety_mode
+
+
 def validate_qa_profile(package_root: Path, profile_root: Path) -> Path:
     """Require a persistent profile below the package's private data root."""
 
@@ -303,6 +324,7 @@ class QaPortalRecorder:
 
         if self.config.safety_mode not in {"observe_only", "reversible_fill"}:
             raise ValueError("unsupported recorder safety mode")
+        validate_safety_mode(self.config.safety_mode, reversible_runner_available=False)
         if self.config.browser not in {"chrome", "chromium"}:
             raise ValueError("unsupported recorder browser")
         if self.config.browser == "chromium" and self.config.executable is not None:
@@ -518,6 +540,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--executable", type=Path, help="Chrome/Chromium executable for the isolated QA profile")
     parser.add_argument("--portal-url", default=DEFAULT_PORTAL_URL)
     parser.add_argument("--safety-mode", choices=("observe_only", "reversible_fill"), default="observe_only")
+    # Não usar este gravador para o preenchimento reversível. Ele não possui
+    # caminho de escrita nem de restauração; o modo reversível exige o runner
+    # de qualificação com preflight e releitura.
+    parser.add_argument("--allow-reversible-fill", action="store_true", help="reservado; requer runner supervisionado verificado")
     parser.add_argument("--browser", choices=("chrome", "chromium"), default="chrome")
     parser.add_argument("--stay-open", action="store_true")
     parser.add_argument("--status", choices=("BLOCKED", "PASS_REAL", "NOT_TESTED"), default="BLOCKED")

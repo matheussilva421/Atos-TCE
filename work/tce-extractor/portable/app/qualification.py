@@ -59,6 +59,12 @@ def inspect_qualification(path: Path, expected_versions: dict[str, Any]) -> Qual
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
         return QualificationCheck(False, "invalid")
+    return inspect_qualification_content(payload, expected_versions)
+
+
+def inspect_qualification_content(payload: object, expected_versions: dict[str, Any]) -> QualificationCheck:
+    """Validate an already-decoded qualification payload."""
+
     if not isinstance(payload, dict) or set(payload) != _PAYLOAD_KEYS:
         return QualificationCheck(False, "invalid")
     if payload.get("schema_version") != QUALIFICATION_SCHEMA_VERSION:
@@ -80,3 +86,42 @@ def inspect_qualification(path: Path, expected_versions: dict[str, Any]) -> Qual
     if not isinstance(event_id, str) or not _EVENT_ID_RE.fullmatch(event_id):
         return QualificationCheck(False, "real_event_id_invalid")
     return QualificationCheck(True, "qualified")
+
+
+def write_qualification(
+    path: Path,
+    *,
+    extension_version: str,
+    fixture_hashes: list[str],
+    real_event_id: str,
+) -> Path:
+    """Write the real-portal qualification artifact, fail-closed.
+
+    Gravar este arquivo e o que libera ``real_send_enabled`` no servico local,
+    portanto a funcao recusa qualquer entrada incompleta em vez de produzir um
+    registro que o inspetor rejeitaria silenciosamente depois.
+    """
+
+    path = Path(path)
+    if (
+        not isinstance(fixture_hashes, list)
+        or not fixture_hashes
+        or any(not isinstance(value, str) or not _SHA256_RE.fullmatch(value) for value in fixture_hashes)
+        or len(set(fixture_hashes)) != len(fixture_hashes)
+    ):
+        raise ValueError("fixture_hashes precisa de hashes SHA-256 unicos e completos")
+    if not isinstance(real_event_id, str) or not _EVENT_ID_RE.fullmatch(real_event_id):
+        raise ValueError("real_event_id precisa identificar um evento real observado")
+    payload = {
+        "schema_version": QUALIFICATION_SCHEMA_VERSION,
+        "status": "qualified",
+        "versions": expected_qualification_versions(extension_version),
+        "fixture_hashes": list(fixture_hashes),
+        "real_event_id": real_event_id,
+    }
+    check = inspect_qualification_content(payload, expected_qualification_versions(extension_version))
+    if not check.valid:
+        raise ValueError(f"qualificacao recusada: {check.reason}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return path

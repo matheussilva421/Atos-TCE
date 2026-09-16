@@ -62,7 +62,33 @@ MAX_BODY_BYTES = 2 * 1024 * 1024
 MAX_AUTOMATION_IDENTITIES = 10_000
 AUTOMATION_SCHEMA_VERSION = 1
 RULES_VERSION = "legal-foundation-v2"
-EXTENSION_VERSION = "1.1.0"
+_FALLBACK_EXTENSION_VERSION = "1.1.0"
+
+
+def _shipped_extension_version(extension_root: "Path | None" = None) -> str:
+    """Le a versao da extensao que sera realmente distribuida.
+
+    A qualificacao real fica presa a versao da extensao. Se este literal
+    divergir do manifest distribuido, uma qualificacao antiga liberaria
+    ``real_send_enabled`` para uma versao nunca qualificada. O manifest do
+    pacote passa a ser a unica fonte de verdade; o literal permanece apenas
+    como ultimo recurso quando a arvore nao inclui a extensao."""
+
+    root = extension_root
+    if root is None:
+        root = Path(__file__).resolve().parent.parent / "extensao-complementar-ato"
+    manifest_path = Path(root) / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return _FALLBACK_EXTENSION_VERSION
+    version = manifest.get("version") if isinstance(manifest, dict) else None
+    if isinstance(version, str) and version.strip():
+        return version.strip()
+    return _FALLBACK_EXTENSION_VERSION
+
+
+EXTENSION_VERSION = _shipped_extension_version()
 QUALIFICATION_RELATIVE_PATH = Path("automacao") / "qualificacao.json"
 PROCESS_KEY_RE = re.compile(r"^\d+/\d{4}$")
 PROCESS_KEY_QUERY_RE = re.compile(r"^(\d+)\s*/\s*(\d{4})$")
@@ -1439,6 +1465,17 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             return
         self._send(200, {"api_version": API_VERSION, **result})
 
+    def _send_automation_indicators(self) -> None:
+        """Indicadores de desempenho agregados (Fase 4), somente contagens."""
+
+        try:
+            indicators = self.server_state.automation_store.operation_indicators()
+        except Exception as error:
+            problem = _automation_store_error(error)
+            self._error(problem.status, problem.code, str(problem))
+            return
+        self._send(200, {"api_version": API_VERSION, **indicators})
+
     def _send_analysis(self, analysis_id: str) -> None:
         if not ANALYSIS_ID_RE.fullmatch(analysis_id):
             self._error(404, "ANALYSIS_NOT_FOUND", "análise não encontrada")
@@ -1837,6 +1874,9 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             self._send_analysis(analysis_parts[3])
             return
         automation_parts = [unquote(part) for part in parsed.path.split("/") if part]
+        if automation_parts == ["api", "v1", "automation", "indicators"]:
+            self._send_automation_indicators()
+            return
         if automation_parts == ["api", "v1", "automation", "runs"]:
             self._send_automation_runs(parse_qs(parsed.query, keep_blank_values=True))
             return

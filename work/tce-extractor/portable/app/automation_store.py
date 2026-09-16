@@ -1144,6 +1144,55 @@ class AutomationStore:
             lambda connection: self._snapshot_transaction(connection, run_id)
         )
 
+    def operation_indicators(self) -> dict[str, Any]:
+        """Return cross-run operation indicators for this workflow root.
+
+        Indicadores de desempenho (Fase 4) agregados das execucoes e dos itens
+        persistidos. Somente contagens: nenhum identificador de processo ou
+        interessado sai daqui, e o resultado nao altera estado.
+        """
+
+        def read(connection: sqlite3.Connection) -> dict[str, Any]:
+            root_key = str(self.root)
+            runs_total = int(
+                connection.execute(
+                    "SELECT COUNT(*) AS count FROM runs WHERE root_key = ?",
+                    (root_key,),
+                ).fetchone()["count"]
+            )
+            by_run_state = {
+                str(row["state"]): int(row["count"])
+                for row in connection.execute(
+                    "SELECT state, COUNT(*) AS count FROM runs WHERE root_key = ? "
+                    "GROUP BY state ORDER BY state",
+                    (root_key,),
+                ).fetchall()
+            }
+            joined = (
+                "FROM items WHERE run_id IN "
+                "(SELECT run_id FROM runs WHERE root_key = ?)"
+            )
+            state_counts = {
+                str(row["state"]): int(row["count"])
+                for row in connection.execute(
+                    "SELECT state, COUNT(*) AS count " + joined + " GROUP BY state",
+                    (root_key,),
+                ).fetchall()
+            }
+            return {
+                "schema_version": 1,
+                "runs_total": runs_total,
+                "by_run_state": by_run_state,
+                "items_total": sum(state_counts.values()),
+                "confirmed_total": int(state_counts.get("confirmed", 0)),
+                "unconfirmed_total": int(state_counts.get("unconfirmed", 0)),
+                "failed_total": int(state_counts.get("failed", 0)),
+                "pending_total": int(state_counts.get("pending", 0)),
+                "filled_total": int(state_counts.get("filled", 0)),
+            }
+
+        return self._run_transaction(read)
+
     def get_events(
         self, run_id: str, after: int = 0, through: int | None = None
     ) -> list[dict]:

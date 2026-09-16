@@ -47,6 +47,11 @@ def _active_runtime(package_root: Path) -> str | None:
             continue
         try:
             value = json.loads(metadata.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            # A execução drenou entre a verificação de existência e a
+            # leitura (o Windows falha a leitura enquanto o arquivo é
+            # removido). Sem marcador presente, o runtime não está ativo.
+            continue
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise TransferBusyError(
                 f"marcador de execução inválido; transferência recusada: {metadata}"

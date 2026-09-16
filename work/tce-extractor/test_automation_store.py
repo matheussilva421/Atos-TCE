@@ -813,5 +813,112 @@ class AutomationStoreTests(unittest.TestCase):
         ])
 
 
+class OperationIndicatorsTests(unittest.TestCase):
+    """Indicadores de desempenho da operacao (Fase 4)."""
+
+    def setUp(self) -> None:
+        self.temp = TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def _store(self):
+        from automation_store import AutomationStore
+
+        return AutomationStore(self.root)
+
+    def test_reports_empty_indicators_without_runs(self):
+        store = self._store()
+        try:
+            indicators = store.operation_indicators()
+        finally:
+            store.close()
+
+        self.assertEqual(indicators["schema_version"], 1)
+        self.assertEqual(indicators["runs_total"], 0)
+        self.assertEqual(indicators["confirmed_total"], 0)
+        self.assertEqual(indicators["unconfirmed_total"], 0)
+        self.assertEqual(indicators["failed_total"], 0)
+        self.assertEqual(indicators["by_run_state"], {})
+
+    def test_counts_confirmed_and_failed_items_from_the_workflow_root(self):
+        store = self._store()
+        try:
+            created = store.create_run({"run_id": "run-ok", "schema_version": 1})
+            frozen = store.freeze_queue(
+                "run-ok",
+                [
+                    {"process_key": "103439/2023"},
+                    {"process_key": "103490/2023"},
+                ],
+                "ind-queue",
+                created["revision"],
+            )
+            prepared = store.append_event(
+                "run-ok",
+                {
+                    "event_id": "ind-prepared",
+                    "type": "item_prepared",
+                    "expected_revision": frozen["revision"],
+                    "item_id": "103439/2023",
+                },
+            )
+            filled = store.append_event(
+                "run-ok",
+                {
+                    "event_id": "ind-filled",
+                    "type": "fields_verified",
+                    "expected_revision": prepared["revision"],
+                    "item_id": "103439/2023",
+                },
+            )
+            sent = store.append_event(
+                "run-ok",
+                {
+                    "event_id": "ind-sent",
+                    "type": "send_intent",
+                    "expected_revision": filled["revision"],
+                    "item_id": "103439/2023",
+                },
+            )
+            store.append_event(
+                "run-ok",
+                {
+                    "event_id": "ind-confirmed",
+                    "type": "send_confirmed",
+                    "expected_revision": sent["revision"],
+                    "item_id": "103439/2023",
+                },
+            )
+            store.append_event(
+                "run-ok",
+                {
+                    "event_id": "ind-failed",
+                    "type": "item_failed",
+                    "expected_revision": sent["revision"] + 1,
+                    "item_id": "103490/2023",
+                },
+            )
+            indicators = store.operation_indicators()
+        finally:
+            store.close()
+
+        self.assertEqual(indicators["schema_version"], 1)
+        self.assertEqual(indicators["runs_total"], 1)
+        self.assertEqual(indicators["confirmed_total"], 1)
+        self.assertEqual(indicators["failed_total"], 1)
+        self.assertEqual(indicators["by_run_state"], {"running": 1})
+        self.assertEqual(indicators["items_total"], 2)
+        # Indicadores sao somente contagens: nenhum identificador de processo
+        # ou interessado pode aparecer no resultado.
+        rendered = json.dumps(indicators, ensure_ascii=False)
+        self.assertNotIn("103439/2023", rendered)
+        self.assertNotIn("103490/2023", rendered)
+        self.assertTrue(all(
+            not isinstance(value, str) or "/" not in value
+            for value in indicators.values()
+        ))
+
+
 if __name__ == "__main__":
+
     unittest.main()

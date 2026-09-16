@@ -20,6 +20,7 @@ $script:ExitCodes = [ordered]@{
     powershell = 13
     package = 14
     diff = 15
+    automation = 16
 }
 $script:TimeoutCode = 124
 $script:SafetyCode = 64
@@ -137,6 +138,10 @@ function Get-DefaultVerificationStages {
     }
 
     $packageCommand = New-VerificationCommand -FilePath $python -Arguments @('-m', 'unittest', 'test_extension_zip_packager', 'test_package_complete_archive', 'test_package_audit', 'test_prepare_transfer', '-q') -WorkingDirectory $extractorRoot -DisplayCommand 'python -m unittest test_extension_zip_packager test_package_complete_archive test_package_audit test_prepare_transfer -q'
+    # A descoberta em 'portable' nao enxerga os contratos de automacao que
+    # vivem na raiz do extrator. Sem esta etapa o gate de release ficaria
+    # verde com a automacao de complementacao fora da verificacao.
+    $automationCommand = New-VerificationCommand -FilePath $python -Arguments @('-m', 'unittest', 'test_automation_api', 'test_automation_browser', 'test_automation_report', 'test_automation_store', 'test_automation_qualification', '-q') -WorkingDirectory $extractorRoot -DisplayCommand 'python -m unittest test_automation_api test_automation_browser test_automation_report test_automation_store test_automation_qualification -q'
     $diffCommand = New-VerificationCommand -FilePath $git -Arguments @('diff', '--check') -WorkingDirectory $ProjectRoot -DisplayCommand 'git diff --check'
 
     @(
@@ -145,6 +150,7 @@ function Get-DefaultVerificationStages {
         (New-VerificationStage -Name 'python' -Code $script:ExitCodes.python -Commands @($pythonCommand) -DisplayCommand 'python: unittest discover -s portable'),
         (New-VerificationStage -Name 'powershell' -Code $script:ExitCodes.powershell -Commands $powerShellCommands -DisplayCommand 'powershell: tests/Test-*.ps1'),
         (New-VerificationStage -Name 'package' -Code $script:ExitCodes.package -Commands @($packageCommand) -DisplayCommand 'package/audit: unittest package contracts'),
+        (New-VerificationStage -Name 'automation' -Code $script:ExitCodes.automation -Commands @($automationCommand) -DisplayCommand 'automation: unittest root automation contracts'),
         (New-VerificationStage -Name 'diff' -Code $script:ExitCodes.diff -Commands @($diffCommand) -DisplayCommand 'git diff --check')
     )
 }

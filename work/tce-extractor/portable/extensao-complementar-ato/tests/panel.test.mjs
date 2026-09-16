@@ -723,7 +723,10 @@ test("runs a read-only Area Restrita analysis, shows the count, and creates dete
   documentRef.getElementById("automation-source-scope").value = "my_processes";
   documentRef.getElementById("automation-lot-size").value = "50";
   documentRef.getElementById("analysis-preview-button").dispatchEvent(new FakeEvent("click"));
-  for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  await waitUntil(
+    () => /1.*complement/iu.test(documentRef.getElementById("analysis-status").textContent),
+    "analysis preview did not report the eligible complement count",
+  );
   assert.match(documentRef.getElementById("analysis-status").textContent, /1.*complement/iu);
   assert.equal(bridgeCalls[0][0], "preview");
   assert.deepEqual(bridgeCalls[0][1].rows[0].econtas, {
@@ -743,13 +746,19 @@ test("runs a read-only Area Restrita analysis, shows the count, and creates dete
   assert.equal(Object.hasOwn(analyzeSpec, "marker"), false);
   assert.equal(documentRef.getElementById("analysis-lots-button").disabled, false);
   documentRef.getElementById("analysis-lots-button").dispatchEvent(new FakeEvent("click"));
-  for (let index = 0; index < 3; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  await waitUntil(
+    () => bridgeCalls.length > 1,
+    "analysis lots request was not sent to the bridge",
+  );
   assert.deepEqual(bridgeCalls[1], ["lots", analysisId]);
   assert.equal(documentRef.getElementById("analysis-acquisition-button").disabled, false);
   documentRef.getElementById("analysis-lot-number").value = "1";
   documentRef.getElementById("analysis-selection-mode").value = "lot";
   documentRef.getElementById("analysis-acquisition-button").dispatchEvent(new FakeEvent("click"));
-  for (let index = 0; index < 3; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  await waitUntil(
+    () => bridgeCalls.length > 2,
+    "analysis acquisition request was not sent to the bridge",
+  );
   assert.deepEqual(bridgeCalls[2], ["acquire", analysisId, { selection: "lot", lotNumber: 1 }]);
   assert.match(documentRef.getElementById("analysis-acquisition-status").textContent, /iniciada|started/iu);
 });
@@ -1127,8 +1136,11 @@ test("automatic submission requires capability and an action-time confirmation",
   });
   documentRef.getElementById("bridge-pairing-code").value = "12345678";
   documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
-  for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setImmediate(resolve));
   documentRef.getElementById("automation-marker").value = "PROFESSOR - IPERN - 2 RUBRICAS";
+  await waitUntil(
+    () => Boolean(app.getState().automationCapabilities),
+    "bridge connection did not load automation capabilities for automatic submission",
+  );
   documentRef.getElementById("automation-auto-submit").checked = true;
 
   assert.equal(await app.startAutomation(), true);
@@ -1192,7 +1204,10 @@ test("pilot action is explicit, targets the current identity, and preserves the 
   });
   documentRef.getElementById("bridge-pairing-code").value = "12345678";
   documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
-  for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  await waitUntil(
+    () => Boolean(app.getState().automationCapabilities),
+    "bridge connection did not load automation capabilities for the pilot action",
+  );
   assert.equal(await app.startAutomation("pilot"), true);
   const started = workerCalls.find((message) => message.type === MESSAGE_TYPES.AUTO_START);
   assert.equal(started.payload.spec.mode, "pilot");
