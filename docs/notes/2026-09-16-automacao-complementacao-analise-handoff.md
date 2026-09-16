@@ -40,6 +40,22 @@ concluída. Nenhum ato foi preenchido, concluído ou enviado nesta análise.
   `test_prepare_transfer.py`, `test_manual_review_browser.py` e
   `tests/Test-PortableMenu.ps1`.
 
+## Situação da fundamentação jurídica
+
+- A remodelação está presente na versão nova: a regra publicada é
+  `legal-foundation-v2`, com `legal-reference-parser-v2.js`,
+  `retirement-legal-profile.js` e `portal-legal-crosswalk.js`.
+- O contexto salvo em `acervo-tce/fundamentos-contexto.v1.json` contém 174
+  registros e foi extraído com `legal-context-v4`; 166 têm texto operativo,
+  páginas e evidência de fonte. Os estados restantes são classificados como
+  `conflict`, `incomplete` ou `missing`, portanto não podem ser tratados como
+  correspondência automática.
+- O nome `fundamentos-contexto.v1.json` identifica o schema de transporte
+  compatível; não significa que a regra jurídica ainda seja a versão antiga.
+- A remodelação ainda não equivale à qualificação portal-real: não existe
+  `automacao/qualificacao.json`, `real_send_enabled` continua `false` e o
+  envio permanece bloqueado até os preflights reais.
+
 ## O que falta
 
 1. Repetir observação em sessão humana autenticada e isolada, sem erros de
