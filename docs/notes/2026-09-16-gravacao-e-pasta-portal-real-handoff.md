@@ -48,6 +48,6 @@ Qualquer envio exige autorização imediata e específica, um ato por vez.
 
 ## GitHub
 
-Estado final: `main` e `origin/main` estão alinhadas em `bd949c5`
-(`feat: record structural portal qualification sessions`). O commit e o push
+Estado final: `main` e `origin/main` estão alinhadas em `f6b28af`
+(`docs: finalize portal recording handoff`). O commit e o push
 foram confirmados. A pasta em `outputs/` é privada e ignorada pelo Git.
