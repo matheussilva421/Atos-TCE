@@ -985,7 +985,7 @@ test("automation watchdog refreshes an active run and clears after an explicit s
     createMessage(MESSAGE_TYPES.AUTO_STOP, { runId: "run-watchdog", eventId: "watchdog-stop", expectedRevision: 0 }, "watchdog-stop"),
     extensionSender(),
   );
-  assert.equal(stopped.ok, true);
+  assert.equal(stopped.ok, true, JSON.stringify(stopped));
   assert.deepEqual(alarms.cleared, ["automation-watchdog-v1"]);
 });
 
@@ -1664,6 +1664,8 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
   const rankCalls = [];
   const applyCalls = [];
   const storage = storageMock();
+  let legalConfidence = 0.96;
+  let remoteRunStatus = "stopped";
   const ranker = (input) => {
     rankCalls.push(input);
     if (input.field === "fundamento_legal") {
@@ -1680,6 +1682,9 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
           rule_id: "EC41_COM_P5",
           option_value: input.options[0]?.value ?? optionValues.fundamento_legal,
           option_label: input.options[0]?.label ?? "Art. 40",
+          confidence: legalConfidence,
+          margin: 0.20,
+          hard_conflict: false,
           rules_version: "legal-foundation-v1",
         },
       };
@@ -1696,6 +1701,7 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
   const bridge = {
     async createAutomationRun(spec, eventId) {
       bridgeCalls.push(["start", spec, eventId]);
+      remoteRunStatus = "running";
       return { api_version: 1, run_id: "run-fase6", revision: 0, status: "discovering", items: [], last_confirmed_item_id: null };
     },
     async getDataset() {
@@ -1715,9 +1721,10 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
       return { api_version: 1, run_id: runId, revision: 2, status: "running", items: [], last_confirmed_item_id: null };
     },
     async getAutomationRun(runId) {
-      return { api_version: 1, run_id: runId, revision: 2, status: "running", items: [], last_confirmed_item_id: null };
+      return { api_version: 1, run_id: runId, revision: 2, status: remoteRunStatus, items: [], last_confirmed_item_id: null };
     },
     async controlAutomationRun() {
+      remoteRunStatus = "stopped";
       return { api_version: 1, run_id: "run-fase6", revision: 3, status: "stopped", items: [], last_confirmed_item_id: null };
     },
   };
@@ -1795,4 +1802,29 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
   });
   assert.deepEqual(preparedEvent[2].payload.matchKinds, Object.fromEntries(Object.keys(values).map((field) => [field, "exact"])));
   assert.equal(bridgeCalls.some(([name, , event]) => name === "event" && event.type === "fields_verified"), true);
+
+  const stopped = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_STOP, {
+      runId: "run-fase6",
+      eventId: "fase6-stop-before-review",
+      expectedRevision: 2,
+    }, "fase6-stop-before-review"),
+    extensionSender(),
+  );
+  assert.equal(stopped.ok, true);
+
+  currentSurface = surfaces.list;
+  for (const fieldName of Object.keys(formValues)) formValues[fieldName] = "";
+  legalConfidence = 0.82;
+  const reviewRun = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.AUTO_START, { spec, eventId: "fase6-review" }, "fase6-review"),
+    extensionSender(),
+  );
+  assert.equal(reviewRun.ok, true);
+  assert.deepEqual(formValues, Object.fromEntries(Object.keys(values).map((field) => [field, ""])));
+  assert.equal(applyCalls.length, 1, "review must not issue a second APPLY_FIELDS");
+  const pendingEvent = bridgeCalls.find(([name, , event]) => name === "event"
+    && event.type === "item_pending"
+    && event.payload?.legalDecision?.confidence === 0.82);
+  assert.ok(pendingEvent, "review decision must be preserved as an internal pending diagnostic");
 });

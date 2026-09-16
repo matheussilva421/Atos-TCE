@@ -202,6 +202,14 @@ function baseEvidence(identity, context, frame, legalDecision) {
     for (const key of ["status", "method", "rule_id", "option_value", "rules_version"]) {
       if (safeString(legalDecision[key])) safeDecision[key] = legalDecision[key];
     }
+    for (const key of ["confidence", "margin"]) {
+      if (typeof legalDecision[key] === "number" && Number.isFinite(legalDecision[key])) {
+        safeDecision[key] = legalDecision[key];
+      }
+    }
+    if (typeof legalDecision.hard_conflict === "boolean") {
+      safeDecision.hard_conflict = legalDecision.hard_conflict;
+    }
     evidence.legalDecision = safeDecision;
   }
   return evidence;
@@ -209,6 +217,18 @@ function baseEvidence(identity, context, frame, legalDecision) {
 
 function result(eligible, fields, preserved, reasons, evidence) {
   return { eligible, fields, preserved, reasons, evidence };
+}
+
+export function isAutomaticLegalDecision(decision) {
+  return decision?.status === "selected"
+    && decision.method !== "none"
+    && decision.hard_conflict !== true
+    && typeof decision.confidence === "number"
+    && Number.isFinite(decision.confidence)
+    && decision.confidence >= 0.90
+    && typeof decision.margin === "number"
+    && Number.isFinite(decision.margin)
+    && decision.margin >= 0.12;
 }
 
 export function prepareAutomaticAct({ record, context, snapshot, legalDecision, matchedValues, matchKinds } = {}) {
@@ -267,6 +287,8 @@ export function prepareAutomaticAct({ record, context, snapshot, legalDecision, 
     || legalDecision.status !== "selected"
     || legalDecision.method === "none") {
     addReason(reasons, "LEGAL_DECISION_NOT_SELECTED");
+  } else if (!isAutomaticLegalDecision(legalDecision)) {
+    addReason(reasons, "LEGAL_DECISION_REVIEW_REQUIRED");
   }
   if (!safeString(legalDecision?.option_value) || !legalDecision.option_value.trim()) {
     addReason(reasons, "LEGAL_DECISION_VALUE_MISSING");
