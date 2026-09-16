@@ -278,6 +278,101 @@ navega. A evidencia ainda precisa ser produzida em sessao real - o que mudou e
 que agora existe caminho de codigo para confirmar, e nao mais um aborto
 garantido.
 
+## Evidencia adicional da suite completa da raiz (16/09)
+
+O gate unico NAO executa todos os modulos de teste da raiz. Ele roda
+`unittest discover -s portable` (2 modulos) mais cinco modulos citados a mao
+(`test_extension_zip_packager`, `test_package_complete_archive`,
+`test_package_audit`, `test_prepare_transfer`) e o estagio `automation` com
+cinco modulos. Medicao direta: existem 49 modulos `test_*.py` na raiz e 40
+deles nao sao executados por nenhum estagio.
+
+Para nao deixar esse universo sem prova, a suite completa da raiz foi
+executada explicitamente:
+
+
+| Comando | Resultado |
+|---|---|
+| `python -m unittest discover -s . -p 'test_*.py' -q` | 495 executados, OK, 8 skips, saida 0 |
+
+
+Isso cobre os 40 modulos fora do gate, incluindo `test_real_portal_session`,
+`test_local_service`, `test_batch_runner`, `test_html_generator`,
+`test_workflow_state` e `test_evidence_geometry`. Continua valendo que esses
+testes nao entram no gate unico: quem roda `verify-project.ps1` obtem 1174
+executados, nao 495+1174.
+
+Melhoria recomendada (nao aplicada): trocar a lista manual de modulos do
+estagio `package`/`automation` por descoberta na raiz
+(`unittest discover -s . -p 'test_*.py'`), para que o gate cubra tambem os
+arquivos futuros. Uma tentativa foi feita com teste RED proprio e foi
+interrompida pelo usuario antes de aplicar; o gate permanece como esta no
+commit `fb60cc6`.
+
+## Prova em Chrome real: o observador esta ativo (16/09)
+
+O teste unitario prova o observador; faltava provar que ele esta de fato
+registrado na extensao carregada no Chrome real. Sondagem somente leitura
+executada com o simulador local:
+
+1. Abriu o simulador, carregou a extensao empacotada e enviou
+   `PORTAL_GET_SNAPSHOT` pelo caminho real de mensagens.
+2. Resolveu o frame de formulario e montou um `AUTO_SUBMIT_COMMAND` com
+   identidade, geracao e hash dos campos reais.
+3. Resultado: `error_code = COMMAND_ALREADY_CONSUMED`, com
+   `observer_unavailable = false` e `click_count = 0`.
+
+Por que isso e prova: em submitVerifiedAct a checagem do observador
+(`OUTCOME_OBSERVER_UNAVAILABLE`) acontece ANTES de `consumeCommand`, e
+`COMMAND_ALREADY_CONSUMED` e o retorno de `consumeCommand` que falha DEPOIS.
+Um retorno posterior implica que a checagem anterior passou:
+`hasPortalOutcomeObserver()` devolveu verdadeiro no Chrome real com o manifest
+real. O clique permaneceu em zero, ou seja, nenhum envio foi executado.
+
+Limite: isso nao prova que o portal real classifica o ato como
+`ATO_COMPLEMENTADO`; prova que o gate do observador nao bloqueia mais o caminho
+de envio e que o observador esta registrado onde o envio o procura. A evidencia
+de persistencia continua dependendo da sessao autenticada.
+
+## Pacote distribuido: o que serve e o que nao serve (16/09)
+
+Sondagens somente leitura contra a extensao EMPACOTADA em
+`Versions/...-final-professor-ipern`, com o simulador sintetico local:
+
+| Capacidade | Resultado no pacote distribuido |
+|---|---|
+| Lista autenticada (`PORTAL_GET_SNAPSHOT`) | ok, role `list` |
+| Formulario e preflight (`GET_FORM_SNAPSHOT`) | ok, 7 campos |
+| Preenchimento controlado (`APPLY_FIELDS`) | **ok** |
+| Botao de envio clicado | 0 |
+| Envio automatico (`AUTO_SUBMIT_COMMAND`) | `OUTCOME_OBSERVER_UNAVAILABLE` |
+
+Ou seja: o pacote atual ja executa coleta, leitura do formulario e o
+preenchimento controlado sem clicar no envio. O que ele NAO consegue e o
+envio real, porque o `portal-submit.js` distribuido contem a guarda
+`OUTCOME_OBSERVER_UNAVAILABLE` mas nao contem o instalador do observador
+(2 referencias, 0 definicoes).
+
+Comparacao arquivo a arquivo dentro da extensao: apenas
+`content/portal-submit.js` difere entre pacote e fonte. `form-detector.js`,
+`portal-navigation.js`, `automation-preflight.js`, `automation-controller.js`,
+`service-worker.js`, `automation-schema.js` e `manifest.json` estao identicos.
+
+Consequencia pratica para a proxima sessao:
+
+- Os tres preflights e o preenchimento reversivel supervisionado PODEM ser
+  executados com o pacote atual, porque dependem de preflight e APPLY_FIELDS.
+- O envio supervisionado NAO pode: abortaria antes do clique. Para esse passo
+  e necessario reempacotar com o `portal-submit.js` da fonte.
+- Contraste medido: com o `portal-submit.js` da fonte, o mesmo probe chegou a
+  `COMMAND_ALREADY_CONSUMED` (checagem do observador aprovada).
+
+Observacao de contrato descoberta no caminho (nao e defeito): `APPLY_FIELDS`
+so e aceito quando usa o MESMO `requestId` do `GET_FORM_SNAPSHOT` que o
+antecedeu; com id diferente retorna `APPLY_BLOCKED`. O probe inicial usou ids
+distintos e foi bloqueado; ao repetir com id compartilhado, o preenchimento
+passou.
+
 ## Riscos residuais conhecidos (nao corrigidos)
 
 - package_audit.py mantem o terceiro literal "1.1.0" como expectativa de
