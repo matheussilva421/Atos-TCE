@@ -121,9 +121,22 @@ function isEce20Case(profile) {
 }
 
 function crosswalkFor(profile, candidate) {
-  if (!isEce20Case(profile)) return null;
-  if (!["EC41_TRANSITION_GENERAL", "EC41_TRANSITION_TEACHER"].includes(candidate.class_id)) return null;
-  return CROSSWALK_ECE20;
+  if (isEce20Case(profile) && ["EC41_TRANSITION_GENERAL", "EC41_TRANSITION_TEACHER"].includes(candidate.class_id)) {
+    return CROSSWALK_ECE20;
+  }
+  const hasEc41Transition = ["EC41_SEM_P5", "EC41_COM_P5"].includes(candidate.class_id)
+    && (!profile.professor_rule_explicit || candidate.teacher_rule)
+    && profile.references.some((reference) => (
+      reference.diploma_type === "ec"
+        && reference.diploma_number === "41"
+        && ["6", "7"].includes(reference.article)
+        && !reference.article_suffix
+    ));
+  if (hasEc41Transition) return "EC41_TRANSITION_STRUCTURAL_RULE";
+  if (["EC41_ART6A", "EC41_ART6A_EC70"].includes(candidate.class_id) && profile.references.some((reference) => (
+    reference.diploma_type === "ec" && reference.diploma_number === "41" && reference.article_suffix === "a"
+  ))) return "EC41_ART6A_STRUCTURAL_RULE";
+  return null;
 }
 
 function sameDiploma(left, right) {
@@ -185,6 +198,21 @@ function rankOne(profile, sourceText, option) {
   const crosswalk = crosswalkFor(profile, candidate);
 
   if (!candidate.scope || candidate.scope !== profile.scope) hardReasons.push("hard-reject:scope-mismatch");
+  const sourceHasCe = profile.references.some((reference) => reference.diploma_type === "ce");
+  const candidateHasCf = candidate.references.some((reference) => reference.diploma_type === "cf");
+  const sourceHasCf = profile.references.some((reference) => reference.diploma_type === "cf");
+  const candidateHasCe = candidate.references.some((reference) => reference.diploma_type === "ce");
+  if ((sourceHasCe && candidateHasCf) || (sourceHasCf && candidateHasCe)) {
+    hardReasons.push("family-mismatch", "hard-reject:constitution-mismatch");
+  }
+  const sourceHasEc41Article6 = profile.references.some((reference) => (
+    reference.diploma_type === "ec" && reference.diploma_number === "41" && reference.article === "6" && !reference.article_suffix
+  ));
+  const candidateHasEc41Article6A = candidate.class_id === "EC41_ART6A"
+    || candidate.references.some((reference) => (
+      reference.diploma_type === "ec" && reference.diploma_number === "41" && reference.article === "6" && reference.article_suffix === "a"
+    ));
+  if (sourceHasEc41Article6 && candidateHasEc41Article6A) hardReasons.push("hard-reject:article-suffix-mismatch");
   const discriminatorMismatch = hasDiscriminatorMismatch(profile.references, candidate.references);
   if (discriminatorMismatch) hardReasons.push(discriminatorMismatch);
   if (profile.modality !== "unknown" && candidate.modality !== "unknown" && profile.modality !== candidate.modality) {
@@ -192,6 +220,8 @@ function rankOne(profile, sourceText, option) {
   }
   if (!option.selectable) hardReasons.push("hard-reject:option-not-selectable");
 
+  const exactText = normalizeLegalText(sourceText) === normalizeLegalText(option.label);
+  const legacyTeacherMismatch = profile.professor_rule_explicit && !candidate.teacher_rule;
   const components = {
     scope: profile.scope === candidate.scope ? 1 : 0,
     modality: profile.modality === "unknown" || candidate.modality === "unknown"
@@ -209,7 +239,7 @@ function rankOne(profile, sourceText, option) {
       : structuralMatch(profile.references, candidate.references) ? 1 : 0,
     discriminators: candidate.teacher_rule
       ? (profile.professor_rule_explicit ? 1 : 0)
-      : 1,
+      : (legacyTeacherMismatch ? 0 : 1),
     lexical: diceSimilarity(sourceText, option.label),
   };
 
@@ -239,7 +269,13 @@ function rankOne(profile, sourceText, option) {
     rejected: hardReasons.length > 0,
     reasons: [...hardReasons, ...reasons],
     warnings,
-    method: crosswalk ? "similarity" : structuralMatch(profile.references, candidate.references) ? "rule" : "none",
+    method: exactText
+      ? "exact"
+      : crosswalk === CROSSWALK_ECE20
+        ? "similarity"
+        : crosswalk || structuralMatch(profile.references, candidate.references)
+          ? "rule"
+          : "none",
     score_components: components,
   };
 }
@@ -270,7 +306,21 @@ export function classifyPortalLegalFoundation({ operativeText = "", cargo = "", 
   const normalizedOptions = Array.isArray(options) ? options.map(optionParts) : [];
   if (normalizedOptions.length === 0) return emptyDecision(profile, "CATALOG_CLASS_MISSING");
 
+  const referenceTypes = new Set(profile.references.map((reference) => reference.diploma_type));
+  const ec41Reference = profile.references.some((reference) => (
+    reference.diploma_type === "ec" && reference.diploma_number === "41" && ["6", "7"].includes(reference.article)
+  ));
+  const ec47Article3 = profile.references.some((reference) => (
+    reference.diploma_type === "ec" && reference.diploma_number === "47" && reference.article === "3"
+  ));
+  if ((referenceTypes.has("ec") && referenceTypes.has("ece") && !isEce20Case(profile))
+      || (referenceTypes.has("cf") && referenceTypes.has("ce"))
+      || (ec41Reference && ec47Article3)) {
+    return emptyDecision(profile, "family-conflict");
+  }
+
   const ranking = normalizedOptions
+    .filter((option) => option.selectable)
     .map((option) => rankOne(profile, operativeText, option))
     .sort((left, right) => right.score - left.score || left.option_index - right.option_index);
   const viable = ranking.filter((candidate) => !candidate.rejected);
@@ -284,6 +334,9 @@ export function classifyPortalLegalFoundation({ operativeText = "", cargo = "", 
   const margin = second ? best.confidence - second.confidence : best.confidence;
   const reasons = [...best.reasons];
   const warnings = [...best.warnings];
+  if (second && best.confidence === second.confidence) {
+    reasons.push("equivalent-candidates", `tie:${viable.filter((candidate) => candidate.confidence === best.confidence).length}`);
+  }
   let status = "pending";
   if (best.confidence >= 0.90 && margin >= 0.12 && !best.hard_conflict) status = "selected";
   else if (best.confidence >= 0.75 && !best.hard_conflict) status = "review";

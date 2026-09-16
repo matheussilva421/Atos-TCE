@@ -92,7 +92,7 @@ function collectDiplomas(normalized) {
     const rawType = match[1];
     const type = diplomaType(rawType);
     const tail = normalized.slice(match.index + match[0].length, match.index + match[0].length + 40);
-    const numberMatch = tail.match(/^\s*(?:n(?:umero)?[ºo]?\s*)?([\d.]+)(?:\s*\/\s*(\d{2,4}))?/iu);
+    const numberMatch = tail.match(/^\s*(?:n(?:umero)?[ºo]?\s*)?(\d[\d.]*)(?:\s*\/\s*(\d{2,4}))?/iu);
     diplomas.push({
       start: match.index,
       end: match.index + match[0].length,

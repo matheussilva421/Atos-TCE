@@ -97,8 +97,9 @@ export function buildRetirementLegalProfile({ operativeText = "", cargo = "", do
   const source = sourceText({ operativeText, documentaryValue });
   const normalized = normalizeLegalText(`${source} ${asText(cargo)}`);
   const references = parseLegalReferencesV2(source);
+  const detectedScope = detectScope(normalized);
   const profile = {
-    scope: detectScope(normalized),
+    scope: detectedScope === "unknown" && references.length > 0 ? "civil" : detectedScope,
     modality: detectModality(normalized),
     proportionality: detectProportionality(normalized),
     calculation_basis: detectCalculationBasis(normalized),
