@@ -69,6 +69,36 @@ def running_server():
 
 
 class LocalServiceTests(unittest.TestCase):
+    def test_extension_cors_preflight_and_pair_response_are_supported(self):
+        with running_server() as (_root, server, base):
+            origin = "chrome-extension://test-extension"
+            preflight = Request(
+                f"{base}/api/v1/pair",
+                headers={
+                    "Origin": origin,
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Headers": "authorization, content-type",
+                },
+                method="OPTIONS",
+            )
+            with urlopen(preflight, timeout=3) as response:
+                self.assertEqual(response.status, 204)
+                self.assertEqual(response.headers["Access-Control-Allow-Origin"], origin)
+                self.assertIn("POST", response.headers["Access-Control-Allow-Methods"])
+                allowed_headers = response.headers["Access-Control-Allow-Headers"].lower()
+                self.assertIn("authorization", allowed_headers)
+                self.assertIn("content-type", allowed_headers)
+
+            status, headers, body = json_request(
+                f"{base}/api/v1/pair",
+                method="POST",
+                payload={"code": server.auth.issue_pairing_code()},
+                origin=origin,
+            )
+            self.assertEqual(status, 200)
+            self.assertEqual(headers["Access-Control-Allow-Origin"], origin)
+            self.assertTrue(json.loads(body)["token"])
+
     def test_authenticated_process_list_import_active_query_and_report(self):
         with TemporaryDirectory() as directory:
             source = Path(directory) / "professor-ipern.xlsx"

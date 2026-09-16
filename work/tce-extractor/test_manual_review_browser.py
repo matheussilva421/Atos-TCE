@@ -68,19 +68,23 @@ class ManualReviewBrowserTests(unittest.TestCase):
                         page = browser.new_page()
                         api_requests = []
                         page.on('request', lambda request: api_requests.append(request.url)
-                                if '/api/v1/review-data' in request.url else None)
+                                if ('/api/v1/review-data' in request.url or '/api/v1/state' in request.url) else None)
                         if missing_assets:
                             page.route('**/web/**', lambda route: route.abort())
                         suffix = (f'/review#bootstrap={server.review_bootstrap_code}' if authenticated
                                   else '/acervo-tce/complementar-ato.html')
-                        page.goto(f'http://127.0.0.1:{server.server_port}{suffix}', wait_until='networkidle')
+                        page.goto(f'http://127.0.0.1:{server.server_port}{suffix}', wait_until='domcontentloaded')
                         if missing_assets:
                             self.assertIn('indisponível', page.locator('#review-mode-note').inner_text())
                             self.assertFalse(page.evaluate(PAINTED_PDF), 'Missing assets must never pass the PDF gate')
                         else:
                             page.wait_for_function(PAINTED_PDF, timeout=10000)
-                            self.assertEqual(page.locator('#live-status').inner_text(), 'Modo manual · dados locais')
-                            self.assertEqual(api_requests, [], 'Manual HTML must not poll an automation publication')
+                            if authenticated:
+                                page.wait_for_timeout(750)
+                                self.assertTrue(any('/api/v1/state' in url for url in api_requests), 'Manual mesa must poll bridge state')
+                                self.assertFalse(any('/api/v1/review-data' in url for url in api_requests), 'Manual mesa must not require an automation publication')
+                            else:
+                                self.assertEqual(api_requests, [], 'Static manual HTML must not poll the bridge')
                             page.select_option('#document-select', '1')
                             page.wait_for_function(PAINTED_PDF)
                     finally:

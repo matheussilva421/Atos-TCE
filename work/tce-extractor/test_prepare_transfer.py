@@ -2,6 +2,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import json
 import os
+import shutil
+import subprocess
 import unittest
 import zipfile
 import threading
@@ -18,6 +20,32 @@ from prepare_transfer import TransferBusyError, prepare_transfer  # noqa: E402
 
 
 class PrepareTransferTests(unittest.TestCase):
+    def test_embedded_cli_loads_sibling_packager_without_script_directory_on_sys_path(self):
+        with TemporaryDirectory() as temporary:
+            app = Path(temporary) / "app"
+            app.mkdir()
+            for name in ("prepare_transfer.py", "package_complete_archive.py", "package_audit.py"):
+                source = APP_ROOT / name
+                if not source.is_file():
+                    source = Path(__file__).parent / name
+                shutil.copy2(source, app / name)
+            runner = (
+                "import os, runpy, sys; "
+                "script = sys.argv[1]; "
+                "script_dir = os.path.dirname(os.path.abspath(script)); "
+                "sys.path = [entry for entry in sys.path if os.path.abspath(entry or os.curdir) != script_dir]; "
+                "sys.argv = ['prepare_transfer.py', '--help']; "
+                "runpy.run_path(script, run_name='__main__')"
+            )
+            result = subprocess.run(
+                [sys.executable, "-B", "-s", "-c", runner, str(app / "prepare_transfer.py")],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("usage:", result.stdout.lower())
+
     def test_transfer_requests_pause_and_waits_for_active_runtime_to_drain(self):
         with TemporaryDirectory() as temporary:
             root = Path(temporary)

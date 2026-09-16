@@ -1181,16 +1181,52 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
 
     def _send(self, status: int, payload: object = None, *, headers: dict[str, str | list[str]] | None = None, body: bytes | None = None) -> None:
         response = body if body is not None else _json_bytes(payload if payload is not None else {})
+        response_headers = dict(headers or {})
+        origin = self.headers.get("Origin")
+        if self.server_state.auth.is_extension_origin(origin):
+            response_headers.setdefault("Access-Control-Allow-Origin", origin)
+            response_headers.setdefault("Vary", "Origin")
         self.send_response(status)
         self.send_header("Content-Length", str(len(response)))
         if body is None:
             self.send_header("Content-Type", "application/json; charset=utf-8")
-        for name, value in (headers or {}).items():
+        for name, value in response_headers.items():
             values = value if isinstance(value, list) else [value]
             for item in values:
                 self.send_header(name, item)
         self.end_headers()
         self.wfile.write(response)
+
+    def do_OPTIONS(self):
+        if not self._valid_host():
+            self._error(403, "FORBIDDEN_HOST", "Host não permitido")
+            return
+        origin = self.headers.get("Origin")
+        if not self.server_state.auth.is_extension_origin(origin):
+            self._error(403, "FORBIDDEN_ORIGIN", "Origin de extensão necessária")
+            return
+        requested_method = self.headers.get("Access-Control-Request-Method", "").upper()
+        if requested_method not in {"GET", "POST", "PUT"}:
+            self._error(405, "CORS_METHOD_NOT_ALLOWED", "método CORS não permitido")
+            return
+        requested_headers = {
+            header.strip().casefold()
+            for header in self.headers.get("Access-Control-Request-Headers", "").split(",")
+            if header.strip()
+        }
+        allowed_headers = {"authorization", "content-type"}
+        if not requested_headers.issubset(allowed_headers):
+            self._error(400, "CORS_HEADERS_NOT_ALLOWED", "cabeçalhos CORS não permitidos")
+            return
+        self._send(
+            204,
+            body=b"",
+            headers={
+                "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
+                "Access-Control-Allow-Headers": "Authorization, Content-Type",
+                "Access-Control-Max-Age": "600",
+            },
+        )
 
     def _discard_unread_request_body(self) -> None:
         if getattr(self, "_request_body_consumed", False):

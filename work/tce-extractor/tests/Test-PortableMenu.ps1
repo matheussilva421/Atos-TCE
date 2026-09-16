@@ -126,6 +126,81 @@ $reviewLauncher = Join-Path $PSScriptRoot '..\portable\ABRIR-MESA.cmd'
 Assert-True (Test-Path -LiteralPath $reviewLauncher -PathType Leaf) 'pacote inclui ABRIR-MESA.cmd'
 $reviewLauncherText = if (Test-Path -LiteralPath $reviewLauncher) { Get-Content -LiteralPath $reviewLauncher -Raw } else { '' }
 Assert-True ($reviewLauncherText -match '(?i)INICIAR\.cmd"? abrir-mesa') 'ABRIR-MESA.cmd chama o comando público abrir-mesa'
+$reviewBatchLauncher = Join-Path $PSScriptRoot '..\portable\ABRIR-MESA.bat'
+Assert-True (Test-Path -LiteralPath $reviewBatchLauncher -PathType Leaf) 'pacote inclui o alias ABRIR-MESA.bat'
+$reviewBatchLauncherText = if (Test-Path -LiteralPath $reviewBatchLauncher) { Get-Content -LiteralPath $reviewBatchLauncher -Raw } else { '' }
+Assert-True ($reviewBatchLauncherText -match '(?i)ABRIR-MESA\.cmd') 'ABRIR-MESA.bat delega para o launcher validado'
+
+$reviewIntegrationRoot = Join-Path ([IO.Path]::GetTempPath()) ('tce-menu-review-' + [guid]::NewGuid().ToString('N'))
+$reviewIntegrationApp = Join-Path $reviewIntegrationRoot 'app'
+$reviewIntegrationArchive = Join-Path $reviewIntegrationRoot 'acervo-tce'
+$reviewIntegrationRuntime = Join-Path $reviewIntegrationRoot 'runtime'
+New-Item -ItemType Directory -Path @(
+    $reviewIntegrationApp,
+    (Join-Path $reviewIntegrationApp 'web\vendor\pdfjs'),
+    $reviewIntegrationArchive,
+    (Join-Path $reviewIntegrationRuntime 'python'),
+    (Join-Path $reviewIntegrationRuntime 'tesseract\tessdata')
+) -Force | Out-Null
+foreach ($relative in @(
+    'acervo-tce\complementar-ato.html',
+    'acervo-tce\dados-complementar-ato.json',
+    'app\local_service.py',
+    'app\web\vendor\pdfjs\pdf.mjs',
+    'app\web\vendor\pdfjs\pdf.worker.mjs',
+    'runtime\python\python.exe',
+    'runtime\python\python314._pth',
+    'runtime\tesseract\tesseract.exe',
+    'runtime\tesseract\libtesseract-5.dll',
+    'runtime\tesseract\libleptonica-6.dll',
+    'runtime\tesseract\tessdata\por.traineddata',
+    'runtime\tesseract\tessdata\eng.traineddata',
+    'runtime\tesseract\tessdata\osd.traineddata'
+)) {
+    [IO.File]::WriteAllText((Join-Path $reviewIntegrationRoot $relative), '')
+}
+$originalMenuAppRoot = $script:TceMenuAppRoot
+$originalLocalServiceStarter = ${function:Start-TceLocalService}
+$reviewOpenedTarget = $null
+function Start-TceLocalService {
+    param([string]$PackageRoot, [string]$ArchiveRoot, [string]$Python)
+    $metadataRoot = Join-Path $PackageRoot 'dados-locais\bridge'
+    New-Item -ItemType Directory -Path $metadataRoot -Force | Out-Null
+    [IO.File]::WriteAllText(
+        (Join-Path $metadataRoot 'service.json'),
+        (@{
+            pid = 1
+            port = 18743
+            review_url = 'http://127.0.0.1:18743/review#bootstrap=fixture'
+        } | ConvertTo-Json -Compress)
+    )
+    return [pscustomobject]@{
+        port = 18743
+        review_url = 'http://127.0.0.1:18743/review#bootstrap=fixture'
+    }
+}
+function Start-Process {
+    param([string]$FilePath)
+    $script:reviewOpenedTarget = $FilePath
+    return [pscustomobject]@{ Id = 1 }
+}
+try {
+    $script:TceMenuAppRoot = $reviewIntegrationApp
+    $reviewCode = Start-TcePortableMenu -OpenReview
+    Assert-Equal $reviewCode 0 'abrir-mesa retorna sucesso depois de iniciar a ponte'
+    Assert-Equal $reviewOpenedTarget 'http://127.0.0.1:18743/review#bootstrap=fixture' 'abrir-mesa abre a URL HTTP autenticada da mesa'
+    Set-Item -Path Function:\Start-Process -Value {
+        param([string]$FilePath)
+        throw [System.ComponentModel.Win32Exception]::new(5, 'Acesso negado')
+    }
+    $reviewFallbackCode = Start-TcePortableMenu -OpenReview
+    Assert-Equal $reviewFallbackCode 0 'abrir-mesa não falha quando o shell não abre o navegador'
+} finally {
+    $script:TceMenuAppRoot = $originalMenuAppRoot
+    Set-Item -Path Function:\Start-TceLocalService -Value $originalLocalServiceStarter
+    Remove-Item -Path Function:\Start-Process -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $reviewIntegrationRoot) { Remove-Item -LiteralPath $reviewIntegrationRoot -Recurse -Force }
+}
 
 $safe = ConvertTo-TceSafeText 'warning token=secret Authorization: Bearer header-secret https://temporary.invalid/download?id=1'
 Assert-True ($safe -notmatch 'secret|temporary\.invalid|Authorization|token|Bearer') 'sanitiza mensagem antes de exibir ou persistir'

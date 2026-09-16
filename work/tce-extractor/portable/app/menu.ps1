@@ -414,6 +414,7 @@ function Start-TcePortableMenu {
     $resetArchivePath = Join-Path $appRoot 'reset_archive.py'
     $processListRegistrarPath = Join-Path $appRoot 'register_process_list.py'
     $htmlPath = Join-Path $archiveRoot 'complementar-ato.html'
+    $reviewMetadataPath = Join-Path $packageRoot 'dados-locais\bridge\service.json'
 
     if ($OpenReview) {
         $requiredReviewFiles = @(
@@ -441,20 +442,37 @@ function Start-TcePortableMenu {
         param($path)
         $target = $path
         if ([IO.Path]::GetFullPath($path) -eq [IO.Path]::GetFullPath($htmlPath)) {
-            $metadataPath = Get-TceLocalServiceMetadataPath -PackageRoot $packageRoot
-            if (Test-Path -LiteralPath $metadataPath -PathType Leaf) {
+            if (Test-Path -LiteralPath $reviewMetadataPath -PathType Leaf) {
                 try {
-                    $serviceMetadata = Get-Content -LiteralPath $metadataPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                    $serviceMetadata = Get-Content -LiteralPath $reviewMetadataPath -Raw -Encoding UTF8 | ConvertFrom-Json
                     if ($serviceMetadata.review_url) { $target = [string]$serviceMetadata.review_url }
                 } catch { }
             }
         }
         if ($target -is [string] -and $target -match '^http://127\.0\.0\.1:\d+/review(?:#|$)') {
-            Start-Process -FilePath $target
+            try {
+                Start-Process -FilePath $target
+            } catch {
+                try {
+                    Start-Process -FilePath (Join-Path $env:SystemRoot 'explorer.exe') -ArgumentList @($target)
+                } catch {
+                    Write-Warning 'Não foi possível abrir a mesa no navegador deste ambiente.'
+                    Write-Host 'A ponte local continua disponível; abra o HTML/JSON manual ou tente ABRIR-MESA novamente.'
+                }
+            }
             return 0
         }
         if (-not (Test-Path -LiteralPath $target)) { throw 'HTML local ausente.' }
-        Start-Process -FilePath $target
+        try {
+            Start-Process -FilePath $target
+        } catch {
+            try {
+                Start-Process -FilePath (Join-Path $env:SystemRoot 'explorer.exe') -ArgumentList @($target)
+            } catch {
+                Write-Warning 'Não foi possível abrir o HTML neste ambiente.'
+                Write-Host 'Abra o arquivo manualmente pelo Explorer.'
+            }
+        }
         return 0
     }.GetNewClosure()
     $extension = {
@@ -498,11 +516,13 @@ function Start-TcePortableMenu {
         if ($null -eq $service -or -not $service.review_url) {
             throw 'Serviço HTTP da mesa não iniciou. Execute DIAGNOSTICAR.cmd e tente novamente.'
         }
-        return Invoke-TceMenuStep $open $htmlPath $codes.Html
+        Invoke-TceMenuStep $open $htmlPath $codes.Html
+        return 0
     }
 
     if ($BridgeStatusOnly) {
-        return Invoke-TceMenuStep $bridgeStatus $packageRoot $codes.Bridge
+        Invoke-TceMenuStep $bridgeStatus $packageRoot $codes.Bridge
+        return 0
     }
 
     Write-Host 'TCE/RN - pacote portátil (somente leitura)' -ForegroundColor Cyan

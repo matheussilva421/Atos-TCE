@@ -12,7 +12,16 @@ import time
 from typing import Mapping
 import uuid
 
-from package_complete_archive import build_complete_zip
+try:
+    from package_complete_archive import build_complete_zip
+except ModuleNotFoundError as error:
+    # The embedded Python runtime uses an isolated ``._pth`` file whose
+    # ``.`` entry points at runtime/python rather than this script directory.
+    # Make the shipped sibling import explicit for the portable CLI.
+    if error.name != "package_complete_archive":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from package_complete_archive import build_complete_zip
 
 
 class TransferBusyError(RuntimeError):

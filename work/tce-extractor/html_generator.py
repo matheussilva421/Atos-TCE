@@ -1095,7 +1095,7 @@ HTML_TEMPLATE = r'''<!doctype html>
   }
 
   async function pollLiveReview() {
-    if (data.manual_review || !document.body.dataset.reviewCsrf) {
+    if (!document.body.dataset.reviewCsrf) {
       setLiveStatus('Modo manual · dados locais');
       return;
     }
@@ -1106,18 +1106,20 @@ HTML_TEMPLATE = r'''<!doctype html>
     }
     if (window.location.protocol !== 'http:') return;
     try {
-      const response = await fetch(`/api/v1/review-data?since=${encodeURIComponent(liveRevision)}`, {
-        credentials: 'same-origin',
-        cache: 'no-store',
-      });
-      if (response.ok) {
-        const envelope = await response.json();
-        if (!envelope.unchanged && envelope.data) {
-          liveRevision = Number(envelope.revision || envelope.data.live_revision || liveRevision);
-          applyLivePayload(envelope.data);
+      if (!data.manual_review) {
+        const response = await fetch(`/api/v1/review-data?since=${encodeURIComponent(liveRevision)}`, {
+          credentials: 'same-origin',
+          cache: 'no-store',
+        });
+        if (response.ok) {
+          const envelope = await response.json();
+          if (!envelope.unchanged && envelope.data) {
+            liveRevision = Number(envelope.revision || envelope.data.live_revision || liveRevision);
+            applyLivePayload(envelope.data);
+          }
+        } else if (response.status !== 404) {
+          throw new Error('review data unavailable');
         }
-      } else if (response.status !== 404) {
-        throw new Error('review data unavailable');
       }
       const stateResponse = await fetch('/api/v1/state?since=-1', {credentials: 'same-origin', cache: 'no-store'});
       if (!stateResponse.ok) throw new Error('live state unavailable');
