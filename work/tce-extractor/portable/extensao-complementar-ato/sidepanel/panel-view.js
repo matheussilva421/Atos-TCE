@@ -1,4 +1,4 @@
-import { sameValue } from "../lib/automation-preflight.js";
+import { isAutomaticLegalDecision, sameValue } from "../lib/automation-preflight.js";
 
 const FIELD_ORDER = Object.freeze([
   "modalidade",
@@ -23,6 +23,16 @@ const FIELD_LABELS = Object.freeze({
 const PANEL_VIEWS = Object.freeze(["principal", "details", "automation", "execution", "history"]);
 
 const KIND_LABELS = Object.freeze({ exact: "exato", probable: "aproximado", tie: "empate", "missing-source": "pendente" });
+const LEGAL_EVIDENCE_LABELS = Object.freeze({
+  "modality:voluntary_contribution": "aposentadoria voluntária por tempo de contribuição",
+  "modality:invalidity_permanent_disability": "aposentadoria por incapacidade permanente",
+  "proventos:integral": "proventos integrais",
+  "proventos:proportional": "proventos proporcionais",
+  "transition:true": "regra de transição",
+  "context:professor": "contexto funcional de professor",
+  "rule:teacher-explicit": "regra docente expressa",
+});
+const PROFESSOR_WARNING = "Professor identificado pelo cargo, mas a regra docente não foi encontrada expressamente na fundamentação. Revisão recomendada.";
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -40,9 +50,83 @@ function identityFrom({ record, snapshot }) {
 }
 
 function fieldKind(field, match) {
+  if (match?.legalDecision && !isAutomaticLegalDecision(match.legalDecision)) return "tie";
   if (match?.kind) return match.kind;
   if (!field?.form_value) return "missing-source";
   return field.status === "found" && field.confidence === "high" ? "exact" : "probable";
+}
+
+function uniqueStrings(values) {
+  return [...new Set(values.filter((value) => typeof value === "string" && value.trim()))];
+}
+
+function percentLabel(value) {
+  return typeof value === "number" && Number.isFinite(value) ? `${Math.round(value * 100)}%` : "indisponível";
+}
+
+function marginLabel(value) {
+  return typeof value === "number" && Number.isFinite(value) ? `${Math.round(value * 100)} p.p.` : "indisponível";
+}
+
+function methodLabel(value) {
+  return value === "similarity"
+    ? "similaridade jurídica"
+    : value === "rule"
+      ? "regra estrutural"
+      : value === "exact"
+        ? "equivalência textual"
+        : "pendente";
+}
+
+export function buildLegalDiagnostics(decision, documentaryValue = "") {
+  const classification = isRecord(decision?.portal_classification) ? decision.portal_classification : {};
+  const foundation = isRecord(decision?.documentary_foundation) ? decision.documentary_foundation : {};
+  const profile = isRecord(foundation.profile) ? foundation.profile : {};
+  const references = Array.isArray(profile.references) ? profile.references : [];
+  const ranking = Array.isArray(decision?.ranking) ? decision.ranking : [];
+  const suggested = classification.option_label
+    ?? decision?.option_label
+    ?? ranking.find((candidate) => !candidate?.rejected)?.option_label
+    ?? null;
+  const method = classification.method ?? decision?.method ?? "none";
+  const confidence = classification.confidence ?? decision?.confidence;
+  const margin = classification.margin ?? decision?.margin;
+  const evidence = Array.isArray(profile.evidence) ? profile.evidence : [];
+  const coincidences = uniqueStrings(evidence.map((entry) => LEGAL_EVIDENCE_LABELS[entry]));
+  const crosswalkReason = [...(classification.reasons ?? []), ...(decision?.reasons ?? [])]
+    .some((reason) => String(reason).includes("ECE20_ART7_VOLUNTARY_TRANSITION"));
+  const usesEce20 = references.some((reference) => reference?.diploma_type === "ece"
+    && reference?.diploma_number === "20"
+    && reference?.diploma_year === "2020");
+  const usesHistoricalCatalog = typeof suggested === "string"
+    && /\bEC\s*41\b|\bEC\s*47\b/iu.test(suggested);
+  const differences = [];
+  if ((crosswalkReason || usesEce20) && usesEce20 && usesHistoricalCatalog) {
+    differences.push("resolução usa ECE 20/2020", "catálogo do portal usa classe histórica EC41/EC47");
+  }
+  const warnings = uniqueStrings([
+    ...(Array.isArray(classification.warnings) ? classification.warnings : []),
+    ...(Array.isArray(decision?.warnings) ? decision.warnings : []),
+    ...(profile.professor_context === true
+      && profile.professor_rule_explicit === false
+      && /TEACHER|DOCENTE/iu.test(String(classification.class_id ?? ""))
+      ? [PROFESSOR_WARNING]
+      : []),
+  ]);
+  return {
+    status: decision?.status ?? "pending",
+    documentary: text(foundation.operative_text ?? documentaryValue) || "Fonte documental indisponível.",
+    suggested: suggested ? text(suggested) : "Nenhuma opção segura; revisão manual necessária.",
+    method,
+    methodLabel: methodLabel(method),
+    confidence,
+    confidenceLabel: percentLabel(confidence),
+    margin,
+    marginLabel: marginLabel(margin),
+    coincidences,
+    differences,
+    warnings,
+  };
 }
 
 function buildFields(record, snapshot, matches) {
@@ -121,6 +205,10 @@ export function buildPanelViewModel({
     && connection.pilotConsumesRemaining === true
     && Boolean(identity.processKey && identity.interestedNormalized);
   const legalDecision = matches?.fundamento_legal?.legalDecision ?? null;
+  const legalDiagnostics = buildLegalDiagnostics(
+    legalDecision,
+    record?.fields?.fundamento_legal?.source_value,
+  );
   const actions = [
     { id: "fill", label: "Preencher campos disponíveis", enabled: manualAvailable && mode === "manual", disabledReason: manualAvailable ? null : "Atualização manual indisponível durante uma execução ativa." },
     { id: "start", label: "Iniciar execução", enabled: automationAvailable && !active, disabledReason: automationAvailable ? (active ? "Já existe uma execução ativa." : null) : "Conecte um serviço compatível." },
@@ -141,6 +229,7 @@ export function buildPanelViewModel({
       pilotConsumesRemaining: connection.pilotConsumesRemaining === true,
     },
     legalDecision,
+    legalDiagnostics,
     fields: buildFields(record, snapshot, matches),
     runSummary: summary,
     run: run ? {
@@ -175,10 +264,28 @@ function renderDetails(documentRef, root, model, handlers) {
   const section = element(documentRef, "section", "", { id: "panel-details-view" });
   const identity = element(documentRef, "p", `${text(model.identity.processKey) || "Processo não detectado"} · ${text(model.identity.interestedOriginal) || "Interessado não detectado"}`, { class: "panel-identity" });
   const legal = element(documentRef, "section", "", { class: "foundation-trail" });
-  legal.append(element(documentRef, "h2", "Fundamentação"));
-  legal.append(element(documentRef, "p", `Método: ${model.legalDecision?.method === "similarity" ? "Por semelhança" : model.legalDecision?.method === "rule" ? "Por regra" : "Pendente"}`));
-  legal.append(element(documentRef, "p", text(model.fields.find((field) => field.id === "fundamento_legal")?.documentaryValue) || "Fonte documental indisponível."));
-  if (model.legalDecision?.reasons?.length) legal.append(element(documentRef, "p", model.legalDecision.reasons.join("; "), { class: "foundation-reasons" }));
+  const diagnostics = model.legalDiagnostics ?? buildLegalDiagnostics(model.legalDecision, model.fields.find((field) => field.id === "fundamento_legal")?.documentaryValue);
+  legal.append(element(documentRef, "h2", "Fundamentação jurídica"));
+  legal.append(element(documentRef, "p", `Fundamento documental: ${diagnostics.documentary}`, { class: "foundation-documentary" }));
+  legal.append(element(documentRef, "p", `Opção sugerida do portal: ${diagnostics.suggested}`, { class: "foundation-suggestion" }));
+  legal.append(element(documentRef, "p", `Método: ${diagnostics.methodLabel}`));
+  legal.append(element(documentRef, "p", `Confiança: ${diagnostics.confidenceLabel}`));
+  legal.append(element(documentRef, "p", `Margem: ${diagnostics.marginLabel}`));
+  if (diagnostics.coincidences.length > 0) {
+    legal.append(element(documentRef, "h3", "Coincidências"));
+    const list = element(documentRef, "ul", "", { class: "foundation-coincidences" });
+    for (const item of diagnostics.coincidences) list.append(element(documentRef, "li", item));
+    legal.append(list);
+  }
+  if (diagnostics.differences.length > 0) {
+    legal.append(element(documentRef, "h3", "Diferenças esperadas pelo crosswalk"));
+    const list = element(documentRef, "ul", "", { class: "foundation-differences" });
+    for (const item of diagnostics.differences) list.append(element(documentRef, "li", item));
+    legal.append(list);
+  }
+  if (diagnostics.warnings.length > 0) {
+    legal.append(element(documentRef, "p", diagnostics.warnings.join("; "), { class: "foundation-warnings" }));
+  }
   const fields = element(documentRef, "div", "", { class: "fields-list", id: "fields-list" });
   for (const field of model.fields) {
     const card = element(documentRef, "article", "", { class: "field-card", "data-field": field.id, "data-kind": field.kind });

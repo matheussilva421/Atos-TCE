@@ -1,6 +1,6 @@
 import { rankPortalOptions } from "../lib/matcher.js";
 import { createMessage, MESSAGE_TYPES } from "../lib/messages.js";
-import { sameValue } from "../lib/automation-preflight.js";
+import { isAutomaticLegalDecision, sameValue } from "../lib/automation-preflight.js";
 import {
   ALLOWED_FIELDS,
   STORAGE_KEYS,
@@ -258,7 +258,11 @@ function createRows(record, snapshot, matches) {
   return PANEL_FIELD_ORDER.map((fieldName) => {
     const field = record.fields[fieldName];
     const match = SELECT_FIELDS.has(fieldName) ? matches?.[fieldName] : null;
-    const kind = match?.kind ?? fieldKind(field);
+    const kind = fieldName === "fundamento_legal"
+      && match?.legalDecision
+      && !isAutomaticLegalDecision(match.legalDecision)
+      ? "tie"
+      : match?.kind ?? fieldKind(field);
     const proposedValue = SELECT_FIELDS.has(fieldName)
       ? (match?.optionValue ?? null)
       : (field?.form_value ?? null);
