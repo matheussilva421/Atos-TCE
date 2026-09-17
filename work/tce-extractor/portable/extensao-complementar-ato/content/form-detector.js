@@ -394,13 +394,16 @@ function applyFieldsInternal(documentRef, fields, options = {}, allowOverride = 
       result.errors.push(beforeWriteError);
       break;
     }
-    if (field === "fundamento_legal" && !isAuthorizedLegalDecision(options.legalDecision)) {
-      // REVIEW, TRUE_TIE, CONTEXT_BLOCKED and PENDING proposals are never
-      // written, even when another layer asks for them.
-      result.preserved.push(field);
-      continue;
-    }
     const proposedValue = fields[field];
+    if (field === "fundamento_legal") {
+      const decision = options.legalDecision;
+      // REVIEW, TRUE_TIE, CONTEXT_BLOCKED and PENDING proposals are never
+      // written, and a valid decision only writes its own authorized option.
+      if (!isAuthorizedLegalDecision(decision) || decision.option_value !== proposedValue) {
+        result.preserved.push(field);
+        continue;
+      }
+    }
     if (proposedValue === null || proposedValue === "") {
       result.missing.push(field);
       continue;

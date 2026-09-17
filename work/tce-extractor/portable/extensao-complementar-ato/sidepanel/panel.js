@@ -1,6 +1,6 @@
 import { rankPortalOptions } from "../lib/matcher.js";
 import { createMessage, MESSAGE_TYPES } from "../lib/messages.js";
-import { isAutomaticLegalDecision, sameValue } from "../lib/automation-preflight.js";
+import { isAutomaticLegalDecision, legalDecisionAuthorizesValue, sameValue } from "../lib/automation-preflight.js";
 import { LEGAL_FOUNDATION_RULES_VERSION } from "../lib/legal-foundation.js";
 import {
   ALLOWED_FIELDS,
@@ -963,9 +963,10 @@ export function createPanelApp({
     for (const row of state.rows) {
       if (row.proposedValue === null) continue;
       // Defense in depth: the legal foundation field is never written unless
-      // an authorized v3 automatic decision backs the proposal, even when a
-      // stale row still carries a proposed value.
-      if (row.field === "fundamento_legal" && !isAutomaticLegalDecision(row.match?.legalDecision)) {
+      // an authorized v3 automatic decision backs exactly this proposal, even
+      // when a stale row still carries a proposed value.
+      if (row.field === "fundamento_legal"
+        && !legalDecisionAuthorizesValue(row.match?.legalDecision, row.proposedValue)) {
         continue;
       }
       if (row.field === "fundamento_legal") legalDecision = row.match.legalDecision;
@@ -1038,8 +1039,9 @@ export function createPanelApp({
     const row = state.rows.find((candidate) => candidate.field === fieldName);
     if (!row?.divergent || row.proposedValue === null || !state.previewIdentity) return false;
     // Same fail-closed barrier for the single-field override: the legal
-    // foundation is never replaced by a non-automatic proposal.
-    if (fieldName === "fundamento_legal" && !isAutomaticLegalDecision(row.match?.legalDecision)) {
+    // foundation is never replaced by a non-automatic or divergent proposal.
+    if (fieldName === "fundamento_legal"
+      && !legalDecisionAuthorizesValue(row.match?.legalDecision, row.proposedValue)) {
       return false;
     }
     const confirmed = confirmFn(`Substituir somente o campo "${row.label}" no processo ${state.previewIdentity.processKey}? Valor atual: "${row.currentValue}". Novo valor: "${row.proposedValue}".`);

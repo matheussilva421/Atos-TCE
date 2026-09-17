@@ -388,7 +388,7 @@ test("marks an explicitly selected tie as yellow without changing the chosen opt
 
   const result = applyFields(documentRef, { fundamento_legal: "f-general" }, {
     matchKinds: { fundamento_legal: "tie" },
-    legalDecision: { status: "selected", decision_state: "AUTO_SELECTED", rules_version: "legal-foundation-v3", method: "rule", confidence: 0.95, margin: 0.20, hard_conflict: false },
+    legalDecision: { status: "selected", decision_state: "AUTO_SELECTED", rules_version: "legal-foundation-v3", method: "rule", option_value: "f-general", option_label: "Artigo 40, parágrafo 1", confidence: 0.95, margin: 0.20, hard_conflict: false },
   });
 
   assert.deepEqual(result.changed, ["fundamento_legal"]);
@@ -410,6 +410,30 @@ test("ignores a legal foundation write that has no authorized automatic decision
     assert.deepEqual(result.preserved, ["fundamento_legal"], JSON.stringify(legalDecision));
     assert.equal(controls.txtFundamentoLegal.value, "", JSON.stringify(legalDecision));
   }
+});
+
+test("refuses legal foundation when the automatic decision authorizes a different option", () => {
+  const { documentRef, controls } = buildForm();
+
+  // Both option-a (f-general) and option-b (f-professor) exist in the current
+  // catalogue: the decision must authorize exactly the written value.
+  const result = applyFields(documentRef, { fundamento_legal: "f-professor" }, {
+    legalDecision: {
+      status: "selected",
+      decision_state: "AUTO_SELECTED",
+      rules_version: "legal-foundation-v3",
+      method: "rule",
+      option_value: "f-general",
+      option_label: "Artigo 40, parágrafo 1",
+      confidence: 0.96,
+      margin: 0.20,
+      hard_conflict: false,
+    },
+  });
+
+  assert.equal(controls.txtFundamentoLegal.value, "");
+  assert.ok(result.preserved.includes("fundamento_legal"));
+  assert.equal(result.changed.includes("fundamento_legal"), false);
 });
 
 test("does not override the legal foundation through the content handler", async () => {

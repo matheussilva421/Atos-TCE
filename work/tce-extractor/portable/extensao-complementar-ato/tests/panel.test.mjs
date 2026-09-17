@@ -2228,6 +2228,40 @@ test("writes exactly the authorized option when the legal decision is automatic"
   assert.equal(apply.payload.fields.modalidade, "m-vol");
 });
 
+test("omits the legal foundation when the decision authorizes a different catalogue option", async () => {
+  const dataset = await makeDataset();
+  const divergentMatch = {
+    ...fieldMatch({ optionValue: "f-prof", optionLabel: "Artigo 40, parágrafo 5, professor" }),
+    legalDecision: {
+      status: "selected",
+      decision_state: "AUTO_SELECTED",
+      rules_version: "legal-foundation-v3",
+      method: "rule",
+      option_value: "f-general",
+      option_label: "Artigo 40, parágrafo 1",
+      confidence: 0.95,
+      margin: 0.20,
+      hard_conflict: false,
+    },
+  };
+  const { app, chromeApi } = await startApp({
+    dataset,
+    snapshots: [snapshot({ options: currentOptions() }), snapshot({ options: currentOptions() })],
+    matches: [
+      { record: dataset.records[0], matches: fullMatches({ fundamento_legal: divergentMatch }), reviewed: false },
+      { record: dataset.records[0], matches: fullMatches({ fundamento_legal: divergentMatch }), reviewed: false },
+    ],
+  });
+
+  await app.fillAvailableFields();
+
+  const apply = chromeApi.calls.find((message) => message.type === MESSAGE_TYPES.APPLY_FIELDS);
+  assert.ok(apply);
+  assert.equal(Object.hasOwn(apply.payload.fields, "fundamento_legal"), false);
+  assert.equal(Object.hasOwn(apply.payload, "legalDecision"), false);
+  assert.equal(apply.payload.fields.modalidade, "m-vol");
+});
+
 test("surfaces a forwarded content-script failure instead of reporting a false completed fill", async () => {
   const dataset = await makeDataset();
   const { app, documentRef } = await startApp({
