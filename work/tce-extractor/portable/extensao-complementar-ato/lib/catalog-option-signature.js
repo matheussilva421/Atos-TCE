@@ -134,6 +134,11 @@ function deriveClassId(references, normalizedLabel, index) {
   if (MILITARY_PATTERN.test(normalizedLabel)) return "MILITARY_TRANSITION";
   if (hasEc41Article6A(references)) return "EC41_ART6A_EC70";
   if (hasEc41Transition(references)) return hasP5 ? "EC41_TRANSITION_TEACHER" : "EC41_TRANSITION_GENERAL";
+  // A state-constitution article 40 must never be classified as a CF art. 40
+  // class: the state diploma takes precedence over the generic article branch.
+  if (references.some((reference) => reference.diploma_type === "ce" && reference.article === "40")) {
+    return "CE40";
+  }
   if (hasArticleNumber(articleNumbers, "40")) {
     const alineas = [...alineasFor(references, "40"), ...alineasFromLabel(normalizedLabel)];
     if (hasP5) return "CF40_III_A_P5";
@@ -152,7 +157,6 @@ function deriveClassId(references, normalizedLabel, index) {
   if (hasArticle(references, "ec", "20", "8")) return "EC20_ART8";
   if (hasArticle(references, "ec", "20", "9")) return "EC20_ART9";
   if (hasArticle(references, "ec", "20", "1")) return "EC20_ART1";
-  if (references.some((reference) => reference.diploma_type === "ce" && reference.article === "40")) return "CE40";
   if (hasArticle(references, "ec", "41", "2")) return "EC41_ART2";
   if (hasArticle(references, "ec", "47", "3")) return "EC47_ART3";
   if (hasArticle(references, "ec", "41", "1")) return "EC41_ART1";
