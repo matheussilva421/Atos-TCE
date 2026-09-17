@@ -79,16 +79,38 @@ Ação tomada: removido **apenas da cópia de empacotamento**
 
 - `work/tce-extractor/portable/TESTAR-PACOTE.ps1` (gate corrigido)
 - `work/tce-extractor/tests/Test-TcePortable.ps1` (novo caso RED/GREEN)
+- commit `e294f79` ("fix: align packaged dataset logical hash with python canonical json")
+  enviado para `origin/main`; worktree limpo exceto o `work/tce-extractor/.codex-live-pilot.py`
+  não rastreado (ferramenta local, não deve entrar no Git)
 - cópias do gate atualizadas em `outputs/tce-r3-completo/` e `outputs/tce-r3-smoke/`
   (blob `2f612c3936c77d002c186609cf1719ae8f402e3f`), antes idênticas ao HEAD
-- ZIP privado em reconstrução: `outputs/Atos-TCE-Professor-IPERN-completo-2026-09-17.zip`
-  (build anterior foi interrompido de propósito porque o ZIP carregaria o gate antigo)
+
+### ZIP privado reconstruído (18:17:33)
+
+`outputs/Atos-TCE-Professor-IPERN-completo-2026-09-17.zip`
+
+| Campo | Valor |
+|---|---|
+| bytes | 5.845.381.507 (5,44 GiB) |
+| SHA-256 | `cf64e3f8f5e5703fd6a2be11dea729458e816517a00e1958f56ad5088c8276bf` |
+| entradas | 33.057 (9,31 GB descompactados) |
+| conteúdo | 724 processos, 17.619 eventos, 14.179 PDFs, 26 arquivos de extensão, 739 registros |
+| CRC | verificado pelo empacotador (`crc_ok: true`) |
+| `.part`/`.tmp` | 0 entradas |
+| módulos R3 | `background/legal-context-resolver.js` e `lib/catalog-option-signature.js` presentes |
+| gate embarcado | `TESTAR-PACOTE.ps1` com SHA-256 `d0787867…` (versão corrigida) |
+
+O build anterior foi interrompido de propósito: o staging dele já estava pronto com o gate
+antigo, então o ZIP carregaria o gate defeituoso.
 
 ## Pendências
 
-- confirmar o ZIP final (tamanho, entradas, SHA-256) e rodar `TESTAR-PACOTE` na extração;
+- `TESTAR-PACOTE` na extração do ZIP: extração em `outputs/qa-extract-2026-09-17` seguida do
+  gate, em background (logs `%TEMP%\r3-zip-extract.log` e `%TEMP%\r3-zip-gate.log`);
+- o gate na pasta `outputs/tce-r3-completo` foi interrompido no meio da auditoria (para não
+  disputar I/O com o empacotamento); o item `dados da extensao` já havia sido validado com o
+  gate corrigido antes disso;
 - limpar stagings órfãos em `%TEMP%` (`tce-package-staging-9dduk0os` 8,67 GB,
   `-xvi4hh4n` 8,67 GB, `-zi1jed76` vazio): pertencem ao usuário real e exigem privilégio;
   `-0jum8bsv` já foi removido;
 - smoke real supervisionado do R3 (operador, login manual, sem envio).
-
