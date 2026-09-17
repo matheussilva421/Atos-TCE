@@ -564,6 +564,36 @@ test("pilot with a confirmed marker stops discovery on the page containing its t
   assert.deepEqual(bridge.calls.find(([name]) => name === "freeze")[2].identities, [target]);
 });
 
+test("pilot without a typed marker locks the marker already selected in the portal", async () => {
+  const target = identity("103401/2023", "ana da silva", "act-1");
+  const targetRow = { ...target, needsComplement: true };
+  const marker = "PROFESSOR - IPERN - 2 RUBRICAS";
+  const page = {
+    ...lifecycleList(1, [targetRow]),
+    marker: { label: marker, value: "marker-2" },
+    source_scope: "sector_finalistic",
+  };
+  const bridge = bridgeMock();
+  const controller = createAutomationController({
+    chromeApi: lifecycleChromeMock({ 1: page }),
+    bridge,
+  });
+
+  const result = await controller.start({
+    spec: {
+      ...runSpec(),
+      mode: "pilot",
+      pilotIdentity: target,
+      sourceScope: "sector_finalistic",
+      acquisitionSource: "econtas",
+    },
+    eventId: "pilot-selected-marker",
+  });
+
+  assert.equal(result.marker, marker);
+  assert.deepEqual(bridge.calls.find(([name]) => name === "freeze")[2].identities, [target]);
+});
+
 test("keeps an unresolved identity in totals and pauses when pagination repeats", async () => {
   const unresolved = snapshot("list", 1, [
     { processKey: null, interestedOriginal: "", interestedNormalized: null, portalActId: null, pending: true },

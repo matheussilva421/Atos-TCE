@@ -1741,7 +1741,7 @@ export function createAutomationController({
   }
 
   async function start(input, suppliedEventId) {
-    const spec = input?.spec ?? input;
+    let spec = input?.spec ?? input;
     const startEventId = input?.eventId ?? suppliedEventId ?? eventId("start");
     validateAutomationRunSpec(spec);
     if (ACTIVE_STATUSES.has(state.status)) {
@@ -1802,6 +1802,20 @@ export function createAutomationController({
     }
     if (first.snapshot.role !== "list") {
       return pauseAndPersist("manual navigation required: process list not visible", `${startEventId}:pause-screen`);
+    }
+    const selectedMarker = first.snapshot.marker;
+    if (!spec.marker
+      && isRecord(selectedMarker)
+      && typeof selectedMarker.label === "string"
+      && selectedMarker.label.trim() !== ""
+      && typeof selectedMarker.value === "string"
+      && selectedMarker.value.trim() !== "") {
+      spec = {
+        ...spec,
+        marker: selectedMarker.label,
+        markerValue: selectedMarker.value,
+      };
+      state.marker = selectedMarker.label;
     }
     const discovered = await discoverList(spec.tabId, first.snapshot, spec);
     if (!discovered) return statusToPublic(state);

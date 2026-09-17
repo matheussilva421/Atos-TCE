@@ -328,3 +328,82 @@ antiga inválida. A evidência utilizável é a gravação privada
 `real-portal-20260917T124507014264Z/recording.json`, combinada com a confirmação
 do operador. Nenhum envio ocorreu. Qualquer etapa de envio real permanece
 separada e desabilitada.
+
+## Atualização — piloto com marcador dinâmico pausado (17/09/2026)
+
+O usuário autorizou a continuidade do piloto supervisionado e determinou que a
+automação não escolha o marcador, pois ele muda periodicamente. O fluxo deve
+usar o marcador já selecionado manualmente no portal e manter o campo opcional
+`#automation-marker` vazio. Login, seleção do marcador e eventual confirmação
+visual continuam sendo ações humanas.
+
+Foi corrigido na fonte
+`work/tce-extractor/portable/extensao-complementar-ato/background/automation-controller.js`
+o início do piloto sem marcador digitado: depois de obter a primeira lista, o
+controlador captura o marcador atualmente selecionado no portal, trava esse
+valor para a execução e não envia `filter_marker`. Foi acrescentado o teste
+regressivo correspondente em
+`work/tce-extractor/portable/extensao-complementar-ato/tests/automation-controller.test.mjs`.
+A cópia privada em `outputs/TCE-fixed-2026-09-16/extensao-complementar-ato/`
+foi sincronizada com a fonte; ela não é fonte de código nem deve ser versionada.
+
+Também foi criado o launcher operacional temporário
+`work/tce-extractor/.codex-live-pilot.py`. Ele abre um perfil Playwright
+isolado, pareia a extensão com a ponte local, importa o lote, reconhece o
+marcador já selecionado, abre um registro elegível, atualiza a prévia e inicia
+um lote de um ato com `auto_submit=true` somente após a confirmação do painel.
+O launcher não escolhe marcador e só considera sucesso com evento
+`send_confirmed` e uma linha em `confirmed_acts`.
+
+O launcher foi ajustado para tentar novamente a rota oficial quando a página
+fica em `chrome-error://` e para reconhecer conteúdo do portal em frames sem
+URL própria do host. A sintaxe passou. A primeira sessão permaneceu em
+`AGUARDANDO_PORTAL` mesmo depois de uma lista aparecer numa janela; ela foi
+interrompida com Ctrl+C. Ao relançar, a primeira tentativa encontrou o perfil
+preso (`TargetClosedError`); a árvore antiga do Chromium isolado foi fechada
+pelo PID 24676 e filhos. A segunda tentativa abriu o Chromium, mas terminou
+com `Page.wait_for_function: Target page, context or browser has been closed`
+enquanto aguardava o pareamento, com processo 30484 saindo com código 21.
+
+Nenhum piloto chegou a criar execução. A conferência do SQLite mostrou:
+`runs=0`, `events=0`, `commands=0`, `confirmed_acts=0`. Portanto nenhum campo
+foi aplicado, nenhum ato foi enviado e não há confirmação de resultado externo.
+A ponte local continuou disponível na porta 18743 durante a pausa; o código de
+pareamento é temporário e deve ser lido novamente em uma retomada.
+
+Validações realizadas neste bloco:
+
+- teste focal do controlador: 18 aprovados, 0 falhas;
+- suíte da extensão: 413 aprovados, 0 falhas;
+- `python -m py_compile .\\.codex-live-pilot.py`: aprovado;
+- `git diff --check`: aprovado;
+- gate completo `verify-project.ps1` ainda não foi repetido depois da última
+  alteração de fonte;
+- o piloto real permanece `NOT_TESTED`, sem evidência de envio.
+
+Estado do GitHub no momento da pausa: branch `main` alinhada com `origin/main`,
+com alterações locais não commitadas em `automation-controller.js`,
+`automation-controller.test.mjs` e o launcher temporário
+`.codex-live-pilot.py`. O handoff também fica alterado por esta atualização.
+Nenhum commit ou push foi feito, respeitando a solicitação do usuário para
+parar.
+
+Retomada recomendada:
+
+1. Conferir `git status --short --branch` e ler este handoff.
+2. Decidir se o launcher temporário deve ser mantido como ferramenta de QA;
+   se for mantido, adicionar uma cobertura pequena para a navegação de retry.
+3. Rodar novamente o gate completo em
+   `work/tce-extractor/verify-project.ps1` e a descoberta Python.
+4. Iniciar ou confirmar a ponte local e executar
+   `python .\\.codex-live-pilot.py` a partir de
+   `C:\\Users\\slvma\\Downloads\\Github\\Atos-TCE\\work\\tce-extractor`.
+5. Na janela isolada criada por essa execução, fazer login manual se for
+   solicitado, selecionar manualmente o marcador vigente e deixar a lista
+   autenticada aberta. O campo de marcador do painel deve permanecer vazio.
+6. Antes de qualquer nova tentativa, consultar o SQLite para garantir que não
+   existe execução pendente ou confirmação. Só considerar sucesso com
+   `send_confirmed`, `confirmed_acts=1` e confirmação visual do ato persistido.
+7. Depois das validações, atualizar este handoff, fazer commit e push somente
+   dos arquivos de fonte, teste e documentação aprovados; manter dados
+   privados, perfis, logs, HARs e traces fora do Git.
