@@ -1,6 +1,6 @@
 import { rankPortalOptions } from "../lib/matcher.js";
 import { createMessage, MESSAGE_TYPES } from "../lib/messages.js";
-import { isAutomaticLegalDecision, sameValue } from "../lib/automation-preflight.js";
+import { isAutomaticLegalDecision, legalDecisionAuthorizesValue, sameValue } from "../lib/automation-preflight.js";
 import { LEGAL_FOUNDATION_RULES_VERSION } from "../lib/legal-foundation.js";
 import {
   ALLOWED_FIELDS,
@@ -58,7 +58,8 @@ const LOCAL_EVIDENCE_OK_STATUSES = new Set(["ready", "complete", "completed", "v
 const KIND_LABELS = Object.freeze({
   exact: "exato",
   probable: "aproximado",
-  tie: "empate",
+  tie: "empate real",
+  pending: "sem preenchimento automático",
   "missing-source": "pendente",
 });
 const ELEMENT_IDS = Object.freeze([
@@ -259,11 +260,13 @@ function createRows(record, snapshot, matches) {
   return PANEL_FIELD_ORDER.map((fieldName) => {
     const field = record.fields[fieldName];
     const match = SELECT_FIELDS.has(fieldName) ? matches?.[fieldName] : null;
-    const kind = fieldName === "fundamento_legal"
-      && match?.legalDecision
-      && !isAutomaticLegalDecision(match.legalDecision)
-      ? "tie"
-      : match?.kind ?? fieldKind(field);
+    let kind = match?.kind ?? fieldKind(field);
+    if (fieldName === "fundamento_legal" && match?.legalDecision
+      && !isAutomaticLegalDecision(match.legalDecision)) {
+      // Only a real tie is presented as a tie: review, blocked, conflict and
+      // pending legal states stay pending and are never written.
+      kind = match.legalDecision.decision_state === "TRUE_TIE" ? "tie" : "pending";
+    }
     const proposedValue = SELECT_FIELDS.has(fieldName)
       ? (match?.optionValue ?? null)
       : (field?.form_value ?? null);
@@ -963,9 +966,10 @@ export function createPanelApp({
     for (const row of state.rows) {
       if (row.proposedValue === null) continue;
       // Defense in depth: the legal foundation field is never written unless
-      // an authorized v3 automatic decision backs the proposal, even when a
-      // stale row still carries a proposed value.
-      if (row.field === "fundamento_legal" && !isAutomaticLegalDecision(row.match?.legalDecision)) {
+      // an authorized v3 automatic decision backs exactly this proposal, even
+      // when a stale row still carries a proposed value.
+      if (row.field === "fundamento_legal"
+        && !legalDecisionAuthorizesValue(row.match?.legalDecision, row.proposedValue)) {
         continue;
       }
       if (row.field === "fundamento_legal") legalDecision = row.match.legalDecision;
@@ -1038,8 +1042,9 @@ export function createPanelApp({
     const row = state.rows.find((candidate) => candidate.field === fieldName);
     if (!row?.divergent || row.proposedValue === null || !state.previewIdentity) return false;
     // Same fail-closed barrier for the single-field override: the legal
-    // foundation is never replaced by a non-automatic proposal.
-    if (fieldName === "fundamento_legal" && !isAutomaticLegalDecision(row.match?.legalDecision)) {
+    // foundation is never replaced by a non-automatic or divergent proposal.
+    if (fieldName === "fundamento_legal"
+      && !legalDecisionAuthorizesValue(row.match?.legalDecision, row.proposedValue)) {
       return false;
     }
     const confirmed = confirmFn(`Substituir somente o campo "${row.label}" no processo ${state.previewIdentity.processKey}? Valor atual: "${row.currentValue}". Novo valor: "${row.proposedValue}".`);

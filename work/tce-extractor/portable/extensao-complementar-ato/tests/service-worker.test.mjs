@@ -1494,7 +1494,7 @@ test("AUTO_START resolves the authenticated worker bridge without exposing its t
   assert.deepEqual(bridgeCalls.map(([name]) => name), ["start", "dataset", "freeze"]);
 });
 
-test("worker-owned resolver feeds getMatch once per identity and never accepts a panel context", async () => {
+test("worker-owned resolver feeds getMatch and never accepts a panel context", async () => {
   const dataset = await makeDataset();
   const calls = [];
   const bridgeCalls = [];
@@ -1536,7 +1536,9 @@ test("worker-owned resolver feeds getMatch once per identity and never accepts a
   const second = await worker.handleMessage(createMessage(MESSAGE_TYPES.GET_MATCH, payload, "match-context-2"), extensionSender());
   assert.equal(first.ok, true);
   assert.equal(second.ok, true);
-  assert.equal(bridgeCalls.length, 1);
+  // Without a revision pinned by the protocol the resolver always consults the
+  // current source, so a newer sidecar revision is never masked by the cache.
+  assert.equal(bridgeCalls.length, 2);
   assert.equal(calls.length, 2);
   assert.equal(calls[0].operative_text, context.operative_text);
   assert.equal(calls[1].operative_text, context.operative_text);
@@ -1544,12 +1546,93 @@ test("worker-owned resolver feeds getMatch once per identity and never accepts a
   assert.equal(first.payload.context_source, "sidecar");
   assert.equal(first.payload.context_reason, null);
   assert.equal(second.payload.context_status, "ready");
-  assert.equal(second.payload.context_source, "cache");
+  assert.equal(second.payload.context_source, "sidecar");
 
   // A panel-supplied context is no longer part of the contract at all.
   assert.throws(
     () => createMessage(MESSAGE_TYPES.GET_MATCH, { ...payload, context }, "match-context-forbidden"),
     /unexpected keys/u,
+  );
+});
+
+test("getMatch observes a newer sidecar revision instead of reusing the old context", async () => {
+  const dataset = await makeDataset();
+  const seen = [];
+  const ranker = (input) => {
+    seen.push({ field: input.field, revision: input.context?.context_revision ?? null });
+    if (input.field !== "fundamento_legal") {
+      return { kind: "pending", optionIndex: null, optionValue: null, optionLabel: null, score: 0, reasons: [] };
+    }
+    const revision = input.context?.context_revision ?? null;
+    return {
+      kind: "exact",
+      optionIndex: 0,
+      optionValue: "ec41",
+      optionLabel: "Art. 6 da EC 41/2003",
+      score: 100,
+      reasons: [`revision:${revision}`],
+      legalDecision: {
+        status: "selected",
+        decision_state: "AUTO_SELECTED",
+        rules_version: "legal-foundation-v3",
+        method: "rule",
+        option_value: "ec41",
+        option_label: "Art. 6 da EC 41/2003",
+        confidence: 0.95,
+        margin: 0.20,
+        hard_conflict: false,
+        context_revision: revision,
+      },
+    };
+  };
+  let revision = 4;
+  const contextFor = () => ({
+    schema_version: 1,
+    dataset_sha256: dataset.batch.logical_sha256,
+    process_key: PROCESS_KEY,
+    interested_normalized: "joao da silva",
+    resolution_status: "complete",
+    operative_text: `RESOLVE revisão ${revision}`,
+    pages: [{ text: `RESOLVE revisão ${revision}`, citation: { document_id: "resolution-9", page: 1 } }],
+    extraction_version: "legal-context-v4",
+    context_revision: revision,
+    rules_version: "legal-foundation-v3",
+  });
+  const bridge = {
+    async getLegalContext() {
+      return { api_version: 1, context: contextFor() };
+    },
+  };
+  const worker = createServiceWorker({ chromeApi: chromeMock(storageMock()), bridge, ranker });
+  await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.IMPORT_DATASET, { dataset }, "import-context-revision"),
+    extensionSender(),
+  );
+  const payload = {
+    processKey: PROCESS_KEY,
+    interestedNormalized: "joao da silva",
+    options: { fundamento_legal: [{ value: "ec41", label: "Art. 6 da EC 41/2003" }] },
+    datasetSha256: dataset.batch.logical_sha256,
+  };
+
+  const first = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.GET_MATCH, payload, "match-revision-4"),
+    extensionSender(),
+  );
+  assert.equal(first.ok, true);
+  assert.equal(first.payload.matches.fundamento_legal.legalDecision.context_revision, 4);
+
+  revision = 5;
+  const second = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.GET_MATCH, payload, "match-revision-5"),
+    extensionSender(),
+  );
+  assert.equal(second.ok, true);
+  assert.equal(second.payload.matches.fundamento_legal.legalDecision.context_revision, 5);
+  assert.ok(second.payload.matches.fundamento_legal.reasons.includes("revision:5"));
+  assert.deepEqual(
+    seen.filter((entry) => entry.field === "fundamento_legal").map((entry) => entry.revision),
+    [4, 5],
   );
 });
 

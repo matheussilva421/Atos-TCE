@@ -507,7 +507,9 @@ function Start-TcePortableMenu {
     }.GetNewClosure()
     $diagnose = {
         param($root)
-        & $runtime.Python -B -s -c 'import et_xmlfile, openpyxl, pymupdf; print("pymupdf=" + pymupdf.__version__); print("openpyxl=" + openpyxl.__version__); print("et_xmlfile=" + et_xmlfile.__version__)'
+        # Single quotes only: Windows PowerShell 5.1 strips embedded double
+        # quotes when building the native command line, which broke this probe.
+        & $runtime.Python -B -s -c 'import et_xmlfile, openpyxl, pymupdf; print(''pymupdf'', pymupdf.__version__, ''openpyxl'', openpyxl.__version__, ''et_xmlfile'', et_xmlfile.__version__)'
         if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
         & $runtime.Tesseract --tessdata-dir $runtime.Tessdata --list-langs
         return $LASTEXITCODE

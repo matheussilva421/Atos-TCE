@@ -463,6 +463,28 @@ test("prepares fields for a selected legal decision based on similarity", () => 
   assert.deepEqual(result.reasons, []);
 });
 
+test("automatic preflight rejects a legal value different from the authorized decision option", () => {
+  const base = input();
+  const result = prepareAutomaticAct({
+    ...base,
+    legalDecision: { ...base.legalDecision, option_value: "option-a" },
+    matchedValues: { fundamento_legal: "option-b" },
+    snapshot: snapshot({
+      options: {
+        ...snapshot().options,
+        fundamento_legal: [
+          { value: "option-a", label: "Fundamento A" },
+          { value: "option-b", label: "Fundamento B" },
+        ],
+      },
+    }),
+  });
+
+  assert.equal(result.eligible, false);
+  assert.ok(result.reasons.includes("LEGAL_DECISION_VALUE_MISMATCH"), JSON.stringify(result.reasons));
+  assert.equal(Object.hasOwn(result.fields, "fundamento_legal"), false);
+});
+
 test("requires legal confidence and margin before preparing the legal field", () => {
   for (const [name, decision, reason] of [
     ["low confidence", { confidence: 0.82, margin: 0.20 }, "LEGAL_DECISION_REVIEW_REQUIRED"],

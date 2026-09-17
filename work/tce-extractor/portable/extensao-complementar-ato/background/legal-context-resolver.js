@@ -8,6 +8,23 @@ function resolution(status, source, reason, context = null) {
   return { status, source, reason, context };
 }
 
+/**
+ * Exact cache keys: revisions are compared as values, never as string
+ * prefixes, so revision 4 can never be served by a revision 44 entry.
+ */
+function baseCacheKey({ identity, datasetSha256, rulesVersion }) {
+  return JSON.stringify([
+    identity.processKey,
+    identity.interestedNormalized,
+    datasetSha256 ?? null,
+    rulesVersion,
+  ]);
+}
+
+function revisionCacheKey(baseKey, revision) {
+  return JSON.stringify([baseKey, revision]);
+}
+
 function errorReason(error) {
   const code = typeof error?.code === "string" && error.code ? error.code : "";
   if (code === "LEGAL_CONTEXT_NOT_FOUND" || error?.status === 404) return "LEGAL_CONTEXT_NOT_FOUND";
@@ -19,7 +36,7 @@ function errorReason(error) {
  * Validates a legal context defensively before it can authorize the legal
  * foundation field. Any divergence blocks only `fundamento_legal`.
  */
-function contextDefect(context, { identity, datasetSha256, rulesVersion }) {
+function contextDefect(context, { identity, datasetSha256, rulesVersion, contextRevision = null }) {
   if (!isRecord(context)) return "CONTEXT_INCOMPLETE";
   if (context.schema_version !== 1) return "CONTEXT_INCOMPLETE";
   if (typeof context.dataset_sha256 !== "string" || !SHA256_RE.test(context.dataset_sha256)) return "CONTEXT_INCOMPLETE";
@@ -38,6 +55,9 @@ function contextDefect(context, { identity, datasetSha256, rulesVersion }) {
   if (!Number.isSafeInteger(context.context_revision) || context.context_revision < 0) {
     return "CONTEXT_REVISION_MISSING";
   }
+  if (Number.isSafeInteger(contextRevision) && context.context_revision !== contextRevision) {
+    return "CONTEXT_REVISION_MISMATCH";
+  }
   if (typeof rulesVersion === "string" && rulesVersion && context.rules_version !== rulesVersion) {
     return "RULES_VERSION_MISMATCH";
   }
@@ -46,14 +66,6 @@ function contextDefect(context, { identity, datasetSha256, rulesVersion }) {
 
 export function createLegalContextResolver({ bridge, rulesVersion }) {
   const cache = new Map();
-  const identityKey = (identity) => `${identity.processKey}\u0000${identity.interestedNormalized}`;
-
-  function cachedFor(key) {
-    for (const [entryKey, context] of cache) {
-      if (entryKey.startsWith(key)) return context;
-    }
-    return null;
-  }
 
   async function rebuild(identity) {
     if (typeof bridge.rebuildLegalContext !== "function") return null;
@@ -63,12 +75,16 @@ export function createLegalContextResolver({ bridge, rulesVersion }) {
 
   return {
     async ensureLegalContext({ identity, datasetSha256 = null, contextRevision = null } = {}) {
-      const revisionPart = Number.isSafeInteger(contextRevision) ? String(contextRevision) : "";
-      const key = `${identityKey(identity)}\u0000${datasetSha256 ?? ""}\u0000${rulesVersion}\u0000${revisionPart}`;
-      const cached = cachedFor(key);
-      if (cached !== null) return resolution("ready", "cache", null, cached);
+      const baseKey = baseCacheKey({ identity, datasetSha256, rulesVersion });
+      // Only a pinned revision may be served from cache: without an explicit
+      // revision the current source is always consulted, so a newer sidecar
+      // revision can never be masked by an older cached entry.
+      if (Number.isSafeInteger(contextRevision)) {
+        const cached = cache.get(revisionCacheKey(baseKey, contextRevision));
+        if (cached !== undefined) return resolution("ready", "cache", null, cached);
+      }
 
-      const expected = { identity, datasetSha256, rulesVersion };
+      const expected = { identity, datasetSha256, rulesVersion, contextRevision };
       let source = "sidecar";
       let context = null;
       let defect = "LEGAL_CONTEXT_NOT_FOUND";
@@ -104,7 +120,7 @@ export function createLegalContextResolver({ bridge, rulesVersion }) {
       if (defect === "LEGAL_CONTEXT_NOT_FOUND") defect = "LEGAL_CONTEXT_UNAVAILABLE";
       if (defect !== null) return resolution("blocked", null, defect);
 
-      cache.set(`${key}${context.context_revision}`, context);
+      cache.set(revisionCacheKey(baseKey, context.context_revision), context);
       return resolution(source === "rebuilt" ? "rebuilt" : "ready", source, null, context);
     },
   };

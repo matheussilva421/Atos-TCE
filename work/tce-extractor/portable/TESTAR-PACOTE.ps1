@@ -68,7 +68,10 @@ function Invoke-TcePortableRuntimeProbe {
     }
     $pythonOutput = @()
     try {
-        $pythonOutput = @(& $Runtime.Python -B -s -c 'import et_xmlfile, openpyxl, pymupdf; print("pymupdf=" + pymupdf.__version__); print("openpyxl=" + openpyxl.__version__); print("et_xmlfile=" + et_xmlfile.__version__)' 2>&1)
+        # This probe intentionally avoids embedded double quotes: Windows
+        # PowerShell 5.1 strips them when it builds the native command line,
+        # which made the QA dependency check fail on every valid package.
+        $pythonOutput = @(& $Runtime.Python -B -s -c 'import et_xmlfile, openpyxl, pymupdf; print(pymupdf.__version__, openpyxl.__version__, et_xmlfile.__version__)' 2>&1)
         if ($LASTEXITCODE -ne 0) { Add-TcePortableError $errors ('Python falhou no teste de dependências QA: ' + (ConvertTo-TcePortableDiagnosticText $pythonOutput)) }
     } catch { Add-TcePortableError $errors 'Python portatil nao pode ser executado' }
     $tesseractOutput = @()

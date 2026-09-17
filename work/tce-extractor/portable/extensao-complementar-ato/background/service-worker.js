@@ -608,6 +608,11 @@ export function createServiceWorker({
         interestedNormalized: identity.interestedNormalized,
       },
       datasetSha256: dataset.batch.logical_sha256,
+      // Only an authoritative revision present in the portal snapshot pins the
+      // cache; otherwise the resolver consults the current source.
+      contextRevision: Number.isSafeInteger(formSnapshot?.context_revision)
+        ? formSnapshot.context_revision
+        : null,
     });
     const context = resolution.context;
     if (context !== null

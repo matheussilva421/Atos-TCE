@@ -233,6 +233,18 @@ export function isAutomaticLegalDecision(decision) {
     && decision.margin >= 0.12;
 }
 
+/**
+ * The legal foundation may only be written with the exact option the automatic
+ * decision authorized: a valid decision for option A never authorizes option B.
+ */
+export function legalDecisionAuthorizesValue(decision, proposedValue) {
+  return isAutomaticLegalDecision(decision)
+    && typeof proposedValue === "string"
+    && proposedValue.trim() !== ""
+    && typeof decision?.option_value === "string"
+    && decision.option_value === proposedValue;
+}
+
 export function prepareAutomaticAct({ record, context, snapshot, legalDecision, matchedValues, matchKinds } = {}) {
   const reasons = [];
   const identity = identityFromRecord(record);
@@ -298,6 +310,20 @@ export function prepareAutomaticAct({ record, context, snapshot, legalDecision, 
   if (context?.rules_version && legalDecision?.rules_version
     && context.rules_version !== legalDecision.rules_version) {
     addReason(reasons, "LEGAL_RULES_VERSION_MISMATCH");
+  }
+  // The authorized option is the only value the legal foundation may write.
+  if (isRecord(recordFields)) {
+    const legalProposedValue = fieldProposal(
+      "fundamento_legal",
+      recordFields.fundamento_legal,
+      legalDecision,
+      matchedValues,
+    );
+    if (isAutomaticLegalDecision(legalDecision)
+      && legalProposedValue !== null
+      && !legalDecisionAuthorizesValue(legalDecision, legalProposedValue)) {
+      addReason(reasons, "LEGAL_DECISION_VALUE_MISMATCH");
+    }
   }
   if ([...SELECT_FIELDS].some((field) => matchKinds?.[field] === "tie"
     && !isSafeSelectTie(field, snapshotFields, options, matchedValues))) {

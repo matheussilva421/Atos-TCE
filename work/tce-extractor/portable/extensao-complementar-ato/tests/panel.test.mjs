@@ -2020,6 +2020,30 @@ async function previewDecision({ dataset, bridge }) {
   return { documentRef, integration };
 }
 
+function sidecarBridge({ dataset, processKey = "103439/2023", interested = "maria de souza", contextSource }) {
+  return {
+    async getLegalContext() {
+      const source = typeof contextSource === "function" ? contextSource() : contextSource;
+      const operativeText = source.operativeText;
+      return {
+        api_version: 1,
+        context: {
+          schema_version: 1,
+          dataset_sha256: dataset.batch.logical_sha256,
+          process_key: processKey,
+          interested_normalized: interested,
+          resolution_status: "complete",
+          operative_text: operativeText,
+          pages: [{ text: operativeText, citation: { document_id: "resolution-9", page: 1 } }],
+          extraction_version: "legal-context-v4",
+          context_revision: source.revision ?? 1,
+          rules_version: "legal-foundation-v3",
+        },
+      };
+    },
+  };
+}
+
 test("integrated resolver rebuilds the legal context and writes the exact catalog option", async () => {
   const dataset = await makeDataset({
     sourceOverrides: { fundamento_legal: "RESOLVE: Art. 3º, incisos I a III e parágrafo único, da EC nº 47/2005." },
@@ -2140,6 +2164,91 @@ test("integrated Joana-like EC41 with an ECE preservation clause never becomes a
   assert.ok(candidate.startsWith("Civil - Artigo 6º, incisos I a IV e artigo 7º"), candidate.slice(0, 80));
 });
 
+test("integrated reclassification follows the new sidecar revision", async () => {
+  const ec47Text = "RESOLVE: Art. 3º, incisos I a III e parágrafo único, da EC nº 47/2005.";
+  const ec41Text = "RESOLVE: Art. 6º, incisos I a IV e art. 7º, ambos da EC nº 41/2003 c/c art. 2º da EC nº 47/2005.";
+  const dataset = await makeDataset({ sourceOverrides: { fundamento_legal: ec47Text } });
+  let revision = 4;
+  let operativeText = ec47Text;
+  const integration = await makeWorkerBackedChrome({
+    snapshots: [snapshot({ options: currentOptions() })],
+    bridge: sidecarBridge({ dataset, contextSource: () => ({ operativeText, revision }) }),
+  });
+  const { app, documentRef } = await startApp({ chromeApi: integration.panelChrome });
+  documentRef.getElementById("dataset-file").files = [{ async text() { return JSON.stringify(dataset); } }];
+  await app.importSelectedFile();
+
+  const legalRow = () => app.getState().rows.find((candidate) => candidate.field === "fundamento_legal");
+  assert.equal(legalRow().proposedValue, "f-ec47-art3");
+
+  revision = 5;
+  operativeText = ec41Text;
+  await app.refresh();
+
+  assert.equal(legalRow().proposedValue, "f-ec41-general");
+});
+
+test("integrated REVIEW_REQUIRED keeps the legal foundation pending and unwritten", async () => {
+  const text = "RESOLVE conceder aposentadoria voluntária por tempo de contribuição, com proventos integrais, a servidor ocupante do cargo de PROFESSOR, com fundamento no art. 40, § 1º, inciso III, alínea a, combinado com o § 5º, da Constituição Federal.";
+  const options = {
+    ...currentOptions(),
+    fundamento_legal: [
+      { value: "", label: "Selecione" },
+      { value: "f-cf40-a-p5", label: "Civil - Artigo 40, §1º, inciso III, alínea a, combinado com o §5º, da Constituição Federal" },
+      { value: "f-cf40-iii-b", label: "Civil - Artigo 40, § 1º, inciso III, alínea b, da Constituição Federal" },
+    ],
+  };
+  const dataset = await makeDataset({ sourceOverrides: { fundamento_legal: text } });
+  const integration = await makeWorkerBackedChrome({
+    snapshots: [snapshot({ options })],
+    bridge: sidecarBridge({ dataset, contextSource: { operativeText: text, revision: 9 } }),
+  });
+  const { app, documentRef } = await startApp({ chromeApi: integration.panelChrome });
+  documentRef.getElementById("dataset-file").files = [{ async text() { return JSON.stringify(dataset); } }];
+  await app.importSelectedFile();
+  await app.fillAvailableFields();
+
+  const row = app.getState().rows.find((candidate) => candidate.field === "fundamento_legal");
+  assert.equal(row.kind, "pending");
+  const apply = integration.forwardedToContent.find(({ message }) => message.type === MESSAGE_TYPES.APPLY_FIELDS);
+  assert.ok(apply);
+  assert.equal(Object.hasOwn(apply.message.payload.fields, "fundamento_legal"), false);
+  assert.equal(apply.message.payload.fields.modalidade, "m-vol");
+  const legalSelect = documentRef.getElementById("preview-body").querySelector('[data-field="fundamento_legal"]');
+  assert.equal(legalSelect.getAttribute("data-kind"), "pending");
+});
+
+test("integrated TRUE_TIE is presented as a tie and never written", async () => {
+  const text = "RESOLVE: Art. 3º, incisos I a III e parágrafo único, da EC nº 47/2005.";
+  const tieLabel = "Civil - Artigo 3º, incisos I a III e parágrafo único, da Emenda Constitucional nº 47/2005";
+  const options = {
+    ...currentOptions(),
+    fundamento_legal: [
+      { value: "", label: "Selecione" },
+      { value: "f-ec47-a", label: tieLabel },
+      { value: "f-ec47-b", label: tieLabel },
+    ],
+  };
+  const dataset = await makeDataset({ sourceOverrides: { fundamento_legal: text } });
+  const integration = await makeWorkerBackedChrome({
+    snapshots: [snapshot({ options })],
+    bridge: sidecarBridge({ dataset, contextSource: { operativeText: text, revision: 11 } }),
+  });
+  const { app, documentRef } = await startApp({ chromeApi: integration.panelChrome });
+  documentRef.getElementById("dataset-file").files = [{ async text() { return JSON.stringify(dataset); } }];
+  await app.importSelectedFile();
+  await app.fillAvailableFields();
+
+  const row = app.getState().rows.find((candidate) => candidate.field === "fundamento_legal");
+  assert.equal(row.kind, "tie");
+  const card = documentRef.getElementById("preview-body").querySelector('[data-field="fundamento_legal"]');
+  assert.equal(card.getAttribute("data-kind"), "tie");
+  const apply = integration.forwardedToContent.find(({ message }) => message.type === MESSAGE_TYPES.APPLY_FIELDS);
+  assert.ok(apply);
+  assert.equal(Object.hasOwn(apply.message.payload.fields, "fundamento_legal"), false);
+  assert.equal(Object.hasOwn(apply.message.payload, "legalDecision"), false);
+});
+
 test("sends only the seven current fields and validated matchKinds after a fresh pre-fill snapshot", async () => {
   const dataset = await makeDataset();
   const { app, documentRef, chromeApi } = await startApp({
@@ -2226,6 +2335,71 @@ test("writes exactly the authorized option when the legal decision is automatic"
   assert.ok(apply);
   assert.equal(apply.payload.fields.fundamento_legal, "f-prof");
   assert.equal(apply.payload.fields.modalidade, "m-vol");
+});
+
+test("omits the legal foundation when the decision authorizes a different catalogue option", async () => {
+  const dataset = await makeDataset();
+  const divergentMatch = {
+    ...fieldMatch({ optionValue: "f-prof", optionLabel: "Artigo 40, parágrafo 5, professor" }),
+    legalDecision: {
+      status: "selected",
+      decision_state: "AUTO_SELECTED",
+      rules_version: "legal-foundation-v3",
+      method: "rule",
+      option_value: "f-general",
+      option_label: "Artigo 40, parágrafo 1",
+      confidence: 0.95,
+      margin: 0.20,
+      hard_conflict: false,
+    },
+  };
+  const { app, chromeApi } = await startApp({
+    dataset,
+    snapshots: [snapshot({ options: currentOptions() }), snapshot({ options: currentOptions() })],
+    matches: [
+      { record: dataset.records[0], matches: fullMatches({ fundamento_legal: divergentMatch }), reviewed: false },
+      { record: dataset.records[0], matches: fullMatches({ fundamento_legal: divergentMatch }), reviewed: false },
+    ],
+  });
+
+  await app.fillAvailableFields();
+
+  const apply = chromeApi.calls.find((message) => message.type === MESSAGE_TYPES.APPLY_FIELDS);
+  assert.ok(apply);
+  assert.equal(Object.hasOwn(apply.payload.fields, "fundamento_legal"), false);
+  assert.equal(Object.hasOwn(apply.payload, "legalDecision"), false);
+  assert.equal(apply.payload.fields.modalidade, "m-vol");
+});
+
+test("maps only TRUE_TIE to tie and every other legal state to pending", async () => {
+  const cases = [
+    ["REVIEW_REQUIRED", { status: "review", decision_state: "REVIEW_REQUIRED", method: "rule", confidence: 0.87, margin: 0.20, hard_conflict: false, rules_version: "legal-foundation-v3" }],
+    ["CONTEXT_BLOCKED", { status: "pending", decision_state: "CONTEXT_BLOCKED", method: "none", confidence: 0, margin: 0, hard_conflict: false, rules_version: "legal-foundation-v3", context_status: "blocked", context_reason: "DOCUMENT_EVIDENCE_MISSING" }],
+    ["DOCUMENT_CONFLICT", { status: "pending", decision_state: "DOCUMENT_CONFLICT", method: "none", confidence: 0, margin: 0, hard_conflict: false, rules_version: "legal-foundation-v3" }],
+    ["NO_COMPATIBLE_CANDIDATE", { status: "pending", decision_state: "NO_COMPATIBLE_CANDIDATE", method: "none", confidence: 0, margin: 0, hard_conflict: false, rules_version: "legal-foundation-v3" }],
+    ["TRUE_TIE", { status: "selected", decision_state: "TRUE_TIE", method: "rule", confidence: 0.95, margin: 0, hard_conflict: false, rules_version: "legal-foundation-v3" }],
+  ];
+
+  for (const [state, legalDecision] of cases) {
+    const dataset = await makeDataset();
+    const match = {
+      ...fieldMatch({ optionValue: "f-general", optionLabel: "Artigo 40, parágrafo 1" }),
+      legalDecision,
+    };
+    const { app, documentRef } = await startApp({
+      dataset,
+      snapshots: [snapshot({ options: currentOptions() })],
+      matches: [{ record: dataset.records[0], matches: fullMatches({ fundamento_legal: match }), reviewed: false }],
+    });
+
+    const expectedKind = state === "TRUE_TIE" ? "tie" : "pending";
+    const row = app.getState().rows.find((candidate) => candidate.field === "fundamento_legal");
+    assert.equal(row.kind, expectedKind, `rows:${state}`);
+    const kind = documentRef.getElementById("preview-body")
+      .querySelector('[data-field="fundamento_legal"]')
+      .getAttribute("data-kind");
+    assert.equal(kind, expectedKind, `dom:${state}`);
+  }
 });
 
 test("surfaces a forwarded content-script failure instead of reporting a false completed fill", async () => {

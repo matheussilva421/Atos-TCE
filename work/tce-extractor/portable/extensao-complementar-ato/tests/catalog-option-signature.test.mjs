@@ -87,6 +87,34 @@ test("catalogo cru de EC41 com EC47 não declara regra docente", () => {
   assert.ok(result.references.some((reference) => reference.diploma_type === "ec" && reference.diploma_number === "47"));
 });
 
+test("classifies Constituição Estadual art. 40 before the generic CF40 branch", () => {
+  const result = buildCatalogOptionSignature({
+    value: "ce40",
+    label: "Civil - Artigo 40 da Constituição Estadual do Rio Grande do Norte",
+  }, 0);
+
+  assert.equal(result.class_id, "CE40");
+  assert.equal(result.scope, "civil");
+  assert.ok(result.references.some((reference) => (
+    reference.diploma_type === "ce" && reference.article === "40"
+  )));
+});
+
+test("keeps the CF art. 40 classes unchanged", () => {
+  assert.equal(
+    signatureOf("Civil - Artigo 40, § 1º, inciso III, alínea a, da Constituição Federal").class_id,
+    "CF40_III_A",
+  );
+  assert.equal(
+    signatureOf("Civil - Artigo 40, § 1º, inciso III, alínea b, da Constituição Federal").class_id,
+    "CF40_III_B",
+  );
+  assert.equal(
+    signatureOf("Civil - Artigo 40, §1º, inciso III, alínea a, combinado com o §5º, da Constituição Federal").class_id,
+    "CF40_III_A_P5",
+  );
+});
+
 test("aceita opção string simples sem metadata", () => {
   const result = buildCatalogOptionSignature("Civil - Artigo 40, § 1º, inciso II, da Constituição Federal", 1);
   assert.equal(result.class_id, "CF40_II");
