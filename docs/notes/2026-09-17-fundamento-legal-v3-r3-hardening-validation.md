@@ -60,15 +60,32 @@ Estado após a correção: `python -m unittest test_extension_zip_packager -q` �
 (2 testes), fechamento de imports completo, e o estágio `package` do
 `verify-project.ps1` verde.
 
-Limitação ambiental registrada: o ZIP portátil completo
-(`empacotar-coletor-portatil.ps1`) e o `TESTAR-PACOTE.ps1` não puderam ser
-executados neste checkout porque o pacote exige a árvore verificada de runtime
-(`staging-task5-verified/runtime` com `python.exe` e `tesseract`), que não é
-versionada e não existe aqui. Por isso o empacotamento desta rodada foi validado
-pelo artefato que realmente mudou — o ZIP da extensão, gerado pelo empacotador
-oficial e verificado pelo teste de fechamento de imports — mais os estágios
-`package` e `automation` do gate. O `TESTAR-PACOTE.ps1` continua pendente de um
-checkout com o runtime portátil montado, e o smoke real não foi iniciado.
+O ZIP portátil completo foi regenerado e aprovado no `TESTAR-PACOTE.ps1`:
+
+- staging montado em `staging-task5-verified` a partir do runtime verificado já
+  produzido no projeto (`outputs/TCE-fixed-2026-09-16`: runtime de 246,3 MB em
+  416 arquivos, 14 licenças e `runtime-manifest.json`); o runtime não foi
+  reconstruído nesta sessão e nenhum dado privado entrou no staging;
+- `empacotar-coletor-portatil.ps1` → exit 0, com auditoria do staging, criação do
+  ZIP, re-extração, nova auditoria e comparação de inventário;
+- artefato: `outputs/tce-portatil-r3.zip`, 96.239.949 bytes, 511 arquivos,
+  SHA-256 `E5DD4701EF7F9219FD1E7AD58243B53EBCD84788BB466ECECFD726F641FD9A32`;
+- `TESTAR-PACOTE.ps1 -PackageRoot <extração limpa>` → exit 0, 6/6 passos
+  (layout do runtime, execução do runtime, manifest, dependência Node, dados da
+  extensão, auditoria public) → “Pacote íntegro: verificação offline aprovada.”
+
+Segundo defeito de empacotamento encontrado e corrigido (`a2ed6d7`): o probe de
+dependências do `TESTAR-PACOTE.ps1` montava o argumento `-c` com aspas duplas
+internas; o Windows PowerShell 5.1 remove essas aspas ao montar a linha de comando
+nativa, então o Python recebia código inválido e o script reprovava qualquer pacote
+válido. O defeito é pré-existente: o mesmo erro reproduz em um pacote construído
+antes desta rodada e num `.ps1` mínimo de controle. Correção: probe sem aspas
+duplas, validado em execução por arquivo `.ps1` (exit 0).
+
+Terceiro defeito da mesma família, corrigido a pedido do operador:
+`portable/app/menu.ps1` (diagnóstico do runtime, opção 7) usava a mesma construção
+com aspas duplas e foi alinhado para aspas simples; `tests/Test-PortableMenu.ps1`
+continua verde (98/98) e o pacote reconstruído contém o menu corrigido.
 
 ## Portal real
 
