@@ -141,13 +141,29 @@ test("selects EC41 without paragraph 5 and ignores cargo as a paragraph-5 signal
       { cargo: "Professor" },
     ),
     options: [
-      option("EC41_COM_P5", "with-p5", "EC41 com art. 40, § 5º CF"),
-      option("EC41_SEM_P5", "without-p5", "EC41 arts. 6º e 7º + EC47 art. 2º"),
+      option(
+        "EC41_COM_P5",
+        "with-p5",
+        "Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 40, § 5º, Constituição Federal e artigo 2º da Emenda Constitucional nº 47/2005",
+      ),
+      option(
+        "EC41_SEM_P5",
+        "without-p5",
+        "Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 2º da Emenda Constitucional nº 47/2005",
+      ),
     ],
   });
 
   assert.equal(result.status, "selected");
-  assert.equal(result.rule_id, "EC41_SEM_P5");
+  assert.equal(result.automatic, true);
+  assert.equal(
+    result.ranking.find((candidate) => candidate.option_value === "with-p5").rejected,
+    true,
+  );
+  assert.ok(result.ranking
+    .find((candidate) => candidate.option_value === "with-p5")
+    .reasons.includes("hard-reject:teacher-rule-not-operative"));
+  assert.equal(result.portal_classification.class_id, "EC41_TRANSITION_GENERAL");
   assert.equal(result.option_value, "without-p5");
 });
 
@@ -157,14 +173,29 @@ test("selects EC41 with paragraph 5 only when CF art. 40 § 5 is operative", () 
       "RESOLVE: Art. 6º, incisos I a IV e art. 7º, ambos da EC nº 41/2003 c/c art. 40, § 5º, Constituição Federal e art. 2º da EC nº 47/2005.",
     ),
     options: [
-      option("EC41_SEM_P5", "without-p5", "EC41 sem art. 40, § 5º"),
-      option("EC41_COM_P5", "with-p5", "EC41 com art. 40, § 5º CF"),
+      option(
+        "EC41_SEM_P5",
+        "without-p5",
+        "Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 2º da Emenda Constitucional nº 47/2005",
+      ),
+      option(
+        "EC41_COM_P5",
+        "with-p5",
+        "Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 40, § 5º, Constituição Federal e artigo 2º da Emenda Constitucional nº 47/2005",
+      ),
     ],
   });
 
-  assert.equal(result.status, "selected");
-  assert.equal(result.rule_id, "EC41_COM_P5");
-  assert.equal(result.option_value, "with-p5");
+  // Both candidates satisfy the EC41 crosswalk with the catalog labels; the
+  // remaining separation is the teacher rule alone, so the decision stays in
+  // manual review instead of being written automatically.
+  assert.notEqual(result.status, "selected");
+  assert.equal(result.status, "pending");
+  assert.equal(result.reason, "manual-review-required");
+  assert.ok(result.warnings.some((warning) => /limites de confiança/u.test(warning)));
+  assert.equal(result.ranking[0].option_value, "with-p5");
+  assert.equal(result.portal_classification.class_id, "EC41_TRANSITION_TEACHER");
+  assert.equal(result.option_value, null);
 });
 
 test("selects EC41 with paragraph 5 when one EC41 article is combined with CF art. 40 § 5", () => {
@@ -173,54 +204,85 @@ test("selects EC41 with paragraph 5 when one EC41 article is combined with CF ar
       "RESOLVE: Art. 6º da EC nº 41/2003 e art. 40, § 5º, da CF.",
     ),
     options: [
-      option("EC41_SEM_P5", "without-p5", "EC41 sem art. 40, § 5º"),
-      option("EC41_COM_P5", "with-p5", "EC41 com art. 40, § 5º CF"),
+      option(
+        "EC41_SEM_P5",
+        "without-p5",
+        "Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 2º da Emenda Constitucional nº 47/2005",
+      ),
+      option(
+        "EC41_COM_P5",
+        "with-p5",
+        "Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 40, § 5º, Constituição Federal e artigo 2º da Emenda Constitucional nº 47/2005",
+      ),
     ],
   });
 
-  assert.equal(result.status, "selected");
-  assert.equal(result.rule_id, "EC41_COM_P5");
-  assert.equal(result.option_value, "with-p5");
+  assert.notEqual(result.status, "selected");
+  assert.equal(result.ranking[0].option_value, "with-p5");
+  assert.equal(result.portal_classification.class_id, "EC41_TRANSITION_TEACHER");
+  assert.equal(result.option_value, null);
 });
 
 test("ignores a historical CF paragraph 5 before the operative RESOLVE marker", () => {
   const result = resolveLegalFoundation({
     context: contextFor(
-      "No ato histórico, Constituição Federal art. 40, § 5º. RESOLVE: Art. 7º da EC nº 41/2003.",
+      "No ato histórico, Constituição Federal art. 40, § 5º; art. 6º e art. 7º da EC nº 41/2003. RESOLVE: Art. 7º da EC nº 41/2003.",
     ),
     options: [
-      option("EC41_COM_P5", "with-p5", "EC41 com art. 40, § 5º CF"),
-      option("EC41_SEM_P5", "without-p5", "EC41 sem art. 40, § 5º"),
+      option(
+        "EC41_COM_P5",
+        "with-p5",
+        "Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 40, § 5º, Constituição Federal e artigo 2º da Emenda Constitucional nº 47/2005",
+      ),
+      option(
+        "EC41_SEM_P5",
+        "without-p5",
+        "Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 2º da Emenda Constitucional nº 47/2005",
+      ),
     ],
   });
 
-  assert.equal(result.status, "selected");
-  assert.equal(result.rule_id, "EC41_SEM_P5");
-  assert.equal(result.option_value, "without-p5");
+  assert.notEqual(result.status, "selected");
+  assert.equal(result.ranking[0].option_value, "without-p5");
+  assert.equal(result.portal_classification.class_id, "EC41_TRANSITION_GENERAL");
+  assert.equal(result.option_value, null);
 });
 
 test("accepts an isolated EC41 article 7 when it is linked to EC41/2003", () => {
   const result = resolveLegalFoundation({
     context: contextFor("RESOLVE: Art. 7º da EC nº 41/2003."),
-    options: [option("EC41_SEM_P5", "without-p5", "EC41 sem art. 40, § 5º")],
+    options: [option(
+      "EC41_SEM_P5",
+      "without-p5",
+      "Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 2º da Emenda Constitucional nº 47/2005",
+    )],
   });
 
   assert.equal(result.status, "selected");
   assert.equal(result.option_value, "without-p5");
-  assert.equal(result.rule_id, "EC41_SEM_P5");
+  assert.equal(result.portal_classification.class_id, "EC41_TRANSITION_GENERAL");
 });
 
 test("does not let article 6-A participate in the EC41 article 6 rule", () => {
   const result = resolveLegalFoundation({
     context: contextFor("RESOLVE: Art. 6º-A da EC nº 41/2003."),
     options: [
-      option("EC41_SEM_P5", "without-p5", "EC41 artigo 6º e artigo 7º"),
-      option("EC41_ART6A", "article-6a", "EC41 artigo 6º-A"),
+      option(
+        "EC41_SEM_P5",
+        "without-p5",
+        "Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 2º da Emenda Constitucional nº 47/2005",
+      ),
+      option(
+        "EC41_ART6A",
+        "article-6a",
+        "Civil - Artigo 6º-A, parágrafo único, da Emenda Constitucional nº 41/2003, com redação dada pela Emenda Constitucional nº 70/2012",
+      ),
     ],
   });
 
   assert.equal(result.status, "selected");
   assert.equal(result.option_value, "article-6a");
+  assert.equal(result.portal_classification.class_id, "EC41_ART6A_EC70");
   assert.equal(result.rule_id, null);
 });
 

@@ -1,5 +1,5 @@
+import { buildCatalogOptionSignature } from "./catalog-option-signature.js";
 import { normalizeLegalText } from "./normalizer.js";
-import { parseLegalReferencesV2 } from "./legal-reference-parser-v2.js";
 import { buildRetirementLegalProfile } from "./retirement-legal-profile.js";
 
 const SCORE_WEIGHTS = Object.freeze({
@@ -18,96 +18,8 @@ function asText(value) {
   return value === null || value === undefined ? "" : String(value);
 }
 
-function optionParts(option, index) {
-  const value = option?.value ?? option?.label ?? "";
-  const label = option?.label ?? value;
-  return {
-    ...option,
-    index,
-    value,
-    label,
-    selectable: option?.selectable !== false && Boolean(value) && !/^selecion(?:e|ar)/iu.test(label.trim()),
-  };
-}
-
-function inferClassId(option, references) {
-  if (option.class_id || option.rule_id) return option.class_id ?? option.rule_id;
-  const label = normalizeLegalText(option.label);
-  if (label.includes("artigo 6") && label.includes("artigo 7") && label.includes("emenda constitucional 41") && label.includes("emenda constitucional 47")) {
-    return label.includes("paragrafo 5") ? "EC41_TRANSITION_TEACHER" : "EC41_TRANSITION_GENERAL";
-  }
-  if (references.some((reference) => reference.diploma_type === "ec" && reference.diploma_number === "47" && reference.article === "3")) return "EC47_ART3";
-  if (references.some((reference) => reference.diploma_type === "ec" && reference.diploma_number === "41" && reference.article === "6" && reference.article_suffix === "a")) return "EC41_ART6A_EC70";
-  return `CATALOG_OPTION_${option.index}`;
-}
-
 function referencesHave(referenceList, predicate) {
   return referenceList.some(predicate);
-}
-
-function hasParagraph(reference, number) {
-  return reference.paragraphs.some((paragraph) => paragraph.number === number);
-}
-
-function hasInciso(reference, number) {
-  return reference.incisos.includes(number)
-    || reference.paragraphs.some((paragraph) => paragraph.incisos.includes(number));
-}
-
-function candidateSignature(option) {
-  const references = parseLegalReferencesV2(option.label);
-  const classId = inferClassId(option, references);
-  const label = normalizeLegalText(option.label);
-  const scope = option.scope ?? (/\bmilitar\b/u.test(label) ? "military" : "civil");
-  let modality = "unknown";
-  if (classId.includes("ART6A") || referencesHave(references, (reference) => (
-    reference.diploma_type === "ec" && reference.diploma_number === "41" && reference.article_suffix === "a"
-  ))) {
-    modality = "invalidity_permanent_disability";
-  } else if (referencesHave(references, (reference) => (
-    reference.diploma_type === "cf"
-      && reference.article === "40"
-      && hasParagraph(reference, "1")
-      && hasInciso(reference, "1")
-  ))) {
-    modality = "invalidity_permanent_disability";
-  } else if (referencesHave(references, (reference) => (
-    reference.diploma_type === "cf"
-      && reference.article === "40"
-      && hasParagraph(reference, "1")
-      && hasInciso(reference, "2")
-  ))) {
-    modality = "other";
-  } else if (classId.includes("TRANSITION") || classId.includes("ART3") || classId.includes("ART2") || classId.includes("ART8") || referencesHave(references, (reference) => (
-    ["ec", "ece"].includes(reference.diploma_type)
-  ))) {
-    modality = "voluntary_contribution";
-  } else if (referencesHave(references, (reference) => (
-    reference.diploma_type === "cf"
-      && reference.article === "40"
-      && hasParagraph(reference, "1")
-      && hasInciso(reference, "3")
-  ))) {
-    modality = "voluntary_contribution";
-  }
-
-  let proportionality = "unknown";
-  if (classId.includes("TRANSITION") || classId === "EC47_ART3") proportionality = "integral";
-  if (/\bproventos?\s+proporciona/u.test(label)) proportionality = "proportional";
-  if (/\bproventos?\s+integra/u.test(label)) proportionality = "integral";
-
-  return {
-    class_id: classId,
-    scope,
-    modality,
-    proportionality,
-    calculation_basis: "unknown",
-    parity: "unknown",
-    teacher_rule: classId.includes("TEACHER") || referencesHave(references, (reference) => (
-      reference.diploma_type === "cf" && reference.article === "40" && hasParagraph(reference, "5")
-    )),
-    references,
-  };
 }
 
 function isEce20Case(profile) {
@@ -191,7 +103,7 @@ function scoreReason(name, value, weight) {
 }
 
 function rankOne(profile, sourceText, option) {
-  const candidate = candidateSignature(option);
+  const candidate = buildCatalogOptionSignature(option, option.index ?? 0);
   const reasons = [];
   const warnings = [];
   const hardReasons = [];
@@ -217,6 +129,12 @@ function rankOne(profile, sourceText, option) {
   if (discriminatorMismatch) hardReasons.push(discriminatorMismatch);
   if (profile.modality !== "unknown" && candidate.modality !== "unknown" && profile.modality !== candidate.modality) {
     hardReasons.push("hard-reject:modality-mismatch");
+  }
+  // Professor cargo is context, not proof of the teacher rule: a candidate
+  // that requires CF art. 40, § 5º is only compatible when the operative text
+  // itself carries the teacher rule.
+  if (profile.professor_context && candidate.teacher_rule && !profile.professor_rule_explicit) {
+    hardReasons.push("hard-reject:teacher-rule-not-operative");
   }
   if (!option.selectable) hardReasons.push("hard-reject:option-not-selectable");
 
@@ -303,7 +221,9 @@ function emptyDecision(profile, reason, warnings = []) {
 export function classifyPortalLegalFoundation({ operativeText = "", cargo = "", options = [], hints = {} } = {}) {
   const profile = buildRetirementLegalProfile({ operativeText, cargo, documentaryValue: hints.documentaryValue });
   if (!asText(operativeText).trim()) return emptyDecision(profile, "missing-source");
-  const normalizedOptions = Array.isArray(options) ? options.map(optionParts) : [];
+  const normalizedOptions = Array.isArray(options)
+    ? options.map((option, index) => buildCatalogOptionSignature(option, index))
+    : [];
   if (normalizedOptions.length === 0) return emptyDecision(profile, "CATALOG_CLASS_MISSING");
 
   const referenceTypes = new Set(profile.references.map((reference) => reference.diploma_type));

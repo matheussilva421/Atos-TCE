@@ -20,6 +20,37 @@ const portalOptions = fixture.catalog.map(({ class_id, scope, label }, index) =>
 }));
 const CASE = fixture.cases.find(({ case_id }) => case_id === "ece20_prof_voluntary_integral");
 
+test("rejects the teacher rule when the professor rule is absent from the operative text", () => {
+  const options = portalOptions.filter(({ class_id }) => (
+    ["EC41_TRANSITION_GENERAL", "EC41_TRANSITION_TEACHER"].includes(class_id)
+  ));
+  const result = classifyPortalLegalFoundation({
+    operativeText: "RESOLVE conceder aposentadoria voluntária por tempo de contribuição, com proventos integrais, a servidor ocupante do cargo de PROFESSOR, com fundamento no art. 7º da Emenda Constitucional Estadual nº 20/2020.",
+    cargo: "PROFESSOR",
+    options,
+  });
+
+  const teacher = result.ranking.find(({ class_id }) => class_id === "EC41_TRANSITION_TEACHER");
+  assert.equal(teacher.rejected, true);
+  assert.ok(teacher.reasons.includes("hard-reject:teacher-rule-not-operative"));
+  assert.equal(result.class_id, "EC41_TRANSITION_GENERAL");
+});
+
+test("keeps the teacher candidate viable when the operative text states the professor rule", () => {
+  const options = portalOptions.filter(({ class_id }) => (
+    ["EC41_TRANSITION_GENERAL", "EC41_TRANSITION_TEACHER"].includes(class_id)
+  ));
+  const result = classifyPortalLegalFoundation({
+    operativeText: "RESOLVE conceder aposentadoria voluntária por tempo de contribuição, com proventos integrais, a servidor ocupante do cargo de PROFESSOR, com fundamento no art. 6º e art. 7º da Emenda Constitucional nº 41/2003 c/c o artigo 40, § 5º, Constituição Federal e artigo 2º da Emenda Constitucional nº 47/2005.",
+    cargo: "PROFESSOR",
+    options,
+  });
+
+  const teacher = result.ranking.find(({ class_id }) => class_id === "EC41_TRANSITION_TEACHER");
+  assert.equal(teacher.rejected, false);
+  assert.equal(result.ranking[0].class_id, "EC41_TRANSITION_TEACHER");
+});
+
 test("ECE 20/2020 professor voluntary integral can map to a legacy civil portal class", () => {
   const result = classifyPortalLegalFoundation({
     operativeText: CASE.operative_text,
