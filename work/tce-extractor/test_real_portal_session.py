@@ -19,6 +19,7 @@ from real_portal_session import (
     compare_portal_snapshot,
     build_recording_launch_options,
     is_portal_contract_ready,
+    prepare_bridge_panel,
     portal_dependency_ids,
     validate_recording_root,
     validate_session_profile,
@@ -48,6 +49,29 @@ class RealPortalLaunchArgumentTests(unittest.TestCase):
         self.assertNotIn("--ignore-certificate-errors", args)
         self.assertFalse(any("user-data-dir" in arg for arg in args))
         self.assertFalse(any("ignore-certificate" in arg or "ignore-http" in arg for arg in args))
+
+    def test_prepare_bridge_panel_selects_automation_tab_before_waiting_for_status(self):
+        calls = []
+
+        class Locator:
+            def __init__(self, selector):
+                self.selector = selector
+
+            def click(self):
+                calls.append((self.selector, "click"))
+
+            def wait_for(self, **kwargs):
+                calls.append((self.selector, "wait_for", kwargs))
+
+        class Panel:
+            def locator(self, selector):
+                return Locator(selector)
+
+        prepare_bridge_panel(Panel())
+
+        self.assertEqual(calls[0], ("#tab-automation", "click"))
+        self.assertEqual(calls[1][0:2], ("#bridge-status", "wait_for"))
+        self.assertEqual(calls[1][2]["state"], "visible")
 
     def test_dependency_ids_cover_every_control_the_automation_needs(self):
         ids = portal_dependency_ids()

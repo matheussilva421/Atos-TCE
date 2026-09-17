@@ -581,6 +581,13 @@ def _read_pairing_code(package: Path) -> tuple[str, int]:
     raise RuntimeError('service.json sem código de pareamento válido')
 
 
+def prepare_bridge_panel(panel) -> None:
+    """Show the automation tab before interacting with its bridge controls."""
+
+    panel.locator('#tab-automation').click()
+    panel.locator('#bridge-status').wait_for(state='visible', timeout=10_000)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('--package-root', type=Path)
@@ -690,7 +697,7 @@ def main() -> int:
                 f'chrome-extension://{extension_id}/sidepanel/panel.html',
                 wait_until='domcontentloaded',
             )
-            panel.locator('#bridge-status').wait_for(state='visible', timeout=10_000)
+            prepare_bridge_panel(panel)
             panel.locator('#bridge-base-url').fill(f'http://127.0.0.1:{port}')
             panel.locator('#bridge-pairing-code').fill(code)
             panel.wait_for_function(

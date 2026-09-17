@@ -27,6 +27,12 @@ tentativas de envio, navegacoes, console e falhas ficam registrados apenas de
 forma estrutural. Faca o login manualmente na janela que abrir. Nao ha
 digitacao de credencial por automacao.
 
+Durante o início, `INICIAR.cmd ponte` pode mostrar `Pressione qualquer tecla
+para continuar`; pressione uma tecla uma vez para liberar o runner. Aguarde
+`REAL_PORTAL_SESSION_READY`. Se o portal abrir uma autenticação do navegador
+ou uma página de erro de rede, resolva a autenticação e a navegação manualmente
+na janela descartável; o runner permanece somente observacional.
+
 Quando a sessao estiver pronta ele imprime REAL_PORTAL_SESSION_READY e passa a
 regravar o JSON de saida a cada ciclo (--poll-seconds, padrao 5s).
 
