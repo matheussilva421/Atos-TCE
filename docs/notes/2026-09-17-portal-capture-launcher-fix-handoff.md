@@ -145,3 +145,25 @@ atualizada e o gate completo passou com 1.174 verificações, 1.172 aprovadas,
 
 Commit local desta correção: `dbe2286` (`fix: prioritize authenticated
 complement form`).
+
+## Atualização — captura estrutural completa do formulário (17/09/2026)
+
+A sessão `real-portal-20260917T114358997770Z` concluiu a captura no formulário
+autenticado `ComplementarAto.asp`. A observação confirmou origem
+`https://novaarearestrita.tce.rn.gov.br`, `authenticated_ui_signal=true`,
+`portal_extension_origin_match=true`, nove IDs contratuais conhecidos, nenhum
+ID ausente, `portal_drift=false` e ausência de erro de navegação.
+
+O formulário foi aberto manualmente e permaneceu sem preenchimento. O marcador
+continuou sendo escolhido pelo usuário; o campo opcional do painel pode ficar
+vazio para acompanhar o marcador atualmente selecionado. Nenhum envio ou
+finalização foi realizado: `submission_performed_by_runner=false`.
+
+A gravação privada possui 69 passos. O runner registra o estado persistido como
+`BLOCKED` por desenho enquanto a sessão real não é promovida a fixture, e houve
+dois erros de gravação reportados no artefato; isso não alterou a observação
+estrutural, que atingiu todos os IDs e os gates de autenticação/origem.
+
+Status: captura estrutural concluída. A próxima etapa, somente se solicitada,
+é gerar uma fixture sanitizada derivada dessa observação. Não promover nem
+enviar atos automaticamente.
