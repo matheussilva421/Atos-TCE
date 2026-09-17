@@ -55,5 +55,6 @@ preflights, ainda sem envio.
 
 ## GitHub
 
-As alterações deste handoff ainda precisam ser commitadas e publicadas. A
-pasta `outputs/` permanece privada e ignorada pelo Git.
+Commit `94e05bc` (`fix: repair portal capture launcher startup`) registrado
+localmente. O push ainda precisa ser confirmado. A pasta `outputs/` permanece
+privada e ignorada pelo Git.
