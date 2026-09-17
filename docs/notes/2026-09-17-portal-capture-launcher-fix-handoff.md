@@ -65,5 +65,6 @@ preflights, ainda sem envio.
 
 Commits locais relevantes: `94e05bc` (`fix: repair portal capture launcher
 startup`), `3dc73cd` (`docs: record portal launcher validation`) e `0592aff`
-(`fix: capture authenticated portal frames`). O `origin/main` ainda não foi
-atualizado; a pasta `outputs/` permanece privada e ignorada pelo Git.
+(`fix: capture authenticated portal frames`) e `4824cfb` (`docs: clarify
+portal authentication evidence`). O `origin/main` ainda não foi atualizado; a
+pasta `outputs/` permanece privada e ignorada pelo Git.
