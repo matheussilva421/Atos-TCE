@@ -58,7 +58,8 @@ const LOCAL_EVIDENCE_OK_STATUSES = new Set(["ready", "complete", "completed", "v
 const KIND_LABELS = Object.freeze({
   exact: "exato",
   probable: "aproximado",
-  tie: "empate",
+  tie: "empate real",
+  pending: "sem preenchimento automático",
   "missing-source": "pendente",
 });
 const ELEMENT_IDS = Object.freeze([
@@ -259,11 +260,13 @@ function createRows(record, snapshot, matches) {
   return PANEL_FIELD_ORDER.map((fieldName) => {
     const field = record.fields[fieldName];
     const match = SELECT_FIELDS.has(fieldName) ? matches?.[fieldName] : null;
-    const kind = fieldName === "fundamento_legal"
-      && match?.legalDecision
-      && !isAutomaticLegalDecision(match.legalDecision)
-      ? "tie"
-      : match?.kind ?? fieldKind(field);
+    let kind = match?.kind ?? fieldKind(field);
+    if (fieldName === "fundamento_legal" && match?.legalDecision
+      && !isAutomaticLegalDecision(match.legalDecision)) {
+      // Only a real tie is presented as a tie: review, blocked, conflict and
+      // pending legal states stay pending and are never written.
+      kind = match.legalDecision.decision_state === "TRUE_TIE" ? "tie" : "pending";
+    }
     const proposedValue = SELECT_FIELDS.has(fieldName)
       ? (match?.optionValue ?? null)
       : (field?.form_value ?? null);

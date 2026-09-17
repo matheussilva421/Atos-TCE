@@ -2262,6 +2262,37 @@ test("omits the legal foundation when the decision authorizes a different catalo
   assert.equal(apply.payload.fields.modalidade, "m-vol");
 });
 
+test("maps only TRUE_TIE to tie and every other legal state to pending", async () => {
+  const cases = [
+    ["REVIEW_REQUIRED", { status: "review", decision_state: "REVIEW_REQUIRED", method: "rule", confidence: 0.87, margin: 0.20, hard_conflict: false, rules_version: "legal-foundation-v3" }],
+    ["CONTEXT_BLOCKED", { status: "pending", decision_state: "CONTEXT_BLOCKED", method: "none", confidence: 0, margin: 0, hard_conflict: false, rules_version: "legal-foundation-v3", context_status: "blocked", context_reason: "DOCUMENT_EVIDENCE_MISSING" }],
+    ["DOCUMENT_CONFLICT", { status: "pending", decision_state: "DOCUMENT_CONFLICT", method: "none", confidence: 0, margin: 0, hard_conflict: false, rules_version: "legal-foundation-v3" }],
+    ["NO_COMPATIBLE_CANDIDATE", { status: "pending", decision_state: "NO_COMPATIBLE_CANDIDATE", method: "none", confidence: 0, margin: 0, hard_conflict: false, rules_version: "legal-foundation-v3" }],
+    ["TRUE_TIE", { status: "selected", decision_state: "TRUE_TIE", method: "rule", confidence: 0.95, margin: 0, hard_conflict: false, rules_version: "legal-foundation-v3" }],
+  ];
+
+  for (const [state, legalDecision] of cases) {
+    const dataset = await makeDataset();
+    const match = {
+      ...fieldMatch({ optionValue: "f-general", optionLabel: "Artigo 40, parágrafo 1" }),
+      legalDecision,
+    };
+    const { app, documentRef } = await startApp({
+      dataset,
+      snapshots: [snapshot({ options: currentOptions() })],
+      matches: [{ record: dataset.records[0], matches: fullMatches({ fundamento_legal: match }), reviewed: false }],
+    });
+
+    const expectedKind = state === "TRUE_TIE" ? "tie" : "pending";
+    const row = app.getState().rows.find((candidate) => candidate.field === "fundamento_legal");
+    assert.equal(row.kind, expectedKind, `rows:${state}`);
+    const kind = documentRef.getElementById("preview-body")
+      .querySelector('[data-field="fundamento_legal"]')
+      .getAttribute("data-kind");
+    assert.equal(kind, expectedKind, `dom:${state}`);
+  }
+});
+
 test("surfaces a forwarded content-script failure instead of reporting a false completed fill", async () => {
   const dataset = await makeDataset();
   const { app, documentRef } = await startApp({
