@@ -63,6 +63,7 @@ preflights, ainda sem envio.
 
 ## GitHub
 
-Commit `94e05bc` (`fix: repair portal capture launcher startup`) registrado
-localmente. O push ainda precisa ser confirmado. A pasta `outputs/` permanece
-privada e ignorada pelo Git.
+Commits locais relevantes: `94e05bc` (`fix: repair portal capture launcher
+startup`), `3dc73cd` (`docs: record portal launcher validation`) e `0592aff`
+(`fix: capture authenticated portal frames`). O `origin/main` ainda não foi
+atualizado; a pasta `outputs/` permanece privada e ignorada pelo Git.
