@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   classifyPortalOutcome,
@@ -10,6 +13,16 @@ import {
   submitVerifiedAct,
   waitForPortalOutcome,
 } from "../content/portal-submit.js";
+
+const realPortalFormFixture = JSON.parse(
+  readFileSync(
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../tests/fixtures/real-portal-observation-form.json",
+    ),
+    "utf8",
+  ),
+);
 
 const IDENTITY = {
   processKey: "103439/2023",
@@ -96,6 +109,15 @@ test("classifies only an accepted signal with matching post-read as confirmed", 
   assert.equal(classifyPortalOutcome({ accepted: true, persisted: true, identity: { ...IDENTITY, portalActId: "other" } }, { identity: IDENTITY }).status, "unconfirmed");
   assert.equal(classifyPortalOutcome({ rejected: true, reason: "validation" }, { identity: IDENTITY }).status, "failed");
   assert.equal(classifyPortalOutcome({ timeout: true }, { identity: IDENTITY }).status, "unconfirmed");
+});
+
+test("keeps a sanitized structural portal observation unconfirmed without outcome evidence", () => {
+  assert.equal(realPortalFormFixture.fixture_status, "sanitized");
+  assert.equal(realPortalFormFixture.portal_contract_ids.length, 9);
+  assert.deepEqual(classifyPortalOutcome(realPortalFormFixture), {
+    status: "unconfirmed",
+    evidence: {},
+  });
 });
 
 test("waits for an observed outcome and unsubscribes before the deadline", async () => {

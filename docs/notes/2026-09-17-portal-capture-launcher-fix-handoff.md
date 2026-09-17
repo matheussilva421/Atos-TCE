@@ -184,3 +184,17 @@ testes aprovados, 0 falhas. Gate completo:
 1.172 aprovadas, 0 falhas e 2 skips. O arquivo ainda precisa ser registrado
 em commit; a qualificação de envio, preflights reais e qualquer envio continuam
 bloqueados até as etapas próprias e autorização explícita.
+
+## Atualização — classificação segura da observação estrutural (17/09/2026)
+
+Foi acrescentado um teste de contrato em
+`portable/extensao-complementar-ato/tests/portal-submit.test.mjs`. Ele carrega
+a fixture real sanitizada pela interface pública `classifyPortalOutcome` e
+confirma que uma observação estrutural sem evidência de aceitação/persistência
+permanece `unconfirmed`. O classificador não precisou de alteração: a
+implementação existente já falha fechada nesse cenário.
+
+Suíte da extensão: 412 testes aprovados, 0 falhas. Gate completo:
+`verify-project.ps1 -TimeoutSeconds 900` — 1.175 verificações executadas,
+1.173 aprovadas, 0 falhas e 2 skips. Nenhuma ação foi feita no portal; envio
+real, preflights e qualificação continuam pendentes.
