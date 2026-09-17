@@ -539,6 +539,7 @@ export function createServiceWorker({
     const resolution = await legalContextResolver.ensureLegalContext({
       identity: { processKey, interestedNormalized },
       datasetSha256: currentDatasetSha256,
+      contextRevision: Number.isSafeInteger(contextRevision) ? contextRevision : null,
     });
 
     const matches = {};
@@ -645,8 +646,11 @@ export function createServiceWorker({
         matchedValues[field] = optionValue;
       }
       const kind = result?.kind;
+      // Only a real TRUE_TIE is reported as a tie: every other non-automatic
+      // legal state is pending for the caller and for the write guards.
+      const declaredState = result?.legalDecision?.decision_state;
       matches[field] = field === "fundamento_legal" && !legalDecisionAutomatic
-        ? "tie"
+        ? (declaredState === "TRUE_TIE" ? "tie" : "pending")
         : kind === "exact" || kind === "probable" || kind === "tie"
           ? kind
           : "probable";
@@ -963,6 +967,15 @@ export function createServiceWorker({
         case MESSAGE_TYPES.GET_FORM_SNAPSHOT:
         case MESSAGE_TYPES.APPLY_FIELDS:
         case MESSAGE_TYPES.OVERRIDE_FIELD:
+          if (!senderIsExtension(sender, chromeApi)) return errorResponse(validated.requestId, "UNAUTHORIZED", "only the extension may route form actions");
+          if (validated.payload.field === "fundamento_legal") {
+            return errorResponse(
+              validated.requestId,
+              "LEGAL_OVERRIDE_FORBIDDEN",
+              "a fundamentação legal não pode ser substituída manualmente; use uma decisão automática válida",
+            );
+          }
+          return await forwardToFrame(validated, sender);
         case MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO:
           if (!senderIsExtension(sender, chromeApi)) return errorResponse(validated.requestId, "UNAUTHORIZED", "only the extension may route form actions");
           return await forwardToFrame(validated, sender);

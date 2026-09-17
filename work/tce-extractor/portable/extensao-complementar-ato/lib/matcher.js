@@ -260,6 +260,30 @@ function missingLegalContextMatch(reason = "LEGAL_CONTEXT_REQUIRED") {
   };
 }
 
+const LEGAL_CONTEXT_SHA256_RE = /^[a-f0-9]{64}$/u;
+
+/**
+ * The specialized pipeline only runs for a complete, versioned LegalContext.
+ * Any other object stays fail-closed instead of being classified.
+ */
+function isCompleteLegalContext(context) {
+  return context !== null
+    && typeof context === "object"
+    && !Array.isArray(context)
+    && context.schema_version === 1
+    && typeof context.dataset_sha256 === "string"
+    && LEGAL_CONTEXT_SHA256_RE.test(context.dataset_sha256)
+    && typeof context.process_key === "string"
+    && context.process_key !== ""
+    && typeof context.interested_normalized === "string"
+    && context.interested_normalized !== ""
+    && context.resolution_status === "complete"
+    && typeof context.operative_text === "string"
+    && context.operative_text.trim() !== ""
+    && Array.isArray(context.pages)
+    && context.pages.length > 0;
+}
+
 /**
  * Ranks the current portal catalog against one documentary value. The source
  * and option labels are returned untouched; normalized signatures exist only
@@ -267,7 +291,7 @@ function missingLegalContextMatch(reason = "LEGAL_CONTEXT_REQUIRED") {
  */
 export function rankPortalOptions({ field, documentaryValue, hints = {}, options = [], context = null }) {
   if (field === "fundamento_legal") {
-    if (context === null || context === undefined) return missingLegalContextMatch();
+    if (!isCompleteLegalContext(context)) return missingLegalContextMatch();
     const legalDecision = resolveLegalFoundation({ context, options });
     const optionIndex = legalDecision.option_value === null
       ? null

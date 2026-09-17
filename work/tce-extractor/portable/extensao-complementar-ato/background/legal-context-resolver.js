@@ -32,7 +32,9 @@ function contextDefect(context, { identity, datasetSha256, rulesVersion }) {
   }
   if (context.resolution_status !== "complete") return "CONTEXT_INCOMPLETE";
   if (typeof context.operative_text !== "string" || !context.operative_text.trim()) return "CONTEXT_INCOMPLETE";
+  if (context.extraction_version !== "legal-context-v4") return "CONTEXT_INCOMPLETE";
   if (!Array.isArray(context.pages)) return "CONTEXT_INCOMPLETE";
+  if (context.pages.length === 0) return "CONTEXT_INCOMPLETE";
   if (!Number.isSafeInteger(context.context_revision) || context.context_revision < 0) {
     return "CONTEXT_REVISION_MISSING";
   }
@@ -60,8 +62,9 @@ export function createLegalContextResolver({ bridge, rulesVersion }) {
   }
 
   return {
-    async ensureLegalContext({ identity, datasetSha256 = null } = {}) {
-      const key = `${identityKey(identity)}\u0000${datasetSha256 ?? ""}\u0000${rulesVersion}\u0000`;
+    async ensureLegalContext({ identity, datasetSha256 = null, contextRevision = null } = {}) {
+      const revisionPart = Number.isSafeInteger(contextRevision) ? String(contextRevision) : "";
+      const key = `${identityKey(identity)}\u0000${datasetSha256 ?? ""}\u0000${rulesVersion}\u0000${revisionPart}`;
       const cached = cachedFor(key);
       if (cached !== null) return resolution("ready", "cache", null, cached);
 

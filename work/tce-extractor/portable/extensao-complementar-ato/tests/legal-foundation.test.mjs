@@ -5,7 +5,9 @@ import { parseLegalReferences, resolveLegalFoundation } from "../lib/legal-found
 
 const contextFor = (operativeText, overrides = {}) => ({
   schema_version: 1,
+  dataset_sha256: "c".repeat(64),
   process_key: "SYN-0001/2099",
+  interested_normalized: "interessado sintetico",
   resolution_status: "complete",
   operative_text: operativeText,
   pages: [{
@@ -242,10 +244,12 @@ test("ignores a historical CF paragraph 5 before the operative RESOLVE marker", 
     ],
   });
 
-  assert.notEqual(result.status, "selected");
+  // The historical CF § 5º before the RESOLVE marker is not operative: the
+  // EC41 general transition is selected and the teacher variant is not.
+  assert.equal(result.status, "selected");
   assert.equal(result.ranking[0].option_value, "without-p5");
   assert.equal(result.portal_classification.class_id, "EC41_TRANSITION_GENERAL");
-  assert.equal(result.option_value, null);
+  assert.equal(result.option_value, "without-p5");
 });
 
 test("accepts an isolated EC41 article 7 when it is linked to EC41/2003", () => {

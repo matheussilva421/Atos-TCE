@@ -192,6 +192,10 @@ function buildFields(record, snapshot, matches) {
     const proposedValue = match?.optionValue ?? field.form_value ?? null;
     const currentValue = snapshot?.fields?.[name]?.value ?? "";
     const hasProposal = proposedValue !== null && proposedValue !== undefined && proposedValue !== "";
+    // The legal foundation can never be overridden into a review, tie or
+    // blocked state: only an authorized automatic decision may be written.
+    const overrideAllowed = name !== "fundamento_legal"
+      || isAutomaticLegalDecision(match?.legalDecision);
     return {
       id: name,
       label: FIELD_LABELS[name],
@@ -201,6 +205,7 @@ function buildFields(record, snapshot, matches) {
       currentValue: text(currentValue),
       citation: field.citation ?? null,
       kind: fieldKind(field, match),
+      overrideAllowed,
       divergent: hasProposal
         && currentValue !== ""
         && !sameValue(name, currentValue, text(proposedValue), snapshot?.options?.[name]),
@@ -363,7 +368,7 @@ function renderDetails(documentRef, root, model, handlers) {
     card.append(element(documentRef, "p", `Proposta: ${field.proposedLabel || "—"}`));
     card.append(element(documentRef, "p", `Status: ${KIND_LABELS[field.kind] ?? "pendente"}`, { class: "field-kind" }));
     card.append(element(documentRef, "p", field.divergent ? "Divergente" : field.disabled ? "Indisponível" : "Sem alteração", { class: "field-state" }));
-    if (field.divergent && typeof handlers?.overrideField === "function") {
+    if (field.divergent && field.overrideAllowed !== false && typeof handlers?.overrideField === "function") {
       const override = element(documentRef, "button", "Revisar divergência", { type: "button", "data-role": "override", "data-field": field.id });
       override.addEventListener("click", () => handlers.overrideField(field.id));
       card.append(override);

@@ -476,9 +476,10 @@ test("uses pending and a null option only for contextual foundation matching", (
   });
 
   assert.equal(result.kind, "pending");
-  assert.equal(result.optionIndex, null);
+  assert.equal(result.optionIndex, -1);
   assert.equal(result.optionValue, null);
   assert.equal(result.optionLabel, null);
+  assert.equal(result.legalDecision.decision_state, "CONTEXT_BLOCKED");
 });
 
 test("preserves the legacy zero-score modalidade result without context", () => {
@@ -504,9 +505,13 @@ test("carries a selected legal decision without changing the legacy matcher fiel
     field: "fundamento_legal",
     documentaryValue: "texto legado",
     context: {
+      schema_version: 1,
+      dataset_sha256: "d".repeat(64),
+      process_key: "SYN-0001/2099",
+      interested_normalized: "interessado sintetico",
       resolution_status: "complete",
       operative_text: "RESOLVE: Art. 3º, incisos I a III e parágrafo único, da EC nº 47/2005.",
-      pages: [],
+      pages: [{ text: "RESOLVE: Art. 3º, incisos I a III e parágrafo único, da EC nº 47/2005.", citation: { page: 1 } }],
     },
     options: [
       legalFoundationFixture.options[0],

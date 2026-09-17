@@ -83,7 +83,7 @@ function crosswalkFor(profile, candidate) {
   if (isEce20Case(profile) && ["EC41_TRANSITION_GENERAL", "EC41_TRANSITION_TEACHER"].includes(candidate.class_id)) {
     return CROSSWALK_ECE20;
   }
-  const hasEc41Transition = ["EC41_SEM_P5", "EC41_COM_P5"].includes(candidate.class_id)
+  const hasEc41Transition = ["EC41_SEM_P5", "EC41_COM_P5", "EC41_TRANSITION_GENERAL", "EC41_TRANSITION_TEACHER"].includes(candidate.class_id)
     && (!profile.professor_rule_explicit || candidate.teacher_rule)
     && profile.references.some((reference) => (
       reference.diploma_type === "ec"
@@ -244,6 +244,7 @@ function rankOne(profile, sourceText, option) {
           ? "rule"
           : "none",
     score_components: components,
+    candidate_references: candidate.references,
   };
 }
 
@@ -315,6 +316,17 @@ export function classifyPortalLegalFoundation({ operativeText = "", cargo = "", 
   if (best.confidence >= 0.90 && margin >= 0.12 && !best.hard_conflict) status = "selected";
   else if (best.confidence >= 0.75 && !best.hard_conflict) status = "review";
   else status = "pending";
+  // An option the structural classifier could not recognize never becomes an
+  // automatic selection: it stays in review even when the numeric score passes.
+  const hasStructuralEvidence = best.class_id === "EC20_ART8"
+    || structuralMatch(profile.references, best.candidate_references ?? [])
+    || (best.reasons ?? []).some((reason) => String(reason).startsWith("crosswalk:"));
+  if (status === "selected"
+    && String(best.class_id).startsWith("CATALOG_OPTION_")
+    && !hasStructuralEvidence) {
+    status = "review";
+    warnings.push("Classe jurídica do catálogo não reconhecida; confirmação manual necessária.");
+  }
   let decisionState;
   if (tied) decisionState = "TRUE_TIE";
   else if (status === "selected") decisionState = "AUTO_SELECTED";

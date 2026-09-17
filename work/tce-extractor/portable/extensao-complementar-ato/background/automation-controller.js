@@ -1067,6 +1067,7 @@ export function createAutomationController({
       applyResponse = await sendPortalMessage(tabId, MESSAGE_TYPES.APPLY_FIELDS, {
         fields: clone(preparation.fields),
         matchKinds: clone(resolved?.matchKinds ?? {}),
+        legalDecision: clone(resolved?.legalDecision),
       }, frameId, snapshotRequestId);
     } catch (error) {
       const persisted = await recordItemFailure(identity, error instanceof Error ? error.message : "APPLY_FIELDS failed");

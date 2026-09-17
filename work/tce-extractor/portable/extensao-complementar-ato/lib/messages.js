@@ -293,16 +293,30 @@ function validatePayload(type, payload) {
     case MESSAGE_TYPES.APPLY_FIELDS:
       exactKeys(
         payload,
-        Object.hasOwn(payload, "matchKinds") ? ["fields", "matchKinds"] : ["fields"],
+        ["fields",
+          ...(Object.hasOwn(payload, "matchKinds") ? ["matchKinds"] : []),
+          ...(Object.hasOwn(payload, "legalDecision") ? ["legalDecision"] : [])],
         "APPLY_FIELDS payload",
       );
       validateFields(payload.fields);
       if (Object.hasOwn(payload, "matchKinds")) validateMatchKinds(payload.matchKinds);
+      if (Object.hasOwn(payload, "legalDecision") && !isRecord(payload.legalDecision)) {
+        invalid("APPLY_FIELDS legalDecision must be an object");
+      }
       break;
     case MESSAGE_TYPES.OVERRIDE_FIELD:
-      exactKeys(payload, ["field", "proposedValue"], "OVERRIDE_FIELD payload");
+      exactKeysFrom(
+        payload,
+        ["field", "proposedValue"],
+        ["matchKinds", "legalDecision"],
+        "OVERRIDE_FIELD payload",
+      );
       if (!ALLOWED_FIELDS.includes(payload.field)) invalid("OVERRIDE_FIELD field is unsupported");
       if (typeof payload.proposedValue !== "string") invalid("OVERRIDE_FIELD proposedValue must be a string");
+      if (Object.hasOwn(payload, "matchKinds")) validateMatchKinds(payload.matchKinds);
+      if (Object.hasOwn(payload, "legalDecision") && !isRecord(payload.legalDecision)) {
+        invalid("OVERRIDE_FIELD legalDecision must be an object");
+      }
       break;
     case MESSAGE_TYPES.SET_REVIEWED:
       exactKeys(payload, ["processKey", "interestedNormalized", "reviewed"], "SET_REVIEWED payload");

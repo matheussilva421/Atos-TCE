@@ -959,6 +959,7 @@ export function createPanelApp({
   function applyPayload() {
     const fields = {};
     const matchKinds = {};
+    let legalDecision = null;
     for (const row of state.rows) {
       if (row.proposedValue === null) continue;
       // Defense in depth: the legal foundation field is never written unless
@@ -967,10 +968,15 @@ export function createPanelApp({
       if (row.field === "fundamento_legal" && !isAutomaticLegalDecision(row.match?.legalDecision)) {
         continue;
       }
+      if (row.field === "fundamento_legal") legalDecision = row.match.legalDecision;
       fields[row.field] = row.proposedValue;
       if (MATCH_KINDS.has(row.kind)) matchKinds[row.field] = row.kind;
     }
-    return { fields, matchKinds };
+    // The authorized decision travels with the payload so the content script
+    // can enforce the same barrier independently.
+    return legalDecision === null
+      ? { fields, matchKinds }
+      : { fields, matchKinds, legalDecision };
   }
 
   async function fillAvailableFields() {
@@ -1031,6 +1037,11 @@ export function createPanelApp({
   async function overrideField(fieldName) {
     const row = state.rows.find((candidate) => candidate.field === fieldName);
     if (!row?.divergent || row.proposedValue === null || !state.previewIdentity) return false;
+    // Same fail-closed barrier for the single-field override: the legal
+    // foundation is never replaced by a non-automatic proposal.
+    if (fieldName === "fundamento_legal" && !isAutomaticLegalDecision(row.match?.legalDecision)) {
+      return false;
+    }
     const confirmed = confirmFn(`Substituir somente o campo "${row.label}" no processo ${state.previewIdentity.processKey}? Valor atual: "${row.currentValue}". Novo valor: "${row.proposedValue}".`);
     if (!confirmed) return false;
     try {

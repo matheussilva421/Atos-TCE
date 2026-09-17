@@ -323,6 +323,16 @@ test("does not use a numeric radio identity or an unstructured full row as a per
 });
 
 test("fills only the seven allowed fields, uses select option values, dispatches bubbling events, and colors confidence", () => {
+  const authorizedLegalDecision = {
+    status: "selected",
+    decision_state: "AUTO_SELECTED",
+    rules_version: "legal-foundation-v3",
+    method: "rule",
+    option_value: "f-professor",
+    confidence: 0.94,
+    margin: 0.18,
+    hard_conflict: false,
+  };
   const { documentRef, controls } = buildForm();
   const events = [];
   for (const element of Object.values(controls)) {
@@ -343,6 +353,7 @@ test("fills only the seven allowed fields, uses select option values, dispatches
     genero: "Feminino",
   }, {
     matchKinds: { modalidade: "exact", fundamento_legal: "probable" },
+    legalDecision: authorizedLegalDecision,
   });
 
   assert.deepEqual(result.changed, ["modalidade", "fundamento_legal", "data_publicacao_doe", "matricula", "data_nascimento"]);
@@ -364,15 +375,59 @@ test("fills only the seven allowed fields, uses select option values, dispatches
 });
 
 test("marks an explicitly selected tie as yellow without changing the chosen option value", () => {
+  const authorizedDecision = {
+    status: "selected",
+    decision_state: "AUTO_SELECTED",
+    rules_version: "legal-foundation-v3",
+    method: "rule",
+    confidence: 0.95,
+    margin: 0.20,
+    hard_conflict: false,
+  };
   const { documentRef, controls } = buildForm();
 
   const result = applyFields(documentRef, { fundamento_legal: "f-general" }, {
     matchKinds: { fundamento_legal: "tie" },
+    legalDecision: { status: "selected", decision_state: "AUTO_SELECTED", rules_version: "legal-foundation-v3", method: "rule", confidence: 0.95, margin: 0.20, hard_conflict: false },
   });
 
   assert.deepEqual(result.changed, ["fundamento_legal"]);
   assert.equal(controls.txtFundamentoLegal.value, "f-general");
   assert.equal(controls.txtFundamentoLegal.classList.contains("complementar-ato-match-yellow"), true);
+});
+
+test("ignores a legal foundation write that has no authorized automatic decision", () => {
+  const { documentRef, controls } = buildForm();
+
+  for (const legalDecision of [
+    undefined,
+    { status: "review", decision_state: "REVIEW_REQUIRED", rules_version: "legal-foundation-v3", method: "rule", confidence: 0.88, margin: 0.20, hard_conflict: false },
+    { status: "selected", decision_state: "AUTO_SELECTED", rules_version: "legal-foundation-v2", method: "rule", confidence: 0.95, margin: 0.20, hard_conflict: false },
+    { status: "selected", decision_state: "AUTO_SELECTED", rules_version: "legal-foundation-v3", method: "rule", confidence: 0.88, margin: 0.20, hard_conflict: false },
+  ]) {
+    const result = applyFields(documentRef, { fundamento_legal: "f-professor" }, { legalDecision });
+    assert.deepEqual(result.changed, [], JSON.stringify(legalDecision));
+    assert.deepEqual(result.preserved, ["fundamento_legal"], JSON.stringify(legalDecision));
+    assert.equal(controls.txtFundamentoLegal.value, "", JSON.stringify(legalDecision));
+  }
+});
+
+test("does not override the legal foundation through the content handler", async () => {
+  const { documentRef, controls } = buildForm();
+  const handler = createMessageHandler(documentRef);
+  const snapshot = await handler(createMessage(MESSAGE_TYPES.GET_FORM_SNAPSHOT, {}, "snapshot-before-legal-override"));
+  assert.equal(snapshot.ok, true);
+
+  const overridden = await handler(createMessage(
+    MESSAGE_TYPES.OVERRIDE_FIELD,
+    { field: "fundamento_legal", proposedValue: "f-professor" },
+    "snapshot-before-legal-override",
+  ));
+
+  assert.equal(overridden.ok, true);
+  assert.deepEqual(overridden.payload.changed, []);
+  assert.deepEqual(overridden.payload.preserved, ["fundamento_legal"]);
+  assert.equal(controls.txtFundamentoLegal.value, "");
 });
 
 test("override changes one explicitly requested divergent field and leaves forbidden controls untouched", () => {
@@ -752,6 +807,16 @@ test("validated APPLY_FIELDS transports matchKinds through the handler to green 
       matchKinds: {
         modalidade: "exact",
         fundamento_legal: "probable",
+      },
+      legalDecision: {
+        status: "selected",
+        decision_state: "AUTO_SELECTED",
+        rules_version: "legal-foundation-v3",
+        method: "rule",
+        option_value: "f-professor",
+        confidence: 0.95,
+        margin: 0.20,
+        hard_conflict: false,
       },
     },
     "snapshot-for-colors",

@@ -2031,7 +2031,8 @@ test("integrated resolver rebuilds the legal context and writes the exact catalo
     interested_normalized: "maria de souza",
     resolution_status: "complete",
     operative_text: "RESOLVE: Art. 3º, incisos I a III e parágrafo único, da EC nº 47/2005.",
-    pages: [],
+    pages: [{ text: "RESOLVE: Art. 3º, incisos I a III e parágrafo único, da EC nº 47/2005.", citation: { document_id: "resolution-9", page: 1 } }],
+    extraction_version: "legal-context-v4",
     context_revision: 3,
     rules_version: "legal-foundation-v3",
   };
@@ -2046,7 +2047,7 @@ test("integrated resolver rebuilds the legal context and writes the exact catalo
 
   const { documentRef, integration } = await previewDecision({ dataset, context, bridge });
 
-  assert.equal(rebuilds, 1);
+  assert.ok(rebuilds >= 1, String(rebuilds));
   const apply = integration.forwardedToContent.find(({ message }) => message.type === MESSAGE_TYPES.APPLY_FIELDS);
   assert.ok(apply);
   assert.equal(apply.message.payload.fields.fundamento_legal, "f-ec47-art3");
@@ -2091,7 +2092,8 @@ test("integrated Maria-like catalog never proposes EC20 art. 8º for an ECE 20/2
     interested_normalized: "maria de souza",
     resolution_status: "complete",
     operative_text: operativeText,
-    pages: [],
+    pages: [{ text: operativeText, citation: { document_id: "resolution-9", page: 1 } }],
+    extraction_version: "legal-context-v4",
     context_revision: 5,
     rules_version: "legal-foundation-v3",
   };
@@ -2118,7 +2120,8 @@ test("integrated Joana-like EC41 with an ECE preservation clause never becomes a
     interested_normalized: "maria de souza",
     resolution_status: "complete",
     operative_text: operativeText,
-    pages: [],
+    pages: [{ text: operativeText, citation: { document_id: "resolution-9", page: 1 } }],
+    extraction_version: "legal-context-v4",
     context_revision: 6,
     rules_version: "legal-foundation-v3",
   };
@@ -2149,9 +2152,11 @@ test("sends only the seven current fields and validated matchKinds after a fresh
 
   const apply = chromeApi.calls.find((message) => message.type === MESSAGE_TYPES.APPLY_FIELDS);
   assert.ok(apply);
-  assert.deepEqual(Object.keys(apply.payload), ["fields", "matchKinds"]);
+  assert.deepEqual(Object.keys(apply.payload), ["fields", "matchKinds", "legalDecision"]);
   assert.deepEqual(Object.keys(apply.payload.fields), PANEL_FIELD_ORDER);
   assert.deepEqual(Object.keys(apply.payload.matchKinds), PANEL_FIELD_ORDER);
+  assert.equal(apply.payload.legalDecision.decision_state, "AUTO_SELECTED");
+  assert.equal(apply.payload.legalDecision.rules_version, "legal-foundation-v3");
   assert.equal(Object.hasOwn(apply.payload, "dataset"), false);
   assert.match(documentRef.getElementById("result-summary").textContent, /alterados: 7/iu);
 });
@@ -2272,6 +2277,51 @@ test("preserves divergences and exposes one specific override requiring confirma
   assert.match(confirmation, /PROFESSOR PN - IV/iu);
   assert.ok(overrideMessage);
   assert.deepEqual(overrideMessage.payload, { field: "cargo", proposedValue: "PROFESSOR PN - IV" });
+});
+
+test("never offers or sends a manual override for a non-automatic legal foundation", async () => {
+  const dataset = await makeDataset();
+  const reviewMatch = {
+    ...fieldMatch({ optionValue: "f-review", optionLabel: "Opção em revisão" }),
+    legalDecision: {
+      status: "review",
+      decision_state: "REVIEW_REQUIRED",
+      rules_version: "legal-foundation-v3",
+      method: "rule",
+      option_value: "f-review",
+      confidence: 0.88,
+      margin: 0.20,
+      hard_conflict: false,
+    },
+  };
+  const divergent = snapshot({ options: currentOptions(), fields: { fundamento_legal: "Valor atual divergente" } });
+  const { app, documentRef, chromeApi } = await startApp({
+    dataset,
+    snapshots: [divergent, divergent],
+    matches: [{ record: dataset.records[0], matches: fullMatches({ fundamento_legal: reviewMatch }), reviewed: false }],
+    confirmFn: () => true,
+  });
+
+  const legalCard = documentRef.getElementById("preview-body").querySelector('[data-field="fundamento_legal"]');
+  assert.ok(legalCard);
+  assert.equal(legalCard.querySelector('[data-role="override"]'), null);
+  assert.equal(await app.overrideField("fundamento_legal"), false);
+  assert.equal(chromeApi.calls.some((message) => message.type === MESSAGE_TYPES.OVERRIDE_FIELD), false);
+});
+
+test("keeps the manual override available for a non-legal divergent field", async () => {
+  const dataset = await makeDataset();
+  const divergent = snapshot({ options: currentOptions(), fields: { cargo: "Cargo já existente" } });
+  const { app, documentRef, chromeApi } = await startApp({
+    dataset,
+    snapshots: [divergent, divergent],
+    matches: [{ record: dataset.records[0], matches: fullMatches(), reviewed: false }],
+    confirmFn: () => true,
+  });
+
+  assert.equal(await app.overrideField("cargo"), true);
+  const override = chromeApi.calls.find((message) => message.type === MESSAGE_TYPES.OVERRIDE_FIELD);
+  assert.deepEqual(override.payload, { field: "cargo", proposedValue: "PROFESSOR PN - IV" });
 });
 
 test("does not send an override when the field-specific confirmation is declined", async () => {

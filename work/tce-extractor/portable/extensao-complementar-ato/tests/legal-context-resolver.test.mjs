@@ -7,6 +7,8 @@ const HASH = "a".repeat(64);
 const RULES = "legal-foundation-v3";
 const IDENTITY = { processKey: "103439/2023", interestedNormalized: "maria da silva" };
 
+const COMPLETE_PAGES = [{ text: "RESOLVE: Art. 6º da EC nº 41/2003.", citation: { document_id: "resolution-9", page: 1 } }];
+
 function contextRecord(overrides = {}) {
   return {
     schema_version: 1,
@@ -15,7 +17,8 @@ function contextRecord(overrides = {}) {
     interested_normalized: IDENTITY.interestedNormalized,
     resolution_status: "complete",
     operative_text: "RESOLVE: Art. 6º da EC nº 41/2003.",
-    pages: [],
+    pages: COMPLETE_PAGES,
+    extraction_version: "legal-context-v4",
     context_revision: 4,
     rules_version: RULES,
     ...overrides,

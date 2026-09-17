@@ -151,6 +151,8 @@ function deriveClassId(references, normalizedLabel, index) {
   }
   if (hasArticle(references, "ec", "20", "8")) return "EC20_ART8";
   if (hasArticle(references, "ec", "20", "9")) return "EC20_ART9";
+  if (hasArticle(references, "ec", "20", "1")) return "EC20_ART1";
+  if (references.some((reference) => reference.diploma_type === "ce" && reference.article === "40")) return "CE40";
   if (hasArticle(references, "ec", "41", "2")) return "EC41_ART2";
   if (hasArticle(references, "ec", "47", "3")) return "EC47_ART3";
   if (hasArticle(references, "ec", "41", "1")) return "EC41_ART1";

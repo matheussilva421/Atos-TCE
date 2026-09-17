@@ -20,6 +20,18 @@ const portalOptions = catalogLabels.map((label, index) => ({ value: `raw-${index
 const optionsForClasses = (classIds) => portalOptions.filter(({ value }) => classIds.includes(classForValue[value]));
 const CASE = fixture.cases.find(({ case_id }) => case_id === "ece20_prof_voluntary_integral");
 
+test("never auto-selects a catalog option the structural classifier cannot place", () => {
+  const result = classifyPortalLegalFoundation({
+    operativeText: "RESOLVE conceder aposentadoria voluntária por tempo de contribuição, com proventos integrais, a servidor ocupante do cargo de PROFESSOR.",
+    cargo: "PROFESSOR",
+    options: [{ value: "unknown-1", label: "Civil - Regra geral de aposentadoria voluntária" }],
+  });
+
+  assert.notEqual(result.status, "selected");
+  assert.equal(result.decision_state, "REVIEW_REQUIRED");
+  assert.equal(result.automatic, false);
+});
+
 test("rejects the teacher rule when the professor rule is absent from the operative text", () => {
   const options = optionsForClasses(["EC41_TRANSITION_GENERAL", "EC41_TRANSITION_TEACHER"]);
   const result = classifyPortalLegalFoundation({

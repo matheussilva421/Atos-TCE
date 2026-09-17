@@ -1510,7 +1510,8 @@ test("worker-owned resolver feeds getMatch once per identity and never accepts a
     interested_normalized: "joao da silva",
     resolution_status: "complete",
     operative_text: "RESOLVE: Art. 6º da EC 41/2003.",
-    pages: [],
+    pages: [{ text: "RESOLVE: Art. 6º da EC 41/2003.", citation: { document_id: "resolution-9", page: 1 } }],
+    extraction_version: "legal-context-v4",
     context_revision: 1,
     rules_version: "legal-foundation-v3",
   };
@@ -1616,7 +1617,8 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
     interested_normalized: "joao da silva",
     resolution_status: "complete",
     operative_text: "RESOLVE: Art. 40, § 5º.",
-    pages: [],
+    pages: [{ text: "RESOLVE: Art. 40, § 5º.", citation: { document_id: "resolution-9", page: 1 } }],
+    extraction_version: "legal-context-v4",
     context_revision: 12,
     rules_version: "legal-foundation-v3",
   };

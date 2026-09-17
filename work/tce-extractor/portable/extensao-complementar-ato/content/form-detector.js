@@ -349,6 +349,28 @@ function validateBeforeWrite(documentRef, expectedIdentity) {
   return null;
 }
 
+const AUTOMATIC_LEGAL_DECISION_RULES = "legal-foundation-v3";
+
+/**
+ * Independent barrier for the legal foundation field: the content script only
+ * writes it when the caller proves an authorized automatic v3 decision.
+ */
+function isAuthorizedLegalDecision(decision) {
+  return decision !== null
+    && typeof decision === "object"
+    && decision.status === "selected"
+    && decision.decision_state === "AUTO_SELECTED"
+    && decision.rules_version === AUTOMATIC_LEGAL_DECISION_RULES
+    && decision.method !== "none"
+    && decision.hard_conflict !== true
+    && typeof decision.confidence === "number"
+    && Number.isFinite(decision.confidence)
+    && decision.confidence >= 0.90
+    && typeof decision.margin === "number"
+    && Number.isFinite(decision.margin)
+    && decision.margin >= 0.12;
+}
+
 function applyFieldsInternal(documentRef, fields, options = {}, allowOverride = false) {
   validateFieldPayload(fields);
   const result = emptyResult();
@@ -371,6 +393,12 @@ function applyFieldsInternal(documentRef, fields, options = {}, allowOverride = 
     if (beforeWriteError) {
       result.errors.push(beforeWriteError);
       break;
+    }
+    if (field === "fundamento_legal" && !isAuthorizedLegalDecision(options.legalDecision)) {
+      // REVIEW, TRUE_TIE, CONTEXT_BLOCKED and PENDING proposals are never
+      // written, even when another layer asks for them.
+      result.preserved.push(field);
+      continue;
     }
     const proposedValue = fields[field];
     if (proposedValue === null || proposedValue === "") {
@@ -489,6 +517,7 @@ function createMessageHandler(documentRef = globalThis.document) {
         const result = applyFields(documentRef, message.payload.fields, {
           expectedIdentity: activeSnapshotPlan.identity,
           matchKinds: message.payload.matchKinds,
+          legalDecision: message.payload.legalDecision,
         });
         activeSnapshotPlan = null;
         return result.errors.length > 0
@@ -500,7 +529,7 @@ function createMessageHandler(documentRef = globalThis.document) {
           documentRef,
           message.payload.field,
           message.payload.proposedValue,
-          { expectedIdentity: lastIdentity },
+          { expectedIdentity: lastIdentity, legalDecision: message.payload.legalDecision },
         );
         return result.errors.length > 0
           ? { ok: false, payload: result, error: { code: "OVERRIDE_BLOCKED", message: result.errors.join("; ") } }
