@@ -88,7 +88,7 @@
           <p class="manual-mode-note">A lista original não é alterada. A análise mantém a ordem, duplicidades e proveniência; apenas o botão vermelho semanticamente identificado como “Complementar Ato” é elegível.</p>
           <label for="automation-marker">Marcador do lote (opcional)</label>
           <input id="automation-marker" type="text" maxlength="256" placeholder="Ex.: PROFESSOR - IPERN - 2 RUBRICAS" autocomplete="off">
-          <p class="manual-mode-note">Se preenchido, o worker seleciona esse marcador, confirma o resultado e percorre todas as páginas antes de congelar a fila.</p>
+          <p class="manual-mode-note">Se preenchido, o worker seleciona esse marcador. Se ficar vazio, ele usa e confirma o marcador que você já selecionou no portal; se o marcador mudar durante a execução, a análise pausa para revisão.</p>
           <label for="automation-source-scope">Origem dos processos</label>
           <select id="automation-source-scope">
             <option value="sector_finalistic" selected>Proc./ Doc. Eletrônicos (processos no setor / finalísticos)</option>

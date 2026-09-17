@@ -55,9 +55,10 @@ nenhum ato foi enviado. A gravação privada preserva as ações manuais até
 
 O próximo passo humano é executar novamente o launcher corrigido, resolver o
 login/autenticação na janela descartável e navegar até `ProcessonoSetor.asp`,
-escopo finalístico e marcador `6189`. Confira o JSON final, depois pressione
-`Ctrl+C` no terminal do runner e responda `N` à pergunta de encerramento; em
-seguida execute
+escopo finalístico. O marcador deve ser selecionado manualmente no portal; o
+campo opcional do painel deve ficar vazio para a automação ler o marcador
+vigente. Confira o JSON final, depois pressione `Ctrl+C` no terminal do runner
+e responda `N` à pergunta de encerramento; em seguida execute
 `INICIAR.cmd parar`. Só então revisar o JSON sanitizado e iniciar os três
 preflights, ainda sem envio.
 
@@ -68,3 +69,18 @@ startup`), `3dc73cd` (`docs: record portal launcher validation`) e `0592aff`
 (`fix: capture authenticated portal frames`) e `4824cfb` (`docs: clarify
 portal authentication evidence`). O `origin/main` ainda não foi atualizado; a
 pasta `outputs/` permanece privada e ignorada pelo Git.
+
+## Atualização — marcador escolhido manualmente (17/09/2026)
+
+O marcador do portal não é fixo. Quando o campo opcional **Marcador do lote**
+fica vazio, a extensão lê o marcador atualmente selecionado na Área Restrita,
+confirma label e value e mantém essa identidade durante a análise. Se o
+marcador mudar durante a execução, o fluxo pausa para revisão; ele não escolhe
+outro marcador automaticamente. O valor `6189` deixou de ser requisito do
+runbook.
+
+O teste existente `reads and locks the marker already selected in the Area
+Restrita without a typed marker or dataset` confirmou que nenhuma ação
+`filter_marker` é enviada nesse modo. A cópia privada de
+`extensao-complementar-ato/sidepanel/panel.html` foi atualizada junto com a
+fonte e os hashes conferem.

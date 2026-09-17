@@ -45,7 +45,11 @@ autenticados entre as páginas abertas e regrava a evidência durante a sessão.
 
 Faça o login manualmente na janela que abrir. Não há digitação de credencial
 por automação. A ponte grava `dados-locais/bridge/service.json` com o código de
-pareamento durante a inicialização.
+pareamento durante a inicialização. Na tela **Processos no Setor**, selecione
+manualmente o marcador vigente e clique em **Consultar**. No painel da
+extensão, deixe **Marcador do lote (opcional)** vazio: a automação vai ler e
+confirmar o marcador que já estiver selecionado. Se ele mudar durante uma
+execução, a automação pausa para revisão, sem escolher outro marcador.
 
 ## Passo 3 - conferir a evidencia capturada
 
@@ -71,8 +75,8 @@ artefatos e repita a sessão após o login manual.
 ## Passo 4 - tres preflights, sem envio
 
 Escopo exigido: ProcessonoSetor.asp, source_scope=sector_finalistic, marcador
-6189, identidade processo/interessado exata, catalogo atual e seis campos
-obrigatorios (genero continua opcional).
+vigente selecionado manualmente no portal, identidade processo/interessado
+exata, catalogo atual e seis campos obrigatorios (genero continua opcional).
 
 Para cada preflight, confirmar: preparacao reversivel, releitura pos-escrita e
 igualdade de identidade, frame, geracao, campos e catalogo. Divergencia, frame
