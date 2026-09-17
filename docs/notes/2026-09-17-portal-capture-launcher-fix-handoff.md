@@ -198,3 +198,16 @@ Suíte da extensão: 412 testes aprovados, 0 falhas. Gate completo:
 `verify-project.ps1 -TimeoutSeconds 900` — 1.175 verificações executadas,
 1.173 aprovadas, 0 falhas e 2 skips. Nenhuma ação foi feita no portal; envio
 real, preflights e qualificação continuam pendentes.
+
+## Atualização — sessão de preflight iniciada (17/09/2026)
+
+Foi iniciada uma nova sessão privada do pacote para os preflights reais em
+modo de observação. A ponte local está conectada na porta `18743` e o Chrome
+isolado abriu com o runner `real-portal-20260917T120633932395Z`. O código de
+pareamento foi usado somente em memória pelo launcher e não foi registrado.
+
+A sessão está aguardando login manual e navegação do operador. O procedimento
+pendente é abrir três atos representativos, sem preencher campos e sem clicar
+em **Complementar Ato**. O marcador deve continuar sendo escolhido manualmente;
+o campo opcional do painel deve ficar vazio. Até a conclusão dessa etapa não há
+preflight real promovido nem qualquer envio autorizado.
