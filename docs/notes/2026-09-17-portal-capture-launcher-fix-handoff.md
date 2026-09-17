@@ -272,3 +272,24 @@ O launcher deve ser executado pelo usuário em uma janela própria e interativa
 do PowerShell, no diretório do pacote. O Chrome isolado e o pareamento dependem
 desse desktop; o código deve ser informado no painel da extensão e o login
 continua manual.
+
+## Atualização — três formulários revisados na sessão interativa (17/09/2026)
+
+A sessão `real-portal-20260917T123415041541Z` foi encerrada pelo operador após
+três entradas em `ComplementarAto.asp` e três seleções manuais do interessado.
+O usuário confirmou que precisou clicar em **Atualizar prévia** no primeiro ato
+e concluiu os dois restantes; o gravador estrutural não captura de forma
+confiável esse clique feito no painel, mas registrou a jornada portal-side,
+`human_stop=1` e nenhum evento de preenchimento, aplicação ou envio.
+
+O artefato privado dessa sessão tem 96 passos, dois erros de gravação e nenhum
+evento de envio. Ele serve como registro estrutural read-only, junto com a
+confirmação manual do operador; não contém os valores documentais exibidos no
+painel. A verificação independente das propostas continua pendente antes de
+qualquer gate de envio.
+
+O caminho privado `dados-locais/observacao-portal-real.json` não deve ser usado
+para promover essa sessão: ele foi sobrescrito por uma execução anterior
+inválida (`real-portal-20260917T122613521626Z`, origem nula e pareamento
+incorreto). A gravação `123415041541Z` e a fixture sanitizada versionada estão
+preservadas. Nenhum ato foi preenchido ou enviado.
