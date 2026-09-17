@@ -199,6 +199,22 @@ Suíte da extensão: 412 testes aprovados, 0 falhas. Gate completo:
 1.173 aprovadas, 0 falhas e 2 skips. Nenhuma ação foi feita no portal; envio
 real, preflights e qualificação continuam pendentes.
 
+## Atualização — resultado da sessão de preflight (17/09/2026)
+
+A sessão `real-portal-20260917T120633932395Z` foi encerrada sem envio e
+confirmou novamente a origem oficial autenticada, os nove IDs do formulário,
+nenhuma ausência, `portal_drift=false` e
+`submission_performed_by_runner=false`. A gravação registrou três visitas ao
+formulário `ComplementarAto.asp`, cada uma com seleção manual do interessado,
+sem preenchimento dos campos.
+
+O clique em **Atualizar prévia** no painel não apareceu na gravação. Assim, a
+sessão comprova três inspeções estruturais read-only, mas não comprova os três
+preflights da automação nem as propostas documentais correspondentes. Para
+fechar esse gate, é necessária uma nova sessão curta: abrir cada formulário,
+clicar somente em **Atualizar prévia**, aguardar o resultado e repetir nos três
+atos. Não clicar em preenchimento ou envio.
+
 ## Atualização — sessão de preflight iniciada (17/09/2026)
 
 Foi iniciada uma nova sessão privada do pacote para os preflights reais em
