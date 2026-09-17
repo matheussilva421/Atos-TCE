@@ -407,3 +407,22 @@ Retomada recomendada:
 7. Depois das validações, atualizar este handoff, fazer commit e push somente
    dos arquivos de fonte, teste e documentação aprovados; manter dados
    privados, perfis, logs, HARs e traces fora do Git.
+
+## Atualização — commit e push concluídos (17/09/2026)
+
+O usuário executou a atualização do repositório. O `fetch` mostrou que `main`
+estava dois commits atrás de `origin/main`; o commit local foi criado e depois
+reaplicado com `git pull --rebase origin main`. O push terminou com sucesso e o
+estado final confirmado foi:
+
+- commit remoto: `fa90605 fix: use selected portal marker in pilot`;
+- `HEAD` e `origin/main` alinhados;
+- três arquivos versionados incluídos: controlador, teste regressivo e este
+  handoff;
+- `work/tce-extractor/.codex-live-pilot.py` continua não rastreado por ser um
+  launcher temporário com caminhos locais.
+
+O comando `verify-project.ps1` iniciou e mostrou os estágios extension, web e
+python verdes (`413`, `6` e `6` testes aprovados), mas a saída fornecida parou
+no início do estágio PowerShell e não exibiu o resumo final. Portanto o gate
+completo ainda não deve ser declarado aprovado.
