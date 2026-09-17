@@ -89,3 +89,12 @@ Commit local desta atualização: `d5acfd9` (`feat: use manually selected portal
 marker`). Testes da extensão: 411/411 aprovados; testes do controlador de
 automação: 69/69 aprovados. O gate completo permaneceu em 1.174 verificações,
 1.172 aprovadas, 0 falhas e 2 skips.
+
+## Atualização — limpeza de runner antigo (17/09/2026)
+
+O arquivo de observação permaneceu inválido porque um launcher antigo ainda
+mantinha `real_portal_session.py --stay-open` ativo e reescrevia o mesmo JSON.
+Após confirmação do usuário, a árvore antiga foi encerrada; o runner antigo
+não está mais ativo e o JSON parou de mudar. Os artefatos privados foram
+preservados. Antes da nova captura, parar a ponte residual com
+`INICIAR.cmd parar` se necessário e iniciar uma sessão limpa.
