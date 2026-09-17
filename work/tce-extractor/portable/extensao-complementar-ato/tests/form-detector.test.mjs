@@ -436,6 +436,45 @@ test("refuses legal foundation when the automatic decision authorizes a differen
   assert.equal(result.changed.includes("fundamento_legal"), false);
 });
 
+test("preserves the legal foundation when the arriving payload diverges from the authorized decision", async () => {
+  const { documentRef, controls } = buildForm();
+  const handler = createMessageHandler(documentRef);
+  const snapshot = await handler(createMessage(
+    MESSAGE_TYPES.GET_FORM_SNAPSHOT,
+    {},
+    "snapshot-before-tampered-apply",
+  ));
+  assert.equal(snapshot.ok, true);
+
+  // option-a (f-general) is authorized; the payload asks for option-b
+  // (f-professor), and both exist in the current select.
+  const applied = await handler(createMessage(
+    MESSAGE_TYPES.APPLY_FIELDS,
+    {
+      fields: { fundamento_legal: "f-professor", modalidade: "m-special" },
+      matchKinds: { fundamento_legal: "exact", modalidade: "exact" },
+      legalDecision: {
+        status: "selected",
+        decision_state: "AUTO_SELECTED",
+        rules_version: "legal-foundation-v3",
+        method: "rule",
+        option_value: "f-general",
+        option_label: "Artigo 40, parágrafo 1",
+        confidence: 0.96,
+        margin: 0.20,
+        hard_conflict: false,
+      },
+    },
+    "snapshot-before-tampered-apply",
+  ));
+
+  assert.equal(applied.ok, true);
+  assert.deepEqual(applied.payload.preserved, ["fundamento_legal"]);
+  assert.deepEqual(applied.payload.changed, ["modalidade"]);
+  assert.equal(controls.txtFundamentoLegal.value, "");
+  assert.equal(controls.txtModalidade.value, "m-special");
+});
+
 test("does not override the legal foundation through the content handler", async () => {
   const { documentRef, controls } = buildForm();
   const handler = createMessageHandler(documentRef);
