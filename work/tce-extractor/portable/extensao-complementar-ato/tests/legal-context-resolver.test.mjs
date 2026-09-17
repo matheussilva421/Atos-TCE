@@ -49,12 +49,12 @@ function notFound() {
   return error;
 }
 
-test("reuses a valid cached context without consulting the bridge again", async () => {
+test("reuses a valid cached context for the exact pinned revision", async () => {
   const bridge = bridgeStub();
   const resolver = createLegalContextResolver({ bridge, rulesVersion: RULES });
 
-  const first = await resolver.ensureLegalContext({ identity: IDENTITY, datasetSha256: HASH });
-  const second = await resolver.ensureLegalContext({ identity: IDENTITY, datasetSha256: HASH });
+  const first = await resolver.ensureLegalContext({ identity: IDENTITY, datasetSha256: HASH, contextRevision: 4 });
+  const second = await resolver.ensureLegalContext({ identity: IDENTITY, datasetSha256: HASH, contextRevision: 4 });
 
   assert.equal(first.status, "ready");
   assert.equal(first.source, "sidecar");
@@ -63,6 +63,74 @@ test("reuses a valid cached context without consulting the bridge again", async 
   assert.equal(second.source, "cache");
   assert.equal(bridge.calls.get, 1);
   assert.equal(bridge.calls.rebuild, 0);
+});
+
+test("does not match a context revision by string prefix", async () => {
+  const bridge = bridgeStub({ context: contextRecord({ context_revision: 44 }) });
+  const resolver = createLegalContextResolver({ bridge, rulesVersion: RULES });
+
+  const pinned = await resolver.ensureLegalContext({
+    identity: IDENTITY,
+    datasetSha256: HASH,
+    contextRevision: 44,
+  });
+  assert.equal(pinned.context.context_revision, 44);
+
+  bridge.getLegalContext = async () => {
+    bridge.calls.get += 1;
+    return { api_version: 1, context: contextRecord({ context_revision: 4 }) };
+  };
+
+  const resolution = await resolver.ensureLegalContext({
+    identity: IDENTITY,
+    datasetSha256: HASH,
+    contextRevision: 4,
+  });
+
+  assert.equal(resolution.context.context_revision, 4);
+  assert.equal(resolution.source, "sidecar");
+});
+
+test("blocks when the requested revision differs from the returned context revision", async () => {
+  const bridge = bridgeStub({ context: contextRecord({ context_revision: 5 }) });
+  const resolver = createLegalContextResolver({ bridge, rulesVersion: RULES });
+
+  const resolution = await resolver.ensureLegalContext({
+    identity: IDENTITY,
+    datasetSha256: HASH,
+    contextRevision: 6,
+  });
+
+  assert.equal(resolution.status, "blocked");
+  assert.equal(resolution.reason, "CONTEXT_REVISION_MISMATCH");
+  assert.equal(resolution.context, null);
+});
+
+test("refreshes an unpinned context instead of serving an older cached revision forever", async () => {
+  let revision = 4;
+  const bridge = bridgeStub();
+  bridge.getLegalContext = async () => {
+    bridge.calls.get += 1;
+    return {
+      api_version: 1,
+      context: contextRecord({
+        context_revision: revision,
+        operative_text: `RESOLVE revisão ${revision}`,
+      }),
+    };
+  };
+
+  const resolver = createLegalContextResolver({ bridge, rulesVersion: RULES });
+
+  const first = await resolver.ensureLegalContext({ identity: IDENTITY, datasetSha256: HASH });
+  revision = 5;
+  const second = await resolver.ensureLegalContext({ identity: IDENTITY, datasetSha256: HASH });
+
+  assert.equal(first.context.context_revision, 4);
+  assert.equal(second.context.context_revision, 5);
+  assert.equal(second.context.operative_text, "RESOLVE revisão 5");
+  assert.ok(bridge.calls.get >= 2);
+  assert.equal(second.source, "sidecar");
 });
 
 test("rebuilds the context when the sidecar has no record for the identity", async () => {
