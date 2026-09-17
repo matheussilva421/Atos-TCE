@@ -91,7 +91,7 @@ const context = {
   operative_text: "RESOLVE: Art. 40, § 5º.",
   pages: [],
   context_revision: 12,
-  rules_version: "legal-foundation-v2",
+  rules_version: "legal-foundation-v3",
 };
 
 const legalDecision = {
@@ -104,7 +104,7 @@ const legalDecision = {
   confidence: 0.96,
   margin: 0.20,
   hard_conflict: false,
-  rules_version: "legal-foundation-v2",
+  rules_version: "legal-foundation-v3",
 };
 
 function input(overrides = {}) {
@@ -486,6 +486,16 @@ test("refuses a selected decision that is not an automatic legal decision", () =
   assert.equal(mismatch.eligible, false);
   assert.deepEqual(mismatch.fields, {});
   assert.ok(mismatch.reasons.includes("LEGAL_DECISION_REVIEW_REQUIRED"));
+});
+
+test("refuses an automatic decision written under older legal rules", () => {
+  const obsolete = prepareAutomaticAct(input({
+    legalDecision: { ...legalDecision, rules_version: "legal-foundation-v2" },
+  }));
+  assert.equal(obsolete.eligible, false);
+  assert.deepEqual(obsolete.fields, {});
+  assert.ok(obsolete.reasons.includes("LEGAL_DECISION_REVIEW_REQUIRED"));
+  assert.ok(obsolete.reasons.includes("LEGAL_RULES_VERSION_MISMATCH"));
 });
 
 test("does not return private keys, DOM nodes, or token values", () => {

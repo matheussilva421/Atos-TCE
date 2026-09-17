@@ -222,6 +222,7 @@ function result(eligible, fields, preserved, reasons, evidence) {
 export function isAutomaticLegalDecision(decision) {
   return decision?.status === "selected"
     && decision.decision_state === "AUTO_SELECTED"
+    && decision.rules_version === "legal-foundation-v3"
     && decision.method !== "none"
     && decision.hard_conflict !== true
     && typeof decision.confidence === "number"

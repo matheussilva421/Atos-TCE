@@ -41,7 +41,7 @@ def expected_qualification_versions(extension_version: str) -> dict[str, Any]:
         "service_api": 1,
         "automation_schema": 1,
         "legal_context_schema": 1,
-        "rules": "legal-foundation-v2",
+        "rules": "legal-foundation-v3",
         "outcome_classifier": OUTCOME_CLASSIFIER_VERSION,
     }
 

@@ -209,7 +209,7 @@ test('bridge exposes authenticated automation methods with closed wire payloads'
             api_version: 1,
             automation_schema: 1,
             legal_context_schema: 1,
-            rules_version: 'legal-foundation-v2',
+            rules_version: 'legal-foundation-v3',
             real_send_enabled: false,
           }),
         };
@@ -253,7 +253,7 @@ test('bridge exposes authenticated automation methods with closed wire payloads'
     tabId: 7,
     sector: 'aposentadorias',
     datasetSha256: 'a'.repeat(64),
-    rulesVersion: 'legal-foundation-v2',
+    rulesVersion: 'legal-foundation-v3',
     marker: 'PROFESSOR - IPERN - 2 RUBRICAS',
     markerValue: 'marker-1',
     sourceScope: 'my_processes',
@@ -284,7 +284,7 @@ test('bridge exposes authenticated automation methods with closed wire payloads'
         method: 'rule',
         rule_id: 'rule-1',
         option_value: 'option-1',
-        rules_version: 'legal-foundation-v2',
+        rules_version: 'legal-foundation-v3',
       },
       matchKinds: Object.fromEntries(AUTOMATION_FIELDS.map((field) => [field, 'exact'])),
       before: redactedFieldEvidence(),
@@ -299,7 +299,7 @@ test('bridge exposes authenticated automation methods with closed wire payloads'
     tab_id: 7,
     sector: 'aposentadorias',
     dataset_sha256: 'a'.repeat(64),
-    rules_version: 'legal-foundation-v2',
+    rules_version: 'legal-foundation-v3',
     marker: 'PROFESSOR - IPERN - 2 RUBRICAS',
     marker_value: 'marker-1',
     source_scope: 'my_processes',
@@ -334,7 +334,7 @@ test('bridge exposes authenticated automation methods with closed wire payloads'
     method: 'rule',
     rule_id: 'rule-1',
     option_value: 'option-1',
-    rules_version: 'legal-foundation-v2',
+    rules_version: 'legal-foundation-v3',
   });
   assert.deepEqual(eventBody.payload.before, redactedFieldEvidence());
   assert.deepEqual(JSON.parse(calls[5].options.body), {

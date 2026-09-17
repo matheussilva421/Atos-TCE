@@ -267,7 +267,22 @@ class RulesVersionBindingTests(unittest.TestCase):
         _sys.path.insert(0, str(app_root))
         from local_service import RULES_VERSION
 
-        self.assertEqual(RULES_VERSION, "legal-foundation-v2")
+        # The v3 correction changed the judicial classification rules, so the
+        # service, the extension and the qualification contract must agree.
+        self.assertEqual(RULES_VERSION, "legal-foundation-v3")
+
+    def test_qualification_contract_declares_the_v3_rules(self):
+        import sys as _sys
+
+        app_root = Path(__file__).parent / "portable" / "app"
+        _sys.path.insert(0, str(app_root))
+        from qualification import expected_qualification_versions
+
+        expected = expected_qualification_versions("0.0.0-test")
+        self.assertEqual(expected["rules"], "legal-foundation-v3")
+        # Qualification records written under the previous rules stay invalid.
+        obsolete = dict(expected, rules="legal-foundation-v2")
+        self.assertNotEqual(obsolete, expected)
 
 
 if __name__ == "__main__":

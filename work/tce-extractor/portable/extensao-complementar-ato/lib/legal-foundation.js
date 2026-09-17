@@ -183,7 +183,7 @@ export function parseLegalReferences(text) {
   });
 }
 
-export const LEGAL_FOUNDATION_RULES_VERSION = "legal-foundation-v2";
+export const LEGAL_FOUNDATION_RULES_VERSION = "legal-foundation-v3";
 
 const RULE_IDS = new Set(["EC41_SEM_P5", "EC41_COM_P5", "EC47_ART3"]);
 

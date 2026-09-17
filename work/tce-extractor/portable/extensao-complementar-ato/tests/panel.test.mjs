@@ -596,7 +596,7 @@ test("automation view requires a compatible bridge, starts explicitly, and keeps
     async getState() { return { revision: 1 }; },
     async setCompleted() { return { revision: 2 }; },
     async getDataset() { return { api_version: 1, revision: 1, dataset }; },
-    async getAutomationCapabilities() { calls.push(["capabilities"]); return { api_version: 1, automation_schema: 1, legal_context_schema: 1, rules_version: "legal-foundation-v2", real_send_enabled: false }; },
+    async getAutomationCapabilities() { calls.push(["capabilities"]); return { api_version: 1, automation_schema: 1, legal_context_schema: 1, rules_version: "legal-foundation-v3", real_send_enabled: false }; },
     async listAutomationRuns() { calls.push(["history"]); return { api_version: 1, runs: [{ run_id: "run-panel-1", state: "paused", revision: 0, created_at: "2026-09-09T12:00:00Z", updated_at: "2026-09-09T12:00:00Z", totals: {} }], next_cursor: null }; },
     async getAutomationEvents(runId) { calls.push(["events", runId]); return { api_version: 1, events: [{ type: "queue_frozen", created_at: "2026-09-09T12:01:00Z" }], next_after: null, has_more: false }; },
     async createAutomationRun(spec, eventId) { calls.push(["start", spec, eventId]); return { ...run, spec, status: "discovering" }; },
@@ -664,7 +664,7 @@ test("runs a read-only Area Restrita analysis, shows the count, and creates dete
     async getDataset() { return { api_version: 1, revision: 1, dataset }; },
     async getState() { return { revision: 1 }; },
     async publishSelection() { return { accepted: true, revision: 1 }; },
-    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v2" }; },
+    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v3" }; },
     async listAutomationRuns() { return { runs: [], next_cursor: null }; },
     async createAnalysisPreview(input) {
       bridgeCalls.push(["preview", input]);
@@ -769,7 +769,7 @@ test("blocks Area Restrita analysis when the selected source scope is unknown", 
   const client = {
     async getDataset() { return { api_version: 1, revision: 1, dataset }; },
     async getState() { return { revision: 1 }; },
-    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v2" }; },
+    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v3" }; },
     async listAutomationRuns() { return { runs: [], next_cursor: null }; },
     async createAnalysisPreview(input) { bridgeCalls.push(input); return { analysis_id: "analysis-invalid-scope", preview: {}, queue: [], blocked: [] }; },
   };
@@ -825,7 +825,7 @@ test("uses the selected lot size for v3 analysis and confirms each authoritative
     async getDataset() { return { api_version: 1, revision: 1, dataset }; },
     async getState() { return { revision: 1 }; },
     async publishSelection() { return { accepted: true, revision: 1 }; },
-    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v2" }; },
+    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v3" }; },
     async listAutomationRuns() { return { runs: [], next_cursor: null }; },
     async getActiveProcessList() { calls.push(["active-list"]); return manifest; },
     async createAnalysisPreview(input) { calls.push(["preview", input]); return { analysis_id: analysisId, preview: { needs_complement: 1, eligible: 1, blocked: 1, lot_count: 1 }, queue: [{}], blocked: [{}] }; },
@@ -898,7 +898,7 @@ test("preserves ready acquisition evidence only when the analysis row carries a 
     async getDataset() { return { api_version: 1, revision: 1, dataset }; },
     async getState() { return { revision: 1 }; },
     async publishSelection() { return { accepted: true, revision: 1 }; },
-    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v2" }; },
+    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v3" }; },
     async listAutomationRuns() { return { runs: [], next_cursor: null }; },
     async createAnalysisPreview(input) { bridgeCalls.push(input); return { analysis_id: analysisId, preview: { needs_complement: 1, eligible: 1, blocked: 0, lot_count: 1 }, queue: [], blocked: [] }; },
   };
@@ -957,7 +957,7 @@ test("does not promote failed local evidence to exact or ready", async () => {
     async getDataset() { return { api_version: 1, revision: 1, dataset }; },
     async getState() { return { revision: 1 }; },
     async publishSelection() { return { accepted: true, revision: 1 }; },
-    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v2" }; },
+    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v3" }; },
     async listAutomationRuns() { return { runs: [], next_cursor: null }; },
     async createAnalysisPreview(input) {
       bridgeCalls.push(input);
@@ -1033,7 +1033,7 @@ test("surfaces the internal Area Restrita analysis reason without exposing priva
     async getDataset() { return { api_version: 1, revision: 1, dataset }; },
     async getState() { return { revision: 1 }; },
     async publishSelection() { return { accepted: true, revision: 1 }; },
-    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v2" }; },
+    async getAutomationCapabilities() { return { real_send_enabled: false, pilot_enabled: false, rules_version: "legal-foundation-v3" }; },
     async listAutomationRuns() { return { runs: [], next_cursor: null }; },
     async createAnalysisPreview(input) {
       bridgeCalls.push(input);
@@ -1102,7 +1102,7 @@ test("automatic submission requires capability and an action-time confirmation",
         api_version: 1,
         automation_schema: 1,
         legal_context_schema: 1,
-        rules_version: "legal-foundation-v2",
+        rules_version: "legal-foundation-v3",
         real_send_enabled: true,
         pilot_enabled: false,
         pilot_consumes_remaining: false,
@@ -1171,7 +1171,7 @@ test("pilot action is explicit, targets the current identity, and preserves the 
         api_version: 1,
         automation_schema: 1,
         legal_context_schema: 1,
-        rules_version: "legal-foundation-v2",
+        rules_version: "legal-foundation-v3",
         real_send_enabled: false,
         pilot_enabled: true,
         pilot_consumes_remaining: true,
@@ -1255,7 +1255,7 @@ test("pilot action delegates run creation to the worker controller", async () =>
         api_version: 1,
         automation_schema: 1,
         legal_context_schema: 1,
-        rules_version: "legal-foundation-v2",
+        rules_version: "legal-foundation-v3",
         real_send_enabled: false,
         pilot_enabled: true,
         pilot_consumes_remaining: true,
@@ -1290,7 +1290,7 @@ test("automation status polls every two seconds without requiring a panel action
     async getDataset() { return { api_version: 1, revision: 1, dataset }; },
     async publishSelection() { return { accepted: true, revision: 1 }; },
     async getState() { return { revision: 1 }; },
-    async getAutomationCapabilities() { calls.push("capabilities"); return { api_version: 1, automation_schema: 1, legal_context_schema: 1, rules_version: "legal-foundation-v2", real_send_enabled: false }; },
+    async getAutomationCapabilities() { calls.push("capabilities"); return { api_version: 1, automation_schema: 1, legal_context_schema: 1, rules_version: "legal-foundation-v3", real_send_enabled: false }; },
     async listAutomationRuns() { calls.push("history"); return { api_version: 1, runs: [], next_cursor: null }; },
   };
   const setTimeoutFn = (callback, delay) => {
@@ -1637,7 +1637,7 @@ test("forwards the validated legal context and available bindings to the read-on
     operative_text: "RESOLVE: Art. 40, § 1º.",
     pages: [],
     context_revision: 12,
-    rules_version: "legal-foundation-v2",
+    rules_version: "legal-foundation-v3",
   };
   const contextCalls = [];
   const bridge = {
@@ -1673,7 +1673,7 @@ test("forwards the validated legal context and available bindings to the read-on
   assert.deepEqual(contextCalls, [{ processKey: "103439/2023", interestedNormalized: "maria de souza" }]);
   assert.deepEqual(matchRequest.payload.context, legalContext);
   assert.equal(matchRequest.payload.datasetSha256, dataset.batch.logical_sha256);
-  assert.equal(matchRequest.payload.rulesVersion, "legal-foundation-v2");
+  assert.equal(matchRequest.payload.rulesVersion, "legal-foundation-v3");
   assert.equal(matchRequest.payload.contextRevision, 12);
   assert.equal(chromeApi.calls.some((message) => message.type === MESSAGE_TYPES.APPLY_FIELDS), false);
   assert.equal(chromeApi.calls.some((message) => message.type === MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO), false);
