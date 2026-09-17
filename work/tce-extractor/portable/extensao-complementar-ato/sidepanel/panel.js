@@ -487,6 +487,7 @@ export function createPanelApp({
       connection,
       selectedView: state.selectedView,
       mode: state.automationMode,
+      rulesVersion: state.automationCapabilities?.rules_version ?? LEGAL_FOUNDATION_RULES_VERSION,
     });
     if (!state.message) elements["panel-message"].textContent = "";
     else elements["panel-message"].textContent = state.message;

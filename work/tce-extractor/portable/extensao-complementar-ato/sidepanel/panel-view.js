@@ -168,6 +168,7 @@ export function buildLegalDiagnostics(decision, documentaryValue = "") {
     contextSource: decision?.context_source ?? null,
     contextSourceLabel: CONTEXT_SOURCE_LABELS[decision?.context_source] ?? null,
     contextReason: decision?.context_reason ?? null,
+    rulesVersion: decision?.rules_version ?? null,
     documentary: text(foundation.operative_text ?? documentaryValue) || "Fonte documental indisponível.",
     suggested: suggested ? text(suggested) : "Proposta segura: nenhuma",
     candidateLabel: suggested ? text(suggested) : null,
@@ -248,6 +249,7 @@ export function buildPanelViewModel({
   connection = {},
   selectedView = "principal",
   mode = "manual",
+  rulesVersion = null,
 } = {}) {
   const identity = identityFrom({ record, snapshot });
   const summary = runSummary(run);
@@ -328,7 +330,7 @@ function renderDetails(documentRef, root, model, handlers) {
   if (diagnostics.contextReason !== null) {
     legal.append(element(documentRef, "p", `Motivo do contexto: ${diagnostics.contextReason}`, { class: "foundation-context-reason" }));
   }
-  legal.append(element(documentRef, "p", `Regras: ${diagnostics.rulesVersion ?? "desconhecidas"}`, { class: "foundation-rules" }));
+  legal.append(element(documentRef, "p", `Regras: ${diagnostics.rulesVersion ?? model.rulesVersion ?? "desconhecidas"}`, { class: "foundation-rules" }));
   legal.append(element(documentRef, "p", `Estado: ${diagnostics.stateLabel}`, { class: "foundation-state" }));
   legal.append(element(documentRef, "p", diagnostics.writeLabel, { class: "foundation-write" }));
   legal.append(element(documentRef, "p", diagnostics.candidateLabel

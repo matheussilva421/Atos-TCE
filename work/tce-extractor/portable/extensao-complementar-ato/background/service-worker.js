@@ -562,6 +562,23 @@ export function createServiceWorker({
       payload.context_status = resolution.status;
       payload.context_source = resolution.source;
       payload.context_reason = resolution.reason;
+      const legalMatch = matches.fundamento_legal;
+      if (legalMatch !== null && typeof legalMatch === "object") {
+        legalMatch.legalDecision = {
+          ...(legalMatch.legalDecision ?? {}),
+          context_status: resolution.status,
+          context_source: resolution.source,
+          context_reason: resolution.reason,
+        };
+        const rulesVersion = resolution.context?.rules_version;
+        if (typeof rulesVersion === "string" && rulesVersion) {
+          legalMatch.legalDecision.rules_version = rulesVersion;
+        } else if (typeof LEGAL_FOUNDATION_RULES_VERSION === "string") {
+          // Fall back to the rules the worker itself is enforcing, so the UI
+          // can always tell which legal rules produced the decision.
+          legalMatch.legalDecision.rules_version = LEGAL_FOUNDATION_RULES_VERSION;
+        }
+      }
     }
     return successResponse(message, payload);
   }

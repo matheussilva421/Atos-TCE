@@ -502,13 +502,15 @@ def run_smoke(
                         "() => document.querySelector('#identity-status').textContent.includes('103487/2023')",
                         timeout=_remaining_timeout_ms(deadline, "process switch"),
                     )
-                    tie_kind = panel.locator(
+                    legal_kind = panel.locator(
                         '[data-field="fundamento_legal"][data-kind]'
                     ).get_attribute("data-kind")
-                    assert tie_kind == "tie", tie_kind
+                    # Without a legal context served by the local bridge the
+                    # foundation stays blocked instead of faking a tie.
+                    assert legal_kind == "pending", legal_kind
                     assert panel.locator("#fill-button").is_enabled()
                     test_state["switched_without_reimport"] = True
-                    test_state["recalculated_tie"] = tie_kind
+                    test_state["recalculated_tie"] = legal_kind
 
                     incomplete = frame.evaluate(
                         """() => {
@@ -653,7 +655,9 @@ class ExtensionBrowserTests(unittest.TestCase):
         self.assertTrue(result["negative_controls_unchanged"])
         self.assertTrue(result["persisted_after_profile_restart"])
         self.assertTrue(result["incomplete_dom_blocked"])
-        self.assertEqual(result["recalculated_tie"], "tie")
+        # The foundation stays fail-closed without a legal context from the
+        # local bridge; the modalidade tie is validated in the panel suite.
+        self.assertEqual(result["recalculated_tie"], "pending")
 
 
 if __name__ == "__main__":

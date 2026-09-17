@@ -508,7 +508,8 @@ function adaptCrosswalkDecision(context, operativeText, classification) {
   const decision = {
     status: selected ? "selected" : "pending",
     automatic: selected && classification.automatic === true,
-    decision_state: classification.decision_state,
+    decision_state: classification.decision_state
+      ?? (selected ? "AUTO_SELECTED" : (classification.status === "review" ? "REVIEW_REQUIRED" : "NO_COMPATIBLE_CANDIDATE")),
     method: selected ? classification.method : "none",
     rule_id: selected && publicRuleIds.has(classification.class_id) ? classification.class_id : null,
     option_value: selected ? classification.option_value : null,

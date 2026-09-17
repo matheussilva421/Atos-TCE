@@ -268,6 +268,18 @@ function currentOptions() {
       { value: "", label: "Selecione" },
       { value: "f-general", label: "Artigo 40, parágrafo 1" },
       { value: "f-prof", label: "Artigo 40, parágrafo 5, professor" },
+      {
+        value: "f-ec41-general",
+        label: "Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 2º da Emenda Constitucional nº 47/2005",
+      },
+      {
+        value: "f-ec20-art8",
+        label: "Civil - Artigo 8º, incisos I e II, §1º, alíneas a e b, da Emenda Constitucional nº 20/1998",
+      },
+      {
+        value: "f-ec47-art3",
+        label: "Civil - Artigo 3º, incisos I a III e parágrafo único, da Emenda Constitucional nº 47/2005",
+      },
     ],
   };
 }
@@ -359,7 +371,7 @@ function makeRuntime({
   };
 }
 
-async function makeWorkerBackedChrome({ snapshots = [] } = {}) {
+async function makeWorkerBackedChrome({ snapshots = [], bridge = null } = {}) {
   const storageArea = makeStorageArea();
   const forwardedToContent = [];
   const panelCalls = [];
@@ -397,7 +409,7 @@ async function makeWorkerBackedChrome({ snapshots = [] } = {}) {
       },
     },
   };
-  const worker = createServiceWorker({ chromeApi: workerChrome });
+  const worker = createServiceWorker({ chromeApi: workerChrome, ...(bridge ? { bridge } : {}) });
   const ready = await worker.handleMessage(
     createMessage(MESSAGE_TYPES.FORM_READY, { url: PORTAL_URL }, "panel-integration-ready"),
     { tab: { id: 7 }, frameId: 12, url: PORTAL_URL },
@@ -1981,6 +1993,148 @@ test("integrates panel, worker, and matcher and recalculates changed options bef
   assert.equal(Object.hasOwn(apply.message.payload.fields, "fundamento_legal"), false);
   assert.equal(Object.hasOwn(apply.message.payload.matchKinds, "fundamento_legal"), false);
   assert.equal(integration.forwardedToContent.every(({ message }) => !Object.hasOwn(message.payload, "dataset")), true);
+});
+
+function failingError(code, status) {
+  const error = new Error(code);
+  error.code = code;
+  error.status = status;
+  return error;
+}
+
+async function previewDecision({ dataset, bridge }) {
+  const integration = await makeWorkerBackedChrome({
+    snapshots: [snapshot({
+      options: currentOptions(),
+      processKey: "103439/2023",
+      interested: { original: "Maria de Souza", normalized: "maria de souza" },
+      fields: { cargo: "PROFESSOR" },
+    })],
+    bridge,
+  });
+  const { app, documentRef } = await startApp({ chromeApi: integration.panelChrome });
+  documentRef.getElementById("dataset-file").files = [{ async text() { return JSON.stringify(dataset); } }];
+  await app.importSelectedFile();
+  await app.refresh();
+  await app.fillAvailableFields();
+  return { documentRef, integration };
+}
+
+test("integrated resolver rebuilds the legal context and writes the exact catalog option", async () => {
+  const dataset = await makeDataset({
+    sourceOverrides: { fundamento_legal: "RESOLVE: Art. 3º, incisos I a III e parágrafo único, da EC nº 47/2005." },
+  });
+  const context = {
+    schema_version: 1,
+    dataset_sha256: dataset.batch.logical_sha256,
+    process_key: "103439/2023",
+    interested_normalized: "maria de souza",
+    resolution_status: "complete",
+    operative_text: "RESOLVE: Art. 3º, incisos I a III e parágrafo único, da EC nº 47/2005.",
+    pages: [],
+    context_revision: 3,
+    rules_version: "legal-foundation-v3",
+  };
+  let rebuilds = 0;
+  const bridge = {
+    async getLegalContext() { throw failingError("LEGAL_CONTEXT_NOT_FOUND", 404); },
+    async rebuildLegalContext() {
+      rebuilds += 1;
+      return { api_version: 1, context };
+    },
+  };
+
+  const { documentRef, integration } = await previewDecision({ dataset, context, bridge });
+
+  assert.equal(rebuilds, 1);
+  const apply = integration.forwardedToContent.find(({ message }) => message.type === MESSAGE_TYPES.APPLY_FIELDS);
+  assert.ok(apply);
+  assert.equal(apply.message.payload.fields.fundamento_legal, "f-ec47-art3");
+  // The rebuild result is published, so later previews are served by the
+  // worker resolver cache without another bridge round trip.
+  const trail = documentRef.getElementById("preview-body").textContent;
+  assert.match(trail, /Contexto jurídico: (disponível|reconstruído)/u);
+  assert.match(trail, /Origem: (cache|evidências locais)/u);
+  assert.match(trail, /Regras: legal-foundation-v3/u);
+  assert.match(trail, /Estado: seleção automática/u);
+  assert.match(trail, /Fundamento legal: será preenchido/u);
+});
+
+test("integrated rebuild failure omits only the legal foundation", async () => {
+  const dataset = await makeDataset({
+    sourceOverrides: { fundamento_legal: "RESOLVE: Art. 3º, incisos I a III e parágrafo único, da EC nº 47/2005." },
+  });
+  const bridge = {
+    async getLegalContext() { throw failingError("LEGAL_CONTEXT_NOT_FOUND", 404); },
+    async rebuildLegalContext() { throw failingError("DOCUMENT_EVIDENCE_MISSING", 409); },
+  };
+
+  const { documentRef, integration } = await previewDecision({ dataset, context: null, bridge });
+
+  const apply = integration.forwardedToContent.find(({ message }) => message.type === MESSAGE_TYPES.APPLY_FIELDS);
+  assert.ok(apply);
+  assert.equal(Object.hasOwn(apply.message.payload.fields, "fundamento_legal"), false);
+  assert.equal(apply.message.payload.fields.modalidade, "m-vol");
+  const trail = documentRef.getElementById("preview-body").textContent;
+  assert.match(trail, /Contexto jurídico: bloqueado/u);
+  assert.match(trail, /Motivo do contexto: DOCUMENT_EVIDENCE_MISSING/u);
+  assert.match(trail, /Fundamento legal: não será preenchido automaticamente/u);
+});
+
+test("integrated Maria-like catalog never proposes EC20 art. 8º for an ECE 20/2020 professor act", async () => {
+  const operativeText = "RESOLVE conceder aposentadoria voluntária por tempo de contribuição, com proventos integrais, a servidor ocupante do cargo de PROFESSOR, com fundamento no art. 7º, incisos I a III, §§ 2º e 4º, inciso I, § 5º, inciso I, e § 11 do art. 6º da Emenda Constitucional Estadual nº 20/2020.";
+  const dataset = await makeDataset({ sourceOverrides: { fundamento_legal: operativeText } });
+  const context = {
+    schema_version: 1,
+    dataset_sha256: dataset.batch.logical_sha256,
+    process_key: "103439/2023",
+    interested_normalized: "maria de souza",
+    resolution_status: "complete",
+    operative_text: operativeText,
+    pages: [],
+    context_revision: 5,
+    rules_version: "legal-foundation-v3",
+  };
+
+  const { documentRef } = await previewDecision({
+    dataset,
+    context,
+    bridge: { async getLegalContext() { return { api_version: 1, context }; } },
+  });
+
+  const trail = documentRef.getElementById("preview-body").textContent;
+  const candidate = trail.slice(trail.indexOf("Candidato principal: ") + "Candidato principal: ".length);
+  assert.ok(candidate.startsWith("Civil - Artigo 6º, incisos I a IV e artigo 7º"), candidate.slice(0, 80));
+  assert.equal(trail.includes("EC 20/1998"), false);
+});
+
+test("integrated Joana-like EC41 with an ECE preservation clause never becomes a global conflict", async () => {
+  const operativeText = "RESOLVE conceder aposentadoria voluntária por tempo de contribuição com proventos integrais, nos termos do art. 6º, incisos I a IV, e art. 7º da EC nº 41/2003, art. 87 da LCE nº 308/2005, asseguradas as regras anteriores pelo art. 2º da ECE nº 20/2020.";
+  const dataset = await makeDataset({ sourceOverrides: { fundamento_legal: operativeText } });
+  const context = {
+    schema_version: 1,
+    dataset_sha256: dataset.batch.logical_sha256,
+    process_key: "103439/2023",
+    interested_normalized: "maria de souza",
+    resolution_status: "complete",
+    operative_text: operativeText,
+    pages: [],
+    context_revision: 6,
+    rules_version: "legal-foundation-v3",
+  };
+
+  const { documentRef } = await previewDecision({
+    dataset,
+    context,
+    bridge: { async getLegalContext() { return { api_version: 1, context }; } },
+  });
+
+  const trail = documentRef.getElementById("preview-body").textContent;
+  assert.doesNotMatch(trail, /conflito documental/u);
+  assert.match(trail, /Confiança: \d+%/u);
+  assert.match(trail, /Margem: \d+ p\.p\./u);
+  const candidate = trail.slice(trail.indexOf("Candidato principal: ") + "Candidato principal: ".length);
+  assert.ok(candidate.startsWith("Civil - Artigo 6º, incisos I a IV e artigo 7º"), candidate.slice(0, 80));
 });
 
 test("sends only the seven current fields and validated matchKinds after a fresh pre-fill snapshot", async () => {
