@@ -116,3 +116,15 @@ contrato; nenhum campo foi preenchido e nenhum ato foi enviado.
 
 Commit local desta correção: `dcf1a94` (`fix: recognize authenticated process
 list route`).
+
+## Atualização — captura autenticada da lista (17/09/2026)
+
+A sessão `real-portal-20260917T112749291744Z` terminou com origem
+`https://novaarearestrita.tce.rn.gov.br`, `authenticated_ui_signal=true`,
+`process_list_signal=true`, `portal_extension_origin_match=true`, sem erro de
+navegação e com `submission_performed_by_runner=false`. A gravação preserva a
+interação manual com o seletor de marcador. O JSON ainda não é fixture completa:
+sete IDs de campos pertencentes ao formulário continuam ausentes porque a
+captura terminou na lista `ProcessonoSetor.asp`. Para completar o contrato,
+será necessário abrir manualmente um ato elegível e parar na tela do
+formulário, sem preencher ou enviar.
