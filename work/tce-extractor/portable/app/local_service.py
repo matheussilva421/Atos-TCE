@@ -49,7 +49,13 @@ from automation_store import (
     RunNotFound,
 )
 from html_generator import build_interface_payload, render_html
-from legal_context import LEGAL_CONTEXT_VERSION, _normalise_interested
+from legal_context import (
+    LEGAL_CONTEXT_VERSION,
+    LegalContextUpsertError,
+    _normalise_interested,
+    rebuild_legal_context_from_root,
+    upsert_legal_context_record,
+)
 from prepare_transfer import _acquire_operation_lock, _active_runtime, _release_operation_lock, transfer_requested
 from qualification import expected_qualification_versions, inspect_qualification
 from workflow_state import RevisionConflict, WorkflowState
@@ -1444,6 +1450,57 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             return
         self._send(200, {"api_version": API_VERSION, "context": context})
 
+    def _rebuild_legal_context(self) -> None:
+        """Rebuild one identity's context from local evidence, then publish it."""
+        try:
+            payload = self._read_json()
+        except (ValueError, json.JSONDecodeError):
+            self._error(400, "INVALID_JSON", "JSON inválido")
+            return
+        if not isinstance(payload, dict) or set(payload) != {"process_key", "interested_normalized"}:
+            self._error(400, "INVALID_PAYLOAD", "process_key e interested_normalized são obrigatórios")
+            return
+        try:
+            process_key = _canonical_process_key(payload.get("process_key"))
+            interested = _normalise_interested(payload.get("interested_normalized"))
+            if not interested:
+                raise _ApiProblem(400, "INVALID_IDENTITY", "interested_normalized inválido")
+            revision, dataset, dataset_sha256 = _load_current_dataset(self.server_state.workflow_root)
+            if _dataset_record(dataset, process_key, interested) is None:
+                raise _ApiProblem(404, "IDENTITY_NOT_IN_DATASET", "identidade não pertence ao dataset atual")
+            record = rebuild_legal_context_from_root(
+                self.server_state.workflow_root,
+                dataset_sha256,
+                process_key,
+                interested,
+            )
+            if record is None:
+                raise _ApiProblem(
+                    409,
+                    "DOCUMENT_EVIDENCE_MISSING",
+                    "evidência documental local insuficiente para reconstruir o contexto",
+                )
+            upsert_legal_context_record(
+                self.server_state.workflow_root / "fundamentos-contexto.v1.json",
+                record,
+                dataset_sha256,
+            )
+            context = _load_context_record(
+                self.server_state.workflow_root,
+                process_key,
+                interested,
+                dataset_sha256,
+            )
+            context["context_revision"] = revision
+            context["rules_version"] = RULES_VERSION
+        except LegalContextUpsertError as error:
+            self._error(409, "LEGAL_CONTEXT_INVALID", str(error))
+            return
+        except _ApiProblem as problem:
+            self._error(problem.status, problem.code, str(problem))
+            return
+        self._send(200, {"api_version": API_VERSION, "context": context})
+
     def _send_automation_run(self, run_id: str) -> None:
         try:
             payload = self._automation_snapshot(run_id)
@@ -2064,6 +2121,9 @@ class _WorkflowHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/v1/analysis/preview":
             self._create_analysis_preview()
+            return
+        if parsed.path == "/api/v1/legal-context/rebuild":
+            self._rebuild_legal_context()
             return
         analysis_parts = [unquote(part) for part in parsed.path.split("/") if part]
         if (

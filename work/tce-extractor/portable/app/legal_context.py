@@ -671,6 +671,159 @@ def build_legal_contexts(
     }
 
 
+def build_legal_context_record(
+    manifest: Mapping[str, object],
+    checkpoint: Mapping[str, object],
+    page_texts: Mapping[str, object],
+    dataset_sha256: str,
+    process_key: str,
+    interested_normalized: str,
+) -> dict[str, object] | None:
+    """Rebuild one identity's context from already persisted evidence only."""
+    wanted = _normalise_interested(interested_normalized)
+    if not wanted:
+        return None
+    block = next(
+        (
+            candidate
+            for key, candidate in _checkpoint_blocks(checkpoint)
+            if key == process_key
+            and _normalise_interested(
+                candidate.get("interested", candidate.get("interested_normalized", ""))
+            )
+            == wanted
+        ),
+        None,
+    )
+    if block is None:
+        return None
+    sources = _manifest_sources(manifest)
+    process_sources = [source for source in sources if source["process_key"] == process_key]
+    return _record(
+        process_key,
+        block,
+        _select_sources(sources, process_key, block, page_texts),
+        page_texts,
+        dataset_sha256,
+        evidence_sources=process_sources,
+    )
+
+
+class LegalContextUpsertError(ValueError):
+    """Raised when the sidecar being updated is not compatible with the build."""
+
+
+def upsert_legal_context_record(
+    path: Path,
+    record: Mapping[str, object],
+    dataset_sha256: str,
+) -> None:
+    """Replace a single identity record without touching the other records."""
+    target = Path(path)
+    payload: object = None
+    if target.is_file():
+        try:
+            payload = json.loads(target.read_text(encoding="utf-8-sig"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            raise LegalContextUpsertError("invalid sidecar") from error
+    elif target.exists():
+        raise LegalContextUpsertError("invalid sidecar")
+    if payload is None:
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "dataset_sha256": dataset_sha256,
+            "records": [],
+        }
+    if not isinstance(payload, Mapping) or payload.get("schema_version") != SCHEMA_VERSION:
+        raise LegalContextUpsertError("unsupported sidecar schema")
+    if payload.get("dataset_sha256") != dataset_sha256:
+        raise LegalContextUpsertError("sidecar belongs to another dataset")
+    records = payload.get("records")
+    if not isinstance(records, list):
+        raise LegalContextUpsertError("invalid sidecar records")
+    if record.get("dataset_sha256") != dataset_sha256:
+        raise LegalContextUpsertError("record belongs to another dataset")
+    key = (record.get("process_key"), record.get("interested_normalized"))
+    kept = [
+        entry
+        for entry in records
+        if not (
+            isinstance(entry, Mapping)
+            and (entry.get("process_key"), entry.get("interested_normalized")) == key
+        )
+    ]
+    kept.append(dict(record))
+    write_legal_contexts(
+        target,
+        {
+            "schema_version": SCHEMA_VERSION,
+            "dataset_sha256": dataset_sha256,
+            "records": kept,
+        },
+    )
+
+
+def _read_mapping(path: Path) -> Mapping[str, object] | None:
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, Mapping) else None
+
+
+def _page_texts_from_caches(*paths: Path) -> dict[str, object]:
+    """Reuse page text already persisted by the analysis pipeline."""
+    page_texts: dict[str, object] = {}
+    for path in paths:
+        payload = _read_mapping(path)
+        if payload is None:
+            continue
+        entries = payload.get("entries")
+        if not isinstance(entries, Mapping):
+            continue
+        for key, value in entries.items():
+            if isinstance(value, Mapping) and isinstance(value.get("pages"), list):
+                entry: dict[str, object] = {
+                    "pages": list(value["pages"]),
+                    "pdf_sha256": str(value.get("sha256", "")),
+                }
+                page_texts[str(key)] = entry
+                if value.get("sha256"):
+                    page_texts[str(value["sha256"])] = entry
+                continue
+            if isinstance(value, list):
+                entry = {"pages": list(value)}
+                page_texts[str(key)] = entry
+                page_texts[str(key).split(":", 1)[0]] = entry
+    return page_texts
+
+
+def rebuild_legal_context_from_root(
+    root: Path,
+    dataset_sha256: str,
+    process_key: str,
+    interested_normalized: str,
+) -> dict[str, object] | None:
+    """Rebuild one identity from local evidence; never triggers collection."""
+    archive = Path(root)
+    manifest = _read_mapping(archive / "pdfs-alvo-manifest.json")
+    checkpoint = _read_mapping(archive / "checkpoint-extracao.json")
+    if manifest is None or checkpoint is None:
+        return None
+    page_texts = _page_texts_from_caches(
+        archive / "cache-ocr.json",
+        archive / "cache-ocr-geometria.json",
+    )
+    return build_legal_context_record(
+        manifest,
+        checkpoint,
+        page_texts,
+        dataset_sha256,
+        process_key,
+        interested_normalized,
+    )
+
+
 def write_legal_contexts(path: Path, contexts: dict) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)

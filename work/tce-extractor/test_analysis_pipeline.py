@@ -1255,6 +1255,70 @@ class AnalysisPipelineTests(unittest.TestCase):
             "processos/103439-2023/evento-0009/resolucao.pdf",
         )
 
+    def test_rebuild_entry_point_reuses_persisted_evidence_only(self):
+        from analysis_pipeline import rebuild_legal_context_from_root
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            document = {
+                "event": 9,
+                "event_id": "9",
+                "id": "resolution-9",
+                "title": "RESOLUCAO ADMINISTRATIVA SINTETICA",
+                "classification": "resolucao_administrativa",
+                "automatic_source": True,
+                "sha256": "a" * 64,
+                "page_count": 1,
+            }
+            (root / "pdfs-alvo-manifest.json").write_text(
+                json.dumps({"version": 1, "processes": [{"process": "103439/2023", "documents": [document]}]}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (root / "checkpoint-extracao.json").write_text(
+                json.dumps(
+                    {
+                        "processes": {
+                            "103439/2023": {
+                                "result": {
+                                    "process": "103439/2023",
+                                    "blocks": [{"interested": "MARIA DA SILVA", "fields": {}}],
+                                }
+                            }
+                        }
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (root / "cache-ocr.json").write_text(
+                json.dumps(
+                    {
+                        "entries": {
+                            "resolution-9": {
+                                "sha256": "a" * 64,
+                                "pages": [
+                                    "RESOLUCAO ADMINISTRATIVA SINTETICA\nInteressada: MARIA DA SILVA\nRESOLVE: art. 6º."
+                                ],
+                            }
+                        }
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            record = rebuild_legal_context_from_root(
+                root,
+                "d" * 64,
+                "103439/2023",
+                "maria da silva",
+            )
+
+            self.assertEqual(record["resolution_status"], "complete")
+            self.assertIn("RESOLVE", record["operative_text"])
+            self.assertEqual(sorted(path.name for path in root.iterdir()),
+                             ["cache-ocr.json", "checkpoint-extracao.json", "pdfs-alvo-manifest.json"])
+
 
 if __name__ == "__main__":
     unittest.main()

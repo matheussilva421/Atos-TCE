@@ -10,7 +10,13 @@ REPO_ROOT = Path(__file__).parent
 APP_ROOT = REPO_ROOT / "portable" / "app"
 sys.path.insert(0, str(APP_ROOT))
 
-from legal_context import build_legal_contexts, write_legal_contexts  # noqa: E402
+from legal_context import (  # noqa: E402
+    build_legal_context_record,
+    build_legal_contexts,
+    rebuild_legal_context_from_root,
+    upsert_legal_context_record,
+    write_legal_contexts,
+)
 
 
 DATASET_SHA256 = "d" * 64
@@ -523,6 +529,164 @@ class LegalContextTests(unittest.TestCase):
             contexts["records"][0]["pages"][0]["citation"]["document_id"],
             "resolution-9.pdf",
         )
+
+    def test_builds_only_the_requested_identity(self):
+        document = _resolution_document()
+        manifest = _manifest(document)
+        checkpoint = {
+            "processes": {
+                "103439/2023": {
+                    "result": {
+                        "process": "103439/2023",
+                        "blocks": [
+                            {"interested": "MARIA DA SILVA", "fields": {}},
+                            {"interested": "JOANA DA SILVA", "fields": {}},
+                        ],
+                    }
+                }
+            }
+        }
+        page_texts = {
+            "resolution-9": {
+                "pdf_sha256": PDF_SHA256,
+                "pages": ["RESOLVE: Maria da Silva e Joana da Silva constam do ato."],
+            }
+        }
+
+        record = build_legal_context_record(
+            manifest,
+            checkpoint,
+            page_texts,
+            DATASET_SHA256,
+            "102173/2026",
+            "maria lucia do nascimento",
+        )
+        self.assertIsNone(record)
+
+        record = build_legal_context_record(
+            manifest,
+            checkpoint,
+            page_texts,
+            DATASET_SHA256,
+            "103439/2023",
+            "maria da silva",
+        )
+        self.assertIsNotNone(record)
+        self.assertEqual(record["process_key"], "103439/2023")
+        self.assertEqual(record["interested_normalized"], "maria da silva")
+        self.assertEqual(record["schema_version"], 1)
+        self.assertEqual(record["dataset_sha256"], DATASET_SHA256)
+
+    def test_upsert_replaces_one_identity_and_preserves_the_rest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            sidecar = Path(temporary) / "fundamentos-contexto.v1.json"
+            first = {
+                "schema_version": 1,
+                "dataset_sha256": DATASET_SHA256,
+                "records": [
+                    {
+                        "process_key": "103439/2023",
+                        "interested_normalized": "maria da silva",
+                        "dataset_sha256": DATASET_SHA256,
+                        "resolution_status": "complete",
+                        "operative_text": "RESOLVE: original.",
+                    },
+                    {
+                        "process_key": "103439/2023",
+                        "interested_normalized": "joana da silva",
+                        "dataset_sha256": DATASET_SHA256,
+                        "resolution_status": "complete",
+                        "operative_text": "RESOLVE: preservada.",
+                    },
+                ],
+            }
+            write_legal_contexts(sidecar, first)
+            preserved = json.loads(sidecar.read_text(encoding="utf-8"))["records"][1]
+
+            upsert_legal_context_record(
+                sidecar,
+                {
+                    "schema_version": 1,
+                    "process_key": "103439/2023",
+                    "interested_normalized": "maria da silva",
+                    "dataset_sha256": DATASET_SHA256,
+                    "resolution_status": "complete",
+                    "operative_text": "RESOLVE: reconstruído.",
+                },
+                DATASET_SHA256,
+            )
+
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+            self.assertEqual(payload["dataset_sha256"], DATASET_SHA256)
+            self.assertEqual(len(payload["records"]), 2)
+            rebuilt = next(
+                record for record in payload["records"]
+                if record["interested_normalized"] == "maria da silva"
+            )
+            self.assertEqual(rebuilt["operative_text"], "RESOLVE: reconstruído.")
+            kept = next(
+                record for record in payload["records"]
+                if record["interested_normalized"] == "joana da silva"
+            )
+            self.assertEqual(kept, preserved)
+
+    def test_rebuilds_from_local_evidence_without_collecting(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            document = dict(_resolution_document(), page_count=1)
+            (root / "pdfs-alvo-manifest.json").write_text(
+                json.dumps(_manifest(document), ensure_ascii=False), encoding="utf-8"
+            )
+            (root / "checkpoint-extracao.json").write_text(
+                json.dumps(_checkpoint(), ensure_ascii=False), encoding="utf-8"
+            )
+            (root / "cache-ocr.json").write_text(
+                json.dumps(
+                    {
+                        "entries": {
+                            "resolution-9": {
+                                "sha256": PDF_SHA256,
+                                "pages": [
+                                    "RESOLUCAO ADMINISTRATIVA SINTETICA\nInteressada: MARIA DA SILVA\nRESOLVE: Art. 6º da lei estadual."
+                                ],
+                            }
+                        }
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            record = rebuild_legal_context_from_root(
+                root,
+                DATASET_SHA256,
+                "103439/2023",
+                "maria da silva",
+            )
+
+            self.assertIsNotNone(record)
+            self.assertEqual(record["resolution_status"], "complete")
+            self.assertEqual(record["process_key"], "103439/2023")
+            self.assertEqual(record["interested_normalized"], "maria da silva")
+            self.assertIn("RESOLVE", record["operative_text"])
+            self.assertFalse((root / "dados-complementar-ato.json").exists())
+
+    def test_rebuild_returns_none_without_local_checkpoint(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pdfs-alvo-manifest.json").write_text(
+                json.dumps(_manifest(_resolution_document()), ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            record = rebuild_legal_context_from_root(
+                root,
+                DATASET_SHA256,
+                "103439/2023",
+                "maria da silva",
+            )
+
+            self.assertIsNone(record)
 
 
 if __name__ == "__main__":

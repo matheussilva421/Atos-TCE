@@ -96,6 +96,59 @@ def write_context(root: Path, dataset_sha256: str, *names: str) -> None:
     )
 
 
+def write_resolution_evidence(root: Path) -> None:
+    """Publish local resolution evidence for one identity of the fixture."""
+    document = {
+        "event": "9",
+        "event_id": "9",
+        "id": "resolution-9",
+        "title": "RESOLUCAO ADMINISTRATIVA SINTETICA",
+        "classification": "resolucao_administrativa",
+        "automatic_source": True,
+        "sha256": "a" * 64,
+        "page_count": 1,
+    }
+    (root / "pdfs-alvo-manifest.json").write_text(
+        json.dumps(
+            {"version": 1, "processes": [{"process": "103439/2023", "documents": [document]}]},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (root / "checkpoint-extracao.json").write_text(
+        json.dumps(
+            {
+                "processes": {
+                    "103439/2023": {
+                        "result": {
+                            "process": "103439/2023",
+                            "blocks": [{"interested": "ANA", "fields": {}}],
+                        }
+                    }
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (root / "cache-ocr.json").write_text(
+        json.dumps(
+            {
+                "entries": {
+                    "resolution-9": {
+                        "sha256": "a" * 64,
+                        "pages": [
+                            "RESOLUCAO ADMINISTRATIVA SINTETICA\nInteressada: ANA\nRESOLVE: art. 6º da lei estadual."
+                        ],
+                    }
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+
 def write_qualification(root: Path) -> None:
     path = root / "automacao" / "qualificacao.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1118,6 +1171,70 @@ class AutomationApiTests(unittest.TestCase):
             )
             self.assertEqual(status, 409)
             self.assertEqual(body["error"]["code"], "CONTEXT_DATASET_MISMATCH")
+
+    def test_rebuild_publishes_the_local_context_for_one_identity(self):
+        with running_server() as (root, server, base):
+            _dataset, digest = write_fixture(root, "Ana")
+            write_resolution_evidence(root)
+            token = self.pair(server, base)
+
+            status, _headers, body = request_json(
+                f"{base}/api/v1/legal-context/rebuild",
+                method="POST",
+                payload={"process_key": "103439/2023", "interested_normalized": "Ana"},
+                token=token,
+            )
+
+            self.assertEqual(status, 200, body)
+            self.assertEqual(body["api_version"], 1)
+            self.assertEqual(body["context"]["resolution_status"], "complete")
+            self.assertEqual(body["context"]["process_key"], "103439/2023")
+            self.assertEqual(body["context"]["interested_normalized"], "ana")
+            self.assertEqual(body["context"]["rules_version"], RULES_VERSION)
+            self.assertIsInstance(body["context"]["context_revision"], int)
+            self.assertEqual(body["context"]["dataset_sha256"], digest)
+
+            status, _headers, body = request_json(
+                f"{base}/api/v1/legal-context?process_key=103439%2F2023&interested_normalized=ana",
+                token=token,
+            )
+            self.assertEqual(status, 200, body)
+            self.assertIn("RESOLVE", body["context"]["operative_text"])
+            self.assertEqual(body["context"]["rules_version"], RULES_VERSION)
+
+    def test_rebuild_reports_missing_evidence_and_unknown_identity(self):
+        with running_server() as (root, server, base):
+            _dataset, _digest = write_fixture(root, "Ana")
+            token = self.pair(server, base)
+
+            status, _headers, body = request_json(
+                f"{base}/api/v1/legal-context/rebuild",
+                method="POST",
+                payload={"process_key": "103439/2023", "interested_normalized": "ana"},
+                token=token,
+            )
+            self.assertEqual(status, 409)
+            self.assertEqual(body["error"]["code"], "DOCUMENT_EVIDENCE_MISSING")
+            self.assertFalse((root / "fundamentos-contexto.v1.json").exists())
+
+            write_resolution_evidence(root)
+            status, _headers, body = request_json(
+                f"{base}/api/v1/legal-context/rebuild",
+                method="POST",
+                payload={"process_key": "103439/2023", "interested_normalized": "marta"},
+                token=token,
+            )
+            self.assertEqual(status, 404)
+            self.assertEqual(body["error"]["code"], "IDENTITY_NOT_IN_DATASET")
+
+            status, _headers, body = request_json(
+                f"{base}/api/v1/legal-context/rebuild",
+                method="POST",
+                payload={"process_key": "103439/2023", "interested_normalized": "ana", "extra": 1},
+                token=token,
+            )
+            self.assertEqual(status, 400)
+            self.assertEqual(body["error"]["code"], "INVALID_PAYLOAD")
 
     def test_event_replay_is_idempotent_but_changed_payload_conflicts(self):
         with running_server() as (root, server, base):

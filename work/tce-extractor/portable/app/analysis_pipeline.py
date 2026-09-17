@@ -30,7 +30,21 @@ from batch_runner import run_manifest
 from evidence_geometry import build_visual_evidence
 from extension_exporter import export_extension_dataset
 from html_generator import write_html
-from legal_context import build_legal_contexts, write_legal_contexts
+from legal_context import (
+    build_legal_context_record,
+    build_legal_contexts,
+    rebuild_legal_context_from_root,
+    upsert_legal_context_record,
+    write_legal_contexts,
+)
+
+__all__ = [
+    "build_legal_context_record",
+    "build_legal_contexts",
+    "rebuild_legal_context_from_root",
+    "upsert_legal_context_record",
+    "write_legal_contexts",
+]
 from tce_extractor import classify_document, extract_pdf_pages
 
 
