@@ -60,6 +60,16 @@ Estado após a correção: `python -m unittest test_extension_zip_packager -q` �
 (2 testes), fechamento de imports completo, e o estágio `package` do
 `verify-project.ps1` verde.
 
+Limitação ambiental registrada: o ZIP portátil completo
+(`empacotar-coletor-portatil.ps1`) e o `TESTAR-PACOTE.ps1` não puderam ser
+executados neste checkout porque o pacote exige a árvore verificada de runtime
+(`staging-task5-verified/runtime` com `python.exe` e `tesseract`), que não é
+versionada e não existe aqui. Por isso o empacotamento desta rodada foi validado
+pelo artefato que realmente mudou — o ZIP da extensão, gerado pelo empacotador
+oficial e verificado pelo teste de fechamento de imports — mais os estágios
+`package` e `automation` do gate. O `TESTAR-PACOTE.ps1` continua pendente de um
+checkout com o runtime portátil montado, e o smoke real não foi iniciado.
+
 ## Portal real
 
 - smoke autenticado de preenchimento: **PENDENTE** (exige login manual, marcador
