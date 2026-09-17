@@ -280,7 +280,7 @@ function validatePayload(type, payload) {
       exactKeysFrom(
         payload,
         ["processKey", "interestedNormalized", "options"],
-        ["context", "datasetSha256", "rulesVersion", "contextRevision"],
+        ["datasetSha256"],
         "GET_MATCH payload",
       );
       nonEmptyString(payload.processKey, "GET_MATCH processKey");
@@ -288,22 +288,6 @@ function validatePayload(type, payload) {
       validateOptions(payload.options);
       if (Object.hasOwn(payload, "datasetSha256") && (typeof payload.datasetSha256 !== "string" || !/^[0-9a-f]{64}$/u.test(payload.datasetSha256))) {
         invalid("GET_MATCH datasetSha256 is invalid");
-      }
-      if (Object.hasOwn(payload, "rulesVersion")) nonEmptyString(payload.rulesVersion, "GET_MATCH rulesVersion");
-      if (Object.hasOwn(payload, "contextRevision") && (!Number.isSafeInteger(payload.contextRevision) || payload.contextRevision < 0)) {
-        invalid("GET_MATCH contextRevision is invalid");
-      }
-      if (Object.hasOwn(payload, "context") && payload.context !== null) {
-        try {
-          validateLegalContext(payload.context, {
-            processKey: payload.processKey,
-            interestedNormalized: payload.interestedNormalized,
-            datasetSha256: payload.datasetSha256,
-          });
-        } catch (error) {
-          if (error instanceof SchemaValidationError) throw error;
-          invalid(error instanceof Error ? error.message : "GET_MATCH context is invalid");
-        }
       }
       break;
     case MESSAGE_TYPES.APPLY_FIELDS:

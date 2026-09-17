@@ -1,4 +1,5 @@
 import { rankPortalOptions } from "../lib/matcher.js";
+import { LEGAL_FOUNDATION_RULES_VERSION } from "../lib/legal-foundation.js";
 import {
   buildDatasetIndex,
   resolveIndexedRecord,
@@ -11,10 +12,11 @@ import {
   createMessage,
   validateMessage,
 } from "../lib/messages.js";
-import { validateLegalContext } from "../lib/automation-schema.js";
+
 import { AUTOMATION_FIELDS, isAutomaticLegalDecision } from "../lib/automation-preflight.js";
 import { createBridgeClient } from "../lib/bridge-client.js";
 import { createAutomationController } from "./automation-controller.js";
+import { createLegalContextResolver } from "./legal-context-resolver.js";
 
 export const FRAME_REGISTRATIONS_STORAGE_KEY = "frame-registrations:v1";
 export const AUTOMATION_WATCHDOG_ALARM = "automation-watchdog-v1";
@@ -114,7 +116,29 @@ export function createServiceWorker({
   let activeAutomationSpec = null;
   let activeAutomationRunId = null;
   let automationStartInFlight = false;
-  const contextCache = new Map();
+  const legalContextResolver = createLegalContextResolver({
+    bridge: {
+      getLegalContext: (identity) => {
+        if (typeof activeBridge?.getLegalContext !== "function") {
+          throw Object.assign(new Error("legal context endpoint unavailable"), {
+            code: "LEGAL_CONTEXT_NOT_FOUND",
+            status: 404,
+          });
+        }
+        return activeBridge.getLegalContext(identity);
+      },
+      rebuildLegalContext: (identity) => {
+        if (typeof activeBridge?.rebuildLegalContext !== "function") {
+          throw Object.assign(new Error("legal context rebuild unavailable"), {
+            code: "LEGAL_CONTEXT_NOT_FOUND",
+            status: 404,
+          });
+        }
+        return activeBridge.rebuildLegalContext(identity);
+      },
+    },
+    rulesVersion: LEGAL_FOUNDATION_RULES_VERSION,
+  });
 
   function scheduleAutomationWatchdog() {
     if (typeof chromeApi?.alarms?.create !== "function") return;
@@ -481,7 +505,6 @@ export function createServiceWorker({
     dataset = importedDataset;
     datasetIndex = nextIndex;
     reviewed = nextReviewed;
-    contextCache.clear();
     loadPromise = Promise.resolve();
     return successResponse(message, {
       batchId: importedDataset.batch.id,
@@ -499,7 +522,6 @@ export function createServiceWorker({
       processKey,
       interestedNormalized,
       options,
-      context,
       datasetSha256,
       rulesVersion,
       contextRevision,
@@ -511,54 +533,13 @@ export function createServiceWorker({
     if (datasetSha256 !== undefined && datasetSha256 !== currentDatasetSha256) {
       throw contextError("CONTEXT_DATASET_MISMATCH", "context dataset hash differs from the loaded dataset");
     }
-    const identityKey = `${processKey}\u0000${interestedNormalized}`;
-    const invalidateIdentity = () => {
-      for (const key of contextCache.keys()) {
-        if (key.startsWith(`${identityKey}\u0000`)) contextCache.delete(key);
-      }
-    };
-    let cachedContext = null;
-    if (context !== undefined) {
-      if (context === null) {
-        invalidateIdentity();
-      } else {
-        const verifiedContext = validateLegalContext(context, {
-          processKey,
-          interestedNormalized,
-          datasetSha256: currentDatasetSha256,
-        });
-        const verifiedRevision = verifiedContext.context_revision;
-        const verifiedRulesVersion = verifiedContext.rules_version;
-        if (contextRevision !== undefined && verifiedRevision !== contextRevision) {
-          throw contextError("CONTEXT_REVISION_MISMATCH", "context revision differs from the backend context");
-        }
-        if (rulesVersion !== undefined && verifiedRulesVersion !== rulesVersion) {
-          throw contextError("RULES_VERSION_MISMATCH", "rules version differs from the backend context");
-        }
-        if (verifiedRevision === undefined || verifiedRulesVersion === undefined) {
-          if (contextRevision !== undefined) {
-            throw contextError("CONTEXT_REVISION_MISMATCH", "context has no authoritative revision");
-          }
-          if (rulesVersion !== undefined) {
-            throw contextError("RULES_VERSION_MISMATCH", "context has no authoritative rules version");
-          }
-          cachedContext = verifiedContext;
-        } else {
-          invalidateIdentity();
-          const contextKey = `${identityKey}\u0000${verifiedContext.dataset_sha256}\u0000${verifiedRulesVersion}\u0000${verifiedRevision}`;
-          contextCache.set(contextKey, verifiedContext);
-          cachedContext = verifiedContext;
-        }
-      }
-    } else if (
-      datasetSha256 === currentDatasetSha256
-      && typeof rulesVersion === "string"
-      && Number.isSafeInteger(contextRevision)
-      && contextRevision >= 0
-    ) {
-      const contextKey = `${identityKey}\u0000${currentDatasetSha256}\u0000${rulesVersion}\u0000${contextRevision}`;
-      cachedContext = contextCache.get(contextKey) ?? null;
-    }
+    // The panel no longer owns the legal context: the worker resolves it and
+    // the guard below fails closed when the resolution is blocked.
+    await loadBridge();
+    const resolution = await legalContextResolver.ensureLegalContext({
+      identity: { processKey, interestedNormalized },
+      datasetSha256: currentDatasetSha256,
+    });
 
     const matches = {};
     for (const [field, fieldOptions] of Object.entries(options)) {
@@ -569,14 +550,20 @@ export function createServiceWorker({
         documentaryValue,
         hints: {},
         options: fieldOptions,
-        context: field === "fundamento_legal" ? cachedContext : null,
+        context: field === "fundamento_legal" ? resolution.context : null,
       });
     }
-    return successResponse(message, {
+    const payload = {
       record: clone(record),
       matches,
       reviewed: reviewedValue(processKey, record.interested.normalized),
-    });
+    };
+    if (matches.fundamento_legal !== undefined) {
+      payload.context_status = resolution.status;
+      payload.context_source = resolution.source;
+      payload.context_reason = resolution.reason;
+    }
+    return successResponse(message, payload);
   }
 
   async function resolveAutomaticAct(identity, formSnapshot, portalSnapshot) {
@@ -594,24 +581,21 @@ export function createServiceWorker({
       };
     }
 
-    let context = null;
-    if (typeof activeBridge?.getLegalContext === "function") {
-      const contextEnvelope = await activeBridge.getLegalContext({
+    // Automatic and manual preparation resolve the legal context through the
+    // same worker-owned resolver.
+    await loadBridge();
+    const resolution = await legalContextResolver.ensureLegalContext({
+      identity: {
         processKey: identity.processKey,
         interestedNormalized: identity.interestedNormalized,
-      });
-      context = contextEnvelope?.context ?? null;
-      if (context !== null) {
-        context = validateLegalContext(context, {
-          processKey: identity.processKey,
-          interestedNormalized: identity.interestedNormalized,
-          datasetSha256: dataset.batch.logical_sha256,
-        });
-        if (activeAutomationSpec?.rulesVersion
-          && context.rules_version !== activeAutomationSpec.rulesVersion) {
-          throw contextError("RULES_VERSION_MISMATCH", "context rules version differs from the active automation run");
-        }
-      }
+      },
+      datasetSha256: dataset.batch.logical_sha256,
+    });
+    const context = resolution.context;
+    if (context !== null
+      && activeAutomationSpec?.rulesVersion
+      && context.rules_version !== activeAutomationSpec.rulesVersion) {
+      throw contextError("RULES_VERSION_MISMATCH", "context rules version differs from the active automation run");
     }
 
     const matches = {};

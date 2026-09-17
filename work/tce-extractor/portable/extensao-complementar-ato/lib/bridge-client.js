@@ -686,6 +686,35 @@ export function createBridgeClient({ fetchImpl = globalThis.fetch, baseUrl, toke
         },
       });
     },
+    async rebuildLegalContext(identity) {
+      if (identity === null || typeof identity !== 'object' || Array.isArray(identity)
+        || Object.keys(identity).length !== 2
+        || typeof identity.processKey !== 'string'
+        || typeof identity.interestedNormalized !== 'string'
+        || !identity.processKey
+        || !identity.interestedNormalized) {
+        throw bridgeError('identidade inválida', 'INVALID_IDENTITY');
+      }
+      return request('/legal-context/rebuild', {
+        method: 'POST',
+        body: {
+          process_key: identity.processKey,
+          interested_normalized: identity.interestedNormalized,
+        },
+        validate: (payload) => {
+          requireApiVersion(payload, 'legal-context');
+          try {
+            validateLegalContext(payload.context, {
+              processKey: identity.processKey,
+              interestedNormalized: identity.interestedNormalized,
+            });
+          } catch (error) {
+            throw invalidResponse(error instanceof Error ? error.message : 'legal-context.context inválido');
+          }
+          return payload;
+        },
+      });
+    },
     async createAutomationRun(spec, eventId) {
       return request('/automation/runs', {
         method: 'POST',

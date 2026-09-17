@@ -1626,26 +1626,8 @@ test("renders the professor implicit-rule warning without copying sensitive reco
   assert.doesNotMatch(JSON.stringify(model.legalDiagnostics), /103\.870-2\/1|cpf|Maria de Souza/iu);
 });
 
-test("forwards the validated legal context and available bindings to the read-only preview match", async () => {
+test("the read-only preview match no longer forwards any legal context", async () => {
   const dataset = await makeDataset();
-  const legalContext = {
-    schema_version: 1,
-    dataset_sha256: dataset.batch.logical_sha256,
-    process_key: "103439/2023",
-    interested_normalized: "maria de souza",
-    resolution_status: "complete",
-    operative_text: "RESOLVE: Art. 40, § 1º.",
-    pages: [],
-    context_revision: 12,
-    rules_version: "legal-foundation-v3",
-  };
-  const contextCalls = [];
-  const bridge = {
-    async getLegalContext(identity) {
-      contextCalls.push(identity);
-      return { api_version: 1, context: legalContext };
-    },
-  };
   const storageArea = makeStorageArea({
     [STORAGE_KEYS.DATASET]: dataset,
     [STORAGE_KEYS.BRIDGE_BASE_URL]: "http://127.0.0.1:18743",
@@ -1655,7 +1637,6 @@ test("forwards the validated legal context and available bindings to the read-on
     storageArea,
     snapshots: [snapshot({ options: currentOptions() })],
     matches: [{ record: dataset.records[0], matches: fullMatches(), reviewed: false }],
-    bridgeClientFactory: () => bridge,
     pairingFactory: async () => "session-token",
   });
   const { app, documentRef, chromeApi } = started;
@@ -1670,11 +1651,11 @@ test("forwards the validated legal context and available bindings to the read-on
   await app.refresh();
 
   const matchRequest = chromeApi.calls.filter((message) => message.type === MESSAGE_TYPES.GET_MATCH).at(-1);
-  assert.deepEqual(contextCalls, [{ processKey: "103439/2023", interestedNormalized: "maria de souza" }]);
-  assert.deepEqual(matchRequest.payload.context, legalContext);
-  assert.equal(matchRequest.payload.datasetSha256, dataset.batch.logical_sha256);
-  assert.equal(matchRequest.payload.rulesVersion, "legal-foundation-v3");
-  assert.equal(matchRequest.payload.contextRevision, 12);
+  assert.equal(matchRequest.payload.processKey, "103439/2023");
+  assert.equal(matchRequest.payload.interestedNormalized, "maria de souza");
+  assert.equal(Object.hasOwn(matchRequest.payload, "context"), false);
+  assert.equal(Object.hasOwn(matchRequest.payload, "rulesVersion"), false);
+  assert.equal(Object.hasOwn(matchRequest.payload, "contextRevision"), false);
   assert.equal(chromeApi.calls.some((message) => message.type === MESSAGE_TYPES.APPLY_FIELDS), false);
   assert.equal(chromeApi.calls.some((message) => message.type === MESSAGE_TYPES.REQUEST_COMPLEMENTAR_ATO), false);
 });

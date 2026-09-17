@@ -806,24 +806,12 @@ export function createPanelApp({
   async function getMatch(snapshot) {
     const identity = identityFromSnapshot(snapshot);
     if (!identity) throw new Error("processo/ano/interessado não identificados");
-    const contextPayload = {};
-    if (typeof state.bridgeClient?.getLegalContext === "function") {
-      const contextEnvelope = await state.bridgeClient.getLegalContext(identity);
-      const context = contextEnvelope?.context;
-      if (isRecord(context)) {
-        contextPayload.context = context;
-        if (typeof context.dataset_sha256 === "string") contextPayload.datasetSha256 = context.dataset_sha256;
-        if (typeof context.rules_version === "string") contextPayload.rulesVersion = context.rules_version;
-        if (Number.isSafeInteger(context.context_revision) && context.context_revision >= 0) {
-          contextPayload.contextRevision = context.context_revision;
-        }
-      }
-    }
+    // The Service Worker owns the legal context acquisition; the panel only
+    // forwards the identity and the current portal options.
     const response = await send(MESSAGE_TYPES.GET_MATCH, {
       processKey: identity.processKey,
       interestedNormalized: identity.interestedNormalized,
       options: snapshot.options ?? {},
-      ...contextPayload,
     });
     if (!response?.ok) throw new Error(responseFailure(response, "não foi possível calcular a prévia"));
     const payload = response.payload;

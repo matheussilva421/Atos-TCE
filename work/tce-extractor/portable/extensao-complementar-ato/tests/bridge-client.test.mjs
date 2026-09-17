@@ -70,6 +70,74 @@ test('bridge rejects non-loopback and arbitrary base URLs', () => {
   assert.throws(() => createBridgeClient({ baseUrl: 'http://127.0.0.1:9000', token: 'x' }), /porta/i);
 });
 
+test('bridge rebuilds the legal context with the authenticated snake_case contract', async () => {
+  const calls = [];
+  const bridge = createBridgeClient({
+    baseUrl: 'http://127.0.0.1:18743',
+    token: 'test',
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          api_version: 1,
+          context: {
+            schema_version: 1,
+            dataset_sha256: 'a'.repeat(64),
+            process_key: '103439/2023',
+            interested_normalized: 'ana',
+            resolution_status: 'complete',
+            operative_text: 'RESOLVE: art. 6º.',
+            pages: [],
+          },
+        }),
+      };
+    },
+  });
+
+  const envelope = await bridge.rebuildLegalContext({ processKey: '103439/2023', interestedNormalized: 'ana' });
+
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /\/legal-context\/rebuild$/u);
+  assert.equal(calls[0].options.method, 'POST');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    process_key: '103439/2023',
+    interested_normalized: 'ana',
+  });
+  assert.equal(envelope.api_version, 1);
+  assert.equal(envelope.context.resolution_status, 'complete');
+  assert.equal(envelope.context.process_key, '103439/2023');
+});
+
+test('bridge refuses a rebuild envelope without api_version or with a divergent identity', async () => {
+  const bridge = createBridgeClient({
+    baseUrl: 'http://127.0.0.1:18743',
+    token: 'test',
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        api_version: 1,
+        context: {
+          schema_version: 1,
+          dataset_sha256: 'a'.repeat(64),
+          process_key: '103439/2023',
+          interested_normalized: 'outra pessoa',
+          resolution_status: 'complete',
+          operative_text: 'RESOLVE: art. 6º.',
+          pages: [],
+        },
+      }),
+    }),
+  });
+
+  await assert.rejects(
+    () => bridge.rebuildLegalContext({ processKey: '103439/2023', interestedNormalized: 'ana' }),
+    /interested differs|envelope/i,
+  );
+});
+
 test('bridge maps stale progress response as a conflict', async () => {
   const bridge = createBridgeClient({
     baseUrl: 'http://127.0.0.1:18743',

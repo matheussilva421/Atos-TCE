@@ -1494,19 +1494,15 @@ test("AUTO_START resolves the authenticated worker bridge without exposing its t
   assert.deepEqual(bridgeCalls.map(([name]) => name), ["start", "dataset", "freeze"]);
 });
 
-test("contextual getMatch caches by identity, dataset, rules and revision", async () => {
+test("worker-owned resolver feeds getMatch once per identity and never accepts a panel context", async () => {
   const dataset = await makeDataset();
   const calls = [];
+  const bridgeCalls = [];
   const ranker = (input) => {
     calls.push(input.context);
     return { kind: "pending", optionIndex: null, optionValue: null, optionLabel: null, score: 0, reasons: [] };
   };
   const storage = storageMock();
-  const worker = createServiceWorker({ chromeApi: chromeMock(storage), ranker });
-  await worker.handleMessage(
-    createMessage(MESSAGE_TYPES.IMPORT_DATASET, { dataset }, "import-context"),
-    extensionSender(),
-  );
   const context = {
     schema_version: 1,
     dataset_sha256: dataset.batch.logical_sha256,
@@ -1518,88 +1514,97 @@ test("contextual getMatch caches by identity, dataset, rules and revision", asyn
     context_revision: 1,
     rules_version: "legal-foundation-v3",
   };
+  const bridge = {
+    async getLegalContext(identity) {
+      bridgeCalls.push(identity);
+      return { api_version: 1, context };
+    },
+  };
+  const worker = createServiceWorker({ chromeApi: chromeMock(storage), bridge, ranker });
+  await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.IMPORT_DATASET, { dataset }, "import-context"),
+    extensionSender(),
+  );
   const payload = {
     processKey: PROCESS_KEY,
     interestedNormalized: "joao da silva",
     options: { fundamento_legal: [{ value: "ec41", label: "Art. 6 da EC 41/2003" }] },
-    context,
     datasetSha256: dataset.batch.logical_sha256,
-    rulesVersion: "legal-foundation-v3",
-    contextRevision: 1,
   };
   const first = await worker.handleMessage(createMessage(MESSAGE_TYPES.GET_MATCH, payload, "match-context-1"), extensionSender());
   const second = await worker.handleMessage(createMessage(MESSAGE_TYPES.GET_MATCH, payload, "match-context-2"), extensionSender());
-  const third = await worker.handleMessage(createMessage(MESSAGE_TYPES.GET_MATCH, {
-    ...payload,
-    context: { ...context, context_revision: 2 },
-    contextRevision: 2,
-  }, "match-context-3"), extensionSender());
   assert.equal(first.ok, true);
   assert.equal(second.ok, true);
-  assert.equal(third.ok, true);
-  assert.equal(calls.length, 3);
+  assert.equal(bridgeCalls.length, 1);
+  assert.equal(calls.length, 2);
   assert.equal(calls[0].operative_text, context.operative_text);
-  assert.equal(calls[2].operative_text, context.operative_text);
+  assert.equal(calls[1].operative_text, context.operative_text);
+  assert.equal(first.payload.context_status, "ready");
+  assert.equal(first.payload.context_source, "sidecar");
+  assert.equal(first.payload.context_reason, null);
+  assert.equal(second.payload.context_status, "ready");
+  assert.equal(second.payload.context_source, "cache");
+
+  // A panel-supplied context is no longer part of the contract at all.
+  assert.throws(
+    () => createMessage(MESSAGE_TYPES.GET_MATCH, { ...payload, context }, "match-context-forbidden"),
+    /unexpected keys/u,
+  );
 });
 
-test("contextual getMatch rejects backend context hash or revision mismatches", async () => {
+test("getMatch fails closed when the worker cannot resolve the legal context", async () => {
   const dataset = await makeDataset();
-  const worker = createServiceWorker({ chromeApi: chromeMock(storageMock()) });
+  const seen = [];
+  const ranker = (input) => {
+    seen.push({ field: input.field, context: input.context });
+    return { kind: "pending", optionIndex: null, optionValue: null, optionLabel: null, score: 0, reasons: [] };
+  };
+  const bridge = {
+    async getLegalContext() {
+      const error = new Error("contexto jurídico não encontrado");
+      error.status = 404;
+      error.code = "LEGAL_CONTEXT_NOT_FOUND";
+      throw error;
+    },
+  };
+  const worker = createServiceWorker({ chromeApi: chromeMock(storageMock()), bridge, ranker });
   await worker.handleMessage(
     createMessage(MESSAGE_TYPES.IMPORT_DATASET, { dataset }, "import-context-bindings"),
     extensionSender(),
   );
 
-  const baseContext = {
-    schema_version: 1,
-    dataset_sha256: dataset.batch.logical_sha256,
-    process_key: PROCESS_KEY,
-    interested_normalized: "joao da silva",
-    resolution_status: "complete",
-    operative_text: "RESOLVE: Art. 6º",
-    pages: [],
-    context_revision: 7,
-    rules_version: "legal-foundation-v3",
-  };
-  const options = { fundamento_legal: [{ value: "art-6", label: "Art. 6º" }] };
-
-  const hashMismatch = await worker.handleMessage(
-    createMessage(
-      MESSAGE_TYPES.GET_MATCH,
-      {
-        processKey: PROCESS_KEY,
-        interestedNormalized: "joao da silva",
-        options,
-        context: { ...baseContext, dataset_sha256: "b".repeat(64) },
-        datasetSha256: "b".repeat(64),
-        rulesVersion: "legal-foundation-v3",
-        contextRevision: 7,
+  const result = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.GET_MATCH, {
+      processKey: PROCESS_KEY,
+      interestedNormalized: "joao da silva",
+      options: {
+        fundamento_legal: [{ value: "art-6", label: "Art. 6º" }],
+        modalidade: [{ value: "voluntaria", label: "Aposentadoria voluntária" }],
       },
-      "match-context-hash-mismatch",
-    ),
+    }, "match-context-blocked"),
     extensionSender(),
   );
-  assert.equal(hashMismatch.ok, false);
-  assert.equal(hashMismatch.error.code, "CONTEXT_DATASET_MISMATCH");
 
-  const revisionMismatch = await worker.handleMessage(
-    createMessage(
-      MESSAGE_TYPES.GET_MATCH,
-      {
-        processKey: PROCESS_KEY,
-        interestedNormalized: "joao da silva",
-        options,
-        context: baseContext,
-        datasetSha256: dataset.batch.logical_sha256,
-        rulesVersion: "legal-foundation-v3",
-        contextRevision: 8,
-      },
-      "match-context-revision-mismatch",
-    ),
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.context_status, "blocked");
+  assert.equal(result.payload.context_source, null);
+  assert.equal(result.payload.context_reason, "LEGAL_CONTEXT_NOT_FOUND");
+  assert.equal(seen.find((entry) => entry.field === "fundamento_legal").context, null);
+  assert.equal(result.payload.matches.fundamento_legal.kind, "pending");
+  assert.equal(result.payload.matches.fundamento_legal.optionValue, null);
+  assert.equal(result.payload.matches.modalidade.kind, "pending");
+
+  const datasetMismatch = await worker.handleMessage(
+    createMessage(MESSAGE_TYPES.GET_MATCH, {
+      processKey: PROCESS_KEY,
+      interestedNormalized: "joao da silva",
+      options: { fundamento_legal: [{ value: "art-6", label: "Art. 6º" }] },
+      datasetSha256: "b".repeat(64),
+    }, "match-context-hash-mismatch"),
     extensionSender(),
   );
-  assert.equal(revisionMismatch.ok, false);
-  assert.equal(revisionMismatch.error.code, "CONTEXT_REVISION_MISMATCH");
+  assert.equal(datasetMismatch.ok, false);
+  assert.equal(datasetMismatch.error.code, "CONTEXT_DATASET_MISMATCH");
 });
 
 test("wires the authenticated automatic resolver to the loaded dataset and contextual ranker without sending", async () => {
