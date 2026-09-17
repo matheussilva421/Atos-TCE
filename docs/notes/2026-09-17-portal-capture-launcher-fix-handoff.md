@@ -293,3 +293,16 @@ para promover essa sessão: ele foi sobrescrito por uma execução anterior
 inválida (`real-portal-20260917T122613521626Z`, origem nula e pareamento
 incorreto). A gravação `123415041541Z` e a fixture sanitizada versionada estão
 preservadas. Nenhum ato foi preenchido ou enviado.
+
+## Atualização — autorização para preenchimento supervisionado (17/09/2026)
+
+O usuário informou que já conferiu as propostas documentais e autorizou o
+preenchimento supervisionado dos atos. A autorização é restrita à aplicação
+dos campos para revisão no formulário. O envio, a finalização e qualquer ação
+externa continuam fora do escopo desta etapa.
+
+Antes da execução, foram confirmadas as guardas do pacote: `autoSubmit=false`,
+`real_send_enabled=false` e marcador opcional nulo, para que o marcador seja
+sempre escolhido pelo usuário. A sessão interativa anterior foi encerrada;
+retomar exige uma nova execução do launcher no PowerShell do usuário, com
+login manual e pareamento manual.
