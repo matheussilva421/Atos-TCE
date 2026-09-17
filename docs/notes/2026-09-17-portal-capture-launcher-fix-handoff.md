@@ -84,3 +84,8 @@ Restrita without a typed marker or dataset` confirmou que nenhuma ação
 `filter_marker` é enviada nesse modo. A cópia privada de
 `extensao-complementar-ato/sidepanel/panel.html` foi atualizada junto com a
 fonte e os hashes conferem.
+
+Commit local desta atualização: `d5acfd9` (`feat: use manually selected portal
+marker`). Testes da extensão: 411/411 aprovados; testes do controlador de
+automação: 69/69 aprovados. O gate completo permaneceu em 1.174 verificações,
+1.172 aprovadas, 0 falhas e 2 skips.
