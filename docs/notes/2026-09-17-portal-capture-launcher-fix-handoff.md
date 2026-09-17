@@ -227,3 +227,34 @@ pendente é abrir três atos representativos, sem preencher campos e sem clicar
 em **Complementar Ato**. O marcador deve continuar sendo escolhido manualmente;
 o campo opcional do painel deve ficar vazio. Até a conclusão dessa etapa não há
 preflight real promovido nem qualquer envio autorizado.
+
+## Atualização — confirmação de atualização automática da prévia (17/09/2026)
+
+O usuário esclareceu que acionou o fluxo nos três atos e que, ao entrar em cada
+tela **Complementar Ato**, a prévia do painel foi atualizada automaticamente.
+Portanto, a interpretação anterior baseada exclusivamente na ausência de um
+clique em `refresh-button` estava incompleta. A sessão
+`real-portal-20260917T120633932395Z` deve ser tratada como três preflights reais
+read-only observados: três entradas na rota do formulário, três seleções manuais
+do interessado, origem oficial autenticada, nove IDs presentes, sem deriva e
+sem preenchimento ou envio pelo runner.
+
+O comportamento também é compatível com o código do painel: ao restaurar a
+sessão e o dataset, `init()` chama `refresh()`, que obtém o snapshot atual,
+resolve a prévia e publica a seleção na ponte sem preencher campos. A gravação
+sanitizada preserva a estrutura da tela e os eventos de navegação, mas não os
+valores das propostas exibidas; a comparação documental de cada proposta ainda
+precisa de evidência própria antes de qualquer qualificação de envio.
+
+Após essa sessão, uma segunda execução privada
+`real-portal-20260917T121322579301Z` foi aberta por engano e encerrada antes de
+qualquer interação no portal. Ela terminou com origem nula, sem autenticação e
+não deve ser usada como evidência nem como motivo para repetir os três
+preflights. O arquivo privado corrente em `outputs/` foi sobrescrito por essa
+execução vazia; a gravação boa da sessão `120633932395Z` e a fixture versionada
+continuam preservadas. Nenhum envio ocorreu.
+
+Status: os três preflights read-only estão observados conforme confirmação do
+usuário. Permanecem pendentes a validação dos valores documentais e qualquer
+gate separado de envio supervisionado; manter `autoSubmit=false` e
+`real_send_enabled=false`.
