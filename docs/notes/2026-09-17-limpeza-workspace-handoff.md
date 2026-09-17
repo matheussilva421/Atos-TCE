@@ -58,5 +58,7 @@ Copy-Item -LiteralPath "$ws\outputs\TCE-fixed-2026-09-16\runtime-manifest.json" 
 - decisão do operador sobre os itens grandes preservados: `outputs/TCE-fixed-2026-09-16/`
   (8,88 GB), `Versions/...-2026-09-14.zip` (1,22 GB), `acervo-tce/processos/` (8,5 GB) e
   `portable/dados-locais/perfil-navegador` (334 MB, exigiria novo login manual);
-- integração (merge/push) da worktree R3, ainda pendente de decisão;
+- integração da worktree R3: **concluída** — merge commit `21df79c` na `main`
+  (`--no-ff` a partir de `fa9774a`, porque a `main` já continha este handoff),
+  com o gate completo verde no `main` antes do push;
 - smoke real supervisionado da R3, pendente de operador no portal.

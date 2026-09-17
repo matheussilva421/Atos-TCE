@@ -89,6 +89,12 @@ continua verde (98/98) e o pacote reconstruído contém o menu corrigido.
 
 ## Portal real
 
+Integração: o hardening R3 foi integrado na `main` pelo merge commit `21df79c`
+(`--no-ff` a partir de `fa9774a`), após o gate completo ficar verde na árvore
+mergeada. O pacote validado desta rodada continua em
+`.worktrees/fundamento-legal-v3-r3/outputs/tce-portatil-r3.zip`
+(SHA-256 `E5DD4701EF7F9219FD1E7AD58243B53EBCD84788BB466ECECFD726F641FD9A32`).
+
 - smoke autenticado de preenchimento: **PENDENTE** (exige login manual, marcador
   vigente selecionado e campo de marcador vazio; ver a seção do plano R3)
 - submit/finalização real: **NÃO AUTORIZADO POR ESTE PLANO**
