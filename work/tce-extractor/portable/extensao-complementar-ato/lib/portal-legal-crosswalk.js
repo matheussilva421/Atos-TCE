@@ -22,6 +22,53 @@ function referencesHave(referenceList, predicate) {
   return referenceList.some(predicate);
 }
 
+function legalDiploma(reference) {
+  return ["ec", "ece", "cf", "ce"].includes(reference.diploma_type)
+    && reference.diploma_number !== null
+    && reference.diploma_number !== undefined;
+}
+
+function matchingDiplomaFamilies(sourceReferences, candidateReferences) {
+  const candidateDiplomas = candidateReferences.filter(legalDiploma);
+  return sourceReferences.filter((reference) => (
+    legalDiploma(reference)
+    && candidateDiplomas.some((candidate) => (
+      candidate.diploma_type === reference.diploma_type
+      && candidate.diploma_number === reference.diploma_number
+      && (candidate.diploma_year === null || reference.diploma_year === null
+        || candidate.diploma_year === reference.diploma_year)
+    ))
+  ));
+}
+
+/**
+ * EC and ECE amendments are distinct instruments. A state amendment is only
+ * carried by a catalog option when the option declares the same instrument or
+ * an explicit crosswalk translates it to the historical taxonomy.
+ */
+function missingDiplomaFamily(sourceReferences, candidateReferences, recognizedCrosswalk) {
+  if (recognizedCrosswalk) return null;
+  const candidateDiplomas = candidateReferences.filter(legalDiploma);
+  const carries = (source) => candidateDiplomas.some((candidate) => (
+    candidate.diploma_type === source.diploma_type
+    && candidate.diploma_number === source.diploma_number
+    && (candidate.diploma_year === null || source.diploma_year === null
+      || candidate.diploma_year === source.diploma_year)
+  ));
+  for (const reference of sourceReferences) {
+    if (!legalDiploma(reference)) continue;
+    if (carries(reference)) continue;
+    // A documented federal amendment shared with the option keeps the act
+    // traceable even when the state amendment only preserves previous rules.
+    const sharesFederal = reference.diploma_type === "ece"
+      && sourceReferences.some((source) => source.diploma_type === "ec" && carries(source));
+    if (reference.diploma_type === "ece" && !sharesFederal) {
+      return "hard-reject:diploma-family-missing";
+    }
+  }
+  return null;
+}
+
 function isEce20Case(profile) {
   return profile.modality === "voluntary_contribution"
     && referencesHave(profile.references, (reference) => (
@@ -127,6 +174,8 @@ function rankOne(profile, sourceText, option) {
   if (sourceHasEc41Article6 && candidateHasEc41Article6A) hardReasons.push("hard-reject:article-suffix-mismatch");
   const discriminatorMismatch = hasDiscriminatorMismatch(profile.references, candidate.references);
   if (discriminatorMismatch) hardReasons.push(discriminatorMismatch);
+  const missingFamily = missingDiplomaFamily(profile.references, candidate.references, crosswalk !== null);
+  if (missingFamily) hardReasons.push(missingFamily);
   if (profile.modality !== "unknown" && candidate.modality !== "unknown" && profile.modality !== candidate.modality) {
     hardReasons.push("hard-reject:modality-mismatch");
   }
@@ -198,9 +247,10 @@ function rankOne(profile, sourceText, option) {
   };
 }
 
-function emptyDecision(profile, reason, warnings = []) {
+function emptyDecision(profile, reason, warnings = [], decisionState = "NO_COMPATIBLE_CANDIDATE") {
   return {
     status: "pending",
+    decision_state: decisionState,
     automatic: false,
     scope: profile.scope,
     option_value: null,
@@ -233,10 +283,11 @@ export function classifyPortalLegalFoundation({ operativeText = "", cargo = "", 
   const ec47Article3 = profile.references.some((reference) => (
     reference.diploma_type === "ec" && reference.diploma_number === "47" && reference.article === "3"
   ));
-  if ((referenceTypes.has("ec") && referenceTypes.has("ece") && !isEce20Case(profile))
-      || (referenceTypes.has("cf") && referenceTypes.has("ce"))
+  // Coexisting EC and ECE diplomas are not a conflict by themselves: ECE/RN
+  // 20/2020 may preserve previous rules. Only contradictory roles conflict.
+  if ((referenceTypes.has("cf") && referenceTypes.has("ce"))
       || (ec41Reference && ec47Article3)) {
-    return emptyDecision(profile, "family-conflict");
+    return emptyDecision(profile, "family-conflict", [], "DOCUMENT_CONFLICT");
   }
 
   const ranking = normalizedOptions
@@ -254,17 +305,26 @@ export function classifyPortalLegalFoundation({ operativeText = "", cargo = "", 
   const margin = second ? best.confidence - second.confidence : best.confidence;
   const reasons = [...best.reasons];
   const warnings = [...best.warnings];
-  if (second && best.confidence === second.confidence) {
+  const tied = second !== null && best.confidence === second.confidence;
+  if (tied) {
     reasons.push("equivalent-candidates", `tie:${viable.filter((candidate) => candidate.confidence === best.confidence).length}`);
   }
-  let status = "pending";
+  // The operational status stays compatible with the earlier contract, while
+  // decision_state makes the legal situation explicit for the UI and guards.
+  let status;
   if (best.confidence >= 0.90 && margin >= 0.12 && !best.hard_conflict) status = "selected";
   else if (best.confidence >= 0.75 && !best.hard_conflict) status = "review";
   else status = "pending";
+  let decisionState;
+  if (tied) decisionState = "TRUE_TIE";
+  else if (status === "selected") decisionState = "AUTO_SELECTED";
+  else if (status === "review") decisionState = "REVIEW_REQUIRED";
+  else decisionState = "NO_COMPATIBLE_CANDIDATE";
 
   if (status !== "selected") warnings.push("Decisão não atende os limites de confiança/margem para preenchimento automático.");
   return {
     status,
+    decision_state: decisionState,
     automatic: status === "selected",
     scope: profile.scope,
     option_value: best.option_value,
@@ -273,6 +333,7 @@ export function classifyPortalLegalFoundation({ operativeText = "", cargo = "", 
     method: status === "selected" ? best.method : "none",
     confidence: best.confidence,
     margin,
+    hard_conflict: best.hard_conflict === true,
     reason: status === "selected" ? null : "manual-review-required",
     reasons,
     warnings,

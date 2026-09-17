@@ -341,19 +341,26 @@ test("recognizes CE as a state constitution and does not match a federal option"
   assert.equal(result.ranking[1].reasons.includes("family-mismatch"), true);
 });
 
-test("leaves incompatible EC and ECE references pending", () => {
+test("only accepts an EC option that carries the documented EC article of an ECE act", () => {
   const result = resolveLegalFoundation({
     context: contextFor(
       "RESOLVE: Art. 6º da EC nº 41/2003 e art. 7º da ECE nº 41/2003.",
     ),
-    options: [option("EC41_SEM_P5", "ec41", "Art. 6º e 7º da EC nº 41/2003.")],
+    options: [
+      option("EC41_SEM_P5", "ec41", "Art. 6º e 7º da EC nº 41/2003."),
+      option("EC20_ART8", "ec20", "Art. 8º da EC nº 20/1998."),
+    ],
   });
 
-  assert.equal(result.status, "pending");
-  assert.equal(result.option_value, null);
+  // The option carries the documented EC 41/2003 article, so it translates the
+  // co-cited state amendment; the unrelated EC 20/1998 option does not.
+  assert.equal(result.option_value, "ec41");
+  const unrelated = result.ranking.find((candidate) => candidate.option_value === "ec20");
+  assert.equal(unrelated.rejected, true);
+  assert.ok(unrelated.reasons.includes("hard-reject:diploma-family-missing"));
 });
 
-test("binds every explicit diploma in a three-reference conflict", () => {
+test("binds every explicit diploma in a three-reference document", () => {
   const text = "RESOLVE: art. 6º da EC nº 41/2003; art. 7º da ECE nº 41/2020; art. 2º da EC nº 47/2005";
   const references = parseLegalReferences(text);
 
@@ -369,9 +376,11 @@ test("binds every explicit diploma in a three-reference conflict", () => {
     options: [option("EC41_SEM_P5", "ec41", "Art. 6º e 7º da EC nº 41/2003")],
   });
 
-  assert.equal(result.status, "pending");
-  assert.equal(result.option_value, null);
-  assert.ok(result.reasons.includes("family-conflict"));
+  // EC 41/2003 is documented by both the EC and the ECE clause of the act, so
+  // the EC 41/2003 option still carries the referenced federal amendment.
+  assert.equal(result.option_value, "ec41");
+  assert.equal(result.decision_state, "AUTO_SELECTED");
+  assert.equal(result.hard_conflict, false);
 });
 
 test("does not select an unrecognized OTHER family by lexical similarity", () => {
@@ -509,4 +518,69 @@ test("excludes placeholders and leaves equivalent best options pending", () => {
   assert.equal(result.option_value, null);
   assert.equal(result.ranking.length, 2);
   assert.equal(result.reasons.includes("equivalent-candidates"), true);
+});
+
+test("regressão Maria-like: ECE/RN 20/2020 professor nunca vira EC20 art. 8º", () => {
+  const result = resolveLegalFoundation({
+    context: contextFor(
+      "RESOLVE conceder aposentadoria voluntária por tempo de contribuição, com proventos integrais, a servidor ocupante do cargo de PROFESSOR, com fundamento no art. 7º, incisos I a III, §§ 2º e 4º, inciso I, § 5º, inciso I, e § 11 do art. 6º da ECE nº 20/2020.",
+      { cargo: "PROFESSOR" },
+    ),
+    options: [
+      option(
+        null,
+        "ec20-art8",
+        "Civil - Artigo 8º, incisos I e II, §1º, alíneas a e b, da Emenda Constitucional nº 20/1998",
+      ),
+      option(
+        null,
+        "ec41-general",
+        "Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 2º da Emenda Constitucional nº 47/2005",
+      ),
+      option(
+        null,
+        "ec41-teacher",
+        "Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 40, § 5º, Constituição Federal e artigo 2º da Emenda Constitucional nº 47/2005",
+      ),
+      option(
+        null,
+        "ec47-art3",
+        "Civil - Artigo 3º, incisos I a III e parágrafo único, da Emenda Constitucional nº 47/2005",
+      ),
+    ],
+  });
+
+  assert.notEqual(result.portal_classification.class_id, "EC20_ART8");
+  assert.equal(result.portal_classification.class_id, "EC41_TRANSITION_GENERAL");
+  assert.equal(result.status, "selected");
+  assert.equal(result.automatic, true);
+  assert.ok(result.confidence >= 0.90);
+  assert.ok(result.margin >= 0.12);
+});
+
+test("regressão Joana-like: EC41 arts. 6/7, LCE 308 e ECE20 art. 2º não geram conflito global", () => {
+  const result = resolveLegalFoundation({
+    context: contextFor(
+      "RESOLVE conceder aposentadoria voluntária por tempo de contribuição com proventos integrais, nos termos do art. 6º, incisos I a IV, e art. 7º da EC nº 41/2003, art. 87 da LCE nº 308/2005, asseguradas as regras anteriores pelo art. 2º da ECE nº 20/2020.",
+      { cargo: "PROFESSOR" },
+    ),
+    options: [
+      option(
+        null,
+        "ec41-general",
+        "Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 2º da Emenda Constitucional nº 47/2005",
+      ),
+      option(
+        null,
+        "ec41-teacher",
+        "Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 40, § 5º, Constituição Federal e artigo 2º da Emenda Constitucional nº 47/2005",
+      ),
+    ],
+  });
+
+  assert.notEqual(result.reason, "family-conflict");
+  assert.ok(result.ranking.length > 0);
+  assert.equal(result.ranking[0].option_value, "ec41-general");
+  assert.equal(result.portal_classification.class_id, "EC41_TRANSITION_GENERAL");
+  assert.ok(Number.isFinite(result.confidence) && Number.isFinite(result.margin));
 });

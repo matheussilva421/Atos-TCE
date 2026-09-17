@@ -1678,6 +1678,7 @@ test("wires the authenticated automatic resolver to the loaded dataset and conte
         reasons: ["contextual-rule"],
         legalDecision: {
           status: "selected",
+          decision_state: "AUTO_SELECTED",
           method: "rule",
           rule_id: "EC41_COM_P5",
           option_value: input.options[0]?.value ?? optionValues.fundamento_legal,

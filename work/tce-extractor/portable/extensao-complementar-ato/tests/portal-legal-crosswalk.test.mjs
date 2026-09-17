@@ -11,19 +11,17 @@ const fixturePath = join(
   "../../../tests/fixtures/legal-foundations-professores-v2.json",
 );
 const fixture = JSON.parse(await readFile(fixturePath, "utf8"));
-const portalOptions = fixture.catalog.map(({ class_id, scope, label }, index) => ({
-  class_id,
-  scope,
-  label,
-  value: `fixture-${index + 1}`,
-  selectable: true,
-}));
+// The real portal publishes only value and label: the whole matrix below runs
+// against the raw catalog shape and never injects class_id, scope or rule_id.
+const catalogLabels = [...new Set(fixture.catalog.map(({ label }) => label))];
+const labelForClass = Object.fromEntries(fixture.catalog.map(({ class_id, label }) => [class_id, label]));
+const classForValue = Object.fromEntries(catalogLabels.map((label, index) => [`raw-${index + 1}`, fixture.catalog.find((entry) => entry.label === label).class_id]));
+const portalOptions = catalogLabels.map((label, index) => ({ value: `raw-${index + 1}`, label, selectable: true }));
+const optionsForClasses = (classIds) => portalOptions.filter(({ value }) => classIds.includes(classForValue[value]));
 const CASE = fixture.cases.find(({ case_id }) => case_id === "ece20_prof_voluntary_integral");
 
 test("rejects the teacher rule when the professor rule is absent from the operative text", () => {
-  const options = portalOptions.filter(({ class_id }) => (
-    ["EC41_TRANSITION_GENERAL", "EC41_TRANSITION_TEACHER"].includes(class_id)
-  ));
+  const options = optionsForClasses(["EC41_TRANSITION_GENERAL", "EC41_TRANSITION_TEACHER"]);
   const result = classifyPortalLegalFoundation({
     operativeText: "RESOLVE conceder aposentadoria voluntária por tempo de contribuição, com proventos integrais, a servidor ocupante do cargo de PROFESSOR, com fundamento no art. 7º da Emenda Constitucional Estadual nº 20/2020.",
     cargo: "PROFESSOR",
@@ -37,9 +35,7 @@ test("rejects the teacher rule when the professor rule is absent from the operat
 });
 
 test("keeps the teacher candidate viable when the operative text states the professor rule", () => {
-  const options = portalOptions.filter(({ class_id }) => (
-    ["EC41_TRANSITION_GENERAL", "EC41_TRANSITION_TEACHER"].includes(class_id)
-  ));
+  const options = optionsForClasses(["EC41_TRANSITION_GENERAL", "EC41_TRANSITION_TEACHER"]);
   const result = classifyPortalLegalFoundation({
     operativeText: "RESOLVE conceder aposentadoria voluntária por tempo de contribuição, com proventos integrais, a servidor ocupante do cargo de PROFESSOR, com fundamento no art. 6º e art. 7º da Emenda Constitucional nº 41/2003 c/c o artigo 40, § 5º, Constituição Federal e artigo 2º da Emenda Constitucional nº 47/2005.",
     cargo: "PROFESSOR",
@@ -71,7 +67,7 @@ test("rejects a sibling option with a different discriminating alinea", () => {
   const result = classifyPortalLegalFoundation({
     operativeText: "aposentadoria voluntária por tempo de contribuição, art. 40, §1º, inciso III, alínea a, da Constituição Federal",
     cargo: "PROFESSOR",
-    options: portalOptions.filter(({ class_id }) => ["CF40_III_A", "CF40_III_B"].includes(class_id)),
+    options: optionsForClasses(["CF40_III_A", "CF40_III_B"]),
   });
 
   assert.equal(result.ranking[0].class_id, "CF40_III_A");
@@ -83,7 +79,7 @@ test("does not route incapacity for a professor to the voluntary teacher class",
   const result = classifyPortalLegalFoundation({
     operativeText: "aposentadoria por incapacidade permanente, com proventos integrais, a servidor ocupante do cargo de PROFESSOR",
     cargo: "PROFESSOR",
-    options: portalOptions.filter(({ class_id }) => ["CF40_I", "EC41_TRANSITION_TEACHER"].includes(class_id)),
+    options: optionsForClasses(["CF40_I", "EC41_TRANSITION_TEACHER"]),
   });
 
   assert.equal(result.ranking[0].class_id, "CF40_I");
@@ -120,12 +116,12 @@ test("covers the professor validation matrix with explicit expected outcomes", (
     ambiguous: 1,
     negative: 1,
   });
-  const knownClasses = new Set(portalOptions.map(({ class_id }) => class_id));
+  const knownClasses = new Set(Object.values(classForValue));
 
   for (const testCase of fixture.cases) {
     const allowedClasses = testCase.option_class_ids ?? [...knownClasses];
     assert.ok(allowedClasses.length > 0, `${testCase.case_id}: empty option set`);
-    const options = portalOptions.filter(({ class_id }) => allowedClasses.includes(class_id));
+    const options = optionsForClasses(allowedClasses);
     assert.equal(options.length, allowedClasses.length, `${testCase.case_id}: fixture class is absent from catalog`);
     const result = classifyPortalLegalFoundation({
       operativeText: testCase.operative_text,

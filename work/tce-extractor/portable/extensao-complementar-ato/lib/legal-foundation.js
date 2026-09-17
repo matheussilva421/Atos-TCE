@@ -1,5 +1,6 @@
 import { normalizeLegalText } from "./normalizer.js";
 import { classifyPortalLegalFoundation } from "./portal-legal-crosswalk.js";
+import { isAutomaticLegalDecision } from "./automation-preflight.js";
 
 const RAW_ARTICLE_PATTERN = /\bart(?:s|igo|igos)?\.?\s*(\d+)\s*(?:º|ª|o)?(?:\s*[-–]\s*([a-z]))?/giu;
 const ARTICLE_PATTERN = /\bartigos?\s+(\d+)([a-z])?/giu;
@@ -456,15 +457,22 @@ function zeroRanking(options, reason) {
   }));
 }
 
-function baseDecision(context, reasons = [], ranking = [], score = 0) {
+function baseDecision(context, reasons = [], ranking = [], score = 0, decisionState = "NO_COMPATIBLE_CANDIDATE") {
   return {
     status: "pending",
+    decision_state: decisionState,
+    automatic: false,
     method: "none",
     rule_id: null,
     option_value: null,
     option_label: null,
+    class_id: null,
+    confidence: 0,
+    margin: 0,
+    reason: reasons[0] ?? null,
     score,
     reasons,
+    warnings: [],
     ranking,
     citations: citationsFor(context),
     rules_version: LEGAL_FOUNDATION_RULES_VERSION,
@@ -500,6 +508,7 @@ function adaptCrosswalkDecision(context, operativeText, classification) {
   const decision = {
     status: selected ? "selected" : "pending",
     automatic: selected && classification.automatic === true,
+    decision_state: classification.decision_state,
     method: selected ? classification.method : "none",
     rule_id: selected && publicRuleIds.has(classification.class_id) ? classification.class_id : null,
     option_value: selected ? classification.option_value : null,
@@ -509,7 +518,7 @@ function adaptCrosswalkDecision(context, operativeText, classification) {
     confidence: classification.confidence,
     margin: classification.margin,
     reason: classification.reason,
-    hard_conflict: classification.ranking.some((candidate) => candidate.hard_conflict === true),
+    hard_conflict: classification.hard_conflict === true,
     reasons: [...classification.reasons, ...classification.warnings],
     warnings: classification.warnings,
     ranking,
@@ -533,6 +542,18 @@ function adaptCrosswalkDecision(context, operativeText, classification) {
     },
   };
   if (!selected) decision.reasons.push(classification.reason ?? "manual-review-required");
+  // Defense in depth: the specialized pipeline never publishes an automatic
+  // selection that the shared guard would refuse to write.
+  if (decision.automatic && !isAutomaticLegalDecision(decision)) {
+    decision.status = "pending";
+    decision.automatic = false;
+    decision.option_value = null;
+    decision.option_label = null;
+    decision.method = "none";
+    decision.decision_state = "REVIEW_REQUIRED";
+    decision.reason = "manual-review-required";
+    decision.reasons.push("manual-review-required");
+  }
   return decision;
 }
 

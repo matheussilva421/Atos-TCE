@@ -96,6 +96,7 @@ const context = {
 
 const legalDecision = {
   status: "selected",
+  decision_state: "AUTO_SELECTED",
   method: "rule",
   rule_id: "EC41_SEM_P5",
   option_value: values.fundamento_legal,
@@ -462,7 +463,7 @@ test("prepares fields for a selected legal decision based on similarity", () => 
   assert.deepEqual(result.reasons, []);
 });
 
-test("requires v2 confidence and margin before preparing the legal field", () => {
+test("requires legal confidence and margin before preparing the legal field", () => {
   for (const [name, decision, reason] of [
     ["low confidence", { confidence: 0.82, margin: 0.20 }, "LEGAL_DECISION_REVIEW_REQUIRED"],
     ["small margin", { confidence: 0.95, margin: 0.03 }, "LEGAL_DECISION_REVIEW_REQUIRED"],
@@ -476,6 +477,15 @@ test("requires v2 confidence and margin before preparing the legal field", () =>
     assert.deepEqual(result.fields, {}, name);
     assert.ok(result.reasons.includes(reason), name);
   }
+});
+
+test("refuses a selected decision that is not an automatic legal decision", () => {
+  const mismatch = prepareAutomaticAct(input({
+    legalDecision: { ...legalDecision, decision_state: "REVIEW_REQUIRED" },
+  }));
+  assert.equal(mismatch.eligible, false);
+  assert.deepEqual(mismatch.fields, {});
+  assert.ok(mismatch.reasons.includes("LEGAL_DECISION_REVIEW_REQUIRED"));
 });
 
 test("does not return private keys, DOM nodes, or token values", () => {
