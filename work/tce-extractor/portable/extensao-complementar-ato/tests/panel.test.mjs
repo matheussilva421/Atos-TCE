@@ -423,7 +423,27 @@ function fieldMatch({ optionValue, optionLabel, kind = "exact", score = 100 } = 
   return { kind, optionIndex: 1, optionValue, optionLabel, score, reasons: [] };
 }
 
-function fullMatches({ modalidade = fieldMatch({ optionValue: "m-vol", optionLabel: "Aposentadoria voluntária por tempo de contribuição" }), fundamento_legal = fieldMatch({ optionValue: "f-general", optionLabel: "Artigo 40, parágrafo 1" }) } = {}) {
+function autoLegalDecision(optionValue, optionLabel) {
+  return {
+    status: "selected",
+    decision_state: "AUTO_SELECTED",
+    rules_version: "legal-foundation-v3",
+    method: "rule",
+    option_value: optionValue,
+    option_label: optionLabel,
+    confidence: 0.95,
+    margin: 0.20,
+    hard_conflict: false,
+  };
+}
+
+function legalMatch({ optionValue, optionLabel, kind = "exact" } = {}) {
+  const value = optionValue ?? "f-general";
+  const label = optionLabel ?? "Artigo 40, parágrafo 1";
+  return { ...fieldMatch({ optionValue: value, optionLabel: label, kind }), legalDecision: autoLegalDecision(value, label) };
+}
+
+function fullMatches({ modalidade = fieldMatch({ optionValue: "m-vol", optionLabel: "Aposentadoria voluntária por tempo de contribuição" }), fundamento_legal = legalMatch() } = {}) {
   return { modalidade, fundamento_legal };
 }
 
@@ -1973,6 +1993,73 @@ test("sends only the seven current fields and validated matchKinds after a fresh
   assert.match(documentRef.getElementById("result-summary").textContent, /alterados: 7/iu);
 });
 
+test("omits the legal foundation from APPLY_FIELDS when the legal decision is not automatic", async () => {
+  const dataset = await makeDataset();
+  const reviewMatch = {
+    ...fieldMatch({ optionValue: "dangerous-option", optionLabel: "Opção insegura" }),
+    legalDecision: {
+      status: "review",
+      decision_state: "REVIEW_REQUIRED",
+      rules_version: "legal-foundation-v3",
+      method: "rule",
+      option_value: "dangerous-option",
+      confidence: 0.89,
+      margin: 0.20,
+      hard_conflict: false,
+    },
+  };
+  const { app, chromeApi } = await startApp({
+    dataset,
+    snapshots: [snapshot({ options: currentOptions() }), snapshot({ options: currentOptions() })],
+    matches: [
+      { record: dataset.records[0], matches: fullMatches({ fundamento_legal: reviewMatch }), reviewed: false },
+      { record: dataset.records[0], matches: fullMatches({ fundamento_legal: reviewMatch }), reviewed: false },
+    ],
+  });
+
+  await app.fillAvailableFields();
+
+  const apply = chromeApi.calls.find((message) => message.type === MESSAGE_TYPES.APPLY_FIELDS);
+  assert.ok(apply);
+  assert.equal(Object.hasOwn(apply.payload.fields, "fundamento_legal"), false);
+  assert.equal(Object.hasOwn(apply.payload.matchKinds, "fundamento_legal"), false);
+  assert.equal(apply.payload.fields.modalidade, "m-vol");
+  assert.equal(apply.payload.matchKinds.modalidade, "exact");
+});
+
+test("writes exactly the authorized option when the legal decision is automatic", async () => {
+  const dataset = await makeDataset();
+  const autoMatch = {
+    ...fieldMatch({ optionValue: "f-prof", optionLabel: "Regra do professor" }),
+    legalDecision: {
+      status: "selected",
+      decision_state: "AUTO_SELECTED",
+      rules_version: "legal-foundation-v3",
+      method: "rule",
+      option_value: "f-prof",
+      option_label: "Regra do professor",
+      confidence: 0.94,
+      margin: 0.18,
+      hard_conflict: false,
+    },
+  };
+  const { app, chromeApi } = await startApp({
+    dataset,
+    snapshots: [snapshot({ options: currentOptions() }), snapshot({ options: currentOptions() })],
+    matches: [
+      { record: dataset.records[0], matches: fullMatches({ fundamento_legal: autoMatch }), reviewed: false },
+      { record: dataset.records[0], matches: fullMatches({ fundamento_legal: autoMatch }), reviewed: false },
+    ],
+  });
+
+  await app.fillAvailableFields();
+
+  const apply = chromeApi.calls.find((message) => message.type === MESSAGE_TYPES.APPLY_FIELDS);
+  assert.ok(apply);
+  assert.equal(apply.payload.fields.fundamento_legal, "f-prof");
+  assert.equal(apply.payload.fields.modalidade, "m-vol");
+});
+
 test("surfaces a forwarded content-script failure instead of reporting a false completed fill", async () => {
   const dataset = await makeDataset();
   const { app, documentRef } = await startApp({
@@ -2136,6 +2223,43 @@ test("has structurally associated labels, keyboard focus styles, and disabled in
   assert.doesNotMatch(html, /Modo manual: o preenchimento permanece para revisão/u);
   assert.match(html, /aria-live="polite"/u);
   assert.doesNotMatch(`${html}\n${css}\n${js}`, /localStorage|fetch\s*\(|eval\s*\(|clipboard|chrome\.tabs/u);
+});
+
+test("refreshes the preview without consulting the legal context from the panel", async () => {
+  const dataset = await makeDataset();
+  const storageArea = makeStorageArea({
+    [STORAGE_KEYS.DATASET]: dataset,
+    [STORAGE_KEYS.BRIDGE_BASE_URL]: "http://127.0.0.1:18743",
+    [STORAGE_KEYS.BRIDGE_TOKEN]: "session-token",
+  });
+  const bridge = {
+    getLegalContext() {
+      throw new Error("panel must not fetch legal context");
+    },
+  };
+  const started = await startApp({
+    storageArea,
+    snapshots: [snapshot({ options: currentOptions() })],
+    matches: [{ record: dataset.records[0], matches: fullMatches(), reviewed: false }],
+    bridgeClientFactory: () => bridge,
+    pairingFactory: async () => "session-token",
+  });
+  const { app, documentRef, chromeApi } = started;
+  chromeApi.storage.session = storageArea;
+  documentRef.getElementById("bridge-base-url").value = "http://127.0.0.1:18743";
+  documentRef.getElementById("bridge-pairing-code").value = "12345678";
+  documentRef.getElementById("bridge-connect-button").dispatchEvent(new FakeEvent("click"));
+  await waitUntil(
+    () => documentRef.getElementById("bridge-status").textContent.startsWith("Mesa local conectada."),
+    "bridge did not connect for the resolver-free panel",
+  );
+
+  await app.refresh();
+
+  const matchCalls = chromeApi.calls.filter((message) => message.type === MESSAGE_TYPES.GET_MATCH);
+  assert.ok(matchCalls.length > 0);
+  assert.equal(Object.hasOwn(matchCalls.at(-1).payload, "context"), false);
+  assert.equal(matchCalls.at(-1).payload.processKey, "103439/2023");
 });
 
 test("orders the main panel by the requested visual sequence and hides auxiliary areas in five tabs", () => {

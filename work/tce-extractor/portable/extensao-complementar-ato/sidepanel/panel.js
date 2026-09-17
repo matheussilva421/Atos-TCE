@@ -960,6 +960,12 @@ export function createPanelApp({
     const matchKinds = {};
     for (const row of state.rows) {
       if (row.proposedValue === null) continue;
+      // Defense in depth: the legal foundation field is never written unless
+      // an authorized v3 automatic decision backs the proposal, even when a
+      // stale row still carries a proposed value.
+      if (row.field === "fundamento_legal" && !isAutomaticLegalDecision(row.match?.legalDecision)) {
+        continue;
+      }
       fields[row.field] = row.proposedValue;
       if (MATCH_KINDS.has(row.kind)) matchKinds[row.field] = row.kind;
     }
