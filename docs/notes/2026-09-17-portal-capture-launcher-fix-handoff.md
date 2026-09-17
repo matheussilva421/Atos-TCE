@@ -167,3 +167,20 @@ estrutural, que atingiu todos os IDs e os gates de autenticação/origem.
 Status: captura estrutural concluída. A próxima etapa, somente se solicitada,
 é gerar uma fixture sanitizada derivada dessa observação. Não promover nem
 enviar atos automaticamente.
+
+## Atualização — fixture sanitizada derivada (17/09/2026)
+
+A observação privada foi convertida para o arquivo versionável
+`work/tce-extractor/tests/fixtures/real-portal-observation-form.json`. A fonte
+em `outputs/` não foi substituída. A fixture contém somente o contrato
+estrutural, sinais de autenticação/origem e os nove IDs permitidos; não contém
+identidade de processo ou pessoa, credenciais, tokens ou evidência de envio.
+
+SHA-256 da fixture: `A6224308AFB2F86F0CD32BB7C8F9E3B1409F8617C3BFC1531ACBF143CE921F3A`.
+
+Validação específica: `python -m unittest test_real_portal_session -q` — 34
+testes aprovados, 0 falhas. Gate completo:
+`verify-project.ps1 -TimeoutSeconds 900` — 1.174 verificações executadas,
+1.172 aprovadas, 0 falhas e 2 skips. O arquivo ainda precisa ser registrado
+em commit; a qualificação de envio, preflights reais e qualquer envio continuam
+bloqueados até as etapas próprias e autorização explícita.
