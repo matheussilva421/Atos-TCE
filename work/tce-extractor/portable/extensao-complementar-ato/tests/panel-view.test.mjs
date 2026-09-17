@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildPanelViewModel, renderPanelView } from "../sidepanel/panel-view.js";
+import { buildLegalDiagnostics, buildPanelViewModel, renderPanelView } from "../sidepanel/panel-view.js";
 
 const IDENTITY = {
   processKey: "103439/2023",
@@ -50,6 +50,106 @@ test("view model keeps similarity separate from portal confirmation", () => {
   assert.equal(model.run.marker, "PROFESSOR - IPERN - 2 RUBRICAS");
   assert.equal(model.actions.some((action) => action.id === "resend"), false);
   assert.match(model.banner.message, /lote complementa/u);
+});
+
+test("legal diagnostics expose the explicit decision state and authorization", () => {
+  const cases = [
+    {
+      decision_state: "AUTO_SELECTED",
+      status: "selected",
+      automatic: true,
+      confidence: 0.94,
+      writeAllowed: true,
+      stateLabel: /seleção automática/u,
+      writeLabel: /será preenchido/u,
+    },
+    {
+      decision_state: "REVIEW_REQUIRED",
+      status: "pending",
+      automatic: false,
+      confidence: 0.87,
+      margin: 0.09,
+      writeAllowed: false,
+      stateLabel: /revisão necessária/u,
+      writeLabel: /não será preenchido automaticamente/u,
+    },
+    {
+      decision_state: "TRUE_TIE",
+      status: "pending",
+      automatic: false,
+      confidence: 0.95,
+      writeAllowed: false,
+      stateLabel: /empate real/u,
+      writeLabel: /não será preenchido automaticamente/u,
+    },
+    {
+      decision_state: "CONTEXT_BLOCKED",
+      status: "pending",
+      automatic: false,
+      confidence: 0,
+      writeAllowed: false,
+      stateLabel: /contexto jurídico bloqueado/u,
+      writeLabel: /não será preenchido automaticamente/u,
+    },
+    {
+      decision_state: "DOCUMENT_CONFLICT",
+      status: "pending",
+      automatic: false,
+      confidence: 0.96,
+      writeAllowed: false,
+      stateLabel: /conflito documental/u,
+      writeLabel: /não será preenchido automaticamente/u,
+    },
+  ];
+
+  for (const entry of cases) {
+    const diagnostics = buildLegalDiagnostics({
+      status: entry.status,
+      decision_state: entry.decision_state,
+      automatic: entry.automatic,
+      method: "rule",
+      option_label: "Civil - Artigo 3º, incisos I a III e parágrafo único, da Emenda Constitucional nº 47/2005",
+      option_value: "ec47",
+      confidence: entry.confidence,
+      margin: entry.margin ?? 0.20,
+      hard_conflict: false,
+      rules_version: "legal-foundation-v3",
+      reasons: [],
+      rankings: [],
+    });
+
+    assert.equal(diagnostics.decisionState, entry.decision_state, entry.decision_state);
+    assert.equal(diagnostics.writeAllowed, entry.writeAllowed, entry.decision_state);
+    assert.match(diagnostics.stateLabel, entry.stateLabel, entry.decision_state);
+    assert.match(diagnostics.writeLabel, entry.writeLabel, entry.decision_state);
+  }
+});
+
+test("legal diagnostics show zero confidence as zero and keep the method label", () => {
+  const diagnostics = buildLegalDiagnostics({
+    status: "pending",
+    decision_state: "CONTEXT_BLOCKED",
+    automatic: false,
+    method: "none",
+    confidence: 0,
+    margin: 0,
+    hard_conflict: false,
+    rules_version: "legal-foundation-v3",
+    reasons: [],
+    ranking: [],
+  });
+
+  assert.equal(diagnostics.confidenceLabel, "0%");
+  assert.equal(diagnostics.marginLabel, "0 p.p.");
+  assert.equal(diagnostics.candidateLabel, null);
+  assert.match(diagnostics.suggested, /nenhuma/u);
+});
+
+test("legal diagnostics fall back to unavailable values when confidence is absent", () => {
+  const diagnostics = buildLegalDiagnostics({ status: "pending", decision_state: "REVIEW_REQUIRED", method: "none" });
+
+  assert.equal(diagnostics.confidenceLabel, "indisponível");
+  assert.equal(diagnostics.marginLabel, "indisponível");
 });
 
 test("uncertain run exposes reconciliation guidance without resend", () => {

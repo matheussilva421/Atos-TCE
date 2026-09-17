@@ -22,7 +22,7 @@ const FIELD_LABELS = Object.freeze({
 
 const PANEL_VIEWS = Object.freeze(["principal", "details", "automation", "execution", "history"]);
 
-const KIND_LABELS = Object.freeze({ exact: "exato", probable: "aproximado", tie: "empate", "missing-source": "pendente" });
+const KIND_LABELS = Object.freeze({ exact: "exato", probable: "aproximado", tie: "empate real", pending: "sem preenchimento automático", "missing-source": "pendente" });
 const LEGAL_EVIDENCE_LABELS = Object.freeze({
   "modality:voluntary_contribution": "aposentadoria voluntária por tempo de contribuição",
   "modality:invalidity_permanent_disability": "aposentadoria por incapacidade permanente",
@@ -50,7 +50,12 @@ function identityFrom({ record, snapshot }) {
 }
 
 function fieldKind(field, match) {
-  if (match?.legalDecision && !isAutomaticLegalDecision(match.legalDecision)) return "tie";
+  // Only a real TRUE_TIE is shown as a tie; every other non-automatic legal
+  // state stays pending instead of being presented as an equivalent option.
+  if (match?.legalDecision
+    && match.legalDecision.decision_state === "TRUE_TIE"
+    && !isAutomaticLegalDecision(match.legalDecision)) return "tie";
+  if (match?.legalDecision && !isAutomaticLegalDecision(match.legalDecision)) return "pending";
   if (match?.kind) return match.kind;
   if (!field?.form_value) return "missing-source";
   return field.status === "found" && field.confidence === "high" ? "exact" : "probable";
@@ -61,11 +66,46 @@ function uniqueStrings(values) {
 }
 
 function percentLabel(value) {
-  return typeof value === "number" && Number.isFinite(value) ? `${Math.round(value * 100)}%` : "indisponível";
+  if (typeof value === "number" && Number.isFinite(value)) return `${Math.round(value * 100)}%`;
+  return "indisponível";
 }
 
 function marginLabel(value) {
-  return typeof value === "number" && Number.isFinite(value) ? `${Math.round(value * 100)} p.p.` : "indisponível";
+  if (typeof value === "number" && Number.isFinite(value)) return `${Math.round(value * 100)} p.p.`;
+  return "indisponível";
+}
+
+const DECISION_STATE_LABELS = Object.freeze({
+  AUTO_SELECTED: "seleção automática",
+  REVIEW_REQUIRED: "revisão necessária",
+  TRUE_TIE: "empate real",
+  NO_COMPATIBLE_CANDIDATE: "sem candidato compatível",
+  CONTEXT_BLOCKED: "contexto jurídico bloqueado",
+  DOCUMENT_CONFLICT: "conflito documental",
+  CATALOG_UNRECOGNIZED: "catálogo não reconhecido",
+});
+
+const CONTEXT_STATUS_LABELS = Object.freeze({
+  ready: "disponível",
+  rebuilt: "reconstruído",
+  blocked: "bloqueado",
+});
+
+const CONTEXT_SOURCE_LABELS = Object.freeze({
+  cache: "cache",
+  sidecar: "sidecar",
+  rebuilt: "evidências locais",
+});
+
+function decisionStateOf(decision) {
+  const explicit = decision?.decision_state;
+  if (typeof explicit === "string" && explicit) return explicit;
+  const status = decision?.status ?? "pending";
+  // Without an explicit v3 state the decision is never presented as an
+  // automatic selection, matching the write guard that requires AUTO_SELECTED.
+  if (status === "selected") return "REVIEW_REQUIRED";
+  if (status === "review") return "REVIEW_REQUIRED";
+  return "NO_COMPATIBLE_CANDIDATE";
 }
 
 function methodLabel(value) {
@@ -113,10 +153,24 @@ export function buildLegalDiagnostics(decision, documentaryValue = "") {
       ? [PROFESSOR_WARNING]
       : []),
   ]);
+  const decisionState = decisionStateOf(decision);
+  const writeAllowed = isAutomaticLegalDecision(decision);
   return {
     status: decision?.status ?? "pending",
+    decisionState,
+    stateLabel: DECISION_STATE_LABELS[decisionState] ?? decisionState,
+    writeAllowed,
+    writeLabel: writeAllowed
+      ? "Fundamento legal: será preenchido"
+      : "Fundamento legal: não será preenchido automaticamente",
+    contextStatus: decision?.context_status ?? null,
+    contextStatusLabel: CONTEXT_STATUS_LABELS[decision?.context_status] ?? null,
+    contextSource: decision?.context_source ?? null,
+    contextSourceLabel: CONTEXT_SOURCE_LABELS[decision?.context_source] ?? null,
+    contextReason: decision?.context_reason ?? null,
     documentary: text(foundation.operative_text ?? documentaryValue) || "Fonte documental indisponível.",
-    suggested: suggested ? text(suggested) : "Nenhuma opção segura; revisão manual necessária.",
+    suggested: suggested ? text(suggested) : "Proposta segura: nenhuma",
+    candidateLabel: suggested ? text(suggested) : null,
     method,
     methodLabel: methodLabel(method),
     confidence,
@@ -267,7 +321,19 @@ function renderDetails(documentRef, root, model, handlers) {
   const diagnostics = model.legalDiagnostics ?? buildLegalDiagnostics(model.legalDecision, model.fields.find((field) => field.id === "fundamento_legal")?.documentaryValue);
   legal.append(element(documentRef, "h2", "Fundamentação jurídica"));
   legal.append(element(documentRef, "p", `Fundamento documental: ${diagnostics.documentary}`, { class: "foundation-documentary" }));
-  legal.append(element(documentRef, "p", `Opção sugerida do portal: ${diagnostics.suggested}`, { class: "foundation-suggestion" }));
+  legal.append(element(documentRef, "p", `Contexto jurídico: ${diagnostics.contextStatusLabel ?? diagnostics.contextStatus ?? "não consultado"}`, { class: "foundation-context" }));
+  if (diagnostics.contextSource !== null) {
+    legal.append(element(documentRef, "p", `Origem: ${diagnostics.contextSourceLabel ?? diagnostics.contextSource}`, { class: "foundation-context-source" }));
+  }
+  if (diagnostics.contextReason !== null) {
+    legal.append(element(documentRef, "p", `Motivo do contexto: ${diagnostics.contextReason}`, { class: "foundation-context-reason" }));
+  }
+  legal.append(element(documentRef, "p", `Regras: ${diagnostics.rulesVersion ?? "desconhecidas"}`, { class: "foundation-rules" }));
+  legal.append(element(documentRef, "p", `Estado: ${diagnostics.stateLabel}`, { class: "foundation-state" }));
+  legal.append(element(documentRef, "p", diagnostics.writeLabel, { class: "foundation-write" }));
+  legal.append(element(documentRef, "p", diagnostics.candidateLabel
+    ? `Candidato principal: ${diagnostics.candidateLabel}`
+    : "Proposta segura: nenhuma", { class: "foundation-suggestion" }));
   legal.append(element(documentRef, "p", `Método: ${diagnostics.methodLabel}`));
   legal.append(element(documentRef, "p", `Confiança: ${diagnostics.confidenceLabel}`));
   legal.append(element(documentRef, "p", `Margem: ${diagnostics.marginLabel}`));

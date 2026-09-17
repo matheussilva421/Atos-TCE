@@ -1547,6 +1547,8 @@ test("renders legal crosswalk diagnostics with documentary source, suggestion, s
   });
   const decision = {
     status: "selected",
+    decision_state: "AUTO_SELECTED",
+    rules_version: "legal-foundation-v3",
     method: "similarity",
     confidence: 0.94,
     margin: 0.18,
@@ -1592,6 +1594,8 @@ test("renders legal crosswalk diagnostics with documentary source, suggestion, s
   assert.equal(diagnostics.suggested, decision.option_label);
   assert.equal(diagnostics.confidenceLabel, "94%");
   assert.equal(diagnostics.marginLabel, "18 p.p.");
+  assert.equal(diagnostics.decisionState, "AUTO_SELECTED");
+  assert.equal(diagnostics.writeAllowed, true);
   assert.deepEqual(diagnostics.coincidences, [
     "aposentadoria voluntária por tempo de contribuição",
     "proventos integrais",
@@ -1602,7 +1606,8 @@ test("renders legal crosswalk diagnostics with documentary source, suggestion, s
     "catálogo do portal usa classe histórica EC41/EC47",
   ]);
   assert.match(documentRef.getElementById("preview-body").textContent, /Fundamento documental:/u);
-  assert.match(documentRef.getElementById("preview-body").textContent, /Opção sugerida do portal:/u);
+  assert.match(documentRef.getElementById("preview-body").textContent, /Candidato principal:/u);
+  assert.match(documentRef.getElementById("preview-body").textContent, /Fundamento legal: será preenchido/u);
   assert.match(documentRef.getElementById("preview-body").textContent, /94%/u);
   assert.match(documentRef.getElementById("preview-body").textContent, /classe histórica EC41\/EC47/u);
 });
@@ -1951,8 +1956,12 @@ test("integrates panel, worker, and matcher and recalculates changed options bef
   assert.equal(await app.importSelectedFile(), true);
   assert.ok(documentRef.getElementById("preview-body").querySelector('[data-kind="exact"]'));
   // Without a LegalContext the legal foundation is fail-closed: the panel
-  // shows the blocked state instead of a lexical candidate.
-  assert.ok(documentRef.getElementById("preview-body").querySelector('[data-kind="tie"]'));
+  // shows a pending state instead of a lexical candidate or a fake tie.
+  assert.ok(documentRef.getElementById("preview-body").querySelector('[data-kind="pending"]'));
+  assert.equal(
+    documentRef.getElementById("preview-body").querySelector('[data-field="fundamento_legal"]').getAttribute("data-kind"),
+    "pending",
+  );
   assert.equal(await app.fillAvailableFields(), true);
 
   const matchCalls = integration.panelCalls.filter((message) => message.type === MESSAGE_TYPES.GET_MATCH);
