@@ -15,12 +15,14 @@ EXPECTED = {
     "extensao-complementar-ato/manifest.json",
     "extensao-complementar-ato/background/service-worker.js",
     "extensao-complementar-ato/background/automation-controller.js",
+    "extensao-complementar-ato/background/legal-context-resolver.js",
     "extensao-complementar-ato/content/form-detector.js",
     "extensao-complementar-ato/content/portal-navigation.js",
     "extensao-complementar-ato/content/portal-submit.js",
     "extensao-complementar-ato/lib/automation-preflight.js",
     "extensao-complementar-ato/lib/automation-schema.js",
     "extensao-complementar-ato/lib/bridge-client.js",
+    "extensao-complementar-ato/lib/catalog-option-signature.js",
     "extensao-complementar-ato/lib/legal-foundation.js",
     "extensao-complementar-ato/lib/legal-reference-parser-v2.js",
     "extensao-complementar-ato/lib/retirement-legal-profile.js",
@@ -38,6 +40,54 @@ EXPECTED = {
 
 
 class ExtensionZipPackagerTests(unittest.TestCase):
+    def test_packaged_extension_has_a_complete_import_closure(self):
+        """Every relative import inside the ZIP must resolve inside the ZIP."""
+        import re
+
+        with tempfile.TemporaryDirectory(prefix="tce-extension-closure-") as temp_dir:
+            output = Path(temp_dir) / "extension-only.zip"
+            completed = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(PACKAGER),
+                    "-OutputPath",
+                    str(output),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+
+            with zipfile.ZipFile(output) as archive:
+                names = {name for name in archive.namelist() if name.endswith(".js")}
+                self.assertIn("extensao-complementar-ato/background/service-worker.js", names)
+                for name in sorted(names):
+                    source = archive.read(name).decode("utf-8")
+                    for target in re.findall(r"from\s+\"([^\"]+)\"", source):
+                        if not target.startswith("."):
+                            continue
+                        resolved = (Path(name).parent / target).as_posix()
+                        parts = []
+                        for part in resolved.split("/"):
+                            if part == ".":
+                                continue
+                            if part == "..":
+                                parts.pop()
+                                continue
+                            parts.append(part)
+                        self.assertIn(
+                            "/".join(parts),
+                            names,
+                            f"{name} imports {target}, absent from the packaged ZIP",
+                        )
+
     def test_builds_only_the_extension_with_an_explicit_allowlist(self):
         self.assertTrue(PACKAGER.is_file())
         with tempfile.TemporaryDirectory(prefix="tce-extension-package-") as temp_dir:
