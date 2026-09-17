@@ -230,12 +230,44 @@ function resultFor(option, index, kind, score, reasons) {
 }
 
 /**
+ * Fail-closed result for the legal foundation field. The specialized legal
+ * pipeline owns this field: without a LegalContext there is no classification
+ * and the generic matcher must never run, even for a perfect lexical match.
+ */
+function missingLegalContextMatch(reason = "LEGAL_CONTEXT_REQUIRED") {
+  return {
+    kind: "pending",
+    optionIndex: -1,
+    optionValue: null,
+    optionLabel: null,
+    score: 0,
+    reasons: [reason],
+    legalDecision: {
+      status: "pending",
+      decision_state: "CONTEXT_BLOCKED",
+      automatic: false,
+      option_value: null,
+      option_label: null,
+      method: "none",
+      confidence: 0,
+      margin: 0,
+      hard_conflict: false,
+      reason,
+      reasons: [reason],
+      warnings: [],
+      ranking: [],
+    },
+  };
+}
+
+/**
  * Ranks the current portal catalog against one documentary value. The source
  * and option labels are returned untouched; normalized signatures exist only
  * inside this comparison.
  */
 export function rankPortalOptions({ field, documentaryValue, hints = {}, options = [], context = null }) {
-  if (field === "fundamento_legal" && context !== null && context !== undefined) {
+  if (field === "fundamento_legal") {
+    if (context === null || context === undefined) return missingLegalContextMatch();
     const legalDecision = resolveLegalFoundation({ context, options });
     const optionIndex = legalDecision.option_value === null
       ? null

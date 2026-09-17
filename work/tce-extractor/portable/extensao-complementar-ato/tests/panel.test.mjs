@@ -1949,13 +1949,16 @@ test("integrates panel, worker, and matcher and recalculates changed options bef
 
   assert.equal(await app.importSelectedFile(), true);
   assert.ok(documentRef.getElementById("preview-body").querySelector('[data-kind="exact"]'));
-  assert.ok(documentRef.getElementById("preview-body").querySelector('[data-kind="probable"]'));
+  // Without a LegalContext the legal foundation is fail-closed: the panel
+  // shows the blocked state instead of a lexical candidate.
+  assert.ok(documentRef.getElementById("preview-body").querySelector('[data-kind="tie"]'));
   assert.equal(await app.fillAvailableFields(), true);
 
   const matchCalls = integration.panelCalls.filter((message) => message.type === MESSAGE_TYPES.GET_MATCH);
   assert.equal(matchCalls.length, 2);
   assert.deepEqual(matchCalls[0].payload.options, initialOptions);
   assert.deepEqual(matchCalls[1].payload.options, changedOptions);
+  assert.equal(Object.hasOwn(matchCalls[0].payload, "context"), false, "panel must not fetch legal context");
   assert.ok(documentRef.getElementById("preview-body").querySelector('[data-kind="tie"]'));
   const apply = integration.forwardedToContent.find(({ message }) => message.type === MESSAGE_TYPES.APPLY_FIELDS);
   assert.ok(apply);
@@ -1963,8 +1966,10 @@ test("integrates panel, worker, and matcher and recalculates changed options bef
   assert.equal(apply.message.requestId, formSnapshots.at(-1).message.requestId);
   assert.equal(apply.message.payload.fields.modalidade, "m-current-a");
   assert.equal(apply.message.payload.matchKinds.modalidade, "tie");
-  assert.equal(apply.message.payload.fields.fundamento_legal, "f-current");
-  assert.equal(apply.message.payload.matchKinds.fundamento_legal, "probable");
+  // The legal foundation is omitted because the automatic legal decision is
+  // missing, even though the current portal value would be a safe tie.
+  assert.equal(Object.hasOwn(apply.message.payload.fields, "fundamento_legal"), false);
+  assert.equal(Object.hasOwn(apply.message.payload.matchKinds, "fundamento_legal"), false);
   assert.equal(integration.forwardedToContent.every(({ message }) => !Object.hasOwn(message.payload, "dataset")), true);
 });
 

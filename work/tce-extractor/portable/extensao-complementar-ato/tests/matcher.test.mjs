@@ -147,9 +147,9 @@ test("selects exact normalized modalidade and preserves the portal option text",
   });
 });
 
-test("ranks professor article 40 paragraph 5 above a generic legal option", () => {
+test("ranks professor article 40 paragraph 5 above a generic modality option", () => {
   const result = rankPortalOptions({
-    field: "fundamento_legal",
+    field: "modalidade",
     documentaryValue: "Regra do professor prevista no art. 40, § 5º, sem rótulo idêntico",
     hints: {},
     options: options([
@@ -191,7 +191,7 @@ test("preserves distinct option value, label, and portal index for exact, ordere
     {
       name: "ordered probable",
       input: {
-        field: "fundamento_legal",
+        field: "modalidade",
         documentaryValue: "origem zeta",
         hints: { professor: true },
         options: [
@@ -209,7 +209,7 @@ test("preserves distinct option value, label, and portal index for exact, ordere
     {
       name: "tie",
       input: {
-        field: "fundamento_legal",
+        field: "modalidade",
         documentaryValue: "art. 40",
         hints: {},
         options: [
@@ -242,7 +242,7 @@ test("preserves distinct option value, label, and portal index for exact, ordere
   }
 });
 
-test("applies each approved legal signal weight as an isolated numeric score", async (t) => {
+test("applies each approved non legal signal weight as an isolated numeric score", async (t) => {
   const cases = [
     {
       name: "benefit 100",
@@ -250,13 +250,6 @@ test("applies each approved legal signal weight as an isolated numeric score", a
       label: "Aposentadoria",
       score: 100,
       reasons: ["benefit:100"],
-    },
-    {
-      name: "modality 100",
-      hints: { modality: "invalidez" },
-      label: "Invalidez",
-      score: 100,
-      reasons: ["modality:100"],
     },
     {
       name: "proportion 60",
@@ -291,7 +284,7 @@ test("applies each approved legal signal weight as an isolated numeric score", a
   for (const entry of cases) {
     await t.test(entry.name, () => {
       const result = rankPortalOptions({
-        field: "fundamento_legal",
+        field: "modalidade",
         documentaryValue: "origem zeta",
         hints: entry.hints,
         options: [{ value: `${entry.name}-code`, label: entry.label }],
@@ -304,7 +297,7 @@ test("applies each approved legal signal weight as an isolated numeric score", a
   }
 });
 
-test("keeps lexical Dice scores within the exact 0 to 10 range", async (t) => {
+test("keeps lexical Dice scores within the exact 0 to 10 range for non legal fields", async (t) => {
   const cases = [
     {
       name: "zero",
@@ -332,7 +325,7 @@ test("keeps lexical Dice scores within the exact 0 to 10 range", async (t) => {
   for (const entry of cases) {
     await t.test(entry.name, () => {
       const result = rankPortalOptions({
-        field: "fundamento_legal",
+        field: "modalidade",
         documentaryValue: entry.documentaryValue,
         hints: {},
         options: [{ value: `${entry.name}-code`, label: entry.optionLabel }],
@@ -374,9 +367,9 @@ test("distinguishes integral, proportional, and special options", () => {
   }
 });
 
-test("matches an ECE 20/2020 professor rule to the closest legacy catalog entry", () => {
+test("matches an ECE 20/2020 professor rule to the closest catalog entry by non legal signals", () => {
   const result = rankPortalOptions({
-    field: "fundamento_legal",
+    field: "modalidade",
     documentaryValue: "REGRA DE TRANSIÇÃO PROFESSOR - ART. 7º, § 1º - ECE 20/2020 - INTEGRAL",
     hints: { professor: true, proportion: "integral" },
     options: options([
@@ -393,7 +386,7 @@ test("matches an ECE 20/2020 professor rule to the closest legacy catalog entry"
 
 test("scores the ECE number against the corresponding legacy EC entry", () => {
   const result = rankPortalOptions({
-    field: "fundamento_legal",
+    field: "modalidade",
     documentaryValue: "ECE 20/2020",
     hints: {},
     options: [
@@ -410,7 +403,7 @@ test("scores the ECE number against the corresponding legacy EC entry", () => {
 
 test("marks equal best scores as tie and chooses the lower portal index", () => {
   const result = rankPortalOptions({
-    field: "fundamento_legal",
+    field: "modalidade",
     documentaryValue: "art. 40",
     hints: {},
     options: options(["Artigo 40 - opção A", "Artigo 40 - opção B"]),
@@ -420,6 +413,19 @@ test("marks equal best scores as tie and chooses the lower portal index", () => 
   assert.equal(result.optionIndex, 0);
   assert.ok(result.score > 0);
   assert.ok(result.reasons.includes("tie:2"));
+});
+
+test("applies the explicit modality signal alongside the modality weight", () => {
+  const result = rankPortalOptions({
+    field: "modalidade",
+    documentaryValue: "Aposentadoria por invalidez",
+    hints: { modality: "invalidez" },
+    options: [{ value: "modality-code", label: "Invalidez" }],
+  });
+
+  assert.equal(result.kind, "probable");
+  assert.equal(result.score, 205);
+  assert.deepEqual(result.reasons, ["modality:100", "explicit-modality:invalidez:100", "lexical-dice:5"]);
 });
 
 test("returns missing-source without selecting an option for an empty documentary value", () => {
@@ -441,7 +447,7 @@ test("returns missing-source without selecting an option for an empty documentar
   );
 });
 
-test("preserves the legacy foundation result when no context is provided", () => {
+test("fails closed for the legal foundation when no context is provided", () => {
   const result = rankPortalOptions({
     field: "fundamento_legal",
     documentaryValue: "texto sem referências",
@@ -449,9 +455,15 @@ test("preserves the legacy foundation result when no context is provided", () =>
     options: legalFoundationFixture.options,
   });
 
-  assert.equal(result.kind, "probable");
-  assert.equal(result.optionIndex, 0);
-  assert.equal(result.optionValue, "synthetic-ec41-without-p5");
+  assert.equal(result.kind, "pending");
+  assert.equal(result.optionIndex, -1);
+  assert.equal(result.optionValue, null);
+  assert.equal(result.optionLabel, null);
+  assert.equal(result.score, 0);
+  assert.deepEqual(result.reasons, ["LEGAL_CONTEXT_REQUIRED"]);
+  assert.equal(result.legalDecision.decision_state, "CONTEXT_BLOCKED");
+  assert.equal(result.legalDecision.automatic, false);
+  assert.equal(result.legalDecision.rules_version, undefined);
 });
 
 test("uses pending and a null option only for contextual foundation matching", () => {
@@ -506,4 +518,22 @@ test("carries a selected legal decision without changing the legacy matcher fiel
   assert.equal(result.optionValue, "synthetic-ec47-art3");
   assert.equal(result.legalDecision.status, "selected");
   assert.equal(result.legalDecision.rule_id, "EC47_ART3");
+});
+
+test("fundamento legal nunca usa matcher legado sem LegalContext", () => {
+  const result = rankPortalOptions({
+    field: "fundamento_legal",
+    documentaryValue: "Art. 8º da EC 20/1998",
+    options: [
+      { value: "legacy-20", label: "Civil - Artigo 8º da Emenda Constitucional nº 20/1998" },
+    ],
+    context: null,
+  });
+
+  assert.equal(result.kind, "pending");
+  assert.equal(result.optionValue, null);
+  assert.equal(result.optionLabel, null);
+  assert.equal(result.legalDecision.status, "pending");
+  assert.equal(result.legalDecision.decision_state, "CONTEXT_BLOCKED");
+  assert.equal(result.legalDecision.reason, "LEGAL_CONTEXT_REQUIRED");
 });
