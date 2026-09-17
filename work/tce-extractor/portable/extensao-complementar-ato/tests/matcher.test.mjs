@@ -12,6 +12,22 @@ const legalFoundationFixture = JSON.parse(
   readFileSync(join(fixtureRoot, "legal-foundations.json"), "utf8"),
 );
 
+function completeContext(overrides = {}) {
+  return {
+    schema_version: 1,
+    dataset_sha256: "d".repeat(64),
+    process_key: "SYN-0001/2099",
+    interested_normalized: "interessado sintetico",
+    resolution_status: "complete",
+    operative_text: "RESOLVE: Art. 3º, incisos I a III e parágrafo único, da EC nº 47/2005.",
+    pages: [{ text: "RESOLVE: Art. 3º, incisos I a III e parágrafo único, da EC nº 47/2005.", citation: { page: 1 } }],
+    extraction_version: "legal-context-v4",
+    context_revision: 7,
+    rules_version: "legal-foundation-v3",
+    ...overrides,
+  };
+}
+
 test("loads the sanitized v1 catalog with canonical and auxiliary foundation options", () => {
   assert.equal(legalFoundationFixture.schema_version, 1);
   assert.deepEqual(legalFoundationFixture.dataset_fields, [
@@ -504,15 +520,7 @@ test("carries a selected legal decision without changing the legacy matcher fiel
   const result = rankPortalOptions({
     field: "fundamento_legal",
     documentaryValue: "texto legado",
-    context: {
-      schema_version: 1,
-      dataset_sha256: "d".repeat(64),
-      process_key: "SYN-0001/2099",
-      interested_normalized: "interessado sintetico",
-      resolution_status: "complete",
-      operative_text: "RESOLVE: Art. 3º, incisos I a III e parágrafo único, da EC nº 47/2005.",
-      pages: [{ text: "RESOLVE: Art. 3º, incisos I a III e parágrafo único, da EC nº 47/2005.", citation: { page: 1 } }],
-    },
+    context: completeContext(),
     options: [
       legalFoundationFixture.options[0],
       legalFoundationFixture.options[2],
@@ -523,6 +531,43 @@ test("carries a selected legal decision without changing the legacy matcher fiel
   assert.equal(result.optionValue, "synthetic-ec47-art3");
   assert.equal(result.legalDecision.status, "selected");
   assert.equal(result.legalDecision.rule_id, "EC47_ART3");
+});
+
+test("fails closed when the legal context extraction version is missing", () => {
+  const result = rankPortalOptions({
+    field: "fundamento_legal",
+    documentaryValue: "texto legado",
+    options: legalFoundationFixture.options,
+    context: completeContext({ extraction_version: undefined }),
+  });
+
+  assert.equal(result.optionValue, null);
+  assert.equal(result.legalDecision.decision_state, "CONTEXT_BLOCKED");
+  assert.equal(result.legalDecision.reason, "LEGAL_CONTEXT_REQUIRED");
+});
+
+test("fails closed when the legal context rules version is stale", () => {
+  const result = rankPortalOptions({
+    field: "fundamento_legal",
+    documentaryValue: "texto legado",
+    options: legalFoundationFixture.options,
+    context: completeContext({ rules_version: "legal-foundation-v2" }),
+  });
+
+  assert.equal(result.optionValue, null);
+  assert.equal(result.legalDecision.decision_state, "CONTEXT_BLOCKED");
+});
+
+test("fails closed when the legal context revision is not authoritative", () => {
+  const result = rankPortalOptions({
+    field: "fundamento_legal",
+    documentaryValue: "texto legado",
+    options: legalFoundationFixture.options,
+    context: completeContext({ context_revision: null }),
+  });
+
+  assert.equal(result.optionValue, null);
+  assert.equal(result.legalDecision.decision_state, "CONTEXT_BLOCKED");
 });
 
 test("fundamento legal nunca usa matcher legado sem LegalContext", () => {

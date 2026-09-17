@@ -281,7 +281,11 @@ function isCompleteLegalContext(context) {
     && typeof context.operative_text === "string"
     && context.operative_text.trim() !== ""
     && Array.isArray(context.pages)
-    && context.pages.length > 0;
+    && context.pages.length > 0
+    && context.extraction_version === "legal-context-v4"
+    && Number.isSafeInteger(context.context_revision)
+    && context.context_revision >= 0
+    && context.rules_version === "legal-foundation-v3";
 }
 
 /**
