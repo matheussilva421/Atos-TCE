@@ -696,6 +696,23 @@ if ($null -ne (Get-Command Get-TcePortableRuntimeLayout -ErrorAction SilentlyCon
         $datasetStatus = Get-TcePortableDatasetStatus -ArchiveRoot $diagnosticFixtureRoot
         Assert-True $datasetStatus.IsValid 'JSON da extensao valido verifica hash e contagens'
 
+        $quotedDatasetObject = [ordered]@{
+            schema_version = 1
+            generated_at = 'fixture'
+            batch = [ordered]@{
+                id = "fixture-d'arc & cia <tce>"
+                logical_sha256 = '0b66db6d63fbff4109a94bcbe1c26dbc4aea084fabb38724bcb972a0da1b153c'
+                process_count = 0
+                record_count = 0
+                process_keys = @()
+            }
+            records = @()
+        }
+        $quotedDataset = ConvertTo-Json -InputObject $quotedDatasetObject -Compress -Depth 20
+        [IO.File]::WriteAllText((Join-Path $datasetRoot 'dados-complementar-ato.json'), $quotedDataset, (New-Object Text.UTF8Encoding($false)))
+        $quotedDatasetStatus = Get-TcePortableDatasetStatus -ArchiveRoot $diagnosticFixtureRoot
+        Assert-True $quotedDatasetStatus.IsValid ('JSON da extensao aceita apostrofo e simbolos com o hash da convencao Python/JS: ' + ($quotedDatasetStatus.Errors -join '; '))
+
         $invalidDataset = $validDataset -replace '"record_count":0', '"record_count":1'
         [IO.File]::WriteAllText((Join-Path $datasetRoot 'dados-complementar-ato.json'), $invalidDataset, (New-Object Text.UTF8Encoding($false)))
         $invalidDatasetStatus = Get-TcePortableDatasetStatus -ArchiveRoot $diagnosticFixtureRoot

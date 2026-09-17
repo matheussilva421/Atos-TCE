@@ -233,6 +233,28 @@ function Get-TceSha256Hex {
     } finally { $algorithm.Dispose() }
 }
 
+function ConvertTo-TcePortableCanonicalJson {
+    param([Parameter(Mandatory)][AllowNull()][object]$Value)
+    $canonicalJson = ConvertTo-Json -InputObject (ConvertTo-TceCanonicalValue $Value) -Compress -Depth 100
+    # Windows PowerShell 5.1 escapa &, ', <, >, U+0085, U+2028 e U+2029 como \uXXXX.
+    # A convencao autoritativa (extension_exporter.py e lib/schema.js) emite esses
+    # caracteres literalmente; sem normalizar, qualquer JSON com apostrofo produz um
+    # hash logico divergente e reprova um pacote integro.
+    return [regex]::Replace($canonicalJson, '\\\\|\\u0026|\\u0027|\\u003c|\\u003e|\\u0085|\\u2028|\\u2029', {
+        param($match)
+        $token = $match.Value
+        if ($token -eq '\\') { return '\\' }
+        if ($token -eq '\u0026') { return '&' }
+        if ($token -eq '\u0027') { return '''' }
+        if ($token -eq '\u003c') { return '<' }
+        if ($token -eq '\u003e') { return '>' }
+        if ($token -eq '\u0085') { return [string][char]0x0085 }
+        if ($token -eq '\u2028') { return [string][char]0x2028 }
+        if ($token -eq '\u2029') { return [string][char]0x2029 }
+        return $token
+    })
+}
+
 function Test-TceNonNegativeInteger {
     param([AllowNull()][object]$Value)
     return ($null -ne $Value -and $Value -isnot [bool] -and ($Value -is [int] -or $Value -is [long] -or $Value -is [decimal]) -and [decimal]$Value -ge 0 -and [decimal]$Value -eq [math]::Truncate([decimal]$Value))
@@ -276,7 +298,7 @@ function Get-TcePortableDatasetStatus {
     if ($logicalSha -notmatch '^[0-9a-f]{64}$') { Add-TcePortableError $errors 'batch.logical_sha256 deve conter 64 hexadecimais minusculos' }
     else {
         $logicalPayload = [ordered]@{ schema_version = Get-TceJsonProperty $dataset 'schema_version'; batch_id = Get-TceJsonProperty $batch 'id'; process_keys = $processKeys; records = $records }
-        try { $canonicalJson = ConvertTo-Json -InputObject (ConvertTo-TceCanonicalValue $logicalPayload) -Compress -Depth 100; if ((Get-TceSha256Hex $canonicalJson) -cne $logicalSha) { Add-TcePortableError $errors 'batch.logical_sha256 nao corresponde ao conteudo do JSON' } } catch { Add-TcePortableError $errors 'nao foi possivel calcular o hash logico do JSON' }
+        try { $canonicalJson = ConvertTo-TcePortableCanonicalJson $logicalPayload; if ((Get-TceSha256Hex $canonicalJson) -cne $logicalSha) { Add-TcePortableError $errors 'batch.logical_sha256 nao corresponde ao conteudo do JSON' } } catch { Add-TcePortableError $errors 'nao foi possivel calcular o hash logico do JSON' }
     }
     [pscustomobject]@{ IsPresent = $true; IsValid = ($errors.Count -eq 0); Errors = $errors.ToArray(); DatasetPath = $datasetPath; ProcessCount = $processCount; RecordCount = $recordCount; LogicalSha256 = $logicalSha }
 }
