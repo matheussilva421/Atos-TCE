@@ -98,3 +98,18 @@ Após confirmação do usuário, a árvore antiga foi encerrada; o runner antigo
 não está mais ativo e o JSON parou de mudar. Os artefatos privados foram
 preservados. Antes da nova captura, parar a ponte residual com
 `INICIAR.cmd parar` se necessário e iniciar uma sessão limpa.
+
+## Atualização — reconhecimento da lista autenticada (17/09/2026)
+
+A captura mais recente navegou até `ProcessonoSetor.asp`, registrou a seleção
+manual do marcador e o clique em **Consultar**, e encontrou 59 chaves de
+processo. O snapshot final ainda marcou `authenticated_ui_signal=false`
+porque essa lista legada não exibe “Sair” ou “Meus Processos”. O sanitizador
+agora reconhece a rota autenticada `SISTEMAS/Processo/ProcessonoSetor.asp` como
+lista e sinal de autenticação, sem depender de texto de login.
+
+O ciclo TDD foi RED (o novo teste falhou com `False != True`) e GREEN (62/62
+testes focados aprovados). A cópia privada de
+`real_portal_session.py` foi atualizada e o hash confere com a fonte. A sessão
+anterior continua sem promoção a fixture enquanto não houver todos os IDs do
+contrato; nenhum campo foi preenchido e nenhum ato foi enviado.

@@ -512,15 +512,17 @@ def _sanitize_page(page):
             dashboard: /dashboard/iu.test(routeText),
             meus_processos: /meus[-_ ]processos/iu.test(routeText) || routeText.includes('meus/meus'),
             complementar_ato: /complementar[-_/ ]ato|complementarato/iu.test(routeText),
+            processos_setor: routeText.toLowerCase().includes('/sistemas/processo/processonosetor.asp'),
           };
           const processKeys = body.match(new RegExp('[0-9]{5,8}[ ]*/[ ]*20[0-9]{2}', 'gu')) || [];
           const processKeyCount = new Set(processKeys).size;
+          const processListSignal = exactTextPresent(/^meus processos$/iu)
+            || routeSignals.meus_processos
+            || routeSignals.processos_setor;
           const authenticatedUiSignal = localStorageAuthSignal
             || exactTextPresent(/^(sair|logout)$/iu)
             || routeSignals.dashboard
-            || routeSignals.meus_processos;
-          const processListSignal = exactTextPresent(/^meus processos$/iu)
-            || routeSignals.meus_processos;
+            || processListSignal;
           const complementActionSignal = exactTextPresent(/^complementar ato$/iu);
           return {
             url: location.href.split('#')[0],

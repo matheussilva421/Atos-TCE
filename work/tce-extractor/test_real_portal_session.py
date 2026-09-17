@@ -436,6 +436,7 @@ class RealPortalSanitizerTests(unittest.TestCase):
                 "dashboard": True,
                 "meus_processos": True,
                 "complementar_ato": False,
+                "processos_setor": False,
             })
             self.assertNotIn("private-token", repr(snapshot))
             self.assertNotIn("Meus Processos", repr(snapshot))
@@ -470,6 +471,36 @@ class RealPortalSanitizerTests(unittest.TestCase):
             self.assertEqual(snapshot["authenticated_ui_signal"], True)
             self.assertEqual(snapshot["known_ids"], portal_dependency_ids())
             self.assertIn("http://sanitized.test", snapshot["frame_origins"])
+            context.close()
+            browser.close()
+
+    def test_recognizes_the_authenticated_process_sector_route_without_login_text(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context()
+            context.route(
+                "http://sanitized.test/**",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="text/html",
+                    body=(
+                        "<html><body><p>Processos no Setor</p>"
+                        "<select id='cmbMarcadorFiltro'><option selected>Atual</option></select>"
+                        "<p>101234/2026</p></body></html>"
+                    ),
+                ),
+            )
+            page = context.new_page()
+            page.goto(
+                "http://sanitized.test/SISTEMAS/Processo/ProcessonoSetor.asp",
+                wait_until="domcontentloaded",
+            )
+
+            snapshot = _sanitize_page(page)
+
+            self.assertEqual(snapshot["authenticated_ui_signal"], True)
+            self.assertEqual(snapshot["process_list_signal"], True)
+            self.assertEqual(snapshot["route_signals"]["processos_setor"], True)
             context.close()
             browser.close()
 
