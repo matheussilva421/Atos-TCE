@@ -61,10 +61,12 @@ O JSON de saida contem, sem texto privado:
 Se portal_drift.drift for true, PARE: o portal mudou em relacao ao contrato e a
 automacao nao deve prosseguir ate nova qualificacao.
 
-Uma execução que terminou com `portal_origin=null`, `login_signal=false` ou
-`portal_navigation_error_type` preenchido não está qualificada, mesmo que a
-gravação contenha cliques em `ProcessonoSetor.asp`. Preserve os artefatos e
-repita a sessão após o login manual.
+Uma execução que terminou com `portal_origin=null`,
+`authenticated_ui_signal=false` ou `portal_navigation_error_type` preenchido
+não está qualificada, mesmo que a gravação contenha cliques em
+`ProcessonoSetor.asp`. O campo `login_signal` detecta texto de tela de login e
+pode ficar `false` depois de uma autenticação bem-sucedida. Preserve os
+artefatos e repita a sessão após o login manual.
 
 ## Passo 4 - tres preflights, sem envio
 
