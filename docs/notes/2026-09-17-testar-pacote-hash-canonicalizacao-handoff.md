@@ -103,14 +103,47 @@ Ação tomada: removido **apenas da cópia de empacotamento**
 O build anterior foi interrompido de propósito: o staging dele já estava pronto com o gate
 antigo, então o ZIP carregaria o gate defeituoso.
 
+## Aceitação do ZIP extraído (18:40)
+
+Extração em `outputs/qa-extract-2026-09-17` (33.057 entradas) e `TESTAR-PACOTE.ps1`
+executado a partir da própria extração (gate embarcado, versão corrigida):
+
+```
+Pacote: ...\outputs\qa-extract-2026-09-17
+Auditoria selecionada: private
+PASSOU: layout do runtime - Python, Tesseract, DLLs e idiomas presentes
+PASSOU: execucao do runtime - sem detalhes adicionais
+PASSOU: manifest e arquivos declarados - sem detalhes adicionais
+PASSOU: dependencia Node - Node nao e necessario no destino
+PASSOU: dados da extensao - sem detalhes adicionais
+PASSOU: auditoria private - sem detalhes adicionais
+PASSOU: schema da extensao - sem detalhes adicionais
+Pacote integro: verificacao offline aprovada.
+gate_exit=0
+```
+
+Antes da correção o mesmo pacote dava 4 PASSOU + 2 FALHOU + 1 item pulado.
+
+## Scripts de diagnóstico (reprodução, em `outputs/`)
+
+- `check-dataset-hash.py` — comparou hash declarado x calculado (Python) na pasta e na fonte;
+- `check-ps-canonical.ps1` / `dump-ps-canonical.ps1` + `dump-canonical.py` +
+  `compare-canonical.py` — isolaram a primeira divergência (`\u0027` no offset 196445);
+- `dump-escapes-ps.ps1` + `dump-escapes-py.py` + `compare-escapes.py` — varredura de code
+  points provando o conjunto exato de escapes espúrios do PowerShell 5.1;
+- `fixture-hash.ps1` + `fixture-hash.py` — hash congelado do caso de regressão;
+- `check-dataset-status.ps1` — roda `Get-TcePortableDatasetStatus` em qualquer pasta;
+- `inspect-zip.py` — inspeção do ZIP sem extrair; `extract-zip.py` — extração;
+- `commit-msg.txt` — mensagem usada no commit.
+
 ## Pendências
 
-- `TESTAR-PACOTE` na extração do ZIP: extração em `outputs/qa-extract-2026-09-17` seguida do
-  gate, em background (logs `%TEMP%\r3-zip-extract.log` e `%TEMP%\r3-zip-gate.log`);
-- o gate na pasta `outputs/tce-r3-completo` foi interrompido no meio da auditoria (para não
-  disputar I/O com o empacotamento); o item `dados da extensao` já havia sido validado com o
-  gate corrigido antes disso;
-- limpar stagings órfãos em `%TEMP%` (`tce-package-staging-9dduk0os` 8,67 GB,
-  `-xvi4hh4n` 8,67 GB, `-zi1jed76` vazio): pertencem ao usuário real e exigem privilégio;
-  `-0jum8bsv` já foi removido;
-- smoke real supervisionado do R3 (operador, login manual, sem envio).
+- smoke real supervisionado do R3 (operador: login manual, marcador vigente selecionado,
+  `autoSubmit=false`, `real_send_enabled=false`);
+- duas pastas de staging órfãs em `%TEMP%` seguem sem permissão de remoção mesmo fora do
+  sandbox (`tce-package-staging-9dduk0os` e `-xvi4hh4n`, 8,67 GB cada): `Get-Acl` responde
+  "unauthorized operation" e `Remove-Item -Recurse` dá acesso negado. As vazias
+  (`-0jum8bsv`, `-zi1jed76`) já foram removidas. Limpeza manual, se quiser:
+  `takeown /f "%TEMP%\tce-package-staging-9dduk0os" /r /d y` seguido de `rd /s /q`;
+- `outputs/qa-extract-2026-09-17` (8,67 GB) permanece como pacote validado pronto para uso;
+  pode ser removida quando não for mais necessária.
