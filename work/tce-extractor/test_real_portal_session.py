@@ -19,8 +19,10 @@ from real_portal_session import (
     compare_portal_snapshot,
     build_recording_launch_options,
     is_portal_contract_ready,
+    navigation_error_type,
     prepare_bridge_panel,
     portal_dependency_ids,
+    sanitize_portal_page,
     validate_recording_root,
     validate_session_profile,
     write_sanitized_fixture,
@@ -373,6 +375,13 @@ class RealPortalSanitizerTests(unittest.TestCase):
         self.assertEqual(report["drift"], True)
         self.assertEqual(report["reason"], "observation_missing")
 
+    def test_expected_auth_challenge_does_not_poison_a_later_manual_navigation(self):
+        auth_error = RuntimeError("net::ERR_INVALID_AUTH_CREDENTIALS")
+        network_error = RuntimeError("net::ERR_CONNECTION_RESET")
+
+        self.assertEqual(navigation_error_type(auth_error), "")
+        self.assertEqual(navigation_error_type(network_error), "RuntimeError")
+
     def test_captures_structural_authenticated_signals_without_private_text(self):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
@@ -430,6 +439,37 @@ class RealPortalSanitizerTests(unittest.TestCase):
             })
             self.assertNotIn("private-token", repr(snapshot))
             self.assertNotIn("Meus Processos", repr(snapshot))
+            context.close()
+            browser.close()
+
+    def test_sanitizes_the_authenticated_tce_frame_when_the_page_is_a_frameset(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context()
+            context.route(
+                "http://sanitized.test/**",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="text/html",
+                    body=(
+                        "<html><body><iframe src='/processos'></iframe></body></html>"
+                        if route.request.url.endswith("/frameset")
+                        else "<html><body><span>Sair</span><h1>Meus Processos</h1>"
+                        + "".join(f"<input id='{field}'>" for field in portal_dependency_ids())
+                        + "</body></html>"
+                    ),
+                ),
+            )
+            page = context.new_page()
+            page.goto("http://sanitized.test/frameset", wait_until="domcontentloaded")
+            page.wait_for_timeout(100)
+
+            snapshot = sanitize_portal_page(page)
+
+            self.assertEqual(snapshot["origin"], "http://sanitized.test")
+            self.assertEqual(snapshot["authenticated_ui_signal"], True)
+            self.assertEqual(snapshot["known_ids"], portal_dependency_ids())
+            self.assertIn("http://sanitized.test", snapshot["frame_origins"])
             context.close()
             browser.close()
 

@@ -36,6 +36,11 @@ na janela descartável; o runner permanece somente observacional.
 Quando a sessao estiver pronta ele imprime REAL_PORTAL_SESSION_READY e passa a
 regravar o JSON de saida a cada ciclo (--poll-seconds, padrao 5s).
 
+O JSON impresso junto com `REAL_PORTAL_SESSION_READY` é apenas a fotografia
+inicial. Depois do login e da navegação, confira o arquivo final em
+`dados-locais\observacao-portal-real.json`; o runner escolhe a página e o frame
+autenticados entre as páginas abertas e regrava a evidência durante a sessão.
+
 ## Passo 2 - fazer o login e navegar
 
 Faça o login manualmente na janela que abrir. Não há digitação de credencial
@@ -55,6 +60,11 @@ O JSON de saida contem, sem texto privado:
 
 Se portal_drift.drift for true, PARE: o portal mudou em relacao ao contrato e a
 automacao nao deve prosseguir ate nova qualificacao.
+
+Uma execução que terminou com `portal_origin=null`, `login_signal=false` ou
+`portal_navigation_error_type` preenchido não está qualificada, mesmo que a
+gravação contenha cliques em `ProcessonoSetor.asp`. Preserve os artefatos e
+repita a sessão após o login manual.
 
 ## Passo 4 - tres preflights, sem envio
 

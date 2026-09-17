@@ -553,6 +553,70 @@ def _sanitize_page(page):
     )
 
 
+def _portal_snapshot_score(snapshot: dict) -> tuple[int, int, int, int, int, int]:
+    known_ids = snapshot.get('known_ids')
+    known_count = len(known_ids) if isinstance(known_ids, list) else 0
+    return (
+        int(snapshot.get('origin') == f'https://{AREA_RESTRITA_HOST}'),
+        int(snapshot.get('authenticated_ui_signal') is True),
+        known_count,
+        int(snapshot.get('process_list_signal') is True),
+        int(snapshot.get('process_key_count') or 0),
+        int(snapshot.get('body_length') or 0),
+    )
+
+
+def sanitize_portal_page(page) -> dict:
+    """Sanitize the best same-context frame from a portal page."""
+
+    frames = list(getattr(page, 'frames', []) or [page])
+    snapshots = []
+    for frame in frames:
+        try:
+            snapshots.append(_sanitize_page(frame))
+        except Exception:
+            continue
+    if not snapshots:
+        return _sanitize_page(page)
+    selected = dict(max(snapshots, key=_portal_snapshot_score))
+    frame_origins = {
+        origin
+        for snapshot in snapshots
+        for origin in [snapshot.get('origin'), *(snapshot.get('frame_origins') or [])]
+        if isinstance(origin, str) and origin
+    }
+    selected['frame_origins'] = sorted(frame_origins)
+    return selected
+
+
+def sanitize_portal_context(pages, excluded_pages=()) -> dict:
+    """Select the strongest portal snapshot across open pages and frames."""
+
+    excluded = set(excluded_pages)
+    snapshots = []
+    for page in pages:
+        if page in excluded or getattr(page, 'is_closed', lambda: False)():
+            continue
+        try:
+            snapshots.append(sanitize_portal_page(page))
+        except Exception:
+            continue
+    if not snapshots:
+        raise RuntimeError('nenhuma página do portal pôde ser sanitizada')
+    return max(snapshots, key=_portal_snapshot_score)
+
+
+def navigation_error_type(error: Exception) -> str:
+    """Keep an expected unauthenticated challenge recoverable by the operator."""
+
+    classification = classify_request_failure(
+        str(error),
+        is_navigation=True,
+        resource_type='document',
+    )
+    return '' if classification == 'auth_challenge' else type(error).__name__
+
+
 def _extension_id(context) -> str:
     if context.service_workers:
         return context.service_workers[0].url.split('/')[2]
@@ -723,7 +787,7 @@ def main() -> int:
             try:
                 portal.goto(portal_url, wait_until='domcontentloaded', timeout=45_000)
             except Exception as error:  # navigation can remain usable after a timeout
-                navigation_error = type(error).__name__
+                navigation_error = navigation_error_type(error)
                 _record_or_error(
                     events,
                     errors,
@@ -745,7 +809,10 @@ def main() -> int:
             def capture() -> dict:
                 nonlocal observed_baseline
                 panel_snapshot = _sanitize_page(panel)
-                portal_snapshot = _sanitize_page(portal)
+                portal_snapshot = sanitize_portal_context(
+                    context.pages,
+                    excluded_pages=(panel,),
+                )
                 if observed_baseline is None and is_portal_contract_ready(portal_snapshot):
                     observed_baseline = {
                         'origin': portal_snapshot['origin'],
@@ -826,7 +893,10 @@ def main() -> int:
                 while True:
                     time.sleep(max(1.0, args.poll_seconds))
                     if not reloaded_empty_portal:
-                        current = _sanitize_page(portal)
+                        current = sanitize_portal_context(
+                            context.pages,
+                            excluded_pages=(panel,),
+                        )
                         if current['body_length'] < 20:
                             try:
                                 portal.reload(wait_until='domcontentloaded', timeout=30_000)
