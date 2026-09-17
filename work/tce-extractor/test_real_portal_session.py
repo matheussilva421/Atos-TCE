@@ -504,6 +504,36 @@ class RealPortalSanitizerTests(unittest.TestCase):
             context.close()
             browser.close()
 
+    def test_recognizes_the_authenticated_complement_form_route_without_login_text(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context()
+            context.route(
+                "http://sanitized.test/**",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="text/html",
+                    body=(
+                        "<html><body><form>"
+                        + "".join(f"<input id='{field}'>" for field in portal_dependency_ids())
+                        + "</form></body></html>"
+                    ),
+                ),
+            )
+            page = context.new_page()
+            page.goto(
+                "http://sanitized.test/SISTEMAS/PROCESSO/ComplementarAto.asp",
+                wait_until="domcontentloaded",
+            )
+
+            snapshot = _sanitize_page(page)
+
+            self.assertEqual(snapshot["authenticated_ui_signal"], True)
+            self.assertEqual(snapshot["known_ids"], portal_dependency_ids())
+            self.assertEqual(snapshot["route_signals"]["complementar_ato"], True)
+            context.close()
+            browser.close()
+
 
 if __name__ == "__main__":
     unittest.main()

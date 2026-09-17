@@ -128,3 +128,17 @@ sete IDs de campos pertencentes ao formulário continuam ausentes porque a
 captura terminou na lista `ProcessonoSetor.asp`. Para completar o contrato,
 será necessário abrir manualmente um ato elegível e parar na tela do
 formulário, sem preencher ou enviar.
+
+## Atualização — seleção do formulário autenticado (17/09/2026)
+
+A sessão `real-portal-20260917T113259543003Z` registrou a navegação manual até
+`ComplementarAto.asp`, mas o snapshot final ainda escolhia a lista porque a
+rota do formulário não contribuía para `authenticated_ui_signal`. O runner
+agora reconhece também a rota autenticada `ComplementarAto.asp`, fazendo o
+formulário com os IDs completos vencer a lista no critério de seleção de
+frames.
+
+O ciclo TDD foi RED (o novo teste falhou com `False != True`) e GREEN (63/63
+testes focados aprovados). A cópia privada de `real_portal_session.py` foi
+atualizada e o gate completo passou com 1.174 verificações, 1.172 aprovadas,
+0 falhas e 2 skips. Nenhum campo foi preenchido e nenhum ato foi enviado.

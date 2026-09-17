@@ -522,6 +522,7 @@ def _sanitize_page(page):
           const authenticatedUiSignal = localStorageAuthSignal
             || exactTextPresent(/^(sair|logout)$/iu)
             || routeSignals.dashboard
+            || routeSignals.complementar_ato
             || processListSignal;
           const complementActionSignal = exactTextPresent(/^complementar ato$/iu);
           return {
