@@ -258,3 +258,17 @@ Status: os três preflights read-only estão observados conforme confirmação d
 usuário. Permanecem pendentes a validação dos valores documentais e qualquer
 gate separado de envio supervisionado; manter `autoSubmit=false` e
 `real_send_enabled=false`.
+
+## Atualização — launcher sem janela interativa (17/09/2026)
+
+Duas tentativas de iniciar uma nova sessão pelo ambiente do Codex não abriram
+uma janela utilizável para o operador. A execução
+`real-portal-20260917T122613521626Z` terminou com página de erro e a execução
+`real-portal-20260917T123123759020Z` terminou com `pairing rejected` antes de
+qualquer interação no portal. Nenhuma delas é evidência de preflight e nenhuma
+preencheu ou enviou ato.
+
+O launcher deve ser executado pelo usuário em uma janela própria e interativa
+do PowerShell, no diretório do pacote. O Chrome isolado e o pareamento dependem
+desse desktop; o código deve ser informado no painel da extensão e o login
+continua manual.
