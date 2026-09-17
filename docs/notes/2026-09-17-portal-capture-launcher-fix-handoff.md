@@ -142,3 +142,6 @@ O ciclo TDD foi RED (o novo teste falhou com `False != True`) e GREEN (63/63
 testes focados aprovados). A cópia privada de `real_portal_session.py` foi
 atualizada e o gate completo passou com 1.174 verificações, 1.172 aprovadas,
 0 falhas e 2 skips. Nenhum campo foi preenchido e nenhum ato foi enviado.
+
+Commit local desta correção: `dbe2286` (`fix: prioritize authenticated
+complement form`).
