@@ -113,3 +113,6 @@ testes focados aprovados). A cópia privada de
 `real_portal_session.py` foi atualizada e o hash confere com a fonte. A sessão
 anterior continua sem promoção a fixture enquanto não houver todos os IDs do
 contrato; nenhum campo foi preenchido e nenhum ato foi enviado.
+
+Commit local desta correção: `dcf1a94` (`fix: recognize authenticated process
+list route`).
