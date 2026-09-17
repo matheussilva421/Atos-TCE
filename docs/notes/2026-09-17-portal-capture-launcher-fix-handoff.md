@@ -306,3 +306,25 @@ Antes da execução, foram confirmadas as guardas do pacote: `autoSubmit=false`,
 sempre escolhido pelo usuário. A sessão interativa anterior foi encerrada;
 retomar exige uma nova execução do launcher no PowerShell do usuário, com
 login manual e pareamento manual.
+
+## Atualização — preenchimento supervisionado concluído (17/09/2026)
+
+Na sessão `real-portal-20260917T124507014264Z`, o usuário autorizou e concluiu
+o preenchimento supervisionado após revisar as propostas. O registro estrutural
+confirmou três entradas em `ComplementarAto.asp`, três seleções do interessado
+e 18 mudanças de campos: `txtModalidade`, `txtDataDOE`, `txtCargo`,
+`txtMatricula`, `txtDataNascimento` e `txtFundamentoLegal`, uma sequência de
+seis campos por ato. Não houve evento de preenchimento de marcador, envio,
+finalização ou submissão; o marcador continuou sob escolha manual do usuário.
+
+O registro privado terminou após a interação do operador com 119 passos, um
+erro de gravação e nenhum evento estrutural de envio. O estado `BLOCKED` do
+artefato continua sendo a proteção esperada para a sessão real; não é falha de
+preenchimento. As propostas foram aplicadas somente para revisão no portal.
+
+O JSON privado corrente em `dados-locais/observacao-portal-real.json` continua
+sem valor probatório para esta sessão porque foi sobrescrito por uma execução
+antiga inválida. A evidência utilizável é a gravação privada
+`real-portal-20260917T124507014264Z/recording.json`, combinada com a confirmação
+do operador. Nenhum envio ocorreu. Qualquer etapa de envio real permanece
+separada e desabilitada.
