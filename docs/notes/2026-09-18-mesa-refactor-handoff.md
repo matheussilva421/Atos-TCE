@@ -349,6 +349,39 @@ qualquer interruptor de envio automático.
 
 #### Tarefa 5: o que a Mesa comanda hoje
 
+Ensaio de API sobre dado real (2026-09-18, raiz isolada em `tmp/m4-servico/data`
+com PDFs reais ligados por hardlink e a análise real das 11 linhas): a Mesa foi
+subida em processo, em porta efêmera, e exercitada pelas rotas reais.
+
+| Rota | Resultado |
+|---|---|
+| `GET /api/v1/health` | 200, schema 5, 11 processos |
+| `GET /api/v1/storage` | 200, 165 documentos, 150 SHA únicos, todos HOT |
+| `GET /api/v1/processes` | 200, 11 linhas com `PRONTO` e `REVISAR` |
+| `GET /api/v1/processes/<id>` | 200, 15 documentos e 7 campos |
+| `GET /api/v1/processes/<id>/evidence/<campo>` | 200 com o payload de evidência |
+| `GET /api/v1/documents/<id>/pdf` | 200, 1,7 MB, `application/pdf` |
+| `POST /api/v1/portal/manual-form` sem sessão | 401 |
+| `POST .../manual-form` (linha `PRONTO`, snapshot sintético) | 201, pedido em `BLOQUEADO` por `CONTROL_NOT_FOUND: modalidade` — o preflight bloqueia em vez de enfileirar `FILL_FORM`, como desenhado |
+| `POST .../manual-form` (linha do processo ambíguo, `REVISAR`) | 409 "nenhum processo PRONTO corresponde" — o processo ambíguo não é preenchível |
+| `POST .../manual-form` (identidade inexistente) | 409 |
+
+O snapshot do formulário foi sintético (não havia portal aberto), então o
+bloqueio por controle ausente é o comportamento esperado: o ensaio prova a
+fiação HTTP, a autenticação e o fail-closed, não o preenchimento real — esse
+continua sendo o gate supervisionado de M5.
+
+Passada **somente leitura** pela raiz real (`data/`, a mesma máquina):
+`/api/v1/health` devolveu 739 processos e schema 5; `/api/v1/storage` devolveu
+14.179 blobs (8.892.090.055 bytes), 14.179 arquivos na visão de processo, 14.483
+documentos, 14.179 SHA únicos e `deduplicated_bytes` igual ao total lógico (tudo
+em hardlink); `/api/v1/processes` listou 739 linhas, todas `PENDENTE` (o acervo
+canônico ainda não foi analisado pela Mesa — a análise é ação do operador);
+`/api/v1/processes/1` trouxe 17 documentos e 0 campos; `/api/v1/area/latest` sem
+varredura e `/api/v1/acquisition/plan` com 0 lotes (nada pendente de download).
+Nenhuma rota de escrita foi chamada: `archive`, `restore`, `fill` e
+`acquisition/jobs` não foram exercitadas na raiz real.
+
 `POST /api/v1/processes/<id>/fill` inicia o fluxo (somente processo `PRONTO`),
 `GET /api/v1/fill-requests/<id>` acompanha o estado, e o resultado de cada
 comando da extensão entra pelo mesmo caminho autenticado já existente. Ao
