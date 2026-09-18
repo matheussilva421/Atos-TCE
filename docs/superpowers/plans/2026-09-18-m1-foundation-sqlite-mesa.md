@@ -246,9 +246,11 @@ Expected: import failure for legacy_import.
 Rules:
 - recurse only below the supplied archive root and do not follow directory symlinks;
 - hash PDFs in 1 MiB chunks;
-- store one physical blob at data/archive/blobs/AA/SHA256.pdf;
-- use os.link when possible, otherwise shutil.copy2;
-- verify the target hash before reusing an existing blob;
+- store one canonical physical blob at data/archive/blobs/AA/SHA256.pdf;
+- materialize the legacy-shaped view under data/archive/processos/... using a hardlink to the canonical blob whenever the source and data root are on the same volume;
+- use shutil.copy2 only when a hardlink cannot be created, and count those fallback copies separately in the migration report;
+- scan process PDFs from known legacy process roots and explicitly exclude data/archive/blobs from recursive source discovery;
+- verify the target hash before reusing an existing blob or process-view file;
 - never unlink, rename or rewrite source files;
 - default CLI mode is dry-run;
 - --apply is required to materialize files;
@@ -398,7 +400,7 @@ Require free space greater than or equal to bytes_unique from the report plus 2 
 
 Run: python scripts/migrate-legacy.py --archive-root work\tce-extractor\acervo-tce --data-root data --apply
 
-Expected: source remains intact; each unique PDF SHA has one blob in data/archive/blobs.
+Expected: source remains intact; each unique PDF SHA has one blob in data/archive/blobs, while data/archive/processos preserves the legacy folder view through hardlinks wherever possible so the proven collector/analyzer can continue operating without duplicating file bytes.
 
 - [ ] **Step 4: Verify Mesa against real imported data**
 
@@ -414,6 +416,6 @@ Never add data/. If no code changed, make no commit.
 
 - SQLite schema v1 is operational.
 - The current archive can be imported without deleting the source.
-- Physical duplicate PDFs are deduplicated by SHA-256.
+- Physical duplicate PDFs are deduplicated by SHA-256, with a legacy-compatible process tree backed by hardlinks where supported.
 - Real imported processes are visible in the read-only Mesa.
 - The existing legacy operational workflow remains untouched.
