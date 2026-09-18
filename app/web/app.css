@@ -403,3 +403,31 @@ button.ghost,
   padding-top: 12px;
   border-top: 1px dashed var(--line);
 }
+
+.acquisition {
+  margin: 14px 0 4px;
+}
+
+#download-pending {
+  font: inherit;
+  font-weight: 600;
+  padding: 9px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+#download-pending:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.failures {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 13px;
+  color: var(--error);
+}

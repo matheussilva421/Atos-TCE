@@ -33,6 +33,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from ..core.store import Store
 from ..area_restrita import PORTAL_ROLES
 from ..area_restrita import cdp_fallback
+from ..econtas.service import AcquisitionError, AcquisitionService
 from . import views
 from .bridge import SESSION_COOKIE, Bridge, hash_token, is_extension_origin
 
@@ -61,6 +62,8 @@ ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/documents/(?P<document_id>\d+)/pdf"), "handle_document_pdf", "public"),
     Route(re.compile(r"/api/v1/bridge/pairing"), "handle_bridge_pairing", "mesa"),
     Route(re.compile(r"/api/v1/area/latest"), "handle_area_latest", "public"),
+    Route(re.compile(r"/api/v1/acquisition/plan"), "handle_acquisition_plan", "public"),
+    Route(re.compile(r"/api/v1/jobs/(?P<job_id>\d+)"), "handle_job_status", "public"),
     Route(re.compile(r"/api/v1/bridge/status"), "handle_bridge_status", "extension"),
     Route(re.compile(r"/api/v1/extension/commands/next"), "handle_command_next", "extension"),
     Route(re.compile(r"/api/v1/extension/commands/(?P<command_id>\d+)"), "handle_command_status", "mesa"),
@@ -75,6 +78,7 @@ POST_ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/area/scans"), "post_area_scan", "mesa"),
     Route(re.compile(r"/api/v1/area/analyze"), "post_area_analyze", "mesa"),
     Route(re.compile(r"/api/v1/area/analyze-cdp"), "post_area_analyze_cdp", "mesa"),
+    Route(re.compile(r"/api/v1/acquisition/jobs"), "post_acquisition_job", "mesa"),
 )
 
 
@@ -101,6 +105,7 @@ class MesaServer(ThreadingHTTPServer):
         store: Store,
         data_root: Path,
         bridge: Bridge,
+        acquisition_factory=None,
         verbose: bool = False,
     ):
         super().__init__(address, handler)
@@ -108,6 +113,19 @@ class MesaServer(ThreadingHTTPServer):
         self.data_root = Path(data_root)
         self.bridge = bridge
         self.verbose = verbose
+        self._acquisition = None
+        self._acquisition_factory = acquisition_factory
+
+    @property
+    def acquisition(self) -> AcquisitionService:
+        """The acquisition coordinator, created once per server process."""
+
+        if self._acquisition is None:
+            if self._acquisition_factory is not None:
+                self._acquisition = self._acquisition_factory(self.store, self.data_root)
+            else:
+                self._acquisition = AcquisitionService(self.store, self.data_root)
+        return self._acquisition
 
     @property
     def origins(self) -> set[str]:
@@ -320,6 +338,30 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
 
     def handle_area_latest(self, query: dict[str, list[str]]) -> None:
         self._send_json(views.area_summary_payload(self.mesa.store))
+
+    def handle_acquisition_plan(self, query: dict[str, list[str]]) -> None:
+        self._send_json(views.acquisition_plan_payload(self.mesa.acquisition.plan_pending()))
+
+    def handle_job_status(self, query: dict[str, list[str]], job_id: str) -> None:
+        payload = views.job_payload(self.mesa.store, int(job_id))
+        if payload is None:
+            self._send_json({"error": "job_not_found", "job_id": int(job_id)}, status=404)
+            return
+        self._send_json(payload)
+
+    def post_acquisition_job(self) -> None:
+        if not self._require_session():
+            return
+        service = self.mesa.acquisition
+        try:
+            job_id = service.start_async(service.plan_pending())
+        except AcquisitionError as error:
+            self._send_json({"error": "acquisition_refused", "detail": str(error)}, status=409)
+            return
+        job = self.mesa.store.get_job(job_id) or {}
+        self._send_json(
+            {"job_id": job_id, "status": job.get("status"), "total": job.get("total")}, status=201
+        )
 
     def handle_bridge_status(self, query: dict[str, list[str]]) -> None:
         client_id = self._require_extension()
@@ -592,6 +634,7 @@ def serve(
     port: int = DEFAULT_PORT,
     *,
     bridge: Bridge | None = None,
+    acquisition_factory=None,
     verbose: bool = False,
 ) -> MesaServer:
     """Create (but do not start) the loopback Mesa server."""
@@ -604,5 +647,6 @@ def serve(
         store=store,
         data_root=data_root,
         bridge=bridge or Bridge(),
+        acquisition_factory=acquisition_factory,
         verbose=verbose,
     )

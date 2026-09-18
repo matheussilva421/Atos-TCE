@@ -44,7 +44,7 @@
     not_found: "Não encontrados",
   };
 
-  const state = { items: [], selectedId: null, query: "", status: "" };
+  const state = { items: [], selectedId: null, query: "", status: "", acquisitionRunning: false };
 
   const numberFormat = new Intl.NumberFormat("pt-BR");
 
@@ -95,8 +95,83 @@
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(body ?? {}),
     });
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-    return response.json();
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const detail = payload && (payload.detail || payload.error);
+      throw new Error(detail ? String(detail) : `${response.status} ${response.statusText}`);
+    }
+    return payload || {};
+  }
+
+  function renderFailures(items) {
+    const host = document.getElementById("acquisition-failures");
+    host.replaceChildren(
+      ...(items || []).map((item) =>
+        element("li", {
+          text: `${item.process_key || "processo"} — ${item.error || "falha sem detalhe"}`,
+        })
+      )
+    );
+  }
+
+  async function refreshAcquisition() {
+    const button = document.getElementById("download-pending");
+    try {
+      const plan = await getJson("/api/v1/acquisition/plan");
+      button.textContent =
+        plan.total > 0
+          ? `Baixar ${numberFormat.format(plan.total)} processos`
+          : "Nada a baixar";
+      button.disabled = plan.total === 0 || state.acquisitionRunning;
+    } catch {
+      button.disabled = true;
+    }
+  }
+
+  async function startAcquisition() {
+    const button = document.getElementById("download-pending");
+    const status = document.getElementById("acquisition-status");
+    const progress = document.getElementById("acquisition-progress");
+    state.acquisitionRunning = true;
+    button.disabled = true;
+    renderFailures([]);
+    progress.textContent = "";
+    status.textContent = "Iniciando o download dos processos pendentes…";
+    try {
+      const created = await postJson("/api/v1/acquisition/jobs", {});
+      const deadline = Date.now() + 3600000;
+      for (;;) {
+        await sleep(1000);
+        const job = await getJson(`/api/v1/jobs/${created.job_id}`);
+        progress.textContent =
+          `${numberFormat.format(job.completed)} de ${numberFormat.format(job.total)} baixados` +
+          (job.failed ? ` · ${numberFormat.format(job.failed)} com falha` : "");
+        if (job.status === "WAITING_FOR_LOGIN") {
+          status.textContent = "Faça login no e-Contas para continuar.";
+          break;
+        }
+        if (job.status === "COMPLETED" || job.status === "COMPLETED_WITH_ERRORS" || job.status === "FAILED") {
+          status.textContent =
+            job.status === "COMPLETED"
+              ? "Download concluído."
+              : `Download terminou com ${numberFormat.format(job.failed)} falha(s).`;
+          renderFailures(job.failures);
+          break;
+        }
+        if (Date.now() > deadline) {
+          status.textContent = "O download demorou demais; verifique o e-Contas.";
+          break;
+        }
+      }
+      await refreshArea();
+      await refreshProcesses();
+      await refreshStorage();
+    } catch (error) {
+      status.textContent = `Não foi possível baixar: ${error.message}`;
+    } finally {
+      state.acquisitionRunning = false;
+      await refreshAcquisition();
+    }
   }
 
   function sleep(milliseconds) {
@@ -446,6 +521,7 @@
 
     document.getElementById("analyze-area").addEventListener("click", analyzeArea);
     document.getElementById("analyze-area-cdp").addEventListener("click", analyzeAreaCdp);
+    document.getElementById("download-pending").addEventListener("click", startAcquisition);
     document.getElementById("renew-pairing").addEventListener("click", renewPairing);
 
     refreshHealth();
@@ -453,9 +529,11 @@
     refreshProcesses();
     refreshArea();
     refreshPairing();
+    refreshAcquisition();
     window.setInterval(() => {
       refreshHealth();
       refreshPairing();
+      if (!state.acquisitionRunning) refreshAcquisition();
     }, 5000);
   }
 

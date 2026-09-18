@@ -118,6 +118,49 @@ def area_summary_payload(store: Store) -> dict[str, Any]:
     return {"api_version": API_VERSION, "scan": summary, "counters": counters}
 
 
+def acquisition_plan_payload(plan: Any) -> dict[str, Any]:
+    """Report only what the operator needs: how many processes need bytes."""
+
+    return {
+        "api_version": API_VERSION,
+        "total": int(plan.total),
+        "lot_size": int(plan.lot_size),
+        "lot_count": int(plan.lot_count),
+    }
+
+
+def job_payload(store: Store, job_id: int, *, failure_limit: int = 20) -> dict[str, Any] | None:
+    """Report a job as progress plus process-level failures, never as lot ids."""
+
+    job = store.get_job(job_id)
+    if job is None:
+        return None
+    failures: list[dict[str, Any]] = []
+    for item in store.list_job_items(job_id):
+        if item["state"] != "FAILED" or len(failures) >= failure_limit:
+            continue
+        process = store.get_process(int(item["process_id"]))
+        failures.append(
+            {
+                "process_key": (process or {}).get("process_key"),
+                "error": item["error"],
+            }
+        )
+    return {
+        "api_version": API_VERSION,
+        "id": int(job["id"]),
+        "job_type": job["job_type"],
+        "status": job["status"],
+        "total": int(job["total"]),
+        "completed": int(job["completed"]),
+        "failed": int(job["failed"]),
+        "error": job["error"],
+        "started_at": job["started_at"],
+        "finished_at": job["finished_at"],
+        "failures": failures,
+    }
+
+
 def resolve_document_file(store: Store, data_root: Path, document_id: int) -> Path | None:
     """Resolve a document id to a real file, preferring the process view.
 

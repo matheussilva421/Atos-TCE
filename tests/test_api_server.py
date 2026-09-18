@@ -19,6 +19,8 @@ from app.api.bridge import Bridge, hash_token
 from app.api.server import serve
 from app.archive.legacy_import import blob_path, sha256_file
 from app.area_restrita import cdp_fallback
+from app.econtas.legacy_queue import read_frozen_queue
+from app.econtas.service import AcquisitionService
 from app.core.models import DocumentRecord, FieldRecord, ProcessRecord
 from app.core.store import SCHEMA_VERSION, Store
 
@@ -36,7 +38,9 @@ class ApiTestCase(unittest.TestCase):
         self.addCleanup(self.store.close)
         self.seed()
         self.bridge = Bridge(code="618900", bootstrap_token="bootstrap-token")
-        self.server = serve(self.store, self.data_root, port=0, bridge=self.bridge)
+        self.server = serve(
+            self.store, self.data_root, port=0, bridge=self.bridge, **self.serve_kwargs()
+        )
         self.addCleanup(self.server.server_close)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -95,6 +99,11 @@ class ApiTestCase(unittest.TestCase):
             ],
         )
         self.store.add_workflow_event(self.process_id, "analysis_finished", {"status": "PRONTO"})
+
+    def serve_kwargs(self) -> dict:
+        """Subclasses may inject a coordinator (for example a fake collector)."""
+
+        return {}
 
     def call(self, path, method="GET", headers=None, body=None, opener=None):
         payload = None if body is None else json.dumps(body).encode("utf-8")
@@ -375,6 +384,9 @@ class MesaUiTests(ApiTestCase):
         self.assertIn('id="area-counters"', shell)
         self.assertIn('id="pairing-code"', shell)
         self.assertIn('id="renew-pairing"', shell)
+        self.assertIn('id="download-pending"', shell)
+        self.assertIn('id="acquisition-progress"', shell)
+        self.assertIn('id="acquisition-failures"', shell)
 
         with self.get("/app.js") as response:
             script = response.read().decode("utf-8")
@@ -389,10 +401,10 @@ class MesaUiTests(ApiTestCase):
             script = response.read().decode("utf-8")
         source = shell + script
 
-        # M2 adds exactly one state-changing action: Analisar Área Restrita.
+        # M2 adds Analisar Área Restrita; M3 adds the pending download.
         self.assertIn("/api/v1/area/analyze", source)
+        self.assertIn("/api/v1/acquisition/jobs", source)
         for forbidden in (
-            "/api/v1/acquisition",
             "/api/v1/fill",
             "/api/v1/portal/manual-form",
             "autoSubmit",
@@ -600,6 +612,175 @@ class AreaAnalyzeFlowTests(ApiTestCase):
 
         self.assertEqual(status, 401)
         self.assertEqual(payload["error"], "session_required")
+
+
+PDF_DOWNLOADED = b"%PDF-1.4\ndownload de teste\n%%EOF\n"
+TERMINAL_JOB_STATUSES = {"COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED"}
+
+
+class _FakeCollectorProcess:
+    """Minimal stand-in for subprocess.Popen used by the collector adapter."""
+
+    def __init__(self, lines, returncode=0):
+        self.stdout = iter(lines)
+        self.returncode = returncode
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+
+class AcquisitionApiTests(ApiTestCase):
+    def serve_kwargs(self):
+        self.fail_lots: set[int] = set()
+
+        def factory(store, data_root):
+            return AcquisitionService(
+                store, data_root, repo_root=REPO_ROOT, runner=self.fake_runner, lot_size=2
+            )
+
+        return {"acquisition_factory": factory}
+
+    def fake_runner(self, command, **kwargs):
+        """Write the lot's documents exactly where the real collector would."""
+
+        number = int(command[command.index("-NumeroLote") + 1])
+        queue_path = Path(command[command.index("-FilaCongelada") + 1])
+        document = read_frozen_queue(queue_path)
+        lot = document["lots"][number - 1]
+        if number in self.fail_lots:
+            return _FakeCollectorProcess(["falha inesperada do coletor"], 1)
+        for item in lot["items"]:
+            key = item["process_key"]
+            folder = (
+                self.data_root
+                / "archive"
+                / "processos"
+                / key.replace("/", "-")
+                / f"evento-0001-{key.replace('/', '')}01"
+            )
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / "documento-001-Ato.pdf").write_bytes(PDF_DOWNLOADED)
+        return _FakeCollectorProcess(
+            [
+                f"Concluído (progressivo). Baixados: {len(lot['items'])}; reutilizados: 0; "
+                "deduplicados: 0; processos com falha: 0."
+            ]
+        )
+
+    def seed_pending(self, keys):
+        self.store.create_area_scan(
+            source_scope="sector_finalistic",
+            marker_label="PROFESSOR - IPERN - 2 RUBRICAS",
+            marker_value="6189",
+            rows=[
+                {
+                    "process_key": key,
+                    "interested": "Pessoa Exemplo",
+                    "interested_normalized": "pessoa exemplo",
+                    "classification": "PRECISA_COMPLEMENTAR",
+                    "needs_complement": True,
+                }
+                for key in keys
+            ],
+        )
+
+    def start_job(self):
+        opener = self.mesa_opener()
+        status, _headers, payload = self.call_json(
+            "/api/v1/acquisition/jobs",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={},
+            opener=opener,
+        )
+        return status, payload
+
+    def wait_for_job(self, job_id, timeout=120):
+        deadline = time.monotonic() + timeout
+        payload = None
+        while time.monotonic() < deadline:
+            payload = self.get_json(f"/api/v1/jobs/{job_id}")
+            if payload["status"] in TERMINAL_JOB_STATUSES:
+                return payload
+            time.sleep(0.1)
+        self.fail(f"job {job_id} did not finish: {payload}")
+
+    def test_the_plan_reports_how_many_processes_still_need_bytes(self):
+        self.seed_pending(["102391/2026", "102392/2026", "102393/2026"])
+
+        payload = self.get_json("/api/v1/acquisition/plan")
+
+        self.assertEqual(payload["total"], 3)
+        self.assertEqual(payload["lot_size"], 2)
+        self.assertEqual(payload["lot_count"], 2)
+
+    def test_the_plan_is_empty_when_everything_is_already_local(self):
+        payload = self.get_json("/api/v1/acquisition/plan")
+
+        self.assertEqual(payload["total"], 0)
+        self.assertEqual(payload["lot_count"], 0)
+
+    def test_starting_a_job_downloads_only_the_pending_processes(self):
+        self.seed_pending(["102391/2026", "102392/2026", "102393/2026"])
+
+        status, created = self.start_job()
+
+        self.assertEqual(status, 201, created)
+        job = self.wait_for_job(created["job_id"])
+        self.assertEqual(job["status"], "COMPLETED")
+        self.assertEqual(job["total"], 3)
+        self.assertEqual(job["completed"], 3)
+        self.assertEqual(job["failed"], 0)
+        processes = {row["process_key"]: row for row in self.get_json("/api/v1/processes")["items"]}
+        for key in ("102391/2026", "102392/2026", "102393/2026"):
+            self.assertEqual(processes[key]["acquisition_state"], "DOWNLOADED")
+        self.assertEqual(self.get_json("/api/v1/acquisition/plan")["total"], 0)
+
+    def test_failed_processes_are_reported_individually(self):
+        self.seed_pending(["102391/2026", "102392/2026", "102393/2026"])
+        self.fail_lots = {2}
+
+        status, created = self.start_job()
+        self.assertEqual(status, 201, created)
+        job = self.wait_for_job(created["job_id"])
+
+        self.assertEqual(job["status"], "COMPLETED_WITH_ERRORS")
+        self.assertEqual(job["completed"], 2)
+        self.assertEqual(job["failed"], 1)
+        self.assertEqual(job["failures"][0]["process_key"], "102393/2026")
+        self.assertIn("code 1", job["failures"][0]["error"])
+
+    def test_a_second_job_is_refused_while_one_is_active(self):
+        self.seed_pending(["102391/2026", "102392/2026"])
+        service = AcquisitionService(
+            self.store, self.data_root, repo_root=REPO_ROOT, runner=self.fake_runner, lot_size=2
+        )
+        service.start(service.plan_pending())
+
+        status, payload = self.start_job()
+
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["error"], "acquisition_refused")
+
+    def test_starting_a_job_requires_a_mesa_session(self):
+        self.seed_pending(["102391/2026"])
+
+        status, _headers, payload = self.call_json(
+            "/api/v1/acquisition/jobs", method="POST", headers=self.mesa_headers(), body={}
+        )
+
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "session_required")
+
+    def test_an_unknown_job_is_404(self):
+        self.assertEqual(self.status_of("/api/v1/jobs/4242"), 404)
+
+    def test_the_ui_never_shows_lot_numbers(self):
+        self.seed_pending(["102391/2026", "102392/2026", "102393/2026"])
+        _status, created = self.start_job()
+        job = self.wait_for_job(created["job_id"])
+
+        self.assertNotIn("lot", json.dumps(job).casefold().replace("lot_size", ""))
 
 
 def scan_counters(scan: dict) -> dict:
