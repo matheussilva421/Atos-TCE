@@ -921,3 +921,7 @@ limitada e M5 supervisionado de preenchimento (todos dependem de portal e
 operador humano), tag `pre-legacy-retirement` com backup remoto confirmado e
 autorização explícita do usuário. Enquanto isso, `work/tce-extractor` permanece
 como fallback documentado.
+
+O roteiro da sessão supervisionada (M2, M3 e M5) está em
+`docs/notes/2026-09-18-roteiro-gates-supervisionados.md`: pré-requisitos, comandos
+de cada gate, o que o operador faz à mão e onde cada evidência fica.
