@@ -429,8 +429,8 @@ O que falta na tarefa 2 (próximo passo):
 3. testes de rota e de contrato da UI.
 | 3. Inventário de armazenamento e verificador de cópia canônica | **concluída** | `585f6ad` |
 | 4. Backup completo explícito e manifesto de restauração | **concluída** | `db6be11` |
-| 5. Builder do ZIP portátil sem acervo | pendente | — |
-| 6. Smoke de extração limpa e retenção de dois builds | pendente | — |
+| 5. Builder do ZIP portátil sem acervo | **concluída** | `a947c00` |
+| 6. Smoke de extração limpa e retenção de dois builds | **concluída** | (este commit) |
 | 7. Limpeza por recibo (destrutiva, exige autorização) | pendente | — |
 | 8. Tornar app/extensão/pacote o padrão e retirar o legado | pendente | — |
 
@@ -497,6 +497,69 @@ publicada com `os.replace` depois que o ZIP passa por `testzip()` e o manifesto
 confere com o conteúdo gravado; qualquer falha remove o temporário. Destino
 dentro de `data/archive` é recusado. Backup é ação explícita: `--output` é
 obrigatório e nada agenda a execução.
+
+#### Tarefa 5 — pacote portátil sem acervo
+
+`packaging/` é o novo dono da distribuição:
+
+| Arquivo | Papel |
+|---|---|
+| `build-portable.ps1` | monta `dist/Atos-TCE-portable.zip` com a allowlist (app, extension, START.cmd, README, runtime verificado, licenças) |
+| `verify-package.ps1` | allowlist, arquivos obrigatórios, inventário de runtime por tamanho+SHA-256 e smoke de extração limpa |
+| `runtime-builder.ps1` | cópia promovida de `work/tce-extractor/build-portable-runtime.ps1` |
+| `runtime-manifest.json`, `licenses/README.md` | cópias do pacote legado |
+
+O construtor de runtime foi **promovido por cópia byte-exata** com apenas três
+edições de caminho (manifesto e README de licenças passam a vir de `packaging/`,
+raiz do projeto passa a ser o repositório) e uma linha nova no `python314._pth`:
+a entrada `../../..` coloca a raiz do pacote no `sys.path`, sem a qual
+`python -m app.main` não importa `app` no Python embutido. Isso foi medido com o
+runtime real (`_pth` original não importa o pacote; `../../..` importa de
+qualquer CWD) e é provado pelo smoke a cada build.
+
+Checagens de supply chain preservadas: versões fixas (Python 3.14.4, PyMuPDF
+1.28.2, openpyxl 3.1.5, et_xmlfile 2.0.0, Tesseract 5.4.0.20240606, 7-Zip
+26.02), SHA-256 fixo por componente, HTTPS obrigatório, staging validado com
+rollback, extração verificada do NSIS e materialização de licenças. O runtime
+publicado só é reutilizado quando versão e hash de cada componente batem com o
+manifesto fixado agora.
+
+Build real (rede + fora do sandbox, ~9 min incluindo downloads):
+
+| Medida | Valor |
+|---|---|
+| ZIP | `dist/Atos-TCE-portable.zip` |
+| Tamanho | 96.093.040 bytes (~91,6 MB, contra 5,5 GB do pacote antigo com acervo) |
+| SHA-256 | `0b0a794e7e40d09a52fbdfedf6f19eb05bcf960d2762538ae57cf7bfde91b0bc` |
+| Entradas | 507 (430 de runtime conferidas por tamanho e SHA-256 contra o manifesto) |
+| Reprodutibilidade | segundo build em outro caminho gerou o mesmo SHA-256 |
+| Acervo | ausente: `data/`, `acervo-tce/`, `dados-locais/`, `profile/`, PDFs, bancos e HAR/trace são recusados pelo construtor e pelo verificador |
+
+Smoke de extração limpa (executado fora do sandbox, porque encerra a árvore de
+processos e usa loopback):
+
+1. extraiu em `tmp/package-test-<id>`;
+2. subiu o pacote pelo `START.cmd` (Python embutido) numa porta livre;
+3. `/api/v1/health` respondeu `status=ok`, `api_version=1`, `schema_version=5`,
+   `process_count=0` em raiz de dados isolada;
+4. criou o SQLite dessa raiz isolada e confirmou Manifest V3 da extensão;
+5. encerrou a árvore (`taskkill /T`) e **apagou a extração** no PASS.
+
+#### Tarefa 6 — retenção de dois builds
+
+O smoke do passo anterior mora em `verify-package.ps1` (extração única em
+`tmp/package-test-<id>`, removida no PASS, preservada e anunciada no FAIL).
+
+`scripts/rotate-builds.py` implementa a retenção: publica o build **verificado**
+como `Atos-TCE-portable.zip`, move o que ele substitui para
+`Atos-TCE-portable.previous.zip` e remove os demais ZIPs; arquivos que não são
+ZIP ficam intocados e são apenas relatados. O padrão é dry-run e `--apply`
+**recusa** rodar sem `--verified-hash` (o SHA-256 que o builder e o verificador
+reportam), então só um pacote que já passou no gate vira o build atual.
+
+Rotação real executada em `dist/` depois do smoke: `Atos-TCE-portable.zip`
+(atual) e `Atos-TCE-portable.previous.zip` (91,6 MB cada, ambos do mesmo build
+verificado) — exatamente dois arquivos.
 
 #### Tarefa 1 — o que já foi promovido (e-Contas)
 

@@ -144,6 +144,7 @@ class VerifierContractTests(unittest.TestCase):
         report = json.loads(result.stdout)
         self.assertEqual(report["zip"], str(archive.resolve()))
         self.assertFalse(report["runtime_included"])
+        self.assertEqual(report["zip_sha256"], hashlib.sha256(archive.read_bytes()).hexdigest())
 
     def test_requires_the_runtime_by_default(self):
         archive = make_package(self.tmp / "clean.zip")

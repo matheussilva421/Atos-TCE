@@ -319,6 +319,7 @@ if (-not $SkipSmoke) {
 
 $summary = [pscustomobject]@{
     zip = $zipFullPath
+    zip_sha256 = (Get-FileHash -LiteralPath $zipFullPath -Algorithm SHA256).Hash.ToLowerInvariant()
     entries = $entries.Count
     runtime_included = $runtimeIncluded
     runtime_files = $runtimeEntryCount
