@@ -34,6 +34,7 @@ from ..core.store import Store
 from ..area_restrita import PORTAL_ROLES
 from ..area_restrita import cdp_fallback
 from ..analysis.service import AnalysisService
+from ..analysis.evidence import evidence_for_field
 from ..econtas.service import AcquisitionError, AcquisitionService
 from . import views
 from .bridge import SESSION_COOKIE, Bridge, hash_token, is_extension_origin
@@ -60,6 +61,11 @@ ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/storage"), "handle_storage", "public"),
     Route(re.compile(r"/api/v1/processes"), "handle_process_list", "public"),
     Route(re.compile(r"/api/v1/processes/(?P<process_id>\d+)"), "handle_process_detail", "public"),
+    Route(
+        re.compile(r"/api/v1/processes/(?P<process_id>\d+)/evidence/(?P<field_name>[\w\-]+)"),
+        "handle_field_evidence",
+        "public",
+    ),
     Route(re.compile(r"/api/v1/documents/(?P<document_id>\d+)/pdf"), "handle_document_pdf", "public"),
     Route(re.compile(r"/api/v1/bridge/pairing"), "handle_bridge_pairing", "mesa"),
     Route(re.compile(r"/api/v1/area/latest"), "handle_area_latest", "public"),
@@ -337,11 +343,51 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "document_not_found", "document_id": int(document_id)}, status=404)
             return
         try:
-            payload = path.read_bytes()
+            total = path.stat().st_size
+            requested = _parse_range(str(self.headers.get("Range") or ""), total)
+            if requested is None and str(self.headers.get("Range") or "").strip():
+                self._send_range_not_satisfiable(total)
+                return
+            if requested is None:
+                payload = path.read_bytes()
+            else:
+                start, end = requested
+                with open(path, "rb") as handle:
+                    handle.seek(start)
+                    payload = handle.read(end - start + 1)
         except OSError:
             self._send_json({"error": "document_unreadable"}, status=404)
             return
-        self._send_bytes(payload, "application/pdf", filename=path.name)
+        if requested is None:
+            self._send_bytes(payload, "application/pdf", filename=path.name, accept_ranges=True)
+            return
+        start, end = requested
+        self.send_response(206)
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Range", f"bytes {start}-{end}/{total}")
+        self.send_header("Cache-Control", "no-store")
+        self._send_length_and_body(payload)
+
+    def handle_field_evidence(
+        self, query: dict[str, list[str]], process_id: str, field_name: str
+    ) -> None:
+        payload = evidence_for_field(self.mesa.store, int(process_id), field_name)
+        if payload is None:
+            self._send_json(
+                {"error": "evidence_not_found", "process_id": int(process_id), "field": field_name},
+                status=404,
+            )
+            return
+        self._send_json(payload)
+
+    def _send_range_not_satisfiable(self, total: int) -> None:
+        body = json.dumps({"error": "range_not_satisfiable", "size": total}).encode("utf-8")
+        self.send_response(416)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Range", f"bytes */{total}")
+        self.send_header("Cache-Control", "no-store")
+        self._send_length_and_body(body)
 
     def handle_bridge_pairing(self, query: dict[str, list[str]]) -> None:
         if not self._require_session():
@@ -609,10 +655,18 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             self.send_header(key, value)
         self._send_length_and_body(body)
 
-    def _send_bytes(self, body: bytes, content_type: str, filename: str | None = None) -> None:
+    def _send_bytes(
+        self,
+        body: bytes,
+        content_type: str,
+        filename: str | None = None,
+        accept_ranges: bool = False,
+    ) -> None:
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Cache-Control", "no-store")
+        if accept_ranges:
+            self.send_header("Accept-Ranges", "bytes")
         if filename:
             self.send_header("Content-Disposition", f'inline; filename="{filename}"')
         self._send_length_and_body(body)
@@ -629,6 +683,42 @@ def _first(query: dict[str, list[str]], key: str) -> str | None:
         return None
     value = values[0].strip()
     return value or None
+
+
+def _parse_range(header: str, total: int) -> tuple[int, int] | None:
+    """Parse exactly one ``bytes=`` range, or ``None`` when unusable.
+
+    Multiple ranges, malformed bounds and out-of-range starts are refused so the
+    caller can answer 416 instead of streaming a partial file by accident.
+    """
+
+    text = header.strip()
+    if not text:
+        return None
+    if not text.casefold().startswith("bytes="):
+        return None
+    spec = text[6:].strip()
+    if "," in spec or not spec:
+        return None
+    start_text, _, end_text = spec.partition("-")
+    start_text = start_text.strip()
+    end_text = end_text.strip()
+    if not start_text and not end_text:
+        return None
+    try:
+        if not start_text:
+            length = int(end_text)
+            if length <= 0 or total <= 0:
+                return None
+            start = max(0, total - length)
+            return start, total - 1
+        start = int(start_text)
+        end = int(end_text) if end_text else total - 1
+    except ValueError:
+        return None
+    if total <= 0 or start < 0 or start > end or start >= total:
+        return None
+    return start, min(end, total - 1)
 
 
 def _content_type(path: Path) -> str:

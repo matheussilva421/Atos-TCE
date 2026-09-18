@@ -94,7 +94,12 @@ class ApiTestCase(unittest.TestCase):
                     confidence=1.0,
                     document_id=document_id,
                     page=2,
-                    evidence={"quote": "Professor"},
+                    evidence={
+                        "quote": "Professor",
+                        "rects": [[0.1, 0.2, 0.4, 0.25]],
+                        "method": "text",
+                        "status": "ready",
+                    },
                 )
             ],
         )
@@ -218,7 +223,8 @@ class ProcessRouteTests(ApiTestCase):
         self.assertEqual(payload["process_key"], "102390/2026")
         self.assertEqual(payload["documents"][0]["title"], "Ato")
         self.assertEqual(payload["fields"][0]["field_name"], "cargo")
-        self.assertEqual(payload["fields"][0]["evidence"], {"quote": "Professor"})
+        self.assertEqual(payload["fields"][0]["evidence"]["quote"], "Professor")
+        self.assertEqual(payload["fields"][0]["evidence"]["method"], "text")
         self.assertEqual(payload["events"][0]["event_type"], "analysis_finished")
 
     def test_unknown_process_is_404(self):
@@ -842,6 +848,110 @@ class MesaLauncherTests(unittest.TestCase):
                     process.wait(timeout=15)
                 process.stdout.close()
                 process.stderr.close()
+
+
+class EvidenceRouteTests(ApiTestCase):
+    def test_evidence_points_at_the_registered_document(self):
+        payload = self.get_json(f"/api/v1/processes/{self.process_id}/evidence/cargo")
+
+        self.assertEqual(payload["document_id"], self.document_id)
+        self.assertEqual(payload["document_title"], "Ato")
+        self.assertEqual(payload["page"], 2)
+        self.assertEqual(payload["quote"], "Professor")
+        self.assertEqual(payload["rects"], [[0.1, 0.2, 0.4, 0.25]])
+        self.assertEqual(payload["method"], "text")
+        self.assertEqual(payload["evidence_status"], "ready")
+        self.assertEqual(payload["value"], "Professor")
+        self.assertEqual(payload["field_name"], "cargo")
+
+    def test_an_unknown_field_is_404(self):
+        self.assertEqual(self.status_of(f"/api/v1/processes/{self.process_id}/evidence/genero"), 404)
+
+    def test_an_unknown_process_is_404(self):
+        self.assertEqual(self.status_of("/api/v1/processes/4242/evidence/cargo"), 404)
+
+    def test_a_field_without_a_source_document_is_404(self):
+        self.store.replace_fields(
+            self.process_id,
+            [
+                FieldRecord(
+                    field_name="cargo",
+                    value="Professor",
+                    status="found",
+                    document_id=None,
+                    page=None,
+                    evidence=None,
+                )
+            ],
+        )
+
+        self.assertEqual(self.status_of(f"/api/v1/processes/{self.process_id}/evidence/cargo"), 404)
+
+    def test_evidence_for_a_removed_document_is_404(self):
+        self.store.replace_documents(self.process_id, [])
+
+        self.assertEqual(self.status_of(f"/api/v1/processes/{self.process_id}/evidence/cargo"), 404)
+
+
+class PdfRangeTests(ApiTestCase):
+    def range_call(self, header):
+        return self.call(
+            f"/api/v1/documents/{self.document_id}/pdf", headers={"Range": header}
+        )
+
+    def test_a_byte_range_returns_206_with_the_exact_bytes(self):
+        status, headers, raw = self.range_call("bytes=0-9")
+
+        self.assertEqual(status, 206)
+        self.assertEqual(raw, PDF[:10])
+        self.assertEqual(headers["Content-Range"], f"bytes 0-9/{len(PDF)}")
+        self.assertEqual(headers["Accept-Ranges"], "bytes")
+
+    def test_an_open_ended_range_returns_the_tail(self):
+        status, headers, raw = self.range_call("bytes=10-")
+
+        self.assertEqual(status, 206)
+        self.assertEqual(raw, PDF[10:])
+        self.assertEqual(headers["Content-Range"], f"bytes 10-{len(PDF) - 1}/{len(PDF)}")
+
+    def test_a_suffix_range_returns_the_last_bytes(self):
+        status, _headers, raw = self.range_call("bytes=-4")
+
+        self.assertEqual(status, 206)
+        self.assertEqual(raw, PDF[-4:])
+
+    def test_a_range_beyond_the_end_is_clamped(self):
+        status, headers, raw = self.range_call("bytes=0-99999")
+
+        self.assertEqual(status, 206)
+        self.assertEqual(raw, PDF)
+        self.assertEqual(headers["Content-Range"], f"bytes 0-{len(PDF) - 1}/{len(PDF)}")
+
+    def test_multiple_ranges_are_refused(self):
+        status, headers, _raw = self.range_call("bytes=0-1,4-5")
+
+        self.assertEqual(status, 416)
+        self.assertEqual(headers["Content-Range"], f"bytes */{len(PDF)}")
+
+    def test_a_start_beyond_the_size_is_refused(self):
+        self.assertEqual(self.range_call(f"bytes={len(PDF) + 5}-")[0], 416)
+
+    def test_a_malformed_range_is_refused(self):
+        for header in ("bytes=abc-def", "bytes=", "itens=0-3", "bytes=5-2", "bytes=-0"):
+            with self.subTest(header=header):
+                self.assertEqual(self.range_call(header)[0], 416)
+
+    def test_a_full_response_advertises_range_support(self):
+        status, headers, raw = self.call(f"/api/v1/documents/{self.document_id}/pdf")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(raw, PDF)
+        self.assertEqual(headers["Accept-Ranges"], "bytes")
+
+    def test_a_range_never_accepts_a_path(self):
+        status, _headers, raw = self.range_call("bytes=0-9")
+        self.assertEqual(status, 206)
+        self.assertEqual(raw, PDF[:10])
 
 
 if __name__ == "__main__":
