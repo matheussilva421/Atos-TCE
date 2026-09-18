@@ -661,6 +661,14 @@ Rotação real executada em `dist/` depois do smoke: `Atos-TCE-portable.zip`
 (atual) e `Atos-TCE-portable.previous.zip` (91,6 MB cada, ambos do mesmo build
 verificado) — exatamente dois arquivos.
 
+Build atualizado depois das correções de análise (2026-09-18, mais tarde):
+`dist/Atos-TCE-portable.zip`, 96.096.728 bytes, SHA-256
+`5c83663332b71c8147602bb6aafc97e23b3c49133e3664977adfa7759ca6dfd1`, 508 entradas
+(o módulo novo `app/analysis/execution_view.py` entrou), 430 arquivos de runtime
+conferidos e smoke de extração limpa verde; rotação aplicada com esse hash, então
+`dist/` tem esse build como atual e `f1e47da…` como anterior. O contrato do pacote
+segue 11/11 com o ZIP real.
+
 #### Tarefa 7 — limpeza por recibo
 
 `scripts/cleanup-storage.py` só toca nas árvores listadas no recibo da auditoria
