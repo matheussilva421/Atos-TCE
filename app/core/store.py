@@ -29,7 +29,7 @@ from .models import (
     status_rank,
 )
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class StoreError(RuntimeError):
@@ -180,6 +180,25 @@ SCHEMA_V2: tuple[str, ...] = (
     "CREATE INDEX idx_extension_commands_state ON extension_commands(state, id)",
 )
 
+SCHEMA_V3: tuple[str, ...] = (
+    """
+    CREATE TABLE job_items (
+      id INTEGER PRIMARY KEY,
+      job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+      process_id INTEGER NOT NULL REFERENCES processes(id) ON DELETE CASCADE,
+      state TEXT NOT NULL,
+      error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(job_id, process_id)
+    )
+    """,
+    "ALTER TABLE jobs ADD COLUMN error TEXT",
+    "ALTER TABLE processes ADD COLUMN acquisition_state TEXT NOT NULL DEFAULT 'NOT_DOWNLOADED'",
+    "CREATE INDEX idx_job_items_job ON job_items(job_id, state)",
+    "CREATE INDEX idx_processes_acquisition ON processes(acquisition_state)",
+)
+
 
 class Store:
     """Owns one SQLite database and every workflow decision persisted in it."""
@@ -256,6 +275,10 @@ class Store:
             return
         if target == 2:
             for statement in SCHEMA_V2:
+                connection.execute(statement)
+            return
+        if target == 3:
+            for statement in SCHEMA_V3:
                 connection.execute(statement)
             return
         raise StoreError(f"no migration is defined for schema_version {target}")
@@ -618,6 +641,157 @@ class Store:
                 "UPDATE bridge_clients SET last_seen_at = ? WHERE client_id = ?",
                 (utc_now(), client_id),
             )
+
+    # --------------------------------------------------------------------- jobs
+
+    def create_job(self, job_type: str, total: int = 0) -> int:
+        with self._transaction() as connection:
+            cursor = connection.execute(
+                "INSERT INTO jobs (job_type, status, total) VALUES (?, 'PENDING', ?)",
+                (job_type, int(total)),
+            )
+            return int(cursor.lastrowid)
+
+    def add_job_item(self, job_id: int, process_id: int, state: str = "QUEUED") -> None:
+        now = utc_now()
+        with self._transaction() as connection:
+            connection.execute(
+                "INSERT INTO job_items (job_id, process_id, state, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?) ON CONFLICT(job_id, process_id) DO UPDATE SET "
+                "state = excluded.state, error = NULL, updated_at = excluded.updated_at",
+                (job_id, process_id, state, now, now),
+            )
+            connection.execute(
+                "UPDATE processes SET acquisition_state = ?, updated_at = ? WHERE id = ?",
+                (state, now, process_id),
+            )
+
+    def mark_job_item(
+        self, job_id: int, process_id: int, state: str, error: str | None = None
+    ) -> None:
+        """Move one item and refresh the job counters from the item table."""
+
+        now = utc_now()
+        with self._transaction() as connection:
+            if connection.execute(
+                "SELECT 1 FROM processes WHERE id = ?", (process_id,)
+            ).fetchone() is None:
+                raise ValueError(f"unknown process: {process_id}")
+            updated = connection.execute(
+                "UPDATE job_items SET state = ?, error = ?, updated_at = ? "
+                "WHERE job_id = ? AND process_id = ?",
+                (state, error, now, job_id, process_id),
+            ).rowcount
+            if not updated:
+                raise ValueError(f"job {job_id} has no item for process {process_id}")
+            connection.execute(
+                "UPDATE processes SET acquisition_state = ?, updated_at = ? WHERE id = ?",
+                (state, now, process_id),
+            )
+            self._refresh_job_counters(connection, job_id)
+
+    @staticmethod
+    def _refresh_job_counters(connection: sqlite3.Connection, job_id: int) -> None:
+        connection.execute(
+            "UPDATE jobs SET "
+            "completed = (SELECT COUNT(*) FROM job_items WHERE job_id = ? AND state = 'DOWNLOADED'), "
+            "failed = (SELECT COUNT(*) FROM job_items WHERE job_id = ? AND state = 'FAILED') "
+            "WHERE id = ?",
+            (job_id, job_id, job_id),
+        )
+
+    def set_job_status(
+        self,
+        job_id: int,
+        status: str,
+        *,
+        started: bool = False,
+        finished: bool = False,
+        error: str | None = None,
+    ) -> None:
+        with self._transaction() as connection:
+            if connection.execute("SELECT 1 FROM jobs WHERE id = ?", (job_id,)).fetchone() is None:
+                raise ValueError(f"unknown job: {job_id}")
+            assignments = ["status = ?"]
+            parameters: list[Any] = [status]
+            if started:
+                assignments.append("started_at = COALESCE(started_at, ?)")
+                parameters.append(utc_now())
+            if finished:
+                assignments.append("finished_at = ?")
+                parameters.append(utc_now())
+            if error is not None:
+                assignments.append("error = ?")
+                parameters.append(error)
+            parameters.append(job_id)
+            connection.execute(
+                f"UPDATE jobs SET {', '.join(assignments)} WHERE id = ?", tuple(parameters)
+            )
+            self._refresh_job_counters(connection, job_id)
+
+    def get_job(self, job_id: int) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            return dict(row) if row is not None else None
+
+    def list_jobs(self, limit: int = 20) -> list[dict[str, Any]]:
+        with self._lock:
+            return [
+                dict(row)
+                for row in self._connection.execute(
+                    "SELECT * FROM jobs ORDER BY id DESC LIMIT ?", (int(limit),)
+                )
+            ]
+
+    def list_job_items(self, job_id: int) -> list[dict[str, Any]]:
+        with self._lock:
+            return [
+                dict(row)
+                for row in self._connection.execute(
+                    "SELECT * FROM job_items WHERE job_id = ? ORDER BY id", (job_id,)
+                )
+            ]
+
+    def count_active_jobs(self, job_type: str | None = None) -> int:
+        """Count jobs that have not finished, so a second one can be refused."""
+
+        query = "SELECT COUNT(*) AS n FROM jobs WHERE status IN ('PENDING', 'RUNNING', 'WAITING_FOR_LOGIN')"
+        parameters: tuple[Any, ...] = ()
+        if job_type is not None:
+            query += " AND job_type = ?"
+            parameters = (job_type,)
+        with self._lock:
+            return int(self._connection.execute(query, parameters).fetchone()["n"])
+
+    # -------------------------------------------------------------- acquisition
+
+    def set_process_acquisition_state(self, process_id: int, state: str) -> None:
+        with self._transaction() as connection:
+            updated = connection.execute(
+                "UPDATE processes SET acquisition_state = ?, updated_at = ? WHERE id = ?",
+                (state, utc_now(), process_id),
+            ).rowcount
+            if not updated:
+                raise ValueError(f"unknown process: {process_id}")
+
+    def list_missing_pending_processes(self) -> list[dict[str, Any]]:
+        """Pending processes whose bytes are not local yet, in portal order."""
+
+        with self._lock:
+            return [
+                dict(row)
+                for row in self._connection.execute(
+                    """
+                    SELECT p.* FROM processes p
+                    LEFT JOIN area_scan_items i
+                      ON i.process_id = p.id AND i.scan_id = p.last_area_scan_id
+                    WHERE p.needs_complement = 1
+                      AND p.acquisition_state IN ('NOT_DOWNLOADED', 'FAILED')
+                      AND p.area_classification = 'PRECISA_COMPLEMENTAR'
+                    ORDER BY (i.id IS NULL) ASC, i.id ASC, p.id ASC
+                    """
+                )
+            ]
 
     def get_process(self, process_id: int) -> dict[str, Any] | None:
         """Return one process with its documents, fields and workflow history."""
