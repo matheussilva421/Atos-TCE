@@ -1,8 +1,8 @@
-"""Adapter around the proven incremental analysis pipeline.
+"""Adapter around the promoted incremental analysis pipeline.
 
-The legacy module is imported from its own directory on purpose, and inside the
-adapter only: M4 keeps the proven engine behind a seam so the Mesa can later own
-the rules without rewriting classification, OCR and extraction at once.
+M4 keeps the proven engine behind a seam: the Mesa asks this adapter to analyse
+one process, and the engine that actually runs is the copy promoted into
+``app/analysis/engine`` (M6 Task 1). No path here reaches into the legacy tree.
 """
 
 from __future__ import annotations
@@ -25,13 +25,17 @@ class TesseractPaths:
 
 
 def tesseract_candidates(data_root: str | Path, repo_root: str | Path | None = None) -> tuple[Path, ...]:
-    """Folders that may hold the fixed Tesseract shipped with the runtime."""
+    """Folders that may hold the fixed Tesseract shipped with the runtime.
+
+    Only supported locations are probed: the runtime folder inside the data root
+    and the one that ships next to ``START.cmd``. A development checkout that
+    needs OCR places the verified runtime in one of them.
+    """
 
     root = Path(repo_root) if repo_root is not None else REPO_ROOT
     return (
         Path(data_root) / "runtime" / "tesseract",
         root / "runtime" / "tesseract",
-        root / "work" / "tce-extractor" / "portable" / "runtime" / "tesseract",
     )
 
 
@@ -44,7 +48,9 @@ def resolve_tesseract(data_root: str | Path, repo_root: str | Path | None = None
         if executable.is_file() and tessdata.is_dir():
             return TesseractPaths(executable=executable, tessdata=tessdata)
     raise AnalysisError(
-        "Tesseract do runtime portátil não encontrado; o OCR continua obrigatório como fallback"
+        "Tesseract do runtime portátil não encontrado em "
+        + ", ".join(str(candidate) for candidate in tesseract_candidates(data_root, repo_root))
+        + "; o OCR continua obrigatório como fallback"
     )
 
 

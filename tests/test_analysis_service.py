@@ -189,8 +189,13 @@ class LegacyAdapterTests(unittest.TestCase):
     def test_tesseract_resolution_reports_every_candidate(self):
         candidates = tesseract_candidates("data", "C:/repo")
 
-        self.assertEqual(len(candidates), 3)
+        # Only supported locations: the data root and the packaged runtime next
+        # to START.cmd. The legacy portable tree was dropped in M6 Task 8 prep.
+        self.assertEqual(len(candidates), 2)
         self.assertTrue(str(candidates[0]).replace("\\", "/").endswith("data/runtime/tesseract"))
+        self.assertTrue(str(candidates[1]).replace("\\", "/").endswith("repo/runtime/tesseract"))
+        for candidate in candidates:
+            self.assertNotIn("tce-extractor", str(candidate))
 
     def test_a_missing_tesseract_fails_closed(self):
         with self.assertRaises(AnalysisError):

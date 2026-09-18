@@ -19,6 +19,11 @@ RUNTIME_ROOTS = ("app", "extension", "packaging")
 RUNTIME_FILES = ("START.cmd",)
 SCANNED_SUFFIXES = {".py", ".ps1", ".psm1", ".js"}
 FORBIDDEN_MARKERS = ("work/tce-extractor", "work\\tce-extractor")
+# A composed path (``root / "work" / "tce-extractor" / ...``) hides from the
+# literal markers above, so the runtime roots are also scanned for the segment
+# itself. Nothing in app/, extension/, packaging/ or START.cmd has a legitimate
+# reason to name the legacy extractor.
+FORBIDDEN_SEGMENTS = ("tce-extractor",)
 
 
 def runtime_files() -> list:
@@ -68,6 +73,15 @@ class NoLegacyPathTests(unittest.TestCase):
         for path in runtime_files():
             text = path.read_text(encoding="utf-8-sig", errors="ignore")
             if any(marker in text for marker in FORBIDDEN_MARKERS):
+                offenders.append(str(path.relative_to(REPO_ROOT)))
+
+        self.assertEqual(offenders, [])
+
+    def test_supported_runtime_never_names_the_legacy_segment(self):
+        offenders = []
+        for path in runtime_files():
+            text = path.read_text(encoding="utf-8-sig", errors="ignore")
+            if any(segment in text for segment in FORBIDDEN_SEGMENTS):
                 offenders.append(str(path.relative_to(REPO_ROOT)))
 
         self.assertEqual(offenders, [])
