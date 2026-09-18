@@ -110,6 +110,9 @@ git commit -m "feat: normalize legacy analysis for Mesa"
 - Modify: app/core/jobs.py
 - Modify: app/core/store.py
 - Modify: app/econtas/service.py
+- Modify: app/econtas/collector.py
+- Modify: work/tce-extractor/portable/Coletar-Processos-TCE.ps1
+- Modify: work/tce-extractor/tests/Test-TcePortable.ps1
 - Modify: tests/test_analysis_service.py
 - Modify: tests/test_econtas_acquisition.py
 
@@ -130,15 +133,21 @@ Run: python -m unittest tests.test_econtas_acquisition tests.test_analysis_servi
 
 Expected: no analysis chaining.
 
-- [ ] **Step 3: Implement minimal chaining**
+- [ ] **Step 3: Add an acquisition-only compatibility mode before enabling chaining**
+
+Extend the legacy collector parameter ValidateSet from progressivo|completo to progressivo|completo|nenhum. In nenhum mode, download/synchronization still runs but Invoke-TceIncrementalPreparation is never called. Add a PowerShell regression test proving nenhum performs no preparation call while preserving queue validation and download behavior.
+
+After that test is green, change the new app/econtas/collector.py adapter to pass -ModoPreparacao nenhum.
+
+- [ ] **Step 4: Implement minimal chaining**
 
 Do not create a second process-wide executor. Reuse the app worker thread and a typed job queue. Analysis failures are item-local and preserve downloaded files. Persist workflow events download_finished, analysis_started, analysis_finished or analysis_failed.
 
-- [ ] **Step 4: Verify GREEN**
+- [ ] **Step 5: Verify GREEN**
 
-Run all M1-M4 Python tests.
+Run the PowerShell collector tests plus all M1-M4 Python tests. Assert one successful acquisition causes exactly one AnalysisService execution.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ~~~text
 git add app tests/test_analysis_service.py tests/test_econtas_acquisition.py
