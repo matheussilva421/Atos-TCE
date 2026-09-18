@@ -432,7 +432,7 @@ O que falta na tarefa 2 (próximo passo):
 | 5. Builder do ZIP portátil sem acervo | **concluída** | `a947c00` |
 | 6. Smoke de extração limpa e retenção de dois builds | **concluída** | (este commit) |
 | 7. Limpeza por recibo (destrutiva, exige autorização) | **ferramenta concluída**; apply real aguarda autorização | (este commit) |
-| 8. Tornar app/extensão/pacote o padrão e retirar o legado | pendente | — |
+| 8. Tornar app/extensão/pacote o padrão e retirar o legado | **padrão e documentação concluídos**; remoção bloqueada pelo gate | `83403b0` |
 
 #### Tarefa 3 — auditor de armazenamento (somente leitura)
 
@@ -497,6 +497,23 @@ publicada com `os.replace` depois que o ZIP passa por `testzip()` e o manifesto
 confere com o conteúdo gravado; qualquer falha remove o temporário. Destino
 dentro de `data/archive` é recusado. Backup é ação explícita: `--output` é
 obrigatório e nada agenda a execução.
+
+Ensaio real do backup (destino temporário, 8,9 GB, ~2 min: ZIP com 14.179
+blobs + snapshot do banco + manifesto; o próprio comando valida `testzip()` e o
+manifesto antes de publicar):
+
+| Medida | Valor |
+|---|---|
+| Blobs | 14.179 / 8.892.090.055 bytes |
+| Banco | 10.354.688 bytes, `schema_version=5` |
+| `db_sha256` | `6ded7abb201ac8afc5dd42dc8acdfa8946fd1f3984146d68c5c3ebb5a6f47312` |
+| Total | 8.902.444.743 bytes |
+| ZIP | 8.899.648.415 bytes, SHA-256 `fd3074b21b16ac7ac9b823a1e8f4266dd5e0a62570724cd187fae31d58b3285a` |
+| Divergências de nome | 0 |
+
+O ZIP de prova foi removido do `%TEMP%` depois da medição (era ensaio, não
+backup de produção); o comando para um backup real é o mesmo, com `--output`
+apontando para o destino definitivo.
 
 #### Tarefa 5 — pacote portátil sem acervo
 
@@ -742,3 +759,48 @@ powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 
 - Nenhum auto-submit foi adicionado; o protocolo novo ainda não existe (M5).
 - Login em Área Restrita e e-Contas continua humano.
 - `Versions/`, `outputs/`, `dados-locais/` e o acervo privado não foram tocados.
+
+#### Tarefa 8 — o novo fluxo é o padrão (remoção ainda bloqueada)
+
+| Interface exigida pelo plano | Estado |
+|---|---|
+| `START.cmd` é o launcher normal | feito: usa o Python embutido do pacote quando existe e o do sistema fora dele |
+| `extension/` é a extensão suportada | feito: MV3 fina, sem SUBMIT/SEND/AUTO_SUBMIT |
+| `packaging/build-portable.ps1` é o build suportado | feito |
+| nenhum runtime suportado depende do legado | feito e verificado por `tests/test_no_legacy_paths.py` |
+
+Inventário de referências (passo 3 do plano):
+
+- `app/`, `extension/`, `packaging/` e `START.cmd` não citam `work/tce-extractor`,
+  `INICIAR.cmd`, `ABRIR-MESA` nem `automation-controller.js`; as únicas
+  ocorrências de `AUTO_SUBMIT` são `FORBIDDEN_COMMAND_TYPES` (prova de ausência)
+  e testes que a verificam. Duas proveniências literais (uma docstring na
+  extensão e o cabeçalho do builder promovido) foram reescritas para descrever a
+  origem sem o caminho, deixando a varredura significar dependência de runtime.
+- `scripts/` continua citando o legado de propósito (auditoria, limpeza e
+  aposentadoria) e por isso fica fora da varredura, como documentado no teste.
+- `README.md` e `docs/ESTRUTURA.md` descrevem o novo fluxo e preservam as notas
+  históricas que o gate legado exige (`Test-DocumentationTracking` 20/20).
+
+Gates executados nesta sessão:
+
+| Gate | Resultado |
+|---|---|
+| Python da raiz | 401 testes, 401 aprovados |
+| Extensão (`node --test`) | 86 testes, 86 aprovados |
+| `verify-project.ps1` (7 estágios) | verde (extensão, web, python portable, PowerShell 20+100+31+1+140+307, pacote 82, automação 81, `git diff --check`) |
+| Contrato do pacote | `tests.test_packaging_contract` 11/11, incluindo o ZIP real |
+| Smoke de extração limpa | verde no pacote reconstruído |
+
+Pacote reconstruído depois das mudanças de documentação e extensão:
+`dist/Atos-TCE-portable.zip`, 96.094.132 bytes, SHA-256
+`f1e47da723770a50e2111f6a54184330528c76bfa3dc05593b33d325922186c9`, 507 entradas,
+430 arquivos de runtime conferidos; rotação aplicada com esse hash, deixando
+`Atos-TCE-portable.zip` (novo) e `Atos-TCE-portable.previous.zip` (91,6 MB cada).
+
+**A remoção (passos 4, 5 e 7 do plano) não foi executada.** O gate destrutivo
+continua exigindo: M2 real de leitura da Área Restrita, M3 real de aquisição
+limitada e M5 supervisionado de preenchimento (todos dependem de portal e
+operador humano), tag `pre-legacy-retirement` com backup remoto confirmado e
+autorização explícita do usuário. Enquanto isso, `work/tce-extractor` permanece
+como fallback documentado.
