@@ -76,18 +76,122 @@ function Get-EntrySha256 {
     return ([BitConverter]::ToString($hash)).Replace('-', '').ToLowerInvariant()
 }
 
+function Get-SmokeChildProcesses {
+    param([Parameter(Mandatory)][string]$DestinationRoot)
+
+    # START.cmd starts cmd.exe, which starts the packaged interpreter from the
+    # extraction root. Finding the interpreter by its executable path is what
+    # makes the stop deterministic, whatever the shell did in between.
+    $root = [IO.Path]::GetFullPath($DestinationRoot).TrimEnd('\') + '\'
+    $found = New-Object System.Collections.ArrayList
+    foreach ($candidate in @(Get-Process -ErrorAction SilentlyContinue)) {
+        $path = $null
+        try { $path = [string]$candidate.Path } catch { $path = $null }
+        if ([string]::IsNullOrWhiteSpace($path)) { continue }
+        if ($path.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
+            [void]$found.Add($candidate)
+        }
+    }
+    return @($found)
+}
+
+function Format-SmokeProcesses {
+    param([object[]]$Processes)
+
+    if (-not $Processes -or $Processes.Count -eq 0) { return 'nenhum processo do pacote' }
+    return (@($Processes | ForEach-Object {
+        $name = if ($_.ProcessName) { $_.ProcessName } else { $_.Name }
+        $id = if ($_.Id) { $_.Id } else { $_.ProcessId }
+        "$name (PID $id)"
+    }) -join ', ')
+}
+
 function Stop-SmokeProcess {
-    param([Parameter(Mandatory)][System.Diagnostics.Process]$Process)
+    param(
+        [Parameter(Mandatory)][System.Diagnostics.Process]$Process,
+        [Parameter(Mandatory)][string]$DestinationRoot
+    )
+
+    $failures = New-Object System.Collections.ArrayList
     try {
         if (-not $Process.HasExited) {
             # START.cmd starts cmd.exe, which starts the packaged interpreter:
-            # only the whole tree can be stopped, or the service outlives the test.
+            # the whole tree is stopped first, then any interpreter left behind.
             $taskkill = Join-Path $env:SystemRoot 'System32\taskkill.exe'
             & $taskkill /PID $Process.Id /T /F 2>&1 | Out-Null
         }
         $Process.WaitForExit(15000) | Out-Null
     } catch {
-        Write-Warning "Falha ao encerrar o processo do smoke: $($_.Exception.Message)"
+        [void]$failures.Add($_.Exception.Message)
+    }
+    foreach ($child in @(Get-SmokeChildProcesses -DestinationRoot $DestinationRoot)) {
+        try {
+            Stop-Process -Id ([int]$child.Id) -Force -ErrorAction Stop
+        } catch {
+            [void]$failures.Add("$(Format-SmokeProcesses -Processes @($child)): $($_.Exception.Message)")
+        }
+    }
+    if ($failures.Count -gt 0) {
+        Write-Warning "Falha ao encerrar o processo do smoke: $($failures -join '; ')"
+    }
+}
+
+function Test-LoopbackPort {
+    param([Parameter(Mandatory)][int]$Port)
+
+    $client = New-Object System.Net.Sockets.TcpClient
+    try {
+        $client.Connect('127.0.0.1', $Port)
+        return $client.Connected
+    } catch {
+        return $false
+    } finally {
+        $client.Close()
+    }
+}
+
+function Wait-SmokeStopped {
+    param(
+        [Parameter(Mandatory)][string]$DestinationRoot,
+        [Parameter(Mandatory)][int]$Port,
+        [int]$TimeoutSeconds = 30
+    )
+
+    # The extraction can only be removed once the interpreter is gone and the
+    # loopback port stopped answering; both are proved, not assumed.
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $remaining = @()
+    $listening = $false
+    while ((Get-Date) -lt $deadline) {
+        $remaining = @(Get-SmokeChildProcesses -DestinationRoot $DestinationRoot)
+        $listening = Test-LoopbackPort -Port $Port
+        if ($remaining.Count -eq 0 -and -not $listening) { return }
+        Start-Sleep -Milliseconds 500
+    }
+    $state = if ($remaining.Count -gt 0) {
+        "processos vivos: $(Format-SmokeProcesses -Processes $remaining)"
+    } else {
+        "nenhum processo do pacote, mas a porta $Port continua respondendo"
+    }
+    throw "Smoke não liberou os recursos: $state"
+}
+
+function Remove-SmokeExtraction {
+    param(
+        [Parameter(Mandatory)][string]$DestinationRoot,
+        [int]$Attempts = 20
+    )
+
+    # Windows releases file handles a moment after the process dies; the retry
+    # is bounded and the last failure is the one reported.
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        try {
+            Remove-Item -LiteralPath $DestinationRoot -Recurse -Force -ErrorAction Stop
+            return
+        } catch {
+            if ($attempt -eq $Attempts) { throw }
+            Start-Sleep -Milliseconds 500
+        }
     }
 }
 
@@ -176,8 +280,9 @@ function Invoke-PackageSmoke {
             throw "Smoke não criou o banco em raiz de dados isolada: $database"
         }
     } finally {
-        Stop-SmokeProcess -Process $process
+        Stop-SmokeProcess -Process $process -DestinationRoot $DestinationRoot
     }
+    Wait-SmokeStopped -DestinationRoot $DestinationRoot -Port $port
 
     return [pscustomobject]@{
         extract_root = $DestinationRoot
@@ -311,9 +416,11 @@ if (-not $SkipSmoke) {
         throw
     }
     try {
-        Remove-Item -LiteralPath $smokeRoot -Recurse -Force -ErrorAction Stop
+        Remove-SmokeExtraction -DestinationRoot $smokeRoot
     } catch {
-        throw "Smoke passou, mas a extração não pôde ser removida ($smokeRoot): $($_.Exception.Message)"
+        $blockers = @(Get-SmokeChildProcesses -DestinationRoot $smokeRoot)
+        throw ("Smoke passou, mas a extração não pôde ser removida ($smokeRoot). " +
+            "Bloqueadores: $(Format-SmokeProcesses -Processes $blockers). $($_.Exception.Message)")
     }
 }
 
