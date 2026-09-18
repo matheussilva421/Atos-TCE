@@ -1,6 +1,8 @@
 """Tests for analysis normalization and the Mesa analysis service (M4)."""
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from app.analysis import MANDATORY_FIELDS, OPTIONAL_FIELDS
 from app.analysis.legacy_adapter import (
@@ -10,6 +12,9 @@ from app.analysis.legacy_adapter import (
     tesseract_candidates,
 )
 from app.analysis.normalize import normalize_analysis
+from app.analysis.service import AnalysisService
+from app.core.models import DocumentRecord, ProcessRecord
+from app.core.store import Store
 
 DOCUMENTS = [
     {"id": 5, "event": "1", "title": "Ato.pdf"},
@@ -201,6 +206,127 @@ class LegacyAdapterTests(unittest.TestCase):
 
         # Construction must not touch sys.path or import a browser-era module.
         self.assertFalse(hasattr(adapter, "_module_loaded"))
+
+
+class FakeAdapter:
+    """Duck-typed stand-in for LegacyAnalysisAdapter (no Tesseract needed)."""
+
+    def __init__(self, payloads=None, error=None):
+        self.payloads = payloads or {}
+        self.error = error
+        self.calls = []
+
+    def analyze(self, process_key):
+        self.calls.append(process_key)
+        if self.error is not None:
+            raise self.error
+        return self.payloads.get(process_key, complete_payload())
+
+
+class AnalysisServiceTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.data = Path(self._tmp.name) / "data"
+        (self.data / "archive").mkdir(parents=True, exist_ok=True)
+        self.store = Store.open(self.data / "atos-tce.db")
+        self.addCleanup(self.store.close)
+        self.process_id = self.store.upsert_process(
+            ProcessRecord(
+                process_key="102390/2026",
+                interested="Pessoa Exemplo",
+                interested_normalized="pessoa exemplo",
+                status="DOWNLOADED",
+            )
+        )
+        self.store.replace_documents(
+            self.process_id,
+            [
+                DocumentRecord(
+                    source_id="102390/2026|1|Ato",
+                    title="Ato.pdf",
+                    relative_path="archive/processos/102390-2026/Ato.pdf",
+                    sha256="a" * 64,
+                    page_count=3,
+                    event="1",
+                )
+            ],
+        )
+
+    def build(self, adapter):
+        return AnalysisService(self.store, self.data, adapter=adapter)
+
+    def test_a_complete_result_stores_fields_and_moves_to_pronto(self):
+        service = self.build(FakeAdapter())
+
+        status = service.analyze_one(self.process_id)
+
+        self.assertEqual(status, "PRONTO")
+        process = self.store.get_process(self.process_id)
+        self.assertEqual(process["status"], "PRONTO")
+        self.assertEqual(len(process["fields"]), len(MANDATORY_FIELDS))
+        cargo = next(field for field in process["fields"] if field["field_name"] == "cargo")
+        self.assertEqual(cargo["document_id"], process["documents"][0]["id"])
+        events = [event["event_type"] for event in process["events"]]
+        self.assertEqual(events, ["analysis_started", "analysis_finished"])
+
+    def test_a_missing_mandatory_field_results_in_revisar(self):
+        payload = complete_payload()
+        del payload["blocks"][0]["fields"]["data_nascimento"]
+        service = self.build(FakeAdapter({"102390/2026": payload}))
+
+        status = service.analyze_one(self.process_id)
+
+        self.assertEqual(status, "REVISAR")
+        process = self.store.get_process(self.process_id)
+        self.assertEqual(process["status"], "REVISAR")
+        self.assertEqual(process["events"][-1]["payload"]["pending"], ["data_nascimento"])
+
+    def test_an_engine_failure_moves_the_process_to_erro(self):
+        service = self.build(FakeAdapter(error=RuntimeError("sem tesseract")))
+
+        with self.assertRaises(RuntimeError):
+            service.analyze_one(self.process_id)
+
+        process = self.store.get_process(self.process_id)
+        self.assertEqual(process["status"], "ERRO")
+        self.assertEqual(process["events"][-1]["event_type"], "analysis_failed")
+
+    def test_enqueue_runs_the_worker_and_finishes_the_job(self):
+        service = self.build(FakeAdapter())
+
+        job_id = service.enqueue(self.process_id)
+        service.drain()
+
+        job = self.store.get_job(job_id)
+        self.assertEqual(job["job_type"], "analysis")
+        self.assertEqual(job["status"], "COMPLETED")
+        self.assertEqual(job["completed"], 1)
+        self.assertEqual(self.store.get_process(self.process_id)["status"], "PRONTO")
+
+    def test_a_failed_item_does_not_stop_the_job(self):
+        second = self.store.upsert_process(
+            ProcessRecord(
+                process_key="102391/2026",
+                interested="Outra Pessoa",
+                interested_normalized="outra pessoa",
+                status="DOWNLOADED",
+            )
+        )
+        service = self.build(FakeAdapter(error=RuntimeError("motor indisponível")))
+        job_id = service._jobs.create("analysis", [self.process_id, second])
+
+        service.run(job_id)
+
+        job = self.store.get_job(job_id)
+        self.assertEqual(job["status"], "COMPLETED_WITH_ERRORS")
+        self.assertEqual(job["failed"], 2)
+        states = {
+            int(item["process_id"]): item["state"]
+            for item in self.store.list_job_items(job_id)
+        }
+        self.assertEqual(states[self.process_id], "FAILED")
+        self.assertEqual(states[second], "FAILED")
 
 
 if __name__ == "__main__":

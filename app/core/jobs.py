@@ -32,12 +32,23 @@ JOB_STATUSES: tuple[str, ...] = (
 
 FINISHED_JOB_STATUSES: frozenset[str] = frozenset({"COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED"})
 
+#: Per-process analysis lifecycle.
+ANALYSIS_STATES: tuple[str, ...] = ("QUEUED", "ANALISANDO", "ANALISADO", "FAILED")
+
 
 class JobManager:
     """Create jobs and move their items through the acquisition states."""
 
-    def __init__(self, store: Store) -> None:
+    def __init__(
+        self,
+        store: Store,
+        *,
+        states: tuple[str, ...] = ACQUISITION_STATES,
+        done_state: str = "DOWNLOADED",
+    ) -> None:
         self._store = store
+        self._states = states
+        self._done_state = done_state
 
     @property
     def store(self) -> Store:
@@ -60,16 +71,18 @@ class JobManager:
     ) -> None:
         """Record one item outcome; a failure never invalidates the others."""
 
-        if state not in ACQUISITION_STATES:
+        if state not in self._states:
             raise ValueError(f"unknown acquisition state: {state!r}")
-        self._store.mark_job_item(job_id, process_id, state, error)
+        self._store.mark_job_item(
+            job_id, process_id, state, error, done_state=self._done_state
+        )
 
     def finish(self, job_id: int) -> None:
         job = self._store.get_job(job_id)
         if job is None:
             raise ValueError(f"unknown job: {job_id}")
         status = "COMPLETED_WITH_ERRORS" if int(job["failed"]) else "COMPLETED"
-        self._store.set_job_status(job_id, status, finished=True)
+        self._store.set_job_status(job_id, status, finished=True, done_state=self._done_state)
 
     def wait_for_login(self, job_id: int, reason: str | None = None) -> None:
         """Pause the job; later lots must not run until the operator logs in."""

@@ -411,7 +411,11 @@ class CollectorCommandTests(unittest.TestCase):
         self.assertEqual(command[command.index("-NumeroLote") + 1], "3")
         self.assertTrue(command[command.index("-FilaCongelada") + 1].endswith("lote.json"))
         self.assertEqual(command[command.index("-Destino") + 1], "data\\archive".replace("\\", os.sep))
-        self.assertEqual(command[command.index("-ModoPreparacao") + 1], "progressivo")
+        self.assertEqual(
+            command[command.index("-ModoPreparacao") + 1],
+            "nenhum",
+            "the Mesa analyses the process itself, so the collector must not prepare",
+        )
         self.assertEqual(command[command.index("-MaxDownloads") + 1], "2")
 
     def test_keeping_the_browser_open_is_the_default(self):
@@ -539,6 +543,17 @@ class CollectorRunTests(unittest.TestCase):
 
 
 PDF = b"%PDF-1.4\nbaixado pelo coletor\n%%EOF\n"
+
+
+class RecordingAnalysis:
+    """Stand-in for AnalysisService that only records what was scheduled."""
+
+    def __init__(self):
+        self.enqueued = []
+
+    def enqueue(self, process_id):
+        self.enqueued.append(int(process_id))
+        return len(self.enqueued)
 AUTH_LINE = "Sessão expirada ou não autorizada. Faça login novamente antes de retomar a coleta."
 
 
@@ -550,6 +565,25 @@ def summary(downloaded, failed=0):
 
 
 class AcquisitionServiceTests(AcquisitionTestCase):
+    def test_a_successful_download_schedules_exactly_one_analysis_per_process(self):
+        seed_pending(self.store, ["102390/2026", "102391/2026", "102392/2026"])
+        runner, _calls = self.make_runner([["102390/2026", "102391/2026"], ["102392/2026"]])
+        analysis = RecordingAnalysis()
+        service = AcquisitionService(
+            self.store,
+            self.data,
+            repo_root=REPO_ROOT,
+            runner=runner,
+            lot_size=2,
+            analysis=analysis,
+        )
+
+        job_id = service.start(service.plan_pending())
+        service.run(job_id)
+
+        self.assertEqual(len(analysis.enqueued), 3)
+        self.assertEqual(len(set(analysis.enqueued)), 3, "one analysis job per process")
+
     def write_lot_files(self, keys):
         """Simulate what the proven collector writes into the acervo."""
 

@@ -671,7 +671,13 @@ class Store:
             )
 
     def mark_job_item(
-        self, job_id: int, process_id: int, state: str, error: str | None = None
+        self,
+        job_id: int,
+        process_id: int,
+        state: str,
+        error: str | None = None,
+        *,
+        done_state: str = "DOWNLOADED",
     ) -> None:
         """Move one item and refresh the job counters from the item table."""
 
@@ -692,16 +698,18 @@ class Store:
                 "UPDATE processes SET acquisition_state = ?, updated_at = ? WHERE id = ?",
                 (state, now, process_id),
             )
-            self._refresh_job_counters(connection, job_id)
+            self._refresh_job_counters(connection, job_id, done_state)
 
     @staticmethod
-    def _refresh_job_counters(connection: sqlite3.Connection, job_id: int) -> None:
+    def _refresh_job_counters(
+        connection: sqlite3.Connection, job_id: int, done_state: str = "DOWNLOADED"
+    ) -> None:
         connection.execute(
             "UPDATE jobs SET "
-            "completed = (SELECT COUNT(*) FROM job_items WHERE job_id = ? AND state = 'DOWNLOADED'), "
+            "completed = (SELECT COUNT(*) FROM job_items WHERE job_id = ? AND state = ?), "
             "failed = (SELECT COUNT(*) FROM job_items WHERE job_id = ? AND state = 'FAILED') "
             "WHERE id = ?",
-            (job_id, job_id, job_id),
+            (job_id, done_state, job_id, job_id),
         )
 
     def set_job_status(
@@ -712,6 +720,7 @@ class Store:
         started: bool = False,
         finished: bool = False,
         error: str | None = None,
+        done_state: str = "DOWNLOADED",
     ) -> None:
         with self._transaction() as connection:
             if connection.execute("SELECT 1 FROM jobs WHERE id = ?", (job_id,)).fetchone() is None:
@@ -731,7 +740,37 @@ class Store:
             connection.execute(
                 f"UPDATE jobs SET {', '.join(assignments)} WHERE id = ?", tuple(parameters)
             )
-            self._refresh_job_counters(connection, job_id)
+            self._refresh_job_counters(connection, job_id, done_state)
+
+    def set_process_status(
+        self,
+        process_id: int,
+        status: str,
+        *,
+        event_type: str | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        """Move one process state and, optionally, record why."""
+
+        now = utc_now()
+        with self._transaction() as connection:
+            updated = connection.execute(
+                "UPDATE processes SET status = ?, updated_at = ? WHERE id = ?",
+                (status, now, process_id),
+            ).rowcount
+            if not updated:
+                raise ValueError(f"unknown process: {process_id}")
+            if event_type:
+                connection.execute(
+                    "INSERT INTO workflow_events (process_id, event_type, payload, created_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (
+                        process_id,
+                        event_type,
+                        json.dumps(payload or {}, ensure_ascii=False, sort_keys=True),
+                        now,
+                    ),
+                )
 
     def get_job(self, job_id: int) -> dict[str, Any] | None:
         with self._lock:

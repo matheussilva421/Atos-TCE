@@ -16,6 +16,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from ..archive.legacy_import import (
     canonicalize_process_tree,
@@ -70,6 +71,7 @@ class AcquisitionService:
         runner: Callable[..., object] | None = None,
         jobs: JobManager | None = None,
         keep_browser_open: bool = True,
+        analysis: Any | None = None,
     ) -> None:
         self._store = store
         self._data_root = Path(data_root)
@@ -78,6 +80,8 @@ class AcquisitionService:
         self._runner = runner
         self._jobs = jobs or JobManager(store)
         self._keep_browser_open = keep_browser_open
+        #: M4: a successful download schedules exactly one analysis job.
+        self._analysis = analysis
         self._lock = threading.Lock()
 
     # ------------------------------------------------------------------- plan
@@ -222,6 +226,8 @@ class AcquisitionService:
             if documents:
                 self._store.replace_documents(process_id, documents)
                 self._jobs.mark_item(job_id, process_id, "DOWNLOADED")
+                if self._analysis is not None:
+                    self._analysis.enqueue(process_id)
                 continue
             reason = "nenhum documento novo apareceu no acervo"
             if result.error:

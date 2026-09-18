@@ -33,6 +33,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from ..core.store import Store
 from ..area_restrita import PORTAL_ROLES
 from ..area_restrita import cdp_fallback
+from ..analysis.service import AnalysisService
 from ..econtas.service import AcquisitionError, AcquisitionService
 from . import views
 from .bridge import SESSION_COOKIE, Bridge, hash_token, is_extension_origin
@@ -115,6 +116,15 @@ class MesaServer(ThreadingHTTPServer):
         self.verbose = verbose
         self._acquisition = None
         self._acquisition_factory = acquisition_factory
+        self._analysis: AnalysisService | None = None
+
+    @property
+    def analysis(self) -> AnalysisService:
+        """The analysis worker, created once per server process (M4)."""
+
+        if self._analysis is None:
+            self._analysis = AnalysisService(self.store, self.data_root)
+        return self._analysis
 
     @property
     def acquisition(self) -> AcquisitionService:
@@ -124,7 +134,9 @@ class MesaServer(ThreadingHTTPServer):
             if self._acquisition_factory is not None:
                 self._acquisition = self._acquisition_factory(self.store, self.data_root)
             else:
-                self._acquisition = AcquisitionService(self.store, self.data_root)
+                self._acquisition = AcquisitionService(
+                    self.store, self.data_root, analysis=self.analysis
+                )
         return self._acquisition
 
     @property

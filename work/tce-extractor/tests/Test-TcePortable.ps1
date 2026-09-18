@@ -27,7 +27,27 @@ $collectorScriptPath = Join-Path $testDirectory '..\portable\Coletar-Processos-T
 $collectorText = Get-Content -LiteralPath $collectorScriptPath -Raw -Encoding UTF8
 $portalDriverPath = Join-Path $testDirectory '..\portable\TcePortal.Driver.js'
 $portalDriverText = Get-Content -LiteralPath $portalDriverPath -Raw -Encoding UTF8
-Assert-True ($collectorText -match "ValidateSet\('progressivo','completo'\).*ModoPreparacao") 'coletor oferece modo progressivo ou completo'
+Assert-True ($collectorText -match "ValidateSet\('progressivo','completo','nenhum'\).*ModoPreparacao") 'coletor oferece modo progressivo, completo ou nenhum'
+
+# M4: a Mesa comanda a análise. Quando o coletor roda para a Mesa ele usa
+# 'nenhum', então a preparação incremental não pode ser chamada por engano.
+$script:collectorLines = Get-Content -LiteralPath $collectorScriptPath -Encoding UTF8
+$script:prepCallIndexes = @(
+    0..($script:collectorLines.Count - 1) |
+        Where-Object { $script:collectorLines[$_] -match 'Invoke-TceIncrementalPreparation -ProcessKey' }
+)
+Assert-Equal $script:prepCallIndexes.Count 2 'o coletor chama a preparação incremental em exatamente dois pontos'
+$script:unguardedPrepCalls = @(
+    $script:prepCallIndexes | Where-Object {
+        # O segundo ponto de chamada é aninhado (foreach + try), então a guarda
+        # fica algumas linhas acima; as oito linhas cobrem os dois casos.
+        $start = [Math]::Max(0, $_ - 8)
+        $context = $script:collectorLines[$start..($_ - 1)] -join ' '
+        $context -notmatch "ModoPreparacao -eq '(progressivo|completo)'"
+    }
+)
+Assert-Equal $script:unguardedPrepCalls.Count 0 'todo chamado de preparação está sob guarda progressivo/completo'
+Assert-True ($collectorText -notmatch "ModoPreparacao -eq 'nenhum'") 'o modo nenhum nunca aciona a preparação incremental'
 Assert-True ($collectorText -match '\[switch\]\$ReutilizarOrdemPortal') 'coletor permite retomar usando uma ordem do portal já capturada'
 Assert-True ($collectorText -match 'MaxDownloads') 'coletor expõe limite de downloads'
 Assert-True ($collectorText -match 'Sync-TceProcessManifest[\s\S]*MaxDownloads') 'coletor encaminha limite ao coordenador'

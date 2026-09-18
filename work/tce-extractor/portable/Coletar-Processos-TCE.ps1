@@ -13,7 +13,7 @@ param(
     [switch]$ServiceChild,
     [switch]$ReutilizarOrdemPortal,
     [ValidateSet('sector_finalistic','my_processes')][string]$EscopoPortal = 'sector_finalistic',
-    [ValidateSet('progressivo','completo')][string]$ModoPreparacao = 'progressivo',
+    [ValidateSet('progressivo','completo','nenhum')][string]$ModoPreparacao = 'progressivo',
     [ValidateRange(1,2)][int]$MaxDownloads = 2,
     [string]$Python = '',
     [string]$Tesseract = '',

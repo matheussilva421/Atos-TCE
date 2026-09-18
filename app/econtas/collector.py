@@ -63,7 +63,8 @@ class CollectorRequest:
     destination: Path
     source_scope: str = "sector_finalistic"
     keep_browser_open: bool = True
-    preparation_mode: str = "progressivo"
+    #: M4: the Mesa runs the analysis itself, so the collector must not prepare.
+    preparation_mode: str = "nenhum"
     max_downloads: int = DEFAULT_MAX_DOWNLOADS
 
 
