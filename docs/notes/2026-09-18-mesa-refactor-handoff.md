@@ -244,7 +244,25 @@ correções para convergir, todas encontradas pelo próprio teste:
 | Fundamento legal é do backend com testes de paridade | 23 testes, incluindo comparação campo a campo com o JS | PASS_FIXTURE + PASS_PARITY |
 | Mesa mostra fonte/evidência e PDF integrado | rotas de evidência e Range + viewer com testes Node | PASS_FIXTURE |
 | Análise legada continua disponível como rollback | `LegacyAnalysisAdapter` sem caminho de UI; suíte legada intacta | PASS_PACKAGE |
-| Equivalência real em 10 processos | Requer acervo real e runtime Tesseract | **BLOCKED (supervisionado)** |
+| Equivalência real em 10 processos | 10 processos canônicos reais: **70/70 campos** iguais ao `form_value` do oráculo, **10/10** status e **20/20** classificações de documento — método e números em `docs/notes/2026-09-18-m4-equivalencia-real.md` | **PASS_REAL** |
+
+Rotação de status (2026-09-18): o gate real de M4 **não** dependia do portal, e ao
+executá-lo contra o acervo canônico apareceram dois defeitos que impediam a
+análise na arquitetura nova:
+
+1. o motor promovido exige `processos/<pasta>/processo.json` e
+   `evento-*/evento.json`, que o importador de M1 não escreve — nenhum processo
+   canônico era analisável (`scan_archive` devolvia lista vazia e `analyze_one`
+   falhava com `KeyError`);
+2. `documents.relative_path` é relativo à raiz de dados (`archive/processos/...`)
+   e o motor resolve contra a raiz do acervo, então todo documento caía como
+   `missing` e nenhum campo era extraído.
+
+Correção: `app/analysis/execution_view.py` renderiza o manifesto a partir das
+linhas canônicas (idempotente, sem duplicar estado), o serviço passa processo e
+documentos ao adaptador e o caminho é normalizado para a raiz do acervo. Oito
+testes em `tests/test_analysis_execution_view.py`, incluindo um que exige que o
+motor resolva todos os documentos entregues.
 
 #### Decisões de M4 (tarefas 1 e 2)
 
