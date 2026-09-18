@@ -154,6 +154,18 @@ Comparar `process_key` e contagens com uma varredura da extensão no mesmo
 marcador. Diferenças bloqueiam a saída de M2 antes de M3 ser considerado
 fechado. Exige Chrome aberto com `--remote-debugging-port` e Área Restrita
 autenticada; nunca digitar credenciais por automação.
+A comparação deixou de ser manual: `scripts/compare-area-scans.py` cruza as duas
+varreduras (payload do CDP × varredura persistida na Mesa, por `--db` ou
+`--mesa-json`), lista linhas exclusivas de cada lado, divergências de
+classificação e de `portal_act_id` e diferenças de escopo/marcador, saindo com
+código 1 quando diverge. É somente leitura (não cria banco ausente) e tem 11
+testes. Comando da sessão supervisionada:
+
+```powershell
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\scripts\scan-area-cdp.ps1 > data\logs\area-cdp.json
+python scripts/compare-area-scans.py --cdp-json data\logs\area-cdp.json --db data\atos-tce.db --json data\logs\area-compare.json
+```
+
 
 ### M3 — e-Contas Acquisition Controlled by Mesa
 
