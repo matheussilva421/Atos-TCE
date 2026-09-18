@@ -329,7 +329,7 @@ class ReconcileIntegrityTests(ArchiveTestCase):
 class ArchiveSchemaTests(ArchiveTestCase):
     def test_the_store_reports_the_current_schema(self):
         self.assertEqual(self.store.schema_version, SCHEMA_VERSION)
-        self.assertEqual(SCHEMA_VERSION, 6)
+        self.assertEqual(SCHEMA_VERSION, 7)
 
     def test_the_external_root_is_configured_through_metadata(self):
         manager = ArchiveManager(self.store, self.data_root)

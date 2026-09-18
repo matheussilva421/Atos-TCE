@@ -169,6 +169,11 @@ class FillService:
             raise FillError(f"unknown fill request: {request_id}")
         if request["state"] in TERMINAL_FILL_STATES:
             return
+        current = request.get("current_command_id")
+        if current is None or int(current) != int(command_id):
+            # Only the command the request is actually waiting for may move it;
+            # anything else is a stale, foreign or already applied result.
+            return
         if EXPECTED_COMMAND.get(str(request["state"])) != str(command.get("type")):
             # A stale or foreign result must never move the workflow.
             return

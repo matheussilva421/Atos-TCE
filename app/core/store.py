@@ -30,7 +30,7 @@ from .models import (
     status_rank,
 )
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 #: How long one claimed command may stay unanswered before another poller may
 #: take it over. The MV3 worker can be suspended mid-command, so a claim is a
@@ -268,6 +268,14 @@ SCHEMA_V6: tuple[str, ...] = (
     "CREATE INDEX idx_extension_commands_lease ON extension_commands(state, lease_expires_at)",
 )
 
+SCHEMA_V7: tuple[str, ...] = (
+    # One command produces at most one scan: the unique index is what turns a
+    # retry into the same observation instead of a second one.
+    "ALTER TABLE area_scans ADD COLUMN source_command_id INTEGER",
+    "CREATE UNIQUE INDEX idx_area_scans_command ON area_scans(source_command_id) "
+    "WHERE source_command_id IS NOT NULL",
+)
+
 #: Sentinel that distinguishes "leave this column alone" from "set it to NULL".
 _UNSET: Any = object()
 
@@ -390,6 +398,10 @@ class Store:
             for statement in SCHEMA_V6:
                 connection.execute(statement)
             return
+        if target == 7:
+            for statement in SCHEMA_V7:
+                connection.execute(statement)
+            return
         raise StoreError(f"no migration is defined for schema_version {target}")
 
     def _read_schema_version(self) -> int:
@@ -460,21 +472,41 @@ class Store:
         rows: Sequence[Mapping[str, Any]],
         origin: str = "extension",
         raw_sha256: str | None = None,
+        source_command_id: int | None = None,
     ) -> int:
         """Persist one Área Restrita observation and update process states.
 
         The mapping is fail-closed: the portal decides which processes need
         complementation, but only a *more advanced* stored state survives the
         update, so a finished process is never pushed back to the start.
+
+        When the scan came from an extension command, the command id makes the
+        write idempotent: the same command can never produce a second
+        observation, so a retry after a failure is safe.
         """
 
         observed_at = utc_now()
         counters = {"total": 0, "pending": 0, "completed": 0, "ambiguous": 0, "blocked": 0, "not_found": 0}
         with self._transaction() as connection:
+            if source_command_id is not None:
+                existing = connection.execute(
+                    "SELECT id FROM area_scans WHERE source_command_id = ?",
+                    (int(source_command_id),),
+                ).fetchone()
+                if existing is not None:
+                    return int(existing["id"])
             cursor = connection.execute(
-                "INSERT INTO area_scans (source_scope, marker_label, marker_value, observed_at, origin, raw_sha256) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (source_scope, marker_label, marker_value, observed_at, origin, raw_sha256),
+                "INSERT INTO area_scans (source_scope, marker_label, marker_value, observed_at, origin, "
+                "raw_sha256, source_command_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    source_scope,
+                    marker_label,
+                    marker_value,
+                    observed_at,
+                    origin,
+                    raw_sha256,
+                    int(source_command_id) if source_command_id is not None else None,
+                ),
             )
             scan_id = int(cursor.lastrowid)
             for raw_row in rows:
@@ -976,6 +1008,46 @@ class Store:
                 "SELECT * FROM extension_commands WHERE id = ?", (command_id,)
             ).fetchone()
         return self._decode_command(dict(row)) if row is not None else None
+
+    def check_command_claim(
+        self, command_id: int, *, client_id: str, claim_token: str | None
+    ) -> str:
+        """Report whether this client may still finish the command, without writing.
+
+        Returns the same vocabulary as complete_extension_command, so the
+        caller can decide *before* applying the effect of the command.
+        """
+
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT state, client_id, claim_token FROM extension_commands WHERE id = ?",
+                (command_id,),
+            ).fetchone()
+        if row is None:
+            return "unknown"
+        state = str(row["state"])
+        if state in {"SUCCEEDED", "FAILED"}:
+            return "replay"
+        if state != "CLAIMED":
+            return "stale"
+        if str(row["client_id"] or "") != str(client_id):
+            return "forbidden"
+        expected = str(row["claim_token"] or "")
+        presented = str(claim_token or "")
+        if not expected or not hmac.compare_digest(
+            expected.encode("utf-8"), presented.encode("utf-8")
+        ):
+            return "stale"
+        return "ok"
+
+    def find_area_scan_by_command(self, command_id: int) -> int | None:
+        """The scan one command already produced, if it produced one."""
+
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT id FROM area_scans WHERE source_command_id = ?", (int(command_id),)
+            ).fetchone()
+        return int(row["id"]) if row is not None else None
 
     @staticmethod
     def _decode_command(raw: dict[str, Any]) -> dict[str, Any]:

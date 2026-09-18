@@ -741,6 +741,70 @@ class AreaAnalyzeFlowTests(ApiTestCase):
         self.assertTrue(second["replayed"])
         self.assertEqual(self.store.latest_area_scan()["id"], 1)
 
+    def test_a_scan_that_cannot_be_persisted_leaves_the_command_open(self):
+        # F4: the effect is durable before the command becomes terminal.
+        opener, command_id = self.start_analyze()
+        extension_headers = self.pair_extension()
+        _status, _headers, claimed = self.call_json(
+            "/api/v1/extension/commands/next", headers=extension_headers
+        )
+        body = {
+            **SNAPSHOT,
+            "command_id": command_id,
+            "ok": True,
+            "claim_token": claimed["command"]["claim_token"],
+        }
+        original = self.store.create_area_scan
+        calls = {"count": 0}
+
+        def flaky(*args, **kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise RuntimeError("falha injetada na persistência")
+            return original(*args, **kwargs)
+
+        with mock.patch.object(self.store, "create_area_scan", side_effect=flaky):
+            status, _headers, posted = self.call_json(
+                f"/api/v1/extension/commands/{command_id}/result",
+                method="POST",
+                headers=extension_headers,
+                body=body,
+            )
+
+        self.assertEqual(status, 500, posted)
+        self.assertEqual(posted["error"], "effect_not_applied")
+        self.assertIsNone(self.store.latest_area_scan())
+        _status, _headers, command = self.call_json(
+            f"/api/v1/extension/commands/{command_id}",
+            headers=self.mesa_headers(),
+            opener=opener,
+        )
+        self.assertEqual(
+            command["state"], "CLAIMED", "sem efeito persistido o comando não pode ficar terminal"
+        )
+
+        status, _headers, posted = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/result",
+            method="POST",
+            headers=extension_headers,
+            body=body,
+        )
+
+        self.assertEqual(status, 200, posted)
+        self.assertEqual(posted["scan_id"], 1)
+
+        status, _headers, posted = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/result",
+            method="POST",
+            headers=extension_headers,
+            body=body,
+        )
+
+        self.assertEqual(status, 200, posted)
+        self.assertTrue(posted["replayed"])
+        self.assertEqual(posted["scan_id"], 1, "o replay encontra o efeito já aplicado")
+        self.assertEqual(self.store.latest_area_scan()["id"], 1)
+
     def test_area_latest_is_empty_before_the_first_scan(self):
         payload = self.get_json("/api/v1/area/latest")
 
@@ -1362,6 +1426,36 @@ class FillOrchestrationTests(ApiTestCase):
         }
 
     # ------------------------------------------------------------------ tests
+
+    def test_a_fill_transition_that_fails_can_be_retried(self):
+        request_id = self.start_fill()
+        open_command = self.claim()
+        body = self.open_result()
+        failures = {"count": 0}
+        original = self.server.fill.handle_command_result
+
+        def flaky(command_id, payload):
+            failures["count"] += 1
+            if failures["count"] == 1:
+                raise RuntimeError("falha injetada na transição")
+            return original(command_id, payload)
+
+        with mock.patch.object(self.server.fill, "handle_command_result", side_effect=flaky):
+            status, _headers, posted = self.report_raw(open_command["id"], body)
+
+        self.assertEqual(status, 500, posted)
+        self.assertEqual(posted["error"], "effect_not_applied")
+        self.assertEqual(
+            self.fill_state(request_id)["state"],
+            "OPENING",
+            "sem transição aplicada o pedido não pode avançar",
+        )
+
+        self.report(open_command["id"], body)
+
+        self.assertEqual(self.fill_state(request_id)["state"], "READING")
+        read_command = self.claim()
+        self.assertEqual(read_command["type"], "READ_FORM")
 
     def test_a_fill_result_without_a_reread_is_refused(self):
         # CR-08: a FILL_FORM success that carries no field_results would mark

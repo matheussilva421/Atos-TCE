@@ -831,6 +831,56 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "invalid_result", "detail": invalid}, status=400)
             return
         claim_token = str(payload.pop("claim_token", "") or "")
+        check = self.mesa.store.check_command_claim(
+            int(command_id), client_id=client_id, claim_token=claim_token
+        )
+        if check == "replay":
+            # The effect was applied when the command finished; a second
+            # delivery must not run it again.
+            scan_id = self.mesa.store.find_area_scan_by_command(int(command_id))
+            self._send_json(
+                {
+                    "ok": True,
+                    "command_id": int(command_id),
+                    "replayed": True,
+                    **(dict(scan_id=scan_id) if scan_id is not None else {}),
+                }
+            )
+            return
+        if check == "forbidden":
+            self._send_json({"error": "command_owned_by_another_client"}, status=403)
+            return
+        if check == "stale":
+            self._send_json({"error": "stale_command_result"}, status=409)
+            return
+        if check == "unknown":
+            self._send_json(
+                {"error": "command_not_found", "command_id": int(command_id)}, status=404
+            )
+            return
+        # The durable effect comes first: a command only becomes terminal once
+        # its consequence is stored, so a retry can never lose it.
+        detail: dict[str, Any] | None = None
+        try:
+            if error is None:
+                detail = self._persist_scan_result(command, payload)
+                if command.get("type") == "SCAN_AREA" and detail is None:
+                    raise RuntimeError("o resultado da varredura não pôde ser persistido")
+            if command.get("fill_request_id"):
+                # M5: a result that belongs to a fill request advances the workflow.
+                self.mesa.fill.handle_command_result(int(command_id), payload)
+        except FillError as failure:
+            self._send_json({"error": "fill_request_missing", "detail": str(failure)}, status=409)
+            return
+        except Exception as failure:  # the command stays CLAIMED and can be retried
+            self._send_json(
+                {
+                    "error": "effect_not_applied",
+                    "detail": f"{type(failure).__name__}: {failure}",
+                },
+                status=500,
+            )
+            return
         outcome = self.mesa.store.complete_extension_command(
             int(command_id),
             client_id=client_id,
@@ -838,34 +888,13 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             result=payload,
             error=error,
         )
-        if outcome == "replay":
-            # The same result arriving twice must not run the workflow twice.
-            self._send_json({"ok": True, "command_id": int(command_id), "replayed": True})
-            return
-        if outcome == "forbidden":
-            self._send_json({"error": "command_owned_by_another_client"}, status=403)
-            return
-        if outcome == "stale":
-            self._send_json({"error": "stale_command_result"}, status=409)
-            return
-        if outcome == "unknown":
+        if outcome != "ok":
+            # The effect is already applied and idempotent; the transition
+            # happens on the next delivery.
             self._send_json(
-                {"error": "command_not_found", "command_id": int(command_id)}, status=404
+                {"error": f"command_{outcome}", "command_id": int(command_id)}, status=409
             )
             return
-        detail = self._persist_scan_result(command, payload) if error is None else None
-        if command.get("type") == "SCAN_AREA" and error is None and detail is None:
-            # The command is already recorded; the operator still needs to know
-            # that the observation was not persisted as a scan.
-            self._send_json({"ok": True, "scan_id": None, "warning": "scan_not_persisted"})
-            return
-        if command.get("fill_request_id"):
-            # M5: a result that belongs to a fill request advances the workflow.
-            try:
-                self.mesa.fill.handle_command_result(int(command_id), payload)
-            except FillError as failure:
-                self._send_json({"error": "fill_request_missing", "detail": str(failure)}, status=409)
-                return
         self._send_json({"ok": True, **(detail or {})})
 
     def _persist_scan_result(self, command: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -886,6 +915,7 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             marker_value=str(marker.get("value") or "") or None,
             rows=rows,
             origin="extension",
+            source_command_id=int(command["id"]),
         )
         return {"scan_id": scan_id}
 
