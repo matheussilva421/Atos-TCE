@@ -42,6 +42,8 @@ class ArchiveManager:
         self._store = store
         self._data_root = Path(data_root)
         self._external_root = Path(external_root) if external_root is not None else None
+        #: path/size/mtime -> "the bytes hash to the expected digest".
+        self._verified_cache: dict[tuple[str, int, int], bool] = {}
 
     # ------------------------------------------------------------- configured
 
@@ -68,6 +70,40 @@ class ArchiveManager:
         return root / BLOB_TREE / sha256[:2] / f"{sha256}.pdf"
 
     # ------------------------------------------------------------ primitives
+
+    def verified(self, path: Path, digest: str) -> bool:
+        """True only when the file really hashes to the expected digest.
+
+        The answer is cached by (path, size, mtime), so a tree that did not
+        change is not re-hashed on every reconciliation, while a file that did
+        change is hashed again.
+        """
+
+        try:
+            info = path.stat()
+        except OSError:
+            return False
+        key = (str(path), int(info.st_size), int(info.st_mtime_ns))
+        cached = self._verified_cache.get(key)
+        if cached is not None:
+            return cached
+        try:
+            actual = sha256_file(path)
+        except OSError:  # pragma: no cover - defensive
+            return False
+        self._verified_cache[key] = actual == digest
+        return self._verified_cache[key]
+
+    @staticmethod
+    def _discard_staging(staging: Path) -> None:
+        """Remove a staging tree that was never published (best effort)."""
+
+        if not staging.exists():
+            return
+        try:
+            shutil.rmtree(staging)
+        except OSError:  # pragma: no cover - best effort
+            pass
 
     @staticmethod
     def _copy_verified(source: Path, target: Path, digest: str) -> None:
@@ -113,7 +149,14 @@ class ArchiveManager:
     # --------------------------------------------------------------- archive
 
     def archive_process(self, process_id: int) -> ArchiveResult:
-        """Move one process's documents to the external root, verified."""
+        """Move one process's documents to the external root, verified.
+
+        Two phases per process. Phase 1 copies and verifies every SHA into a
+        staging area of the external root and changes no state at all; a single
+        failure discards the staging copies and leaves every document HOT.
+        Phase 2 publishes, unlinks the views and updates the metadata only
+        after the whole process passed, so a process is never half archived.
+        """
 
         external_root = self.external_root
         if external_root is None:
@@ -123,7 +166,9 @@ class ArchiveManager:
         if not documents:
             return result
 
-        archived_shas: list[str] = []
+        # ---------------------------------------------------- phase 1: prepare
+        staging = external_root / f".staging-{int(process_id)}"
+        prepared: dict[str, Path] = {}
         for digest in sorted({str(document["sha256"]) for document in documents}):
             blob = self.local_blob(digest)
             if not blob.is_file():
@@ -132,22 +177,41 @@ class ArchiveManager:
                 result.ok = False
                 continue
             target = self.external_blob(digest)
+            if target is not None and target.is_file() and self.verified(target, digest):
+                prepared[digest] = target
+                continue
+            staged = staging / digest[:2] / f"{digest}.pdf"
             try:
-                self._copy_verified(blob, target, digest)
+                self._copy_verified(blob, staged, digest)
             except (OSError, ArchiveError) as error:
                 result.errors.append(str(error))
                 result.ok = False
                 continue
+            prepared[digest] = staged
+
+        if not result.ok:
+            # Nothing was published and nothing changed: every document is HOT.
+            self._discard_staging(staging)
+            return result
+
+        # ----------------------------------------------------- phase 2: commit
+        for digest, staged in prepared.items():
+            target = self.external_blob(digest)
+            assert target is not None  # the external root is configured here
+            if staged != target:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(staged, target)
             self._store.set_blob_presence(
                 digest,
-                size_bytes=blob.stat().st_size,
+                size_bytes=target.stat().st_size,
                 external_path=str(target),
                 local_present=True,
                 external_present=True,
                 verified_at=utc_now(),
             )
-            archived_shas.append(digest)
+        self._discard_staging(staging)
 
+        archived_shas = sorted(prepared)
         for document in documents:
             if str(document["sha256"]) not in archived_shas:
                 continue
@@ -178,9 +242,12 @@ class ArchiveManager:
                 continue
             digest = str(document["sha256"])
             blob = self.local_blob(digest)
-            if not blob.is_file():
+            # A local file that does not hash to its digest is not a copy.
+            if not (blob.is_file() and self.verified(blob, digest)):
                 external = self.external_blob(digest)
-                if external is None or not external.is_file():
+                if external is None or not (
+                    external.is_file() and self.verified(external, digest)
+                ):
                     self._store.mark_document_storage_state(int(document["id"]), "MISSING")
                     self._store.set_blob_presence(
                         digest, local_present=False, external_present=False
@@ -211,11 +278,12 @@ class ArchiveManager:
     # ----------------------------------------------------------- reconcile
 
     def reconcile_locations(self) -> dict[str, Any]:
-        """Verify presence per blob and mark documents accordingly.
+        """Verify integrity per blob and mark documents accordingly.
 
-        Presence is a filesystem fact; ``verified_at`` is only refreshed by the
-        archive/restore paths, which hash the bytes they move. MISSING is only
-        declared when neither a local nor an external copy exists.
+        A file that exists but does not hash to its digest is not a copy: it is
+        reported as corrupt and never counts as HOT or ARCHIVED. MISSING is
+        only declared when neither an intact local nor an intact external copy
+        exists, and every verified copy refreshes verified_at.
         """
 
         summary: dict[str, Any] = {
@@ -223,6 +291,7 @@ class ArchiveManager:
             "hot": 0,
             "archived": 0,
             "missing": 0,
+            "corrupt": 0,
             "documents_marked": 0,
         }
         external_root = self.external_root
@@ -234,20 +303,29 @@ class ArchiveManager:
             blob_row = registered.get(digest, {"sha256": digest})
             summary["checked"] += 1
             local_file = self.local_blob(digest)
-            local_present = local_file.is_file()
+            local_exists = local_file.is_file()
+            local_present = local_exists and self.verified(local_file, digest)
+            if local_exists and not local_present:
+                summary["corrupt"] += 1
             external_present = False
             configured = blob_row.get("external_path")
-            if configured and Path(str(configured)).is_file():
-                external_present = True
+            configured_path = Path(str(configured)) if configured else None
+            if configured_path is not None and configured_path.is_file():
+                external_present = self.verified(configured_path, digest)
+                if not external_present:
+                    summary["corrupt"] += 1
             elif external_root is not None:
                 candidate = self.external_blob(digest)
-                external_present = bool(candidate and candidate.is_file())
+                external_present = bool(
+                    candidate and candidate.is_file() and self.verified(candidate, digest)
+                )
             self._store.set_blob_presence(
                 digest,
                 local_present=local_present,
                 external_present=external_present,
                 external_path=str(configured) if configured else None,
                 size_bytes=local_file.stat().st_size if local_present else None,
+                verified_at=utc_now() if (local_present or external_present) else None,
             )
             key = "hot" if local_present else ("archived" if external_present else "missing")
             summary[key] += 1

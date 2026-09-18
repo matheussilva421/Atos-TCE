@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from ..archive.legacy_import import ARCHIVE_TREE, BLOB_TREE, PROCESS_TREE, blob_path
+from ..archive.manager import EXTERNAL_ROOT_KEY
 from ..core.identity import normalize_text
 from ..core.store import Store
 
@@ -102,6 +103,8 @@ def storage_payload(store: Store, data_root: Path) -> dict[str, Any]:
             "process_view_physical_bytes": views["physical_bytes"],
             # What the process view would have cost as independent copies.
             "deduplicated_bytes": max(0, views["bytes"] - views["physical_bytes"]),
+            # Where ARCHIVED documents live, when the operator configured one.
+            "external_root": store.get_metadata(EXTERNAL_ROOT_KEY) or None,
         },
     }
 

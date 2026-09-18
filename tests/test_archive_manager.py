@@ -211,6 +211,121 @@ class RestoreAndReconcileTests(ArchiveTestCase):
         self.assertEqual(self.store.list_documents(process_id)[0]["storage_state"], "HOT")
 
 
+class ArchiveAllOrNothingTests(ArchiveTestCase):
+    """CR-20: a process is archived completely or not at all."""
+
+    def add_second_document(self, process_id, name="102391/2026"):
+        body = PDF + name.encode()
+        digest = sha256_from(body)
+        blob = blob_path(self.data_root, digest)
+        blob.parent.mkdir(parents=True, exist_ok=True)
+        blob.write_bytes(body)
+        view_rel = f"archive/processos/{name.replace('/', '-')}/Ato.pdf"
+        view = self.data_root / view_rel
+        view.parent.mkdir(parents=True, exist_ok=True)
+        view.write_bytes(body)
+        existing = self.store.list_documents(process_id)
+        self.store.replace_documents(
+            process_id,
+            [
+                *[
+                    DocumentRecord(
+                        source_id=str(row["source_id"]),
+                        title=str(row["title"]),
+                        relative_path=str(row["relative_path"]),
+                        sha256=str(row["sha256"]),
+                        page_count=int(row["page_count"]),
+                        event=str(row["event"] or ""),
+                        storage_state=str(row["storage_state"]),
+                    )
+                    for row in existing
+                ],
+                DocumentRecord(
+                    source_id=f"{name}|1|Ato",
+                    title="Ato.pdf",
+                    relative_path=view_rel,
+                    sha256=digest,
+                    page_count=1,
+                    event="1",
+                    storage_state="HOT",
+                ),
+            ],
+        )
+        return digest, blob, view
+
+    def test_a_failure_on_the_second_blob_leaves_everything_hot(self):
+        process_id, first_digest, first_blob, first_view = self.make_process()
+        second_digest, second_blob, second_view = self.add_second_document(process_id)
+        # The second canonical copy is corrupt: its content is not its name.
+        second_blob.write_bytes(PDF + b"corrompido")
+
+        result = self.manager.archive_process(process_id)
+
+        self.assertFalse(result.ok)
+        self.assertTrue(result.errors)
+        self.assertEqual(result.archived, [])
+        self.assertTrue(first_view.exists(), "a visão do primeiro documento continua")
+        self.assertTrue(second_view.exists())
+        self.assertTrue(first_blob.exists(), "o blob canônico intacto não pode sair")
+        states = {
+            str(row["sha256"]): str(row["storage_state"])
+            for row in self.store.list_documents(process_id)
+        }
+        self.assertEqual(states[first_digest], "HOT")
+        self.assertEqual(states[second_digest], "HOT")
+        self.assertEqual(
+            list(self.external_root.rglob("*.pdf")) if self.external_root.exists() else [], []
+        )
+
+    def test_a_successful_archive_leaves_no_staging_behind(self):
+        process_id, _digest, _blob, _view = self.make_process()
+
+        result = self.manager.archive_process(process_id)
+
+        self.assertTrue(result.ok, result.errors)
+        self.assertEqual(list(self.external_root.glob(".staging-*")), [])
+
+
+class ReconcileIntegrityTests(ArchiveTestCase):
+    """CR-21: a file that does not hash to its digest is not a copy."""
+
+    def test_a_corrupt_local_blob_is_not_hot(self):
+        process_id, digest, blob, _view = self.make_process()
+        blob.write_bytes(PDF + b"outros bytes")
+
+        summary = self.manager.reconcile_locations()
+
+        self.assertGreaterEqual(summary["corrupt"], 1)
+        self.assertEqual(summary["hot"], 0)
+        self.assertEqual(summary["missing"], 1)
+        self.assertEqual(self.store.get_document(
+            self.store.list_documents(process_id)[0]["id"]
+        )["storage_state"], "MISSING")
+
+    def test_an_intact_local_blob_stays_hot(self):
+        _process_id, _digest, _blob, _view = self.make_process()
+
+        summary = self.manager.reconcile_locations()
+
+        self.assertEqual(summary["corrupt"], 0)
+        self.assertEqual(summary["hot"], 1)
+        self.assertEqual(summary["missing"], 0)
+
+    def test_a_corrupt_external_copy_does_not_count_as_archived(self):
+        process_id, digest, _blob, _view = self.make_process()
+        archived = self.manager.archive_process(process_id)
+        self.assertTrue(archived.ok, archived.errors)
+        external = self.manager.external_blob(digest)
+        external.write_bytes(PDF + b"outros bytes")
+        self.manager._verified_cache.clear()
+
+        summary = self.manager.reconcile_locations()
+
+        self.assertGreaterEqual(summary["corrupt"], 1)
+        self.assertEqual(summary["archived"], 0)
+        self.assertEqual(summary["missing"], 1)
+
+
 class ArchiveSchemaTests(ArchiveTestCase):
     def test_the_store_reports_the_current_schema(self):
         self.assertEqual(self.store.schema_version, SCHEMA_VERSION)

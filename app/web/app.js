@@ -438,6 +438,10 @@ async function loadPdfjs() {
       ["Bytes canônicos", formatBytes(archive.blob_bytes)],
       ["Arquivos na árvore de processos", numberFormat.format(archive.process_view_files ?? 0)],
       ["Bytes economizados por dedup", formatBytes(archive.deduplicated_bytes)],
+      [
+        "Arquivo externo",
+        archive.external_root ? "configurado" : "não configurado",
+      ],
     ];
     host.replaceChildren(
       ...entries.map(([label, value]) =>

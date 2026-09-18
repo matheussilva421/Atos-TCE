@@ -39,3 +39,8 @@ test("a paused acquisition is resumed instead of restarted", () => {
   assert.ok(source.includes('addEventListener("click", resumeAcquisition)'));
   assert.ok(source.includes("setResumableJob(jobId)"), "a pausa mostra o retomar");
 });
+
+test("the storage panel says whether an external archive is configured", () => {
+  assert.ok(source.includes("Arquivo externo"));
+  assert.ok(source.includes("archive.external_root"));
+});
