@@ -257,7 +257,7 @@ Rules:
 - --apply is required to materialize files;
 - write a JSON receipt to data/logs/legacy-import-UTC.json;
 - infer canonical process keys from existing folder/index metadata and upsert records into SQLite;
-- expose canonicalize_process_tree for later acquisition jobs: it scans only data/archive/processos, adds new SHA blobs, and replaces duplicate physical process files with verified hardlinks when safe. It never touches a file outside data/archive/processos.
+- expose canonicalize_process_tree for later acquisition jobs: it scans only data/archive/processos. For a newly downloaded unique PDF on the same volume, atomically move the verified bytes to the SHA blob path and recreate the process-view path as a hardlink to that blob. For an already-known SHA, replace the process-view file with a hardlink only after both hashes match. If hardlinks are unavailable, preserve a normal copy and report duplicated fallback bytes. It never touches a file outside data/archive/processos.
 
 - [ ] **Step 4: Verify GREEN**
 
