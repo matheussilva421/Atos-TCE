@@ -1,7 +1,11 @@
 """Tests for the read-only Mesa API (M1 Task 4)."""
 
 import json
+import socket
+import subprocess
+import sys
 import threading
+import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -14,6 +18,7 @@ from app.core.models import DocumentRecord, FieldRecord, ProcessRecord
 from app.core.store import Store
 
 PDF = b"%PDF-1.4\napi fixture\n%%EOF\n"
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class ApiTestCase(unittest.TestCase):
@@ -217,11 +222,125 @@ class PdfRouteTests(ApiTestCase):
 
 
 class StaticRouteTests(ApiTestCase):
-    def test_root_is_404_before_the_ui_exists(self):
-        self.assertEqual(self.status_of("/"), 404)
+    def test_unknown_static_path_is_404(self):
+        self.assertEqual(self.status_of("/nao-existe.html"), 404)
 
     def test_static_path_traversal_is_refused(self):
         self.assertIn(self.status_of("/../../README.md"), (400, 404))
+
+
+class MesaUiTests(ApiTestCase):
+    """Static contract of the read-only Mesa shell (M1 Task 5)."""
+
+    CONTRACT_ELEMENTS = (
+        'id="health-status"',
+        'id="summary"',
+        'id="storage-summary"',
+        'id="process-search"',
+        'id="process-list"',
+        'id="process-detail"',
+    )
+
+    def test_root_serves_the_mesa_shell(self):
+        with self.get("/") as response:
+            body = response.read().decode("utf-8")
+
+        self.assertIn('id="process-list"', body)
+        self.assertIn('id="storage-summary"', body)
+        self.assertIn('src="/app.js"', body)
+        self.assertIn('href="/app.css"', body)
+
+    def test_shell_exposes_every_contract_element(self):
+        with self.get("/") as response:
+            body = response.read().decode("utf-8")
+
+        for element in self.CONTRACT_ELEMENTS:
+            with self.subTest(element=element):
+                self.assertIn(element, body)
+
+    def test_assets_are_served_with_correct_types(self):
+        with self.get("/app.js") as response:
+            self.assertEqual(response.status, 200)
+            self.assertIn("javascript", response.headers["Content-Type"])
+            script = response.read().decode("utf-8")
+        with self.get("/app.css") as response:
+            self.assertEqual(response.status, 200)
+            self.assertIn("text/css", response.headers["Content-Type"])
+
+        self.assertIn("/api/v1/health", script)
+        self.assertIn("/api/v1/processes", script)
+        self.assertIn("/api/v1/storage", script)
+
+    def test_mesa_is_read_only_in_m1(self):
+        with self.get("/") as response:
+            shell = response.read().decode("utf-8")
+        with self.get("/app.js") as response:
+            script = response.read().decode("utf-8")
+        source = shell + script
+
+        for forbidden in (
+            "/api/v1/acquisition",
+            "/api/v1/fill",
+            "/api/v1/area/analyze",
+            "method: 'POST'",
+            'method: "POST"',
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, source)
+
+
+def free_port() -> int:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+
+
+class MesaLauncherTests(unittest.TestCase):
+    def test_main_serves_health_then_stops_cleanly(self):
+        with TemporaryDirectory() as tmp:
+            data_root = Path(tmp) / "data"
+            port = free_port()
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "app.main",
+                    "--data-root",
+                    str(data_root),
+                    "--port",
+                    str(port),
+                    "--no-browser",
+                ],
+                cwd=REPO_ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+            )
+            try:
+                deadline = time.monotonic() + 30
+                payload = None
+                while time.monotonic() < deadline:
+                    if process.poll() is not None:
+                        break
+                    try:
+                        with urlopen(f"http://127.0.0.1:{port}/api/v1/health", timeout=2) as response:
+                            payload = json.loads(response.read().decode("utf-8"))
+                        break
+                    except OSError:
+                        time.sleep(0.3)
+                self.assertIsNotNone(payload, "the Mesa never answered /api/v1/health")
+                self.assertEqual(payload["status"], "ok")
+                self.assertTrue((data_root / "atos-tce.db").is_file())
+            finally:
+                process.terminate()
+                try:
+                    process.wait(timeout=15)
+                except subprocess.TimeoutExpired:  # pragma: no cover - defensive
+                    process.kill()
+                    process.wait(timeout=15)
+                process.stdout.close()
+                process.stderr.close()
 
 
 if __name__ == "__main__":

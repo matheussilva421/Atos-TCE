@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ATOS TCE · Mesa Local</title>
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-name">ATOS TCE</span>
+        <span class="brand-sub">Mesa Local</span>
+      </div>
+      <div id="health-status" class="chips" role="status" aria-live="polite">
+        <span class="chip chip-busy">conectando…</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="panel" aria-labelledby="summary-title">
+        <h2 id="summary-title">Resumo</h2>
+        <p id="summary" class="summary-line">Carregando…</p>
+        <dl id="storage-summary" class="storage-grid"></dl>
+      </section>
+
+      <div class="columns">
+        <section class="panel" aria-labelledby="process-list-title">
+          <h2 id="process-list-title">Processos</h2>
+          <div class="toolbar">
+            <label class="field">
+              <span>Buscar</span>
+              <input
+                id="process-search"
+                type="search"
+                placeholder="processo ou interessado"
+                autocomplete="off"
+              />
+            </label>
+            <label class="field">
+              <span>Situação</span>
+              <select id="process-status-filter">
+                <option value="">todas</option>
+                <option>PENDENTE</option>
+                <option>IDENTIFICADO</option>
+                <option>BAIXANDO</option>
+                <option>BAIXADO</option>
+                <option>ANALISANDO</option>
+                <option>REVISAR</option>
+                <option>PRONTO</option>
+                <option>PREENCHIDO</option>
+                <option>CONCLUÍDO</option>
+                <option>ERRO</option>
+                <option>BLOQUEADO</option>
+                <option>DIVERGENCIA</option>
+              </select>
+            </label>
+          </div>
+          <p id="process-count" class="muted"></p>
+          <ul id="process-list" class="process-list"></ul>
+          <p id="process-list-empty" class="empty" hidden>Nenhum processo encontrado.</p>
+        </section>
+
+        <section class="panel" aria-labelledby="process-detail-title">
+          <h2 id="process-detail-title">Detalhe do processo</h2>
+          <div id="process-detail" class="detail">
+            <p class="empty">Selecione um processo na lista.</p>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <span id="footer-note" class="muted"></span>
+    </footer>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -2,6 +2,44 @@
 
 Ferramentas locais para coletar eventos do e-Contas, identificar Resolução Administrativa e Guia Financeira/Taxação de Proventos, gerar uma mesa HTML de conferência e exportar os dados para a extensão da Área Restrita.
 
+## Mesa Local (nova arquitetura — em construção)
+
+A Mesa Local é o centro de workflow e estado que está substituindo gradualmente
+o menu PowerShell, o serviço local e o sidepanel. A migração segue os marcos M1
+a M6 de `docs/superpowers/plans/2026-09-18-atos-tce-plano-completo.md`; o fluxo
+antigo continua operacional e é o fallback até o último marco.
+
+Rodar a Mesa (M1 = somente leitura: consulta, não coleta nem preenche):
+
+```powershell
+python -m app.main --data-root data --port 18743
+```
+
+O mesmo comando está em `START.cmd`. Os dados de runtime ficam fora do Git, em
+`data/` (banco `atos-tce.db`, `archive/` com blobs canônicos SHA-256 e a árvore
+`archive/processos`, `logs/` com os recibos de migração).
+
+Migrar o acervo legado (`work/tce-extractor/acervo-tce`) para o acervo canônico:
+
+```powershell
+# ensaio: apenas lê, calcula hashes e relata; não escreve blobs nem linhas
+python scripts/migrate-legacy.py --archive-root work\tce-extractor\acervo-tce --data-root data
+# efetivar somente depois de conferir o relatório e o espaço livre
+python scripts/migrate-legacy.py --archive-root work\tce-extractor\acervo-tce --data-root data --apply
+```
+
+O importador nunca altera o acervo de origem. O ZIP portátil padrão não contém o
+acervo de processos; backup completo é uma operação explícita e separada.
+
+Testes da Mesa (raiz do repositório):
+
+```powershell
+python -m unittest tests.test_store tests.test_legacy_import tests.test_api_server -v
+```
+
+Fronteiras que a Mesa preserva: `autoSubmit=false` e `real_send_enabled=false`.
+O clique final de conclusão do ato permanece humano em todos os marcos.
+
 ## Usar o pacote pronto
 
 O pacote de runtime mais novo desta rodada é o `fase11k`, preservado em
