@@ -391,7 +391,7 @@ migração comparam com `SCHEMA_VERSION` e continuam válidos.
 
 | Tarefa | Estado | Commit |
 |---|---|---|
-| 1. Remover dependência operacional de `work/tce-extractor/portable` | **parcial** (e-Contas promovido; análise pendente) | `ec2234d` |
+| 1. Remover dependência operacional de `work/tce-extractor/portable` | **concluída** | `ec2234d`, `ae80073` |
 | 2. Arquivo híbrido HOT/ARCHIVED/MISSING (schema v5) | pendente | — |
 | 3. Inventário de armazenamento e verificador de cópia canônica | pendente | — |
 | 4. Backup completo explícito e manifesto de restauração | pendente | — |
@@ -415,21 +415,23 @@ decisões ficaram registradas:
   exigindo a árvore legada e está documentada no cabeçalho da cópia promovida. A
   Mesa roda sempre com `nenhum` (M4), e há teste que exige isso.
 
-#### Tarefa 1 — o que falta (análise)
+#### Tarefa 1 — promoção da análise
 
 Medição feita com um script de fechamento transitivo de imports
-(`tmp/closure.py`, descartável):
+(`tmp/closure.py`, descartável) — e a medição inicial estava errada por um
+detalhe que só apareceu ao abrir os arquivos: `analysis_pipeline.py` também
+puxava os dois módulos proibidos, não só o `publish_results`.
 
 ```
-42.1KB  analysis_pipeline.py     (portable/app)
-29.9KB  legal_context.py         (portable/app)
-24.0KB  extension_exporter.py    (portable/app)  <- proibido pelo plano
-12.2KB  archive_index.py         (portable/app)
-11.3KB  evidence_geometry.py     (portable/app)
-11.1KB  incremental_pipeline.py  (portable/app)
-19.7KB  batch_runner.py          (RAIZ do extrator)
-28.9KB  tce_extractor.py         (RAIZ do extrator)
-80.9KB  html_generator.py        (RAIZ do extrator) <- proibido pelo plano
+42.1KB  analysis_pipeline.py     (portable/app)   -> promovido
+29.9KB  legal_context.py         (portable/app)   -> promovido
+12.2KB  archive_index.py         (portable/app)   -> promovido
+11.3KB  evidence_geometry.py     (portable/app)   -> promovido
+11.1KB  incremental_pipeline.py  (portable/app)   -> promovido
+19.7KB  batch_runner.py          (RAIZ do extrator) -> promovido
+28.9KB  tce_extractor.py         (RAIZ do extrator) -> promovido
+24.0KB  extension_exporter.py    (portable/app)   -> NÃO carregado
+80.9KB  html_generator.py        (RAIZ do extrator) -> NÃO carregado
 ```
 
 Ou seja: o motor de análise atravessa **duas** pastas e o `run_manifest` de
@@ -439,16 +441,26 @@ removido (o dado que a Mesa consome é `processes[].result`, não o relatório) 
 cópia de `publish_results` sem `dataset.json`/HTML. Copiar os seis módulos de
 `portable/app` é direto; o trabalho real está em `batch_runner`/`tce_extractor`.
 
-Passos que faltam para fechar a tarefa 1:
+O que foi feito no commit `ae80073`:
 
-1. criar `app/analysis/engine/` com os seis módulos (imports relativos, sem `sys.path`);
-2. adaptar `run_manifest` sem HTML e `publish_results` sem exportador/HTML;
-3. trocar o `sys.path` de `app/analysis/legacy_adapter.py` por import normal;
-4. criar `tests/test_no_legacy_paths.py` com a asserção do plano (nenhum arquivo
-   `.py/.ps1/.psm1/.js` em `app/` pode citar `work/tce-extractor`) — ela só passa
-   depois dos passos 1 a 3;
-5. rodar a suíte Python, os testes PowerShell do coletor contra os módulos
-   promovidos e os testes de análise cujo comportamento foi promovido.
+1. `app/analysis/engine/` recebeu sete módulos promovidos (`incremental_pipeline`,
+   `analysis_pipeline`, `archive_index`, `evidence_geometry`, `legal_context`,
+   `batch_runner`, `tce_extractor`), com imports relativos e sem `sys.path`;
+2. `analysis_pipeline` perdeu o `run_local_pipeline` (a preparação de acervo
+   inteiro do menu legado, que era o único lugar que chamava HTML e exportador) e
+   `publish_results` publica apenas `resultados.json` + ponteiro;
+3. `legacy_adapter.py` agora importa o motor pelo pacote (`from .engine import
+   incremental_pipeline`), sem manipular `sys.path`;
+4. `tests/test_no_legacy_paths.py` fecha a fronteira: nenhum `.py/.ps1/.psm1/.js`
+   em `app/` cita o caminho legado, nenhum `.py` de `app/` usa `sys.path.insert`, e
+   o pacote promovido não carrega exportador nem HTML;
+5. `tests/test_analysis_engine.py` prova o motor promovido em execução:
+   `scan_archive` lê um layout real, `publish_results` publica só resultados e
+   mantém duas revisões, chave inválida e processo ausente falham fechado.
+
+Duas referências de proveniência em docstrings (`legacy_queue.py` e
+`pdf-viewer.js`) foram reescritas sem o caminho literal: a varredura da fronteira
+só tem valor se a string significar dependência de runtime.
 
 #### Gate destrutivo de M6
 
