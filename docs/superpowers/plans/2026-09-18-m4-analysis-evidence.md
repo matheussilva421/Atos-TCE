@@ -150,7 +150,7 @@ Run the PowerShell collector tests plus all M1-M4 Python tests. Assert one succe
 - [ ] **Step 6: Commit**
 
 ~~~text
-git add app tests/test_analysis_service.py tests/test_econtas_acquisition.py
+git add app work/tce-extractor/portable/Coletar-Processos-TCE.ps1 work/tce-extractor/tests/Test-TcePortable.ps1 tests/test_analysis_service.py tests/test_econtas_acquisition.py
 git commit -m "feat: analyze processes after acquisition"
 ~~~
 
