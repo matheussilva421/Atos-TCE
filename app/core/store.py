@@ -324,6 +324,15 @@ class Store:
                 )
             ]
 
+    def list_all_documents(self) -> list[dict[str, Any]]:
+        """List every document row; used by the archive reconcilers."""
+
+        with self._lock:
+            return [
+                dict(row)
+                for row in self._connection.execute("SELECT * FROM documents ORDER BY id")
+            ]
+
     def get_document(self, document_id: int) -> dict[str, Any] | None:
         with self._lock:
             row = self._connection.execute(
