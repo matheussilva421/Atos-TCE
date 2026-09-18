@@ -194,35 +194,88 @@ test("scanAreaPages aborts when the portal keeps reporting the same page", async
   assert.equal(advances, 1, "a mixed snapshot must never be persisted");
 });
 
-test("scanAreaPages honours the page cap", async () => {
+test("scanAreaPages refuses a scan that the page cap cut short", async () => {
   let pageNumber = 0;
   let advances = 0;
 
-  await scanAreaPages({
-    maxPages: 3,
-    scanPage: async () => {
-      pageNumber += 1;
-      return page([{ process_key: `10${pageNumber}/2026`, interested_normalized: `p${pageNumber}` }], {
-        page: pageNumber,
-        total_pages: 99,
-      });
-    },
-    advancePage: async () => {
-      advances += 1;
-      return true;
-    },
-  });
+  await assert.rejects(
+    () =>
+      scanAreaPages({
+        maxPages: 3,
+        scanPage: async () => {
+          pageNumber += 1;
+          return page(
+            [{ process_key: `10${pageNumber}/2026`, interested_normalized: `p${pageNumber}` }],
+            { page: pageNumber, total_pages: 99 }
+          );
+        },
+        advancePage: async () => {
+          advances += 1;
+          return true;
+        },
+      }),
+    /PAGE_LIMIT_EXCEEDED/u
+  );
 
   assert.equal(advances, 2);
 });
 
-test("scanAreaPages stops when the portal cannot advance", async () => {
+test("scanAreaPages refuses a snapshot the portal stopped advancing", async () => {
+  await assert.rejects(
+    () =>
+      scanAreaPages({
+        scanPage: async () =>
+          page([{ process_key: "102390/2026", interested_normalized: "p" }], {
+            page: 1,
+            total_pages: 4,
+          }),
+        advancePage: async () => false,
+      }),
+    /PAGINATION_STALLED/u
+  );
+});
+
+test("scanAreaPages refuses a pagination jump", async () => {
+  const pages = [
+    page([{ process_key: "102390/2026", interested_normalized: "p" }], { page: 1, total_pages: 4 }),
+    page([{ process_key: "102391/2026", interested_normalized: "p" }], { page: 3, total_pages: 4 }),
+  ];
+  let index = 0;
+
+  await assert.rejects(
+    () =>
+      scanAreaPages({
+        scanPage: async () => pages[Math.min(index, pages.length - 1)],
+        advancePage: async () => {
+          index += 1;
+          return true;
+        },
+      }),
+    /paginação incoerente/u
+  );
+});
+
+test("scanAreaPages returns every page of a normal scan", async () => {
+  const pages = [1, 2, 3].map((number) =>
+    page([{ process_key: `10239${number}/2026`, interested_normalized: "p" }], {
+      page: number,
+      total_pages: 3,
+    })
+  );
+  let index = 0;
+
   const snapshot = await scanAreaPages({
-    scanPage: async () => page([{ process_key: "102390/2026", interested_normalized: "p" }], { page: 1, total_pages: 4 }),
-    advancePage: async () => false,
+    scanPage: async () => pages[Math.min(index, pages.length - 1)],
+    advancePage: async () => {
+      index += 1;
+      return true;
+    },
   });
 
-  assert.equal(snapshot.rows.length, 1);
+  assert.deepEqual(
+    snapshot.rows.map((row) => row.process_key),
+    ["102391/2026", "102392/2026", "102393/2026"]
+  );
 });
 
 test("scanPortal refuses to run without an authenticated portal tab", async () => {
@@ -248,6 +301,31 @@ test("poll reports an unsupported command as a failed result", async () => {
   assert.equal(reported.length, 1);
   assert.equal(reported[0].result.ok, false);
   assert.equal(outcome.ok, true);
+});
+
+test("a scan that cannot be completed is reported as a failure", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1)],
+    onMessage: (message) =>
+      message.type === "SCAN_PAGE"
+        ? { ok: true, snapshot: page([], { page: 1, total_pages: 4 }) }
+        : { ok: false },
+  });
+  const reported = [];
+  const router = installRouter({
+    api: {
+      nextCommand: async () => ({ ok: true, command: { id: 31, type: "SCAN_AREA", payload: {} } }),
+      reportResult: async (commandId, result) => reported.push({ commandId, result }),
+    },
+    chromeApi,
+    timing: FAST,
+  });
+
+  await router.poll();
+
+  assert.equal(reported.length, 1);
+  assert.equal(reported[0].result.ok, false);
+  assert.match(reported[0].result.error, /PAGINATION_STALLED/u);
 });
 
 test("poll does nothing when the Mesa has no command", async () => {

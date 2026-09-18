@@ -84,7 +84,7 @@ function contextDrift(frozen, observed) {
   if (observed.total_pages !== frozen.total_pages) {
     return `a paginação da Área Restrita mudou durante a varredura: ${frozen.total_pages} -> ${observed.total_pages}`;
   }
-  if (!(observed.page > frozen.page)) {
+  if (observed.page !== frozen.page + 1) {
     return `paginação incoerente: página ${observed.page} depois de ${frozen.page}`;
   }
   return null;
@@ -167,9 +167,17 @@ export async function scanAreaPages({ scanPage, advancePage, maxPages = MAX_SCAN
       rows.push(row);
     }
     if (!(frozen.page < frozen.total_pages)) break;
-    if (index >= maxPages) break;
+    if (index >= maxPages) {
+      throw new Error(
+        `PAGE_LIMIT_EXCEEDED: a varredura parou na página ${frozen.page} de ${frozen.total_pages}`
+      );
+    }
     const advanced = await advancePage();
-    if (!advanced) break;
+    if (!advanced) {
+      throw new Error(
+        `PAGINATION_STALLED: o portal não avançou e ainda havia páginas (${frozen.page} de ${frozen.total_pages})`
+      );
+    }
   }
 
   return { role: frozen.role, source_scope: frozen.source_scope, marker: frozen.marker, rows };
