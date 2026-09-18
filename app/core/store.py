@@ -197,6 +197,10 @@ SCHEMA_V3: tuple[str, ...] = (
     "ALTER TABLE processes ADD COLUMN acquisition_state TEXT NOT NULL DEFAULT 'NOT_DOWNLOADED'",
     "CREATE INDEX idx_job_items_job ON job_items(job_id, state)",
     "CREATE INDEX idx_processes_acquisition ON processes(acquisition_state)",
+    # A process whose documents are already in the acervo is not missing bytes:
+    # the migration states that fact instead of leaving it to a later rescan.
+    "UPDATE processes SET acquisition_state = 'DOWNLOADED' "
+    "WHERE EXISTS (SELECT 1 FROM documents WHERE documents.process_id = processes.id)",
 )
 
 

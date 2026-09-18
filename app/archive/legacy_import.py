@@ -525,6 +525,51 @@ def _unique_source_id(candidate: str, used: set[str]) -> str:
     return unique
 
 
+def process_folder_name(process_key: str) -> str:
+    """Map a canonical key (``102390/2026``) to its folder name."""
+
+    return str(process_key).strip().replace("/", "-")
+
+
+def collect_process_documents(data_root: str | Path, process_key: str) -> list[DocumentRecord]:
+    """Index the PDFs currently present in one process view folder.
+
+    Called after acquisition: the proven collector writes files into
+    ``archive/processos/<folder>`` and the Mesa registers them here before
+    deciding whether the download actually succeeded. It never writes to the
+    filesystem and never touches anything outside ``data_root``.
+    """
+
+    data_path = Path(data_root)
+    folder = data_path / ARCHIVE_TREE / PROCESS_TREE / process_folder_name(process_key)
+    if not folder.is_dir():
+        return []
+    documents: list[DocumentRecord] = []
+    used: set[str] = set()
+    for pdf in _iter_pdfs(folder):
+        try:
+            digest = sha256_file(pdf)
+            if pdf.stat().st_size == 0:
+                continue
+        except OSError:
+            continue
+        relative = pdf.relative_to(data_path).as_posix()
+        metadata = _derive_metadata(pdf)
+        documents.append(
+            DocumentRecord(
+                source_id=_unique_source_id(f"{process_key}|{relative}", used),
+                title=metadata["title"],
+                relative_path=relative,
+                sha256=digest,
+                page_count=0,
+                event=metadata["event"],
+                classification=None,
+                storage_state="HOT",
+            )
+        )
+    return documents
+
+
 # ------------------------------------------------------------------ materialize
 
 
@@ -751,6 +796,10 @@ def _materialize(
             report.processes_upserted += 1
             store.replace_documents(process_id, documents)
             report.document_rows += len(documents)
+            if documents:
+                # The bytes are already local, so the process is not missing a
+                # download; M3 selection relies on this fact.
+                store.set_process_acquisition_state(process_id, "DOWNLOADED")
             store.add_workflow_event(
                 process_id,
                 "legacy_import",
