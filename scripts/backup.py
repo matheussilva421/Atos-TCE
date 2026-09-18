@@ -18,6 +18,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import sys
 import tempfile
@@ -38,6 +39,7 @@ DATABASE_NAME = "atos-tce.db"
 MANIFEST_NAME = "manifest.json"
 MANIFEST_VERSION = 1
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
+BLOB_STEM_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class BackupError(RuntimeError):
@@ -76,6 +78,9 @@ class BackupManifest:
     blob_sha256: tuple[str, ...]
     blobs: tuple[BackupEntry, ...]
     name_mismatches: tuple[str, ...]
+    #: How many blobs came from the local tree, from the external archive and
+    #: how many had no intact copy at all (always zero: a missing copy aborts).
+    sources: dict[str, int]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -91,6 +96,7 @@ class BackupManifest:
             "blob_sha256": list(self.blob_sha256),
             "blobs": [entry.to_dict() for entry in self.blobs],
             "name_mismatches": list(self.name_mismatches),
+            "sources": dict(self.sources),
         }
 
     @classmethod
@@ -117,6 +123,9 @@ class BackupManifest:
                 for entry in payload["blobs"]
             ),
             name_mismatches=tuple(str(value) for value in payload.get("name_mismatches", ())),
+            sources={
+                str(key): int(value) for key, value in (payload.get("sources") or {}).items()
+            },
         )
 
 
@@ -145,7 +154,48 @@ def _snapshot_schema_version(snapshot: Path) -> int:
     return int(row[0]) if row is not None else 0
 
 
-def _blob_files(data_root: Path) -> list[Path]:
+def _snapshot_blobs(snapshot: Path) -> dict[str, dict[str, Any]]:
+    """Every SHA the snapshot references, with where its copy may live.
+
+    The backup is driven by the database, not by the local blob folder: after a
+    document is archived, the only intact copy can be the external one, and a
+    backup that ignored it would restore a database pointing at nothing.
+    """
+
+    connection = sqlite3.connect(f"file:{snapshot.as_posix()}?mode=ro", uri=True)
+    try:
+        rows = connection.execute(
+            "SELECT sha256, size_bytes, external_path FROM archive_blobs"
+        ).fetchall()
+        referenced = {
+            str(row[0]).strip().lower()
+            for row in connection.execute("SELECT DISTINCT sha256 FROM documents")
+            if row and row[0]
+        }
+    finally:
+        connection.close()
+    blobs = {
+        str(row[0]).strip().lower(): {
+            "size_bytes": int(row[1] or 0),
+            "external_path": str(row[2] or "").strip(),
+        }
+        for row in rows
+        if row and row[0]
+    }
+    for sha in blobs:
+        referenced.add(sha)
+    return {sha: blobs.get(sha, {"size_bytes": 0, "external_path": ""}) for sha in sorted(referenced)}
+
+
+def _canonical_arcname(sha: str) -> str:
+    """The one path a blob always has inside a backup, wherever it came from."""
+
+    return f"{ARCHIVE_TREE}/{BLOB_TREE}/{sha[:2]}/{sha}.pdf"
+
+
+def _local_blob_files(data_root: Path) -> list[Path]:
+    """Every regular file under the canonical blob tree, links never followed."""
+
     blobs_root = data_root / ARCHIVE_TREE / BLOB_TREE
     if not blobs_root.is_dir():
         return []
@@ -160,6 +210,35 @@ def _blob_files(data_root: Path) -> list[Path]:
                 continue
             found.append(path)
     return found
+
+
+def _backup_blob_set(snapshot: Path, data_root: Path) -> dict[str, dict[str, Any]]:
+    """The referenced SHAs plus every local blob, so no local byte is dropped."""
+
+    blobs = _snapshot_blobs(snapshot)
+    for path in _local_blob_files(data_root):
+        sha = path.stem.strip().lower()
+        if not BLOB_STEM_RE.match(sha):
+            raise BackupError(f"nome de blob inesperado no acervo: {path.name}")
+        blobs.setdefault(sha, {"size_bytes": path.stat().st_size, "external_path": ""})
+    return blobs
+
+
+def _intact_source(
+    data_root: Path, sha: str, external_path: Any
+) -> tuple[Path, str] | None:
+    """The local copy when it is intact, otherwise the verified external one."""
+
+    local = data_root / ARCHIVE_TREE / BLOB_TREE / sha[:2] / f"{sha}.pdf"
+    if local.is_file() and _hash_file(local) == sha:
+        return local, "local"
+    raw = str(external_path or "").strip()
+    if not raw:
+        return None
+    external = Path(raw)
+    if external.is_file() and _hash_file(external) == sha:
+        return external, "external"
+    return None
 
 
 def _stream_into_archive(archive: zipfile.ZipFile, path: Path, arcname: str, info: zipfile.ZipInfo):
@@ -229,17 +308,34 @@ def create_backup(data_root: str | Path, destination: str | Path) -> BackupManif
 
             entries: list[BackupEntry] = []
             mismatches: list[str] = []
+            local_sources = 0
+            external_sources = 0
+            missing: list[str] = []
             with zipfile.ZipFile(temporary_zip, "w", allowZip64=True) as archive:
                 archive.write(snapshot, DATABASE_NAME, compress_type=zipfile.ZIP_DEFLATED)
-                for path in _blob_files(data_path):
-                    arcname = path.relative_to(data_path).as_posix()
+                for digest, blob in _backup_blob_set(snapshot, data_path).items():
+                    source = _intact_source(data_path, digest, blob.get("external_path"))
+                    if source is None:
+                        missing.append(digest)
+                        continue
+                    if source[1] == "local":
+                        local_sources += 1
+                    else:
+                        external_sources += 1
+                    path = source[0]
+                    arcname = _canonical_arcname(digest)
                     info = zipfile.ZipInfo(arcname)
                     info.compress_type = zipfile.ZIP_STORED
                     info.external_attr = 0o644 << 16
-                    digest, size = _stream_into_archive(archive, path, arcname, info)
-                    entries.append(BackupEntry(sha256=digest, path=arcname, bytes=size))
-                    if path.stem != digest:
+                    written, size = _stream_into_archive(archive, path, arcname, info)
+                    entries.append(BackupEntry(sha256=written, path=arcname, bytes=size))
+                    if written != digest:
                         mismatches.append(arcname)
+                if missing or mismatches:
+                    raise BackupError(
+                        "backup abortado: "
+                        f"{len(missing)} blob(s) sem cópia íntegra e {len(mismatches)} divergência(s)"
+                    )
                 entries.sort(key=lambda entry: entry.sha256)
                 manifest = BackupManifest(
                     manifest_version=MANIFEST_VERSION,
@@ -254,6 +350,11 @@ def create_backup(data_root: str | Path, destination: str | Path) -> BackupManif
                     blob_sha256=tuple(entry.sha256 for entry in entries),
                     blobs=tuple(entries),
                     name_mismatches=tuple(sorted(mismatches)),
+                    sources={
+                        "local": local_sources,
+                        "external": external_sources,
+                        "missing": 0,
+                    },
                 )
                 archive.writestr(
                     MANIFEST_NAME,

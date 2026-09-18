@@ -21,6 +21,7 @@ PDF = b"%PDF-1.4\nbackup fixture\n%%EOF\n"
 OTHER_PDF = b"%PDF-1.4\nsecond backup fixture\n%%EOF\n"
 
 _MODULE = None
+_RESTORE_MODULE = None
 
 
 def backup_module():
@@ -172,6 +173,198 @@ class BackupContentTests(BackupTestCase):
 
         leftovers = [path.name for path in self.out.iterdir() if path.name != "backup.zip"]
         self.assertEqual(leftovers, [])
+
+
+class ExternalBlobBackupTests(BackupTestCase):
+    """CR-18: the backup follows the database, not the local blob folder."""
+
+    def archive_externally(self, sha: str, *, payload: bytes | None = None) -> Path:
+        """Model an ARCHIVED document: local blob gone, external copy present."""
+
+        content = PDF if payload is None else payload
+        external = self.tmp / "externo" / sha[:2] / f"{sha}.pdf"
+        write(external, content)
+        (self.data / "archive" / "blobs" / sha[:2] / f"{sha}.pdf").unlink(missing_ok=True)
+        self.store.upsert_archive_blob(
+            sha,
+            size_bytes=len(content),
+            external_path=str(external),
+            local_present=False,
+            external_present=True,
+        )
+        return external
+
+    def test_an_external_only_blob_is_included(self):
+        sha = digest(PDF)
+        self.register_document(sha)
+        self.archive_externally(sha)
+        destination = self.out / "backup.zip"
+
+        manifest = self.create_backup(destination)
+
+        self.assertEqual(manifest.file_count, 1)
+        self.assertEqual(manifest.sources["external"], 1)
+        self.assertEqual(manifest.sources["missing"], 0)
+        with zipfile.ZipFile(destination) as handle:
+            self.assertEqual(handle.read(f"archive/blobs/{sha[:2]}/{sha}.pdf"), PDF)
+
+    def test_a_corrupted_external_copy_aborts_the_backup(self):
+        sha = digest(PDF)
+        self.register_document(sha)
+        self.archive_externally(sha, payload=PDF[:-1] + b"X")
+        destination = self.out / "backup.zip"
+
+        with self.assertRaises(backup_module().BackupError):
+            self.create_backup(destination)
+
+        self.assertFalse(destination.exists())
+
+    def test_a_referenced_blob_without_any_copy_aborts_the_backup(self):
+        self.register_document(digest(PDF))
+        destination = self.out / "backup.zip"
+
+        with self.assertRaises(backup_module().BackupError):
+            self.create_backup(destination)
+
+        self.assertFalse(destination.exists())
+
+    def test_a_blob_is_written_once_even_when_both_copies_exist(self):
+        sha = self.store_blob(PDF)
+        self.register_document(sha)
+        self.store.upsert_archive_blob(
+            sha,
+            size_bytes=len(PDF),
+            external_path=str(write(self.tmp / "externo" / "copia.pdf", PDF)),
+            local_present=True,
+            external_present=True,
+        )
+
+        manifest = self.create_backup(self.out / "backup.zip")
+
+        self.assertEqual(manifest.file_count, 1)
+        self.assertEqual(manifest.sources["local"], 1)
+        self.assertEqual(manifest.sources["external"], 0)
+
+
+class RestoreRoundTripTests(BackupTestCase):
+    """CR-19: a backup is only a backup when it restores, verified."""
+
+    def restore_module(self):
+        global _RESTORE_MODULE
+        if _RESTORE_MODULE is None:
+            path = REPO_ROOT / "scripts" / "restore-backup.py"
+            spec = importlib.util.spec_from_file_location("restore_backup_cli", path)
+            if spec is None or spec.loader is None:  # pragma: no cover - import plumbing
+                raise AssertionError(f"cannot load {path}")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
+            try:
+                spec.loader.exec_module(module)
+            except BaseException:
+                sys.modules.pop(spec.name, None)
+                raise
+            _RESTORE_MODULE = module
+        return _RESTORE_MODULE
+
+    def valid_backup(self) -> tuple[Path, str]:
+        sha = self.store_blob(PDF)
+        self.register_document(sha)
+        destination = self.out / "backup.zip"
+        self.create_backup(destination)
+        return destination, sha
+
+    def test_a_backup_restores_into_a_fresh_data_root(self):
+        destination, sha = self.valid_backup()
+        target = self.tmp / "restaurado"
+        module = self.restore_module()
+
+        plan = module.plan_restore(destination, target)
+        self.assertTrue(plan.ok, plan.problems)
+        self.assertFalse(plan.target_exists)
+
+        result = module.apply_restore(destination, target)
+
+        self.assertTrue(result["applied"])
+        self.assertEqual(result["blobs_present"], 1)
+        self.assertEqual(result["blobs_absent"], 0)
+        self.assertEqual(
+            (target / "archive" / "blobs" / sha[:2] / f"{sha}.pdf").read_bytes(), PDF
+        )
+        store = Store.open(target / "atos-tce.db")
+        try:
+            self.assertEqual(store.schema_version, SCHEMA_VERSION)
+            self.assertEqual(len(store.list_processes()), 1)
+        finally:
+            store.close()
+
+    def test_a_dry_run_writes_nothing(self):
+        destination, _sha = self.valid_backup()
+        target = self.tmp / "restaurado"
+
+        plan = self.restore_module().plan_restore(destination, target)
+
+        self.assertTrue(plan.ok, plan.problems)
+        self.assertFalse(target.exists())
+
+    def test_restore_refuses_a_non_empty_target_without_the_flag(self):
+        destination, _sha = self.valid_backup()
+        target = self.tmp / "restaurado"
+        write(target / "algo.txt", b"conteudo")
+        module = self.restore_module()
+
+        with self.assertRaises(module.RestoreError):
+            module.apply_restore(destination, target)
+
+        result = module.apply_restore(destination, target, allow_non_empty=True)
+
+        self.assertTrue(Path(result["previous_data_root"]).is_dir())
+        self.assertEqual(
+            (Path(result["previous_data_root"]) / "algo.txt").read_bytes(), b"conteudo"
+        )
+
+    def test_a_blob_member_that_does_not_match_its_name_is_refused(self):
+        destination, _sha = self.valid_backup()
+        broken = self.out / "corrompido.zip"
+        with zipfile.ZipFile(destination) as source, zipfile.ZipFile(broken, "w") as target:
+            for info in source.infolist():
+                payload = source.read(info.filename)
+                if info.filename.endswith(".pdf"):
+                    payload = payload[:-1] + b"X"
+                target.writestr(info, payload)
+
+        with self.assertRaises(self.restore_module().RestoreError) as context:
+            self.restore_module().plan_restore(broken, self.tmp / "destino")
+
+        self.assertIn("não confere com o próprio sha", str(context.exception))
+
+    def test_a_member_that_escapes_the_target_is_refused(self):
+        archive = self.out / "mau.zip"
+        with zipfile.ZipFile(archive, "w") as handle:
+            handle.writestr("../escaped.txt", b"x")
+            handle.writestr("manifest.json", json.dumps({"manifest_version": 1}))
+
+        with self.assertRaises(self.restore_module().RestoreError) as context:
+            self.restore_module().plan_restore(archive, self.tmp / "destino")
+
+        self.assertIn("caminho inválido", str(context.exception))
+
+    def test_a_backup_without_a_manifest_is_refused(self):
+        archive = self.out / "sem-manifest.zip"
+        with zipfile.ZipFile(archive, "w") as handle:
+            handle.writestr("atos-tce.db", b"nao e sqlite")
+
+        with self.assertRaises(self.restore_module().RestoreError) as context:
+            self.restore_module().plan_restore(archive, self.tmp / "destino")
+
+        self.assertIn("manifest.json", str(context.exception))
+
+    def test_a_truncated_zip_is_refused(self):
+        destination, _sha = self.valid_backup()
+        truncated = self.out / "truncado.zip"
+        truncated.write_bytes(destination.read_bytes()[:200])
+
+        with self.assertRaises(self.restore_module().RestoreError):
+            self.restore_module().plan_restore(truncated, self.tmp / "destino")
 
 
 class BackupRefusalTests(BackupTestCase):
