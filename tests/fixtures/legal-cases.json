@@ -1,0 +1,137 @@
+[
+  {
+    "name": "ec41_without_p5",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Art. 6º e art. 7º da Emenda Constitucional 41/2003",
+      "cargo": "Professor",
+      "pages": [{"citation": {"process": "102390/2026", "event": "7", "page": 1, "document": "Ato"}}]
+    },
+    "options": [{"value": "A", "label": "Art. 6º e art. 7º da Emenda Constitucional 41/2003"}],
+    "expected": {"status": "selected", "automatic": true, "rule_id": "EC41_SEM_P5"}
+  },
+  {
+    "name": "ec41_with_p5",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Art. 6º e art. 7º da Emenda Constitucional 41/2003, combinado com o art. 40, § 5º, da Constituição Federal",
+      "cargo": "Professor"
+    },
+    "options": [
+      {"value": "A", "label": "Art. 6º e art. 7º da Emenda Constitucional 41/2003"},
+      {"value": "B", "label": "Art. 40, § 5º, da Constituição Federal"}
+    ]
+  },
+  {
+    "name": "ec47_art3",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Art. 3º da Emenda Constitucional 47/2005",
+      "cargo": "Servidor"
+    },
+    "options": [{"value": "C", "label": "Art. 3º da Emenda Constitucional 47/2005"}],
+    "expected": {"rule_id": "EC47_ART3"}
+  },
+  {
+    "name": "incomplete_reference",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Art. 6º da Emenda Constitucional",
+      "cargo": "Professor"
+    },
+    "options": [{"value": "A", "label": "Art. 6º da Emenda Constitucional 41/2003"}]
+  },
+  {
+    "name": "contradictory_reference",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Art. 6º da Emenda Constitucional 41/2003 e art. 7º da Emenda Constitucional 41/2004",
+      "cargo": "Professor"
+    },
+    "options": [{"value": "A", "label": "Art. 6º da Emenda Constitucional 41/2003"}]
+  },
+  {
+    "name": "no_references",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Aposentadoria voluntária por tempo de contribuição",
+      "cargo": "Servidor"
+    },
+    "options": [{"value": "A", "label": "Art. 40 da Constituição Federal"}]
+  },
+  {
+    "name": "context_incomplete",
+    "context": {
+      "resolution_status": "pending",
+      "operative_text": "Art. 6º da Emenda Constitucional 41/2003",
+      "cargo": "Professor"
+    },
+    "options": [{"value": "A", "label": "Art. 6º da Emenda Constitucional 41/2003"}]
+  },
+  {
+    "name": "constitution_family_conflict",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Art. 40, § 5º, da Constituição Federal e art. 29 da Constituição Estadual",
+      "cargo": "Servidor"
+    },
+    "options": [{"value": "A", "label": "Art. 40, § 5º, da Constituição Federal"}]
+  },
+  {
+    "name": "teacher_rule_not_operative",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Aposentadoria voluntária por tempo de contribuição, art. 40, inciso III, alínea a, da Constituição Federal",
+      "cargo": "Professor"
+    },
+    "options": [
+      {"value": "A", "label": "Art. 40, § 5º, da Constituição Federal"},
+      {"value": "B", "label": "Art. 40, inciso III, alínea a, da Constituição Federal"}
+    ]
+  },
+  {
+    "name": "unrecognised_catalog_option",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Art. 2º da Emenda Constitucional 41/2003",
+      "cargo": "Servidor"
+    },
+    "options": [{"value": "A", "label": "Fundamentação não catalogada pelo portal"}]
+  },
+  {
+    "name": "military_scope",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Art. 6º da Emenda Constitucional 41/2003, reforma de militar",
+      "cargo": "Militar"
+    },
+    "options": [{"value": "A", "label": "Art. 6º da Emenda Constitucional 41/2003"}]
+  },
+  {
+    "name": "ece20_voluntary_transition",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Aposentadoria voluntária por tempo de contribuição nos termos do art. 7º da Emenda à Constituição Estadual nº 20/2020",
+      "cargo": "Professora"
+    },
+    "options": [{"value": "A", "label": "Art. 6º e art. 7º da Emenda Constitucional 41/2003"}]
+  },
+  {
+    "name": "operative_text_after_resolve_marker",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "RESOLVE: art. 3º da Emenda Constitucional 47/2005",
+      "cargo": "Servidor"
+    },
+    "options": [{"value": "C", "label": "Art. 3º da Emenda Constitucional 47/2005"}]
+  },
+  {
+    "name": "empty_options",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Art. 6º da Emenda Constitucional 41/2003",
+      "cargo": "Professor"
+    },
+    "options": []
+  }
+]
