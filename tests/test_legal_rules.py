@@ -112,6 +112,31 @@ def compare(test: unittest.TestCase, left: object, right: object, path: str = ""
 
 
 class NormalizerParityTests(unittest.TestCase):
+    def test_the_parity_oracle_lives_inside_the_repository(self):
+        """M6 Task 8 prep: the oracle must survive the legacy retirement."""
+
+        source = HARNESS.read_text(encoding="utf-8")
+        self.assertNotIn("tce-extractor", source)
+        self.assertIn("oracles", source)
+        oracle = REPO_ROOT / "tests" / "oracles" / "legal"
+        direct = (
+            "legal-foundation.js",
+            "normalizer.js",
+            "legal-reference-parser-v2.js",
+            "retirement-legal-profile.js",
+            "catalog-option-signature.js",
+        )
+        # Loaded transitively by the oracle modules above.
+        transitive = (
+            "portal-legal-crosswalk.js",
+            "automation-preflight.js",
+        )
+        for name in direct + transitive:
+            with self.subTest(name=name):
+                self.assertTrue((oracle / name).is_file())
+        for name in direct:
+            with self.subTest(loaded=name):
+                self.assertIn(name, source)
     def test_normalization_matches_the_proven_implementation(self):
         for fixture in cases():
             with self.subTest(fixture=fixture["name"]):

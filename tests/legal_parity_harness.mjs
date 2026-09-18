@@ -11,15 +11,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const legacy = join(
-  here,
-  "..",
-  "work",
-  "tce-extractor",
-  "portable",
-  "extensao-complementar-ato",
-  "lib"
-);
+// The proven JavaScript oracle ships inside the repository (tests/oracles/legal)
+// so the M4 parity gate keeps working after the legacy tree is retired.
+const legacy = join(here, "oracles", "legal");
 
 const load = (name) => import(pathToFileURL(join(legacy, name)).href);
 

@@ -46,11 +46,20 @@ def legacy_load_frozen_queue(path, lot_number=None):
 LEGACY_QUEUE_MODULE = ".\\work\\tce-extractor\\portable\\TceFrozenQueue.psm1"
 PROMOTED_QUEUE_MODULE = ".\\app\\econtas\\runtime\\TceFrozenQueue.psm1"
 
+# The legacy tree is the rollback surface until M6 Task 8 retires it. These
+# cross-checks keep running while it exists and skip once it is gone: the
+# promoted anchors (the Mesa reader and app/econtas/runtime/TceFrozenQueue.psm1)
+# carry the same invariants afterwards.
+LEGACY_TREE_AVAILABLE = (LEGACY_APP_DIR / "frozen_queue.py").is_file() and (
+    REPO_ROOT / LEGACY_QUEUE_MODULE.replace("\\", "/")
+).is_file()
 
-def powershell_read_frozen_queue(path, module=LEGACY_QUEUE_MODULE):
+
+def powershell_read_frozen_queue(path, module=LEGACY_QUEUE_MODULE, lot_number=None):
+    lot_argument = f" -LotNumber {lot_number}" if lot_number is not None else ""
     script = (
         f"Import-Module '{module}'; "
-        f"Read-TceFrozenQueue -Path '{path}' | ConvertTo-Json -Depth 10 -Compress"
+        f"Read-TceFrozenQueue -Path '{path}'{lot_argument} | ConvertTo-Json -Depth 10 -Compress"
     )
     return subprocess.run(
         ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
@@ -291,6 +300,7 @@ class FrozenQueueWriterTests(AcquisitionTestCase):
             lot_size,
         )
 
+    @unittest.skipUnless(LEGACY_TREE_AVAILABLE, "legacy tree retired (M6 Task 8)")
     def test_the_legacy_loader_accepts_the_written_queue(self):
         info = self.write(["102390/2026", "102391/2026"], lot_size=1)
 
@@ -322,6 +332,7 @@ class FrozenQueueWriterTests(AcquisitionTestCase):
         self.assertEqual(canonical["spec"]["acquisition_source"], "econtas")
         self.assertEqual(canonical["blocked"], [])
 
+    @unittest.skipUnless(LEGACY_TREE_AVAILABLE, "legacy tree retired (M6 Task 8)")
     def test_ninety_two_processes_become_two_lots_of_fifty_and_forty_two(self):
         keys = [f"{100000 + index}/2026" for index in range(92)]
 
@@ -335,6 +346,7 @@ class FrozenQueueWriterTests(AcquisitionTestCase):
         self.assertEqual(len(second["items"]), 42)
         self.assertEqual(second["items"][0]["process_key"], "100050/2026")
 
+    @unittest.skipUnless(LEGACY_TREE_AVAILABLE, "legacy tree retired (M6 Task 8)")
     def test_duplicate_keys_are_collapsed_keeping_the_first_position(self):
         info = self.write(["102391/2026", "102390/2026", "102391/2026"])
 
@@ -356,6 +368,7 @@ class FrozenQueueWriterTests(AcquisitionTestCase):
         with self.assertRaises(FrozenQueueError):
             self.write([])
 
+    @unittest.skipUnless(LEGACY_TREE_AVAILABLE, "legacy tree retired (M6 Task 8)")
     def test_the_powershell_validator_reads_the_same_queue(self):
         self.write(["102390/2026", "102391/2026"], lot_size=1)
 
@@ -376,6 +389,33 @@ class FrozenQueueWriterTests(AcquisitionTestCase):
         payload = json.loads(result.stdout.strip().splitlines()[-1])
         self.assertEqual(payload["queue_size"], 2)
         self.assertEqual(payload["source_scope"], "sector_finalistic")
+
+    def test_the_promoted_validator_splits_lots_and_reads_the_collapsed_queue(self):
+        """Promoted anchor: the same invariants without the legacy tree (M6 Task 8)."""
+
+        keys = [f"{100000 + index}/2026" for index in range(92)]
+        info = self.write(keys, lot_size=50)
+
+        self.assertEqual(info.queue_size, 92)
+        self.assertEqual(info.lot_count, 2)
+
+        second = powershell_read_frozen_queue(self.queue_path, PROMOTED_QUEUE_MODULE, lot_number=2)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        payload = json.loads(second.stdout.strip().splitlines()[-1])
+        self.assertEqual(payload["lot_number"], 2)
+        self.assertEqual(payload["queue_size"], 92)
+        self.assertEqual(len(payload["items"]), 42)
+        self.assertEqual(payload["items"][0]["process_key"], "100050/2026")
+
+        collapsed = self.write(["102391/2026", "102390/2026", "102391/2026"])
+        self.assertEqual(collapsed.queue_size, 2)
+        whole = powershell_read_frozen_queue(self.queue_path, PROMOTED_QUEUE_MODULE)
+        self.assertEqual(whole.returncode, 0, whole.stderr)
+        whole_payload = json.loads(whole.stdout.strip().splitlines()[-1])
+        self.assertEqual(
+            [item["process_key"] for item in whole_payload["items"]],
+            ["102391/2026", "102390/2026"],
+        )
 
     def test_reading_back_detects_tampering(self):
         info = self.write(["102390/2026"])
@@ -769,6 +809,7 @@ class AcquisitionServiceTests(AcquisitionTestCase):
         with self.assertRaises(AcquisitionError):
             service.start(service.plan_pending())
 
+    @unittest.skipUnless(LEGACY_TREE_AVAILABLE, "legacy tree retired (M6 Task 8)")
     def test_the_frozen_queue_is_written_for_the_whole_plan(self):
         seed_pending(self.store, ["102390/2026", "102391/2026", "102392/2026"])
         runner, _calls = self.make_runner([["102390/2026", "102391/2026"]])
