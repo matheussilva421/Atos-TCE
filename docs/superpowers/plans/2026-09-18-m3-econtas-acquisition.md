@@ -39,6 +39,7 @@ Create app/econtas/collector.py, app/econtas/legacy_queue.py, app/core/jobs.py a
 - JobManager.finish(job_id: int) -> None
 - Store.list_missing_pending_processes() -> list[dict]
 - process acquisition states: NOT_DOWNLOADED, QUEUED, DOWNLOADING, DOWNLOADED, FAILED.
+- schema_version becomes 3.
 
 - [ ] **Step 1: Write failing job-state test**
 
@@ -67,7 +68,7 @@ Expected: missing JobManager/store job-item methods.
 
 - [ ] **Step 3: Implement schema migration**
 
-Add job_items with UNIQUE(job_id, process_id), state, error and timestamps. Add acquisition_state to processes. list_missing_pending_processes returns only needs_complement=1 with acquisition_state NOT_DOWNLOADED or FAILED and excludes ATO_COMPLEMENTADO.
+Add job_items with UNIQUE(job_id, process_id), state, error and timestamps. Add acquisition_state to processes. Implement this as schema migration 2 -> 3 and update metadata.schema_version only after the migration transaction commits. list_missing_pending_processes returns only needs_complement=1 with acquisition_state NOT_DOWNLOADED or FAILED and excludes ATO_COMPLEMENTADO.
 
 - [ ] **Step 4: Verify GREEN**
 
