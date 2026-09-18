@@ -1,0 +1,99 @@
+"""Adapter around the proven incremental analysis pipeline.
+
+The legacy module is imported from its own directory on purpose, and inside the
+adapter only: M4 keeps the proven engine behind a seam so the Mesa can later own
+the rules without rewriting classification, OCR and extraction at once.
+"""
+
+from __future__ import annotations
+
+import importlib
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+LEGACY_ANALYSIS_DIR = REPO_ROOT / "work" / "tce-extractor" / "portable" / "app"
+
+
+class AnalysisError(RuntimeError):
+    """Raised when the analysis engine cannot produce a usable result."""
+
+
+@dataclass(slots=True)
+class TesseractPaths:
+    executable: Path
+    tessdata: Path
+
+
+def tesseract_candidates(data_root: str | Path, repo_root: str | Path | None = None) -> tuple[Path, ...]:
+    """Folders that may hold the fixed Tesseract shipped with the runtime."""
+
+    root = Path(repo_root) if repo_root is not None else REPO_ROOT
+    return (
+        Path(data_root) / "runtime" / "tesseract",
+        root / "runtime" / "tesseract",
+        root / "work" / "tce-extractor" / "portable" / "runtime" / "tesseract",
+    )
+
+
+def resolve_tesseract(data_root: str | Path, repo_root: str | Path | None = None) -> TesseractPaths:
+    """Locate the Tesseract the portable runtime pins."""
+
+    for candidate in tesseract_candidates(data_root, repo_root):
+        executable = candidate / "tesseract.exe"
+        tessdata = candidate / "tessdata"
+        if executable.is_file() and tessdata.is_dir():
+            return TesseractPaths(executable=executable, tessdata=tessdata)
+    raise AnalysisError(
+        "Tesseract do runtime portátil não encontrado; o OCR continua obrigatório como fallback"
+    )
+
+
+class LegacyAnalysisAdapter:
+    """Run the proven per-process analysis without exposing its internals."""
+
+    def __init__(
+        self,
+        data_root: str | Path,
+        *,
+        repo_root: str | Path | None = None,
+        tesseract: TesseractPaths | None = None,
+    ) -> None:
+        self._data_root = Path(data_root)
+        self._repo_root = Path(repo_root) if repo_root is not None else REPO_ROOT
+        self._tesseract = tesseract
+
+    @property
+    def archive_root(self) -> Path:
+        return self._data_root / "archive"
+
+    def _paths(self) -> TesseractPaths:
+        if self._tesseract is None:
+            self._tesseract = resolve_tesseract(self._data_root, self._repo_root)
+        return self._tesseract
+
+    def analyze(self, process_key: str) -> dict[str, Any]:
+        """Return the raw legacy result for one process."""
+
+        module = self._module()
+        paths = self._paths()
+        try:
+            result = module.analyze_process(
+                self.archive_root,
+                process_key,
+                tesseract=paths.executable,
+                tessdata=paths.tessdata,
+            )
+        except Exception as error:  # the engine raises many concrete types
+            raise AnalysisError(f"a análise incremental falhou: {type(error).__name__}") from error
+        if not isinstance(result, dict):
+            raise AnalysisError("a análise incremental devolveu um resultado inesperado")
+        return result
+
+    def _module(self):
+        directory = str(LEGACY_ANALYSIS_DIR)
+        if directory not in sys.path:
+            sys.path.insert(0, directory)
+        return importlib.import_module("incremental_pipeline")
