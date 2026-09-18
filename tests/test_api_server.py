@@ -1,6 +1,7 @@
 """Tests for the read-only Mesa API (M1 Task 4)."""
 
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -153,7 +154,20 @@ class StorageRouteTests(ApiTestCase):
         self.assertEqual(payload["archive"]["blob_count"], 1)
         self.assertEqual(payload["archive"]["blob_bytes"], len(PDF))
         self.assertEqual(payload["archive"]["process_view_files"], 1)
+        # In this fixture the view is an independent copy, so nothing is saved.
+        self.assertEqual(payload["archive"]["process_view_physical_bytes"], len(PDF))
         self.assertEqual(payload["archive"]["deduplicated_bytes"], 0)
+
+    def test_hardlinked_view_is_reported_as_deduplicated(self):
+        view = self.data_root / "archive" / "processos" / "102390-2026" / "Ato.pdf"
+        view.unlink()
+        os.link(self.blob, view)
+
+        payload = self.get_json("/api/v1/storage")
+
+        self.assertEqual(payload["archive"]["process_view_bytes"], len(PDF))
+        self.assertEqual(payload["archive"]["process_view_physical_bytes"], 0)
+        self.assertEqual(payload["archive"]["deduplicated_bytes"], len(PDF))
 
 
 class PdfRouteTests(ApiTestCase):

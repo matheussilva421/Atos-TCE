@@ -78,8 +78,11 @@ def storage_payload(store: Store, data_root: Path) -> dict[str, Any]:
             "blob_bytes": blobs["bytes"],
             "process_view_files": views["files"],
             "process_view_bytes": views["bytes"],
-            # How many bytes the hardlinked process view would cost without dedup.
-            "deduplicated_bytes": max(0, views["bytes"] - blobs["bytes"]),
+            # Bytes that a view file actually occupies: a hardlink shares the
+            # blob inode and therefore adds nothing beyond the canonical copy.
+            "process_view_physical_bytes": views["physical_bytes"],
+            # What the process view would have cost as independent copies.
+            "deduplicated_bytes": max(0, views["bytes"] - views["physical_bytes"]),
         },
     }
 
@@ -120,12 +123,18 @@ def safe_join(root: Path, relative: str) -> Path | None:
 
 
 def _scan_tree(root: Path) -> dict[str, int]:
-    """Count files and bytes below ``root`` without following links."""
+    """Count files, logical bytes and really occupied bytes below ``root``.
+
+    A file with more than one link shares its bytes with another path below the
+    canonical blob store, so it is counted as logical size only. That is what
+    makes ``deduplicated_bytes`` meaningful instead of always zero.
+    """
 
     files = 0
     total = 0
+    physical = 0
     if not root.is_dir():
-        return {"files": 0, "bytes": 0}
+        return {"files": 0, "bytes": 0, "physical_bytes": 0}
     for current, _directory_names, file_names in os.walk(root, followlinks=False):
         for name in file_names:
             try:
@@ -134,4 +143,6 @@ def _scan_tree(root: Path) -> dict[str, int]:
                 continue
             files += 1
             total += info.st_size
-    return {"files": files, "bytes": total}
+            if info.st_nlink <= 1:
+                physical += info.st_size
+    return {"files": files, "bytes": total, "physical_bytes": physical}
