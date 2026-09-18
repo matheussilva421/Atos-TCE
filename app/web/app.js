@@ -53,6 +53,44 @@ async function loadPdfjs() {
     not_found: "Não encontrados",
   };
 
+  const FILL_STATE_LABELS = {
+    OPENING: "Abrindo o ato no portal…",
+    READING: "Lendo o formulário…",
+    PREFLIGHT: "Validando os campos…",
+    FILLING: "Preenchendo e relendo…",
+    PREENCHIDO: "Ato preenchido. Confira e conclua manualmente no portal.",
+    BLOQUEADO: "Preenchimento bloqueado.",
+    ERRO: "O preenchimento falhou.",
+  };
+
+  async function startFill() {
+    const button = document.getElementById("fill-act");
+    const status = document.getElementById("fill-status");
+    if (!state.selectedId || !button || !status) return;
+    button.disabled = true;
+    status.textContent = "Solicitando o preenchimento…";
+    try {
+      const created = await postJson(`/api/v1/processes/${state.selectedId}/fill`, {});
+      const deadline = Date.now() + 300000;
+      for (;;) {
+        await sleep(1000);
+        const request = await getJson(`/api/v1/fill-requests/${created.fill_request_id}`);
+        status.textContent = FILL_STATE_LABELS[request.state] || request.state;
+        if (request.error) status.textContent += ` (${request.error})`;
+        if (["PREENCHIDO", "BLOQUEADO", "ERRO"].includes(request.state)) break;
+        if (Date.now() > deadline) {
+          status.textContent = "O preenchimento não respondeu a tempo. Verifique a extensão.";
+          break;
+        }
+      }
+      await selectProcess(state.selectedId);
+    } catch (error) {
+      status.textContent = `Não foi possível preencher: ${error.message}`;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   const state = {
     items: [],
     selectedId: null,
@@ -478,9 +516,28 @@ async function loadPdfjs() {
       element("h3", { text: `${process.process_key}` }),
       element("p", { className: "detail-sub", text: process.interested }),
       badges,
+      fillPanel(process),
       (tabs[state.tab] || tabs.dados)()
     );
     refreshTabBar();
+  }
+
+  /** The fill action exists only for a process the backend marked PRONTO. */
+  function fillPanel(process) {
+    const panel = element("div", { className: "fill-panel" }, [
+      element("button", {
+        className: "primary",
+        text: "Preencher ato",
+        attrs: { type: "button", id: "fill-act" },
+      }),
+      element("span", { className: "muted", attrs: { id: "fill-status" } }),
+    ]);
+    if (process.status !== "PRONTO") {
+      panel.hidden = true;
+      return panel;
+    }
+    panel.querySelector("button").addEventListener("click", startFill);
+    return panel;
   }
 
   function refreshTabBar() {

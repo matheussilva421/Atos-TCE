@@ -497,6 +497,30 @@ button.ghost,
   cursor: pointer;
 }
 
+.fill-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+#fill-act {
+  font: inherit;
+  font-weight: 600;
+  padding: 9px 16px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ok);
+  color: #fff;
+  cursor: pointer;
+}
+
+#fill-act:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .acquisition {
   margin: 14px 0 4px;
 }

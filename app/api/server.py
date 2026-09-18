@@ -33,6 +33,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from ..core.store import Store
 from ..area_restrita import PORTAL_ROLES
 from ..area_restrita import cdp_fallback
+from ..area_restrita.fill_service import FillError, FillService
 from ..analysis.service import AnalysisService
 from ..analysis.evidence import evidence_for_field
 from ..econtas.service import AcquisitionError, AcquisitionService
@@ -66,6 +67,11 @@ ROUTES: tuple[Route, ...] = (
         "handle_field_evidence",
         "public",
     ),
+    Route(
+        re.compile(r"/api/v1/fill-requests/(?P<request_id>\d+)"),
+        "handle_fill_request",
+        "mesa",
+    ),
     Route(re.compile(r"/api/v1/documents/(?P<document_id>\d+)/pdf"), "handle_document_pdf", "public"),
     Route(re.compile(r"/api/v1/bridge/pairing"), "handle_bridge_pairing", "mesa"),
     Route(re.compile(r"/api/v1/area/latest"), "handle_area_latest", "public"),
@@ -86,6 +92,11 @@ POST_ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/area/analyze"), "post_area_analyze", "mesa"),
     Route(re.compile(r"/api/v1/area/analyze-cdp"), "post_area_analyze_cdp", "mesa"),
     Route(re.compile(r"/api/v1/acquisition/jobs"), "post_acquisition_job", "mesa"),
+    Route(
+        re.compile(r"/api/v1/processes/(?P<process_id>\d+)/fill"),
+        "post_process_fill",
+        "mesa",
+    ),
 )
 
 
@@ -123,6 +134,7 @@ class MesaServer(ThreadingHTTPServer):
         self._acquisition = None
         self._acquisition_factory = acquisition_factory
         self._analysis: AnalysisService | None = None
+        self._fill: FillService | None = None
 
     @property
     def analysis(self) -> AnalysisService:
@@ -131,6 +143,14 @@ class MesaServer(ThreadingHTTPServer):
         if self._analysis is None:
             self._analysis = AnalysisService(self.store, self.data_root)
         return self._analysis
+
+    @property
+    def fill(self) -> FillService:
+        """The fill workflow owner (M5); the extension never decides."""
+
+        if self._fill is None:
+            self._fill = FillService(self.store)
+        return self._fill
 
     @property
     def acquisition(self) -> AcquisitionService:
@@ -381,6 +401,32 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_json(payload)
 
+    def handle_fill_request(
+        self, query: dict[str, list[str]], request_id: str
+    ) -> None:
+        if not self._require_session():
+            return
+        request = self.mesa.store.get_fill_request(int(request_id))
+        if request is None:
+            self._send_json(
+                {"error": "fill_request_not_found", "fill_request_id": int(request_id)}, status=404
+            )
+            return
+        process = self.mesa.store.get_process(int(request["process_id"])) or {}
+        self._send_json(
+            {
+                "id": int(request["id"]),
+                "process_id": int(request["process_id"]),
+                "process_key": process.get("process_key"),
+                "interested": process.get("interested"),
+                "state": request["state"],
+                "mode": request["mode"],
+                "error": request["error"],
+                "created_at": request["created_at"],
+                "updated_at": request["updated_at"],
+            }
+        )
+
     def _send_range_not_satisfiable(self, total: int) -> None:
         body = json.dumps({"error": "range_not_satisfiable", "size": total}).encode("utf-8")
         self.send_response(416)
@@ -419,6 +465,21 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         job = self.mesa.store.get_job(job_id) or {}
         self._send_json(
             {"job_id": job_id, "status": job.get("status"), "total": job.get("total")}, status=201
+        )
+
+    def post_process_fill(self, process_id: str) -> None:
+        """Mesa action: start the ``Preencher ato`` workflow for one process."""
+
+        if not self._require_session():
+            return
+        try:
+            request_id = self.mesa.fill.request_fill(int(process_id))
+        except FillError as error:
+            self._send_json({"error": "fill_refused", "detail": str(error)}, status=409)
+            return
+        request = self.mesa.store.get_fill_request(request_id) or {}
+        self._send_json(
+            {"fill_request_id": request_id, "state": request.get("state")}, status=201
         )
 
     def handle_bridge_status(self, query: dict[str, list[str]]) -> None:
@@ -522,6 +583,13 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         error = None if payload.get("ok") is not False else str(payload.get("error") or "") or "command failed"
         detail = self._persist_scan_result(command, payload) if error is None else None
         self.mesa.store.complete_extension_command(int(command_id), result=payload, error=error)
+        if command.get("fill_request_id"):
+            # M5: a result that belongs to a fill request advances the workflow.
+            try:
+                self.mesa.fill.handle_command_result(int(command_id), payload)
+            except FillError as failure:
+                self._send_json({"error": "fill_request_missing", "detail": str(failure)}, status=409)
+                return
         self._send_json({"ok": True, **(detail or {})})
 
     def _persist_scan_result(self, command: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any] | None:

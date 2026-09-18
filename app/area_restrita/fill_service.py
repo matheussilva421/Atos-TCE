@@ -52,6 +52,23 @@ def identity_of(process: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _verified_fields(result: Mapping[str, Any]) -> dict[str, Any]:
+    """A fill only counts when every changed field reread exactly as proposed."""
+
+    field_results = result.get("field_results")
+    if not isinstance(field_results, Mapping) or not field_results:
+        return {"ok": False, "reason": "o portal não devolveu a releitura dos campos"}
+    for name, entry in field_results.items():
+        if not isinstance(entry, Mapping):
+            return {"ok": False, "reason": f"resultado inválido para o campo {name}"}
+        status = entry.get("status")
+        if status in {"failed", "disabled", "not_found", "missing"}:
+            return {"ok": False, "reason": f"o campo {name} não foi confirmado ({status})"}
+        if status == "changed" and entry.get("after") != entry.get("proposed"):
+            return {"ok": False, "reason": f"o campo {name} releu diferente do proposto"}
+    return {"ok": True, "reason": None}
+
+
 class FillService:
     def __init__(self, store: Store, *, preflight: Any | None = None) -> None:
         self._store = store
@@ -140,6 +157,7 @@ class FillService:
         handler = {
             "OPENING": self._handle_open_result,
             "READING": self._handle_read_result,
+            "FILLING": self._handle_fill_result,
         }.get(str(request["state"]))
         if handler is None:
             return
@@ -216,6 +234,45 @@ class FillService:
                 "plan": plan.fields,
                 "preserved": plan.preserved,
                 "warnings": plan.warnings,
+            },
+        )
+
+    def _handle_fill_result(
+        self, request: Mapping[str, Any], result: Mapping[str, Any]
+    ) -> None:
+        """Only a fully reread result marks the act as filled."""
+
+        process_id = int(request["process_id"])
+        if result.get("ok") is not True:
+            self._fail(request, str(result.get("error") or result.get("code") or "preenchimento recusado pelo portal"))
+            return
+        verification = _verified_fields(result)
+        if not verification["ok"]:
+            self._block(request, verification["reason"])
+            return
+        self._store.update_fill_request(
+            int(request["id"]),
+            state="PREENCHIDO",
+            error=None,
+            current_command_id=None,
+            form_snapshot={"field_results": result.get("field_results") or {}},
+        )
+        self._store.set_process_status(
+            process_id,
+            "PREENCHIDO",
+            event_type="form_filled",
+            payload={
+                "fill_request_id": int(request["id"]),
+                "fields": sorted(
+                    name
+                    for name, entry in (result.get("field_results") or {}).items()
+                    if isinstance(entry, Mapping) and entry.get("status") == "changed"
+                ),
+                "preserved": sorted(
+                    name
+                    for name, entry in (result.get("field_results") or {}).items()
+                    if isinstance(entry, Mapping) and entry.get("status") == "preserved"
+                ),
             },
         )
 

@@ -443,11 +443,12 @@ class MesaUiTests(ApiTestCase):
         # M2 adds Analisar Área Restrita; M3 adds the pending download.
         self.assertIn("/api/v1/area/analyze", source)
         self.assertIn("/api/v1/acquisition/jobs", source)
+        self.assertIn("/api/v1/fill-requests", source)
+        self.assertIn("Preencher ato", source)
         for forbidden in (
-            "/api/v1/fill",
-            "/api/v1/portal/manual-form",
             "autoSubmit",
             "real_send",
+            "AUTO_SUBMIT",
         ):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, source)
@@ -985,6 +986,231 @@ class PdfRangeTests(ApiTestCase):
         status, _headers, raw = self.range_call("bytes=0-9")
         self.assertEqual(status, 206)
         self.assertEqual(raw, PDF[:10])
+
+
+FILL_FIELDS = {
+    "modalidade": "aposentadoria voluntária",
+    "fundamento_legal": "Art. 6º e art. 7º da Emenda Constitucional 41/2003",
+    "data_publicacao_doe": "27/03/2024",
+    "cargo": "Professor",
+    "matricula": "78.710-8/2",
+    "data_nascimento": "16/02/1950",
+}
+FILL_IDENTITY = {"processKey": "102390/2026", "interestedNormalized": "pessoa exemplo"}
+
+
+class FillOrchestrationTests(ApiTestCase):
+    """The whole OPEN -> READ -> PREFLIGHT -> FILL chain over the real routes."""
+
+    def setUp(self):
+        super().setUp()
+        self.store.replace_fields(
+            self.process_id,
+            [
+                FieldRecord(field_name=name, value=value, status="found", confidence=1.0)
+                for name, value in FILL_FIELDS.items()
+            ],
+        )
+        self.extension = self.pair_extension()
+        self.opener = self.mesa_opener()
+
+    # ---------------------------------------------------------------- helpers
+
+    def claim(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/extension/commands/next", headers=self.extension
+        )
+        self.assertEqual(status, 200, payload)
+        return payload["command"]
+
+    def report(self, command_id, body):
+        status, _headers, payload = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/result",
+            method="POST",
+            headers=self.extension,
+            body=body,
+        )
+        self.assertEqual(status, 200, payload)
+        return payload
+
+    def start_fill(self):
+        status, _headers, payload = self.call_json(
+            f"/api/v1/processes/{self.process_id}/fill",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={},
+            opener=self.opener,
+        )
+        self.assertEqual(status, 201, payload)
+        return payload["fill_request_id"]
+
+    def fill_state(self, request_id):
+        """Read the fill request through the authenticated Mesa session."""
+
+        status, _headers, payload = self.call_json(
+            f"/api/v1/fill-requests/{request_id}", headers=self.mesa_headers(), opener=self.opener
+        )
+        self.assertEqual(status, 200, payload)
+        return payload
+
+    def read_form_result(self, **overrides):
+        fields = {
+            name: {"value": "", "disabled": False, "readOnly": False, "options": []}
+            for name in list(FILL_FIELDS) + ["genero"]
+        }
+        fields["fundamento_legal"]["options"] = [
+            {"value": "A", "label": FILL_FIELDS["fundamento_legal"]},
+            {"value": "B", "label": "Art. 3º da Emenda Constitucional 47/2005"},
+        ]
+        for name, control in (overrides.pop("fields", {}) or {}).items():
+            fields[name] = {**fields[name], **control}
+        payload = {
+            "ok": True,
+            "identity": dict(FILL_IDENTITY),
+            "generation": 4,
+            "fields": fields,
+            "options": {},
+        }
+        payload.update(overrides)
+        return payload
+
+    def fill_result(self, planned):
+        return {
+            "ok": True,
+            "identity": dict(FILL_IDENTITY),
+            "generation_after": 5,
+            "field_results": {
+                name: {"before": "", "proposed": value, "after": value, "status": "changed"}
+                for name, value in planned.items()
+            },
+        }
+
+    # ------------------------------------------------------------------ tests
+
+    def test_the_full_chain_opens_reads_preflights_and_fills(self):
+        request_id = self.start_fill()
+
+        open_command = self.claim()
+        self.assertEqual(open_command["type"], "OPEN_ACT")
+        self.assertEqual(open_command["payload"]["identity"]["processKey"], "102390/2026")
+        self.report(open_command["id"], {"ok": True, "identity": dict(FILL_IDENTITY)})
+
+        read_command = self.claim()
+        self.assertEqual(read_command["type"], "READ_FORM")
+        self.report(read_command["id"], self.read_form_result())
+        self.assertEqual(self.fill_state(request_id)["state"], "FILLING")
+
+        fill_command = self.claim()
+        self.assertEqual(fill_command["type"], "FILL_FORM")
+        planned = fill_command["payload"]["fields"]
+        self.assertEqual(fill_command["payload"]["generation"], 4)
+        self.assertEqual(planned["cargo"], "Professor")
+        # The backend legal decision replaced the raw proposal with its option.
+        self.assertEqual(planned["fundamento_legal"], "A")
+
+        self.report(fill_command["id"], self.fill_result(planned))
+
+        request = self.fill_state(request_id)
+        self.assertEqual(request["state"], "PREENCHIDO")
+        self.assertEqual(request["process_key"], "102390/2026")
+        self.assertEqual(request["mode"], "automatic")
+        process = self.store.get_process(self.process_id)
+        self.assertEqual(process["status"], "PREENCHIDO")
+        events = [event["event_type"] for event in process["events"]]
+        self.assertIn("form_filled", events)
+        self.assertIsNone(self.claim())
+
+    def test_an_existing_divergent_value_blocks_without_queuing_a_fill(self):
+        request_id = self.start_fill()
+        open_command = self.claim()
+        self.report(open_command["id"], {"ok": True, "identity": dict(FILL_IDENTITY)})
+        read_command = self.claim()
+
+        self.report(
+            read_command["id"],
+            self.read_form_result(
+                fields={"matricula": {"value": "11.111-1/1", "options": []}}
+            ),
+        )
+
+        request = self.fill_state(request_id)
+        self.assertEqual(request["state"], "BLOQUEADO")
+        self.assertIn("EXISTING_VALUE_DIVERGENCE", request["error"])
+        self.assertEqual(self.store.get_process(self.process_id)["status"], "BLOQUEADO")
+        self.assertIsNone(self.claim(), "a blocked preflight must not queue FILL_FORM")
+
+    def test_a_verification_failure_never_marks_the_act_as_filled(self):
+        request_id = self.start_fill()
+        open_command = self.claim()
+        self.report(open_command["id"], {"ok": True, "identity": dict(FILL_IDENTITY)})
+        read_command = self.claim()
+        self.report(read_command["id"], self.read_form_result())
+        fill_command = self.claim()
+        planned = fill_command["payload"]["fields"]
+
+        body = self.fill_result(planned)
+        body["ok"] = False
+        body["code"] = "FILL_VERIFICATION_FAILED"
+        body["field_results"]["cargo"] = {
+            "before": "",
+            "proposed": "Professor",
+            "after": "",
+            "status": "failed",
+        }
+        self.report(fill_command["id"], body)
+
+        request = self.fill_state(request_id)
+        self.assertEqual(request["state"], "ERRO")
+        self.assertNotEqual(self.store.get_process(self.process_id)["status"], "PREENCHIDO")
+
+    def test_a_field_that_rereads_differently_blocks_the_request(self):
+        request_id = self.start_fill()
+        open_command = self.claim()
+        self.report(open_command["id"], {"ok": True, "identity": dict(FILL_IDENTITY)})
+        read_command = self.claim()
+        self.report(read_command["id"], self.read_form_result())
+        fill_command = self.claim()
+        planned = fill_command["payload"]["fields"]
+        body = self.fill_result(planned)
+        body["field_results"]["cargo"]["after"] = "Outro cargo"
+
+        self.report(fill_command["id"], body)
+
+        request = self.fill_state(request_id)
+        self.assertEqual(request["state"], "BLOQUEADO")
+        self.assertIn("cargo", request["error"])
+
+    def test_only_a_pronto_process_can_be_filled(self):
+        self.store.set_process_status(self.process_id, "REVISAR")
+
+        status, _headers, payload = self.call_json(
+            f"/api/v1/processes/{self.process_id}/fill",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={},
+            opener=self.opener,
+        )
+
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["error"], "fill_refused")
+
+    def test_the_fill_routes_require_a_mesa_session(self):
+        status, _headers, payload = self.call_json(
+            f"/api/v1/processes/{self.process_id}/fill",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={},
+        )
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "session_required")
+        self.assertEqual(self.status_of("/api/v1/fill-requests/1"), 401)
+
+    def test_an_unknown_fill_request_is_404(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/fill-requests/4242", headers=self.mesa_headers(), opener=self.opener
+        )
+        self.assertEqual(status, 404)
+        self.assertEqual(payload["error"], "fill_request_not_found")
 
 
 if __name__ == "__main__":
