@@ -11,12 +11,14 @@ import unittest
 from http.cookiejar import CookieJar
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 from urllib.error import HTTPError
 from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
 from app.api.bridge import Bridge, hash_token
 from app.api.server import serve
 from app.archive.legacy_import import blob_path, sha256_file
+from app.area_restrita import cdp_fallback
 from app.core.models import DocumentRecord, FieldRecord, ProcessRecord
 from app.core.store import SCHEMA_VERSION, Store
 
@@ -367,6 +369,7 @@ class MesaUiTests(ApiTestCase):
             shell = response.read().decode("utf-8")
 
         self.assertIn('id="analyze-area"', shell)
+        self.assertIn('id="analyze-area-cdp"', shell)
         self.assertIn("Analisar Área Restrita", shell)
         self.assertIn('id="analyze-status"', shell)
         self.assertIn('id="area-counters"', shell)
@@ -546,6 +549,64 @@ class AreaAnalyzeFlowTests(ApiTestCase):
 
         self.assertIsNone(payload["scan"])
         self.assertEqual(payload["counters"]["total"], 0)
+
+    def test_the_cdp_fallback_persists_the_same_scan_schema(self):
+        opener = self.mesa_opener()
+        snapshot = {**SNAPSHOT, "origin": "cdp"}
+        result = cdp_fallback.CdpScanResult(ok=True, snapshot=snapshot, exit_code=0)
+
+        with mock.patch.object(cdp_fallback, "run_cdp_scan", return_value=result):
+            status, _headers, payload = self.call_json(
+                "/api/v1/area/analyze-cdp",
+                method="POST",
+                headers=self.mesa_headers(),
+                body={},
+                opener=opener,
+            )
+
+        self.assertEqual(status, 201, payload)
+        self.assertEqual(payload["origin"], "cdp")
+        scan = self.store.get_area_scan(payload["scan_id"])
+        self.assertEqual(scan["origin"], "cdp")
+        self.assertEqual(scan["total"], 3)
+        self.assertEqual(scan["pending"], 2)
+        self.assertEqual(scan["completed"], 1)
+        latest = self.get_json("/api/v1/area/latest")
+        self.assertEqual(latest["counters"], scan_counters(scan))
+
+    def test_the_cdp_fallback_reports_a_safe_failure(self):
+        opener = self.mesa_opener()
+        result = cdp_fallback.CdpScanResult(
+            ok=False, error="the compatibility scan failed (exit code 1)", exit_code=1
+        )
+
+        with mock.patch.object(cdp_fallback, "run_cdp_scan", return_value=result):
+            status, _headers, payload = self.call_json(
+                "/api/v1/area/analyze-cdp",
+                method="POST",
+                headers=self.mesa_headers(),
+                body={},
+                opener=opener,
+            )
+
+        self.assertEqual(status, 502)
+        self.assertEqual(payload["error"], "cdp_scan_failed")
+        self.assertIsNone(self.store.latest_area_scan())
+
+    def test_the_cdp_fallback_requires_a_mesa_session(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/area/analyze-cdp", method="POST", headers=self.mesa_headers(), body={}
+        )
+
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "session_required")
+
+
+def scan_counters(scan: dict) -> dict:
+    return {
+        field: int(scan.get(field) or 0)
+        for field in ("total", "pending", "completed", "ambiguous", "blocked", "not_found")
+    }
 
 
 def free_port() -> int:

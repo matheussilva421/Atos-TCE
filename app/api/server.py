@@ -31,23 +31,20 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from ..core.store import Store
+from ..area_restrita import PORTAL_ROLES
+from ..area_restrita import cdp_fallback
 from . import views
 from .bridge import SESSION_COOKIE, Bridge, hash_token, is_extension_origin
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 18743
 WEB_ROOT = Path(__file__).resolve().parent.parent / "web"
+REPO_ROOT = Path(__file__).resolve().parents[2]
 MAX_BODY_BYTES = 8 * 1024 * 1024
 
 #: Command types the Mesa may queue for the thin extension. M5 extends this
 #: list with OPEN_ACT, READ_FORM and FILL_FORM; there is never a submit type.
 ALLOWED_COMMAND_TYPES = frozenset({"STATUS", "SCAN_AREA"})
-
-#: Portal roles a sanitized snapshot may declare. Anything else is recorded as
-#: a command result but never persisted as a scan, so a malformed payload
-#: cannot corrupt the Mesa's view of the Área Restrita.
-PORTAL_ROLES = frozenset({"list", "interested", "form", "buttons", "unknown"})
-
 
 @dataclass(frozen=True)
 class Route:
@@ -77,6 +74,7 @@ POST_ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/extension/commands/(?P<command_id>\d+)/result"), "post_command_result", "extension"),
     Route(re.compile(r"/api/v1/area/scans"), "post_area_scan", "mesa"),
     Route(re.compile(r"/api/v1/area/analyze"), "post_area_analyze", "mesa"),
+    Route(re.compile(r"/api/v1/area/analyze-cdp"), "post_area_analyze_cdp", "mesa"),
 )
 
 
@@ -455,6 +453,27 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         command_id = self.mesa.store.create_extension_command("SCAN_AREA", {"origin": "mesa"})
         self._send_json(
             {"command_id": command_id, "type": "SCAN_AREA", "state": "QUEUED"}, status=201
+        )
+
+    def post_area_analyze_cdp(self) -> None:
+        """Run the read-only compatibility fallback and persist the same schema."""
+
+        if not self._require_session():
+            return
+        result = cdp_fallback.run_cdp_scan(REPO_ROOT, max_pages=cdp_fallback.MAX_CDP_PAGES)
+        if not result.ok or result.snapshot is None:
+            self._send_json(
+                {"error": "cdp_scan_failed", "detail": result.error or "unknown"}, status=502
+            )
+            return
+        scan_id = cdp_fallback.persist_cdp_scan(self.mesa.store, result.snapshot)
+        self._send_json(
+            {
+                "scan_id": scan_id,
+                "origin": "cdp",
+                "rows": len(result.snapshot.get("rows") or []),
+            },
+            status=201,
         )
 
     def post_area_scan(self) -> None:

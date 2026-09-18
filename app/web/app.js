@@ -189,6 +189,23 @@
     }
   }
 
+  async function analyzeAreaCdp() {
+    const button = document.getElementById("analyze-area-cdp");
+    const status = document.getElementById("analyze-status");
+    button.disabled = true;
+    status.textContent = "Lendo o portal pelo modo de compatibilidade…";
+    try {
+      const result = await postJson("/api/v1/area/analyze-cdp", {});
+      status.textContent = `Leitura por CDP concluída (${numberFormat.format(result.rows)} processos vistos).`;
+      await refreshArea();
+      await refreshProcesses();
+    } catch (error) {
+      status.textContent = `Modo de compatibilidade indisponível: ${error.message}`;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   function renderHealth(payload) {
     const host = document.getElementById("health-status");
     host.replaceChildren(
@@ -428,6 +445,7 @@
     });
 
     document.getElementById("analyze-area").addEventListener("click", analyzeArea);
+    document.getElementById("analyze-area-cdp").addEventListener("click", analyzeAreaCdp);
     document.getElementById("renew-pairing").addEventListener("click", renewPairing);
 
     refreshHealth();

@@ -41,11 +41,124 @@ do ato permanece humano em todos os marcos (`autoSubmit=false`,
 | 3. Safe legacy archive import + SHA-256 dedup | concluída | `0c454cd` |
 | 4. Read-only Mesa API | concluída | `330968d` |
 | 5. Read-only Mesa UI and launcher | concluída | `465cd11` |
-| 6. Real archive migration rehearsal | em andamento | — |
+| 6. Real archive migration rehearsal | concluída | `b5d8b14` |
 
-### M2 a M6
+#### Ensaio real do acervo (M1 Task 6)
 
-Não iniciados. Não avançar sem o Exit Gate do marco anterior verde.
+Comando de ensaio (20 min, sem escrever blobs):
+
+```
+python scripts/migrate-legacy.py --archive-root work\tce-extractor\acervo-tce --data-root data
+```
+
+- 724 pastas de processo, 14.179 PDFs, 8.892.090.055 bytes.
+- 14.179 hashes únicos, **0 duplicados**, **0 avisos**, **0 erros**, 0 blobs copiados.
+- Todas as 724 pastas casaram com um registro de interessado: nenhum processo
+  recebeu o interessado provisório.
+- A normalização canônica de `app/core/identity.py` reproduziu exatamente o
+  `interested.normalized` legado nos 739 registros (nenhum aviso de divergência).
+
+Gate de espaço livre: `bytes_unique` (8,28 GiB) + 2 GiB = 10,28 GiB exige menos
+que os 56,9 GB livres medidos antes do `--apply`.
+
+Comando de efetivação (~10 min):
+
+```
+python scripts/migrate-legacy.py --archive-root work\tce-extractor\acervo-tce --data-root data --apply
+```
+
+- 14.179 blobs canônicos gravados (`data/archive/blobs/AA/<sha>.pdf`).
+- 14.179 hardlinks em `data/archive/processos/...`; **0 fallback copies**, 0 bytes
+  duplicados pela visão de processo.
+- 739 linhas de processo e 14.483 linhas de documento (14.179 + 304 linhas
+  repetidas nas 15 chaves com mais de um interessado).
+- Recibo: `data/logs/legacy-import-20260918T123734Z.json` (`mode=apply`).
+
+Verificação independente depois do `--apply`:
+
+- origem: 14.179 PDFs e 8,28 GB — idêntica antes e depois;
+- espaço livre em C: caiu de 56,9 GB para 48,7 GB (8,2 GB = só os blobs);
+- Mesa em `--port 18753`: `/api/v1/health` com 739 processos, `/api/v1/storage`
+  com 14.179 blobs / 14.483 documentos / 14.179 SHA-256 únicos e
+  `deduplicated_bytes = 8.892.090.055` (medido por contagem de links reais);
+- `/api/v1/processes/1` devolve 17 documentos com `sha256`, `source_id` legado
+  (`100015/2026|7047389|informacao-3166843`) e 2 deles enriquecidos pelo
+  `pdfs-alvo-manifest.json` (classificação e `page_count`).
+
+"Duplicate PDFs are deduplicated by SHA-256" foi comprovado por teste de
+fixture (2 cópias → 1 blob, 1 hardlink por visão). No acervo real esse contador
+ficou em 0 porque os 14.179 PDFs de origem já eram todos distintos.
+
+Regressão do projeto legado (gate obrigatório do AGENTS.md):
+
+```
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1
+```
+
+7 estágios, 1.251 comandos executados, 1.249 aprovados, **0 falharam**, 2 skips
+(extensão 479, web 6, python portable 6, powershell 596, pacote 82, automação 81,
+`git diff --check`). O fluxo legado continua íntegro.
+
+### M1 Exit Gate — verde
+
+| Critério | Evidência |
+|---|---|
+| SQLite schema v1 operacional | `Store.schema_version == 1`, 56 testes na raiz |
+| Acervo atual importado sem remover a origem | 14.179 PDFs/8,28 GB intactos após o `--apply` |
+| PDFs duplicados deduplicados por SHA-256 com árvore de processo por hardlink | 14.179 hardlinks, 0 fallback copies, `deduplicated_bytes` = 8,28 GB; prova de dedup em fixture |
+| Processos reais visíveis na Mesa somente leitura | 739 processos e 14.483 documentos servidos pela API e pela UI |
+| Fluxo legado intacto | `verify-project.ps1` 1.249/1.251 sem falha; nada em `work/tce-extractor/` foi alterado |
+
+### M2 — Área Restrita Integration
+
+| Tarefa | Estado | Commit |
+|---|---|---|
+| 1. SQLite schema v2 (scans + comandos) | concluída | `55fc9cb` |
+| 2. Pareamento persistente e API autenticada | concluída | `5efd966` |
+| 3. Scanner DOM puro extraído do legado | concluída | `7d47214` |
+| 4. Extensão MV3 fina com polling | concluída | `7ba88d7` |
+| 5. Fluxo "Analisar Área Restrita" na Mesa | concluída | `b13a65d` |
+| 6. Fallback CDP somente leitura | concluída | — |
+
+#### Decisões de M2
+
+| Decisão | Motivo |
+|---|---|
+| `app/core/identity.py` é o dono Python da normalização e `extension/lib/area-snapshot.js` o espelho JS, com teste cruzado via Node | A chave natural precisa ser idêntica nos dois lados |
+| `PORTAL_ROLES` mora em `app/area_restrita/__init__.py` e é importado pelo servidor | Um único dono do vocabulário do portal; snapshot com papel desconhecido nunca vira scan |
+| `content/paging.js` concentra a paginação de M2 e será absorvido por `content/navigate.js` em M5 | O plano permite navegar paginação em M2, mas proíbe escrita de formulário |
+| O servidor lê o corpo do POST **antes** de qualquer decisão de autorização | Responder enquanto o cliente escreve reinicia a conexão TCP no Windows em vez de entregar o status |
+| `token_hash` é comparado com `hmac.compare_digest` | Comparação em tempo constante para o bearer da extensão |
+| Código de pareamento é consumido no primeiro sucesso e o token é 32 bytes URL-safe | "um código devolve um token"; o código só aparece na Mesa enquanto nada está pareado |
+| O contrato de snapshot exige `role` de uma lista fechada | Um payload malformado é registrado como resultado de comando, nunca persistido como scan |
+
+#### M2 Exit Gate
+
+| Critério | Evidência | Classificação |
+|---|---|---|
+| Clicar em "Analisar Área Restrita" inicia a varredura | `test_analyze_flow_persists_the_scan_and_updates_processes` cria o comando, a extensão reivindica, posta o snapshot e o scan é persistido | PASS_FIXTURE |
+| A varredura da extensão é o caminho primário | Fila `extension_commands` + `SCAN_AREA`; o lado Mesa não lê o portal sozinho | PASS_FIXTURE |
+| Resultado persistido em SQLite e estados atualizados | 3 processos com PENDENTE/1, `needs_complement`, `portal_act_id` e `CONCLUÍDO` verificados | PASS_FIXTURE |
+| Pareamento acontece uma vez e sobrevive a reinícios | `test_token_survives_a_new_server_instance` (só o hash vai para o SQLite) | PASS_FIXTURE |
+| Fallback CDP produz o mesmo esquema e não escreve no portal | Mesmo scanner JS, mesmo `Store.create_area_scan`, teste de fonte sem submit/finalizar e reconciliação de chaves | PASS_FIXTURE |
+| Comando de aba do portal não existe ⇒ comando fica na fila | O snapshot só é produzido por aba autenticada; sem aba a extensão devolve erro e o comando continua visível | NOT_TESTED (real) |
+| Varredura real: extensão × CDP no mesmo marcador | Requer login humano no portal | **BLOCKED (supervisionado)** |
+
+Comparação real pendente (exige operador autenticado):
+
+```
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\scripts\scan-area-cdp.ps1
+```
+
+Comparar `process_key` e contagens com uma varredura da extensão no mesmo
+marcador. Diferenças bloqueiam a saída de M2 antes de M3 ser considerado
+fechado. Exige Chrome aberto com `--remote-debugging-port` e Área Restrita
+autenticada; nunca digitar credenciais por automação.
+
+### M3 a M6
+
+M3 iniciado. Não avançar sem o Exit Gate do marco anterior verde; os gates que
+exigem portal real ficam registrados como supervisionados.
 
 ## 4. Arquivos criados/alterados
 
