@@ -20,6 +20,7 @@
         "lib/area-snapshot.js",
         "content/detect-form.js",
         "content/navigate.js",
+        "content/fill-form.js",
         "content/scan-area.js",
         "content/paging.js",
         "content/heartbeat.js"

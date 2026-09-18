@@ -14,7 +14,11 @@ export class FakeElement {
     this._text = text;
     this.attributes = { ...attrs };
     if (id) this.attributes.id = id;
-    this.value = value;
+    // ``value`` lives behind an accessor so the native-setter walk used by the
+    // filler finds a real setter, exactly like a browser input does.
+    this._value = String(value ?? "");
+    this.writeCount = 0;
+    this.events = [];
     this.checked = false;
     this.disabled = false;
     this.hidden = false;
@@ -39,6 +43,20 @@ export class FakeElement {
     return [this._text, ...this.children.map((child) => child.textContent)]
       .filter(Boolean)
       .join(" ");
+  }
+
+  get value() {
+    return this._value;
+  }
+
+  set value(next) {
+    this._value = String(next ?? "");
+    this.writeCount += 1;
+  }
+
+  dispatchEvent(event) {
+    this.events.push(event?.type ?? "");
+    return true;
   }
 
   set textContent(value) {
@@ -338,6 +356,7 @@ export function buildActFormDocument({
         }
         select.append(node);
       }
+      select.writeCount = 0;
       form.append(select);
       continue;
     }

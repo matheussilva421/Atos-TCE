@@ -39,7 +39,7 @@ test("a STATUS command reports readiness without touching the portal", async () 
 });
 
 test("an unknown command type is refused, never guessed", async () => {
-  const result = await executeCommand({ id: 5, type: "FILL_FORM", payload: {} }, {});
+  const result = await executeCommand({ id: 5, type: "SUBMIT", payload: {} }, {});
 
   assert.equal(result.command_id, 5);
   assert.equal(result.ok, false);
@@ -92,11 +92,33 @@ test("a form that never appears fails instead of inventing a snapshot", async ()
   assert.match(result.error, /formulário/u);
 });
 
-test("FILL_FORM is declared but the router still refuses to guess it", async () => {
-  const result = await executeCommand({ id: 25, type: "FILL_FORM", payload: { fields: {} } }, {});
+test("a FILL_FORM command returns the verified per-field result", async () => {
+  const result = await executeCommand(
+    { id: 25, type: "FILL_FORM", payload: { identity: IDENTITY, generation: 4, fields: { cargo: "Professor" } } },
+    {
+      fillForm: async () => ({
+        ok: true,
+        identity: IDENTITY,
+        generation_after: 5,
+        field_results: { cargo: { before: "", proposed: "Professor", after: "Professor", status: "changed" } },
+      }),
+    }
+  );
+
+  assert.equal(result.command_id, 25);
+  assert.equal(result.ok, true);
+  assert.equal(result.generation_after, 5);
+  assert.equal(result.field_results.cargo.status, "changed");
+});
+
+test("a refused fill keeps its code", async () => {
+  const result = await executeCommand(
+    { id: 26, type: "FILL_FORM", payload: {} },
+    { fillForm: async () => ({ ok: false, code: "STALE_GENERATION" }) }
+  );
 
   assert.equal(result.ok, false);
-  assert.match(result.error, /unsupported command/u);
+  assert.equal(result.code, "STALE_GENERATION");
 });
 
 test("a command without a type is refused", async () => {

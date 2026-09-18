@@ -56,6 +56,10 @@ export async function executeCommand(command, dependencies = {}) {
     }
     return { ...form, command_id: commandId, ok: true };
   }
+  if (type === COMMAND_TYPES.FILL_FORM) {
+    const outcome = (await dependencies.fillForm(command.payload ?? {})) ?? {};
+    return { ...outcome, command_id: commandId };
+  }
   // Declared by the protocol but not implemented yet: refuse instead of guessing.
   return { command_id: commandId, ok: false, error: `unsupported command: ${type}` };
 }
@@ -196,6 +200,19 @@ export function installRouter({
     return null;
   }
 
+  /** Send the authorized plan to the tab that actually has the form open. */
+  async function fillForm(payload) {
+    for (const tab of await portalTabs()) {
+      try {
+        const response = await sendToTab(tab.id, { type: MESSAGE_TYPES.FILL_FORM, payload });
+        if (response && typeof response.ok === "boolean") return response;
+      } catch {
+        // Another frame or a tab without the form; keep looking.
+      }
+    }
+    return { ok: false, code: "FORM_NOT_AVAILABLE" };
+  }
+
   async function poll() {
     if (running) return { ok: true, skipped: true };
     running = true;
@@ -206,7 +223,7 @@ export function installRouter({
 
       let result;
       try {
-        result = await executeCommand(outcome.command, { scanPortal, openAct, readForm });
+        result = await executeCommand(outcome.command, { scanPortal, openAct, readForm, fillForm });
       } catch (error) {
         result = {
           command_id: outcome.command.id,
@@ -237,7 +254,7 @@ export function installRouter({
     if (alarm?.name === "tce-recovery-poll") poll();
   });
 
-  return { poll, scanPortal, openAct, readForm };
+  return { poll, scanPortal, openAct, readForm, fillForm };
 }
 
 if (globalThis.chrome?.runtime?.onMessage?.addListener) {
