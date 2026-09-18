@@ -104,7 +104,17 @@
     if (!sameIdentity(before.identity, identity)) {
       return { ok: false, code: "IDENTITY_MISMATCH", generation_after: before.generation, field_results: {} };
     }
-    if (Number.isInteger(generation) && before.generation !== generation) {
+    // A generation is mandatory: an absent or malformed one can never mean
+    // "recent enough", and the form could have changed since it was read.
+    if (!Number.isInteger(generation) || generation < 1) {
+      return {
+        ok: false,
+        code: "GENERATION_MISSING",
+        generation_after: before.generation,
+        field_results: {},
+      };
+    }
+    if (before.generation !== generation) {
       return { ok: false, code: "STALE_GENERATION", generation_after: before.generation, field_results: {} };
     }
 

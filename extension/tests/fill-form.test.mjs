@@ -121,6 +121,27 @@ test("a stale generation writes nothing at all", () => {
   assert.equal(documentRef.getElementById("txtCargo").writeCount, 0);
 });
 
+test("a generation that is not a positive integer writes nothing at all", () => {
+  // CR-F2: an absent or malformed generation can never be "recent enough".
+  for (const generation of [undefined, null, "3", 0, -1, 2.5, true, Number.NaN]) {
+    const { documentRef, form } = preparedForm();
+
+    const result = filler.applyFill({
+      documentRef,
+      identity: form.identity,
+      generation,
+      fields: { cargo: "Professor" },
+    });
+
+    const label = `generation=${String(generation)}`;
+    assert.equal(result.ok, false, label);
+    assert.equal(result.code, "GENERATION_MISSING", label);
+    assert.deepEqual(result.field_results, {}, label);
+    assert.equal(result.generation_after, form.generation, label);
+    assert.equal(documentRef.getElementById("txtCargo").writeCount, 0, label);
+  }
+});
+
 test("a disabled or readOnly control is never written", () => {
   const disabled = preparedForm();
   disabled.documentRef.getElementById("txtCargo").disabled = true;
