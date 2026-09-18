@@ -722,7 +722,7 @@ def _parse_range(header: str, total: int) -> tuple[int, int] | None:
 
 
 def _content_type(path: Path) -> str:
-    if path.suffix.casefold() == ".js":
+    if path.suffix.casefold() in {".js", ".mjs"}:
         return "text/javascript; charset=utf-8"
     if path.suffix.casefold() in {".html", ".css"}:
         return f"{mimetypes.guess_type(path.name)[0] or 'text/plain'}; charset=utf-8"

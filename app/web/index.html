@@ -86,9 +86,33 @@
 
         <section class="panel" aria-labelledby="process-detail-title">
           <h2 id="process-detail-title">Detalhe do processo</h2>
+          <div id="detail-tabs" class="tabs" role="tablist" aria-label="Seções do processo">
+            <button type="button" role="tab" data-tab="dados" aria-selected="true">Dados</button>
+            <button type="button" role="tab" data-tab="documentos" aria-selected="false">Documentos</button>
+            <button type="button" role="tab" data-tab="historico" aria-selected="false">Histórico</button>
+          </div>
           <div id="process-detail" class="detail">
             <p class="empty">Selecione um processo na lista.</p>
           </div>
+          <section id="pdf-viewer" class="viewer" hidden aria-label="Visualizador de PDF">
+            <div class="viewer-toolbar">
+              <button id="viewer-zoom-out" type="button" title="Reduzir zoom">−</button>
+              <span id="viewer-zoom-label" class="muted">150%</span>
+              <button id="viewer-zoom-in" type="button" title="Aumentar zoom">+</button>
+              <button id="viewer-rotate" type="button">Girar 90°</button>
+              <button id="viewer-reset" type="button">Reiniciar</button>
+              <span class="viewer-spacer"></span>
+              <button id="viewer-prev" type="button">Página anterior</button>
+              <span id="viewer-page-label" class="muted"></span>
+              <button id="viewer-next" type="button">Próxima página</button>
+              <button id="viewer-close" type="button">Fechar</button>
+            </div>
+            <div class="viewer-stage">
+              <canvas id="viewer-canvas"></canvas>
+              <div id="viewer-overlay" class="viewer-overlay"></div>
+            </div>
+            <p id="viewer-caption" class="muted"></p>
+          </section>
         </section>
       </div>
     </main>
@@ -97,6 +121,6 @@
       <span id="footer-note" class="muted"></span>
     </footer>
 
-    <script src="/app.js"></script>
+    <script type="module" src="/app.js"></script>
   </body>
 </html>

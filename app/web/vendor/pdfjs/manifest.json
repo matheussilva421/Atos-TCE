@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "product": "pdfjs",
+  "version": "5.7.284",
+  "files": {
+    "pdf.mjs": "F36805AA525535F968B9DF66C9925BB1410F71B76F16822A783DD2B2C54C14EE",
+    "pdf.worker.mjs": "535304B72E8A4354480292070FFC0574BE1106F571A6C3949768BD46F3923AF6",
+    "LICENSE": "0D542E0C8804E39AA7F37EB00DA5A762149DC682D7829451287E11B938E94594"
+  },
+  "status": "pinned",
+  "source": "https://github.com/mozilla/pdf.js/releases/download/v5.7.284/pdfjs-5.7.284-dist.zip"
+}

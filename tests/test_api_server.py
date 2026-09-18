@@ -379,6 +379,39 @@ class MesaUiTests(ApiTestCase):
         self.assertIn("location.hash", body)
         self.assertIn("location.replace(\"/\")", body)
 
+    def test_the_process_detail_exposes_tabs_and_a_pdf_viewer(self):
+        with self.get("/") as response:
+            shell = response.read().decode("utf-8")
+
+        for element in (
+            'id="pdf-viewer"',
+            'id="viewer-canvas"',
+            'id="viewer-overlay"',
+            'id="viewer-zoom-label"',
+            'id="viewer-rotate"',
+            'id="viewer-reset"',
+            'data-tab="dados"',
+            'data-tab="documentos"',
+            'data-tab="historico"',
+            'type="module"',
+        ):
+            with self.subTest(element=element):
+                self.assertIn(element, shell)
+
+        with self.get("/app.js") as response:
+            script = response.read().decode("utf-8")
+        self.assertIn("/evidence/", script)
+        self.assertIn('from "/pdf-viewer.js"', script)
+        self.assertIn("/vendor/pdfjs/pdf.mjs", script)
+
+    def test_the_viewer_assets_are_served_as_javascript(self):
+        for path in ("/pdf-viewer.js", "/vendor/pdfjs/pdf.mjs", "/vendor/pdfjs/pdf.worker.mjs"):
+            with self.subTest(path=path):
+                status, headers, raw = self.call(path)
+                self.assertEqual(status, 200)
+                self.assertIn("javascript", headers["Content-Type"])
+                self.assertGreater(len(raw), 0)
+
     def test_the_mesa_exposes_the_area_analysis_action(self):
         with self.get("/") as response:
             shell = response.read().decode("utf-8")

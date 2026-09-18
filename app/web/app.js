@@ -1,12 +1,21 @@
 "use strict";
 
 /**
- * Read-only Mesa shell (M1).
+ * Mesa shell.
  *
- * The Mesa owns the workflow; this screen only reads. It performs no action
- * beyond GET requests against the loopback API, so the M1 milestone cannot
- * change any data from the browser.
+ * The Mesa owns the workflow; this screen reads the loopback API and writes
+ * only through the explicit, session-authenticated actions (analisar, baixar,
+ * parear). Every document is reached by SQLite id, never by a file path.
  */
+import { clampScale, normalizeRotation, renderPdfPage, viewerUrl } from "/pdf-viewer.js";
+
+let pdfjsPromise = null;
+
+async function loadPdfjs() {
+  // PDF.js is only fetched when the operator actually opens a document.
+  if (!pdfjsPromise) pdfjsPromise = import("/vendor/pdfjs/pdf.mjs");
+  return pdfjsPromise;
+}
 (() => {
   const STATUS_CLASS = {
     PENDENTE: "chip-neutral",
@@ -44,7 +53,16 @@
     not_found: "Não encontrados",
   };
 
-  const state = { items: [], selectedId: null, query: "", status: "", acquisitionRunning: false };
+  const state = {
+    items: [],
+    selectedId: null,
+    query: "",
+    status: "",
+    acquisitionRunning: false,
+    tab: "dados",
+    detail: null,
+    viewer: { documentId: null, page: 1, pageCount: 1, scale: 1.5, rotation: 0, rects: [] },
+  };
 
   const numberFormat = new Intl.NumberFormat("pt-BR");
 
@@ -349,25 +367,29 @@
       element("th", { text: "Campo" }),
       element("th", { text: "Valor" }),
       element("th", { text: "Situação" }),
-      element("th", { text: "Página" }),
       element("th", { text: "Fonte" }),
     ]);
-    const rows = fields.map((field) =>
-      element("tr", {}, [
+    const rows = fields.map((field) => {
+      const row = element("tr", {}, [
         element("td", { text: FIELD_LABELS[field.field_name] || field.field_name }),
         element("td", { text: field.value ?? "—" }),
         element("td", { text: field.status ?? "—" }),
-        element("td", { text: field.page ? String(field.page) : "—" }),
         element("td", {}, [
           field.document_id
-            ? element("a", {
-                text: "abrir PDF",
-                attrs: { href: `/api/v1/documents/${field.document_id}/pdf`, target: "_blank", rel: "noreferrer" },
+            ? element("button", {
+                className: "source-link",
+                text: field.page ? `ver fonte (pág. ${field.page})` : "ver fonte",
+                attrs: { type: "button" },
               })
             : element("span", { className: "muted", text: "sem evidência" }),
         ]),
-      ])
-    );
+      ]);
+      const button = row.querySelector("button.source-link");
+      if (button) {
+        button.addEventListener("click", () => openFieldEvidence(state.selectedId, field.field_name));
+      }
+      return row;
+    });
     return element("table", { className: "grid" }, [element("thead", {}, [head]), element("tbody", {}, rows)]);
   }
 
@@ -382,8 +404,8 @@
       element("th", { text: "SHA-256" }),
       element("th", { text: "PDF" }),
     ]);
-    const rows = documents.map((document) =>
-      element("tr", {}, [
+    const rows = documents.map((document) => {
+      const row = element("tr", {}, [
         element("td", { text: document.event ?? "—" }),
         element("td", { text: document.title }),
         element("td", { text: document.classification ?? "—" }),
@@ -391,13 +413,18 @@
         element("td", {}, [chip(document.storage_state, STORAGE_CLASS[document.storage_state] ? document.storage_state : "")]),
         element("td", { className: "mono", text: `${String(document.sha256).slice(0, 12)}…` }),
         element("td", {}, [
-          element("a", {
-            text: "abrir",
-            attrs: { href: `/api/v1/documents/${document.id}/pdf`, target: "_blank", rel: "noreferrer" },
+          element("button", {
+            className: "source-link",
+            text: "abrir no visualizador",
+            attrs: { type: "button" },
           }),
         ]),
-      ])
-    );
+      ]);
+      row
+        .querySelector("button.source-link")
+        .addEventListener("click", () => openDocument(document.id, 1, []));
+      return row;
+    });
     return element("table", { className: "grid" }, [element("thead", {}, [head]), element("tbody", {}, rows)]);
   }
 
@@ -430,23 +457,110 @@
       process.marker ? chip(process.marker, "") : null,
       chip(`atualizado ${formatDate(process.updated_at)}`, ""),
     ]);
+    const tabs = {
+      dados: () =>
+        element("section", {}, [
+          element("h4", { text: `Campos (${process.fields.length})` }),
+          fieldTable(process.fields),
+        ]),
+      documentos: () =>
+        element("section", {}, [
+          element("h4", { text: `Documentos (${process.documents.length})` }),
+          documentTable(process.documents),
+        ]),
+      historico: () =>
+        element("section", {}, [
+          element("h4", { text: `Histórico (${process.events.length})` }),
+          historyList(process.events),
+        ]),
+    };
     host.replaceChildren(
       element("h3", { text: `${process.process_key}` }),
       element("p", { className: "detail-sub", text: process.interested }),
       badges,
-      element("section", {}, [
-        element("h4", { text: `Campos (${process.fields.length})` }),
-        fieldTable(process.fields),
-      ]),
-      element("section", {}, [
-        element("h4", { text: `Documentos (${process.documents.length})` }),
-        documentTable(process.documents),
-      ]),
-      element("section", {}, [
-        element("h4", { text: `Histórico (${process.events.length})` }),
-        historyList(process.events),
-      ])
+      (tabs[state.tab] || tabs.dados)()
     );
+    refreshTabBar();
+  }
+
+  function refreshTabBar() {
+    for (const button of document.querySelectorAll("#detail-tabs button")) {
+      button.setAttribute("aria-selected", String(button.dataset.tab === state.tab));
+    }
+  }
+
+  // ------------------------------------------------------------- PDF viewer
+
+  async function renderViewer() {
+    const section = document.getElementById("pdf-viewer");
+    const viewer = state.viewer;
+    if (!viewer.documentId) {
+      section.hidden = true;
+      return;
+    }
+    section.hidden = false;
+    document.getElementById("viewer-zoom-label").textContent = `${Math.round(viewer.scale * 100)}%`;
+    document.getElementById("viewer-page-label").textContent =
+      `página ${viewer.page} de ${viewer.pageCount}`;
+    try {
+      const pdfjs = await loadPdfjs();
+      const result = await renderPdfPage({
+        pdfjs,
+        pdfUrl: viewerUrl(viewer.documentId),
+        pageNumber: viewer.page,
+        canvas: document.getElementById("viewer-canvas"),
+        overlay: document.getElementById("viewer-overlay"),
+        workerUrl: "/vendor/pdfjs/pdf.worker.mjs",
+        evidence: { rects: viewer.rects },
+        scale: viewer.scale,
+        rotation: viewer.rotation,
+      });
+      viewer.pageCount = result.pageCount;
+      viewer.page = result.pageNumber;
+      viewer.scale = result.scale;
+      viewer.rotation = result.rotation;
+      document.getElementById("viewer-page-label").textContent =
+        `página ${viewer.page} de ${viewer.pageCount}`;
+      document.getElementById("viewer-zoom-label").textContent = `${Math.round(viewer.scale * 100)}%`;
+    } catch (error) {
+      document.getElementById("viewer-caption").textContent =
+        `Não foi possível abrir o documento: ${error.message}`;
+    }
+  }
+
+  async function openDocument(documentId, page = 1, rects = []) {
+    const viewer = state.viewer;
+    viewer.documentId = Number(documentId);
+    viewer.page = Math.max(1, Number(page) || 1);
+    viewer.rects = Array.isArray(rects) ? rects : [];
+    viewer.scale = 1.5;
+    viewer.rotation = 0;
+    document.getElementById("viewer-caption").textContent = "";
+    await renderViewer();
+    document.getElementById("pdf-viewer").scrollIntoView({ block: "nearest" });
+  }
+
+  async function openFieldEvidence(processId, fieldName) {
+    const caption = document.getElementById("viewer-caption");
+    try {
+      const evidence = await getJson(
+        `/api/v1/processes/${processId}/evidence/${encodeURIComponent(fieldName)}`
+      );
+      await openDocument(evidence.document_id, evidence.page ?? 1, evidence.rects ?? []);
+      caption.textContent = evidence.quote
+        ? `Fonte: “${evidence.quote}”${evidence.method ? ` (${evidence.method})` : ""}`
+        : "Fonte registrada sem trecho citado.";
+    } catch (error) {
+      caption.textContent = `Sem fonte registrada para este campo (${error.message}).`;
+    }
+  }
+
+  function shiftPage(delta) {
+    const viewer = state.viewer;
+    const next = Math.min(Math.max(1, viewer.page + delta), viewer.pageCount || 1);
+    if (next === viewer.page) return;
+    viewer.page = next;
+    renderViewer();
   }
 
   async function refreshHealth() {
@@ -485,6 +599,9 @@
 
   async function selectProcess(processId) {
     state.selectedId = processId;
+    state.viewer = { documentId: null, page: 1, pageCount: 1, scale: 1.5, rotation: 0, rects: [] };
+    document.getElementById("pdf-viewer").hidden = true;
+    document.getElementById("viewer-caption").textContent = "";
     renderList();
     const host = document.getElementById("process-detail");
     host.replaceChildren(element("p", { className: "empty", text: "Carregando…" }));
@@ -522,6 +639,38 @@
     document.getElementById("analyze-area").addEventListener("click", analyzeArea);
     document.getElementById("analyze-area-cdp").addEventListener("click", analyzeAreaCdp);
     document.getElementById("download-pending").addEventListener("click", startAcquisition);
+
+    for (const button of document.querySelectorAll("#detail-tabs button")) {
+      button.addEventListener("click", () => {
+        state.tab = button.dataset.tab || "dados";
+        if (state.detail) renderDetail(state.detail);
+        else refreshTabBar();
+      });
+    }
+
+    document.getElementById("viewer-zoom-in").addEventListener("click", () => {
+      state.viewer.scale = clampScale(state.viewer.scale + 0.25);
+      renderViewer();
+    });
+    document.getElementById("viewer-zoom-out").addEventListener("click", () => {
+      state.viewer.scale = clampScale(state.viewer.scale - 0.25);
+      renderViewer();
+    });
+    document.getElementById("viewer-rotate").addEventListener("click", () => {
+      state.viewer.rotation = normalizeRotation(state.viewer.rotation + 90);
+      renderViewer();
+    });
+    document.getElementById("viewer-reset").addEventListener("click", () => {
+      state.viewer.scale = 1.5;
+      state.viewer.rotation = 0;
+      renderViewer();
+    });
+    document.getElementById("viewer-prev").addEventListener("click", () => shiftPage(-1));
+    document.getElementById("viewer-next").addEventListener("click", () => shiftPage(1));
+    document.getElementById("viewer-close").addEventListener("click", () => {
+      state.viewer.documentId = null;
+      document.getElementById("pdf-viewer").hidden = true;
+    });
     document.getElementById("renew-pairing").addEventListener("click", renewPairing);
 
     refreshHealth();
@@ -537,5 +686,6 @@
     }, 5000);
   }
 
-  document.addEventListener("DOMContentLoaded", init);
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+  else init();
 })();
