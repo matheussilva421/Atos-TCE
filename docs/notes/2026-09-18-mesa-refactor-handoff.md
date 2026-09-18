@@ -276,6 +276,16 @@ documentos ao adaptador e o caminho é normalizado para a raiz do acervo. Oito
 testes em `tests/test_analysis_execution_view.py`, incluindo um que exige que o
 motor resolva todos os documentos entregues.
 
+Segundo defeito, encontrado ao rodar o **serviço** da Mesa (não só o motor) sobre
+as mesmas linhas: `normalize_analysis` fundia todos os blocos do resultado na
+mesma linha, então cada linha `(process_key, interested)` recebia campos de outro
+interessado. Em `103700/2025`, cujos dois nomes são quase iguais (um é prefixo do
+outro), os valores apareciam trocados. Correção: o serviço passa o interessado da
+linha ao normalizador, que mantém apenas o bloco do interessado canônico; sem o
+bloco daquela linha, ela fica **REVISAR** com aviso e sem campos alheios. Ensaio
+pelo serviço: 11 linhas analisadas, **77 de 77 campos iguais ao `form_value`**, 9
+linhas `PRONTO` e as 2 do processo ambíguo em `REVISAR`.
+
 #### Decisões de M4 (tarefas 1 e 2)
 
 | Decisão | Motivo |

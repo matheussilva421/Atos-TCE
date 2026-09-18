@@ -53,6 +53,61 @@ def complete_payload(**overrides):
 
 
 class NormalizationTests(unittest.TestCase):
+    def test_only_the_blocks_of_the_row_interested_are_kept(self):
+        payload = {
+            "process": "102390/2026",
+            "status": "partial",
+            "blocks": [
+                {
+                    "interested": "Pessoa A",
+                    "pending": [],
+                    "fields": {name: found(f"valor A de {name}") for name in MANDATORY_FIELDS},
+                },
+                {
+                    "interested": "Pessoa B",
+                    "pending": [],
+                    "fields": {name: found(f"valor B de {name}") for name in MANDATORY_FIELDS},
+                },
+            ],
+        }
+
+        analysis = normalize_analysis(
+            "102390/2026", payload, documents=DOCUMENTS, interested="PESSOA B"
+        )
+
+        self.assertEqual(analysis.interested, ["Pessoa B"])
+        self.assertEqual(analysis.process_status, "PRONTO")
+        self.assertEqual({record.value for record in analysis.fields}, {
+            f"valor B de {name}" for name in MANDATORY_FIELDS
+        })
+
+    def test_a_row_without_its_block_is_revisar_and_keeps_no_foreign_fields(self):
+        payload = complete_payload()
+        payload["blocks"][0]["interested"] = "Pessoa A"
+
+        analysis = normalize_analysis(
+            "102390/2026", payload, documents=DOCUMENTS, interested="PESSOA B"
+        )
+
+        self.assertEqual(analysis.process_status, "REVISAR")
+        self.assertEqual(analysis.fields, [])
+        self.assertTrue(any("bloco" in warning for warning in analysis.warnings), analysis.warnings)
+
+    def test_without_an_interested_hint_every_block_is_merged(self):
+        payload = {
+            "process": "102390/2026",
+            "status": "partial",
+            "blocks": [
+                {"interested": "Pessoa A", "pending": [], "fields": {"cargo": found("cargo A")}},
+                {"interested": "Pessoa B", "pending": [], "fields": {"matricula": found("matricula B")}},
+            ],
+        }
+
+        analysis = normalize_analysis("102390/2026", payload, documents=DOCUMENTS)
+
+        self.assertEqual(analysis.interested, ["Pessoa A", "Pessoa B"])
+        self.assertEqual({record.field_name for record in analysis.fields}, {"cargo", "matricula"})
+
     def test_a_complete_result_becomes_pronto_with_evidence(self):
         analysis = normalize_analysis("102390/2026", complete_payload(), documents=DOCUMENTS)
 
@@ -262,6 +317,41 @@ class AnalysisServiceTests(unittest.TestCase):
 
     def build(self, adapter):
         return AnalysisService(self.store, self.data, adapter=adapter)
+
+    def test_each_interested_row_keeps_only_its_own_block(self):
+        second_id = self.store.upsert_process(
+            ProcessRecord(
+                process_key="102390/2026",
+                interested="Outra Pessoa",
+                interested_normalized="outra pessoa",
+                status="DOWNLOADED",
+            )
+        )
+        payload = {
+            "process": "102390/2026",
+            "status": "partial",
+            "blocks": [
+                {
+                    "interested": "Pessoa Exemplo",
+                    "pending": [],
+                    "fields": {name: found(f"valor de exemplo {name}") for name in MANDATORY_FIELDS},
+                },
+                {
+                    "interested": "Outra Pessoa",
+                    "pending": [],
+                    "fields": {name: found(f"valor da outra {name}") for name in MANDATORY_FIELDS},
+                },
+            ],
+        }
+        service = self.build(FakeAdapter({"102390/2026": payload}))
+
+        service.analyze_one(self.process_id)
+        service.analyze_one(second_id)
+
+        first = {record["value"] for record in self.store.get_process(self.process_id)["fields"]}
+        second = {record["value"] for record in self.store.get_process(second_id)["fields"]}
+        self.assertTrue(all("exemplo" in value for value in first), first)
+        self.assertTrue(all("outra" in value for value in second), second)
 
     def test_a_complete_result_stores_fields_and_moves_to_pronto(self):
         service = self.build(FakeAdapter())

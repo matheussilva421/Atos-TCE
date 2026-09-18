@@ -55,11 +55,39 @@ python tmp/m4-equivalencia/compare.py       # compara com os oráculos legados
 Os scripts ficaram em `tmp/` (fora do Git) porque são de ensaio; o que é
 permanente é o código em `app/analysis/execution_view.py` e os testes.
 
-## Achados colaterais
+
+## Ensaio pelo serviço da Mesa (caminho completo)
+
+Depois do motor, o mesmo acervo isolado rodou pelo **serviço** da Mesa
+(`AnalysisService.analyze_one`), que é o caminho do botão "Analisar": 11 linhas
+`(processo, interessado)` — 10 processos, um deles com dois interessados — foram
+registradas em banco novo, analisadas e lidas de volta.
+
+| Medida | Antes da correção | Depois |
+|---|---|---|
+| Linhas analisadas | 11 | 11 |
+| Campos persistidos | 91 (blocos fundidos) | 77 (um bloco por linha) |
+| Campos iguais ao `form_value` | 85 de 91 | **77 de 77** |
+| Linhas `PRONTO` | 11 | 9 (as 2 do processo ambíguo vão para REVISAR) |
+| Campos com evidência e documento ligado | 63 | 63 |
+
+A primeira passada expôs um defeito real: `normalize_analysis` fundia **todos**
+os blocos na mesma linha, então cada linha `(process_key, interested)` recebia
+campos dos dois interessados. Em `103700/2025` os nomes são quase iguais
+("FRANCISCA DE ASSIS SOARES NOGUEIRA" e "... NOGUEIRA DE CASTRO") e os valores
+apareciam trocados entre as linhas — o motor, porém, produzia os dois blocos
+corretos, o que localizou o problema no normalizador.
+
+Correção (TDD, 4 testes): o serviço passa o interessado da linha ao
+normalizador, que mantém apenas o bloco do interessado canônico correspondente
+(`app/core/identity.normalize_interested`); quando o resultado não traz o bloco
+daquela linha, a linha fica **REVISAR** com aviso e sem campos de terceiros, em
+vez de marcar PRONTO com dado alheio. Sem a dica de interessado (chamadas
+antigas e testes de fixture), o comportamento anterior é preservado.
+ ## Achados colaterais
 
 - `dados-complementar-ato.json` tem 15 chaves de processo duplicadas (735
   registros para 720 chaves distintas); a comparação usou o registro com mais
   campos preenchidos.
 - O oráculo `pdfs-alvo-manifest.json` cobre 20 documentos desses 10 processos; a
   classificação do motor bateu nos 20.
-

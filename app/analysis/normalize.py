@@ -13,6 +13,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..core.identity import normalize_interested
 from ..core.models import FieldRecord
 from . import MANDATORY_FIELDS, OPTIONAL_FIELDS
 
@@ -49,21 +50,40 @@ def normalize_analysis(
     payload: Mapping[str, Any] | None,
     *,
     documents: Sequence[Mapping[str, Any]] | None = None,
+    interested: str | None = None,
 ) -> NormalizedAnalysis:
-    """Map one legacy result into Mesa field records and a readiness verdict."""
+    """Map one legacy result into Mesa field records and a readiness verdict.
+
+    One process folder can hold more than one interested person, and every row of
+    ``(process_key, interested)`` has to be self-contained. When the caller says
+    which person the row belongs to, only that person's block is kept; a result
+    without the row's block becomes REVISAR instead of borrowing another person's
+    fields.
+    """
 
     data = payload if isinstance(payload, Mapping) else {}
     document_index = _index_documents(documents or [])
     warnings: list[str] = []
     fields: list[FieldRecord] = []
-    interested: list[str] = []
+    interested_names: list[str] = []
 
-    for block in data.get("blocks") or []:
-        if not isinstance(block, Mapping):
-            continue
+    blocks = [block for block in (data.get("blocks") or []) if isinstance(block, Mapping)]
+    wanted = normalize_interested(interested) if interested else ""
+    if wanted:
+        matched = [
+            block for block in blocks if normalize_interested(block.get("interested")) == wanted
+        ]
+        if not matched:
+            warnings.append(
+                "o resultado não trouxe bloco para o interessado desta linha: "
+                f"{interested}"
+            )
+        blocks = matched
+
+    for block in blocks:
         person = str(block.get("interested") or "").strip()
-        if person and person not in interested:
-            interested.append(person)
+        if person and person not in interested_names:
+            interested_names.append(person)
         for name, raw in (block.get("fields") or {}).items():
             fields.append(_field_record(str(name), raw, document_index, warnings))
         for name in block.get("pending") or []:
@@ -92,7 +112,7 @@ def normalize_analysis(
         pending_fields=pending_fields,
         warnings=warnings,
         legacy_status=str(data.get("status") or "") or None,
-        interested=interested,
+        interested=interested_names,
     )
 
 

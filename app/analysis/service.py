@@ -106,7 +106,12 @@ class AnalysisService:
         try:
             documents = self._store.list_documents(process_id)
             payload = self._adapter.analyze(process_key, process=process, documents=documents)
-            analysis = self._normalizer(process_key, payload, documents=documents)
+            analysis = self._normalizer(
+                process_key,
+                payload,
+                documents=documents,
+                interested=str(process.get("interested_normalized") or process.get("interested") or ""),
+            )
         except Exception as error:
             self._store.set_process_status(
                 process_id,
