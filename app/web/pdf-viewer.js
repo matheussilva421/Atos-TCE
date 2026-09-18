@@ -1,11 +1,11 @@
 /**
  * Mesa PDF viewer adapter.
  *
- * Ported from the proven ``work/tce-extractor/portable/app/web/pdf-viewer.js``:
- * the same normalized-rectangle validation, the same bounded zoom (75% to 300%)
- * and the same quarter-turn rotation contract. What changed is the source of
- * the bytes: the Mesa serves every document through SQLite by id, so the URL is
- * always ``/api/v1/documents/<id>/pdf`` and never a filesystem path.
+ * Ported from the proven legacy viewer: the same normalized-rectangle
+ * validation, the same bounded zoom (75% to 300%) and the same quarter-turn
+ * rotation contract. What changed is the source of the bytes: the Mesa serves
+ * every document through SQLite by id, so the URL is always
+ * ``/api/v1/documents/<id>/pdf`` and never a filesystem path.
  */
 
 export const MIN_SCALE = 0.75;

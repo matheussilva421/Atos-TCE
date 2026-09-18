@@ -1,9 +1,8 @@
 """Writer for the frozen-queue contract the proven collector already validates.
 
 The schema is not invented here: it is reproduced byte-for-byte from the
-expectations of ``work/tce-extractor/portable/app/frozen_queue.py`` and
-``work/tce-extractor/portable/TceFrozenQueue.psm1``, so the Mesa can command
-the existing download engine without changing it.
+expectations of the proven frozen-queue validator and its PowerShell twin, so
+the Mesa can command the existing download engine without changing it.
 
 Key details that are easy to get wrong and are therefore asserted by tests:
 

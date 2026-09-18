@@ -7,14 +7,11 @@ the rules without rewriting classification, OCR and extraction at once.
 
 from __future__ import annotations
 
-import importlib
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-LEGACY_ANALYSIS_DIR = REPO_ROOT / "work" / "tce-extractor" / "portable" / "app"
 
 
 class AnalysisError(RuntimeError):
@@ -77,7 +74,7 @@ class LegacyAnalysisAdapter:
     def analyze(self, process_key: str) -> dict[str, Any]:
         """Return the raw legacy result for one process."""
 
-        module = self._module()
+        module = _engine()
         paths = self._paths()
         try:
             result = module.analyze_process(
@@ -92,8 +89,9 @@ class LegacyAnalysisAdapter:
             raise AnalysisError("a análise incremental devolveu um resultado inesperado")
         return result
 
-    def _module(self):
-        directory = str(LEGACY_ANALYSIS_DIR)
-        if directory not in sys.path:
-            sys.path.insert(0, directory)
-        return importlib.import_module("incremental_pipeline")
+def _engine():
+    """Import the promoted engine lazily, through the normal package path."""
+
+    from .engine import incremental_pipeline
+
+    return incremental_pipeline
