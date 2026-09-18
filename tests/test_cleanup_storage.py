@@ -248,6 +248,60 @@ class RefusalTests(CleanupTestCase):
         self.assertEqual(plan.delete, ())
         self.assertIn("migration_receipt_missing", plan.entries[0].reasons)
 
+    def write_migration_receipt(self, name: str, payload: dict) -> Path:
+        path = self.data / "logs" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return path
+
+    def test_legacy_gate_accepts_an_apply_receipt_and_ignores_a_newer_dry_run(self):
+        write(self.repo / "work" / "tce-extractor" / "acervo-tce" / "origem" / "a.pdf", PDF)
+        self.write_migration_receipt(
+            "legacy-import-20260918T123734Z.json",
+            {"mode": "apply", "processes_seen": 724, "documents_seen": 14179, "errors": []},
+        )
+        self.write_migration_receipt(
+            "legacy-import-20260918T181835Z.json",
+            {"mode": "dry-run", "processes_seen": 166, "documents_seen": 3273, "errors": []},
+        )
+        self.write_audit(
+            [self.candidate_payload("work/tce-extractor/acervo-tce", safe=True, category="legacy_archive")]
+        )
+
+        plan = self.plan(allow_legacy_archive=True)
+
+        self.assertEqual(plan.delete, ("work/tce-extractor/acervo-tce",))
+
+    def test_legacy_gate_refuses_when_only_a_dry_run_receipt_exists(self):
+        write(self.repo / "work" / "tce-extractor" / "acervo-tce" / "origem" / "a.pdf", PDF)
+        self.write_migration_receipt(
+            "legacy-import-20260918T181835Z.json",
+            {"mode": "dry-run", "processes_seen": 166, "documents_seen": 3273, "errors": []},
+        )
+        self.write_audit(
+            [self.candidate_payload("work/tce-extractor/acervo-tce", safe=True, category="legacy_archive")]
+        )
+
+        plan = self.plan(allow_legacy_archive=True)
+
+        self.assertEqual(plan.delete, ())
+        self.assertIn("migration_receipt_not_apply", plan.entries[0].reasons)
+
+    def test_legacy_gate_refuses_an_apply_receipt_with_errors(self):
+        write(self.repo / "work" / "tce-extractor" / "acervo-tce" / "origem" / "a.pdf", PDF)
+        self.write_migration_receipt(
+            "legacy-import-20260918T123734Z.json",
+            {"mode": "apply", "processes_seen": 724, "documents_seen": 14179, "errors": ["falha"]},
+        )
+        self.write_audit(
+            [self.candidate_payload("work/tce-extractor/acervo-tce", safe=True, category="legacy_archive")]
+        )
+
+        plan = self.plan(allow_legacy_archive=True)
+
+        self.assertEqual(plan.delete, ())
+        self.assertIn("migration_receipt_has_errors", plan.entries[0].reasons)
+
 
 class ApplyTests(CleanupTestCase):
     def test_safe_old_extraction_is_listed_in_dry_run_and_removed_on_apply(self):

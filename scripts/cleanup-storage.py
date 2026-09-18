@@ -180,6 +180,7 @@ def _decide(
     canonical_ready: bool,
     allow_legacy_archive: bool,
     migration_receipt: str | None,
+    receipt_problems: tuple[str, ...] = (),
 ) -> CleanupEntry:
     relative = str(candidate.get("relative_path") or "")
     category = str(candidate.get("category") or "")
@@ -215,7 +216,7 @@ def _decide(
         if not allow_legacy_archive:
             reasons.append("legacy_archive_requires_flag")
         elif migration_receipt is None:
-            reasons.append("migration_receipt_missing")
+            reasons.extend(receipt_problems or ("migration_receipt_missing",))
 
     if not reasons:
         files, total, links = _tree_totals(resolved)
@@ -234,15 +235,44 @@ def _decide(
     )
 
 
-def _find_migration_receipt(data_root: Path, explicit: str | None) -> str | None:
+def _receipt_problem(payload: Any) -> tuple[str, ...]:
+    """Return why one migration receipt cannot authorise a removal."""
+
+    problems: list[str] = []
+    if not isinstance(payload, dict):
+        return ("migration_receipt_missing",)
+    if str(payload.get("mode") or "").strip().lower() != "apply":
+        problems.append("migration_receipt_not_apply")
+    if payload.get("errors"):
+        problems.append("migration_receipt_has_errors")
+    return tuple(problems)
+
+
+def _find_migration_receipt(
+    data_root: Path, explicit: str | None
+) -> tuple[str | None, tuple[str, ...]]:
+    """Find an *applied* M1 migration receipt; a dry-run never authorises removal."""
+
     if explicit:
-        path = Path(explicit)
-        return str(path.resolve()) if path.is_file() else None
-    logs = data_root / "logs"
-    if not logs.is_dir():
-        return None
-    receipts = sorted(logs.glob("legacy-import-*.json"))
-    return str(receipts[-1].resolve()) if receipts else None
+        candidates = [Path(explicit)]
+    else:
+        logs = data_root / "logs"
+        candidates = sorted(logs.glob("legacy-import-*.json"), reverse=True) if logs.is_dir() else []
+    last_problem: tuple[str, ...] = ("migration_receipt_missing",)
+    for candidate in candidates:
+        if not candidate.is_file():
+            last_problem = ("migration_receipt_missing",)
+            continue
+        try:
+            payload = json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            last_problem = ("migration_receipt_unreadable",)
+            continue
+        problems = _receipt_problem(payload)
+        if not problems:
+            return str(candidate.resolve()), ()
+        last_problem = problems
+    return None, last_problem
 
 
 def plan_cleanup(
@@ -264,7 +294,7 @@ def plan_cleanup(
     blobs_root = data_root.joinpath(*BLOB_TREE_PARTS)
     canonical_ready = bool(blobs_root.is_dir()) and int(canonical.get("blob_count") or 0) > 0
 
-    receipt = _find_migration_receipt(data_root, migration_receipt)
+    receipt, receipt_problems = _find_migration_receipt(data_root, migration_receipt)
     entries = tuple(
         _decide(
             candidate,
@@ -273,6 +303,7 @@ def plan_cleanup(
             canonical_ready=canonical_ready,
             allow_legacy_archive=allow_legacy_archive,
             migration_receipt=receipt,
+            receipt_problems=receipt_problems,
         )
         for candidate in payload["candidates"]
         if isinstance(candidate, dict)
