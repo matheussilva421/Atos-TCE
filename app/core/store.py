@@ -782,12 +782,27 @@ class Store:
     def _release_expired_leases(connection: sqlite3.Connection, now: str) -> None:
         """Requeue, or give up on, every claim whose lease already expired."""
 
-        rows = connection.execute(
-            "SELECT id, attempt_count FROM extension_commands "
-            "WHERE state = 'CLAIMED' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ? "
-            "ORDER BY id",
-            (now,),
-        ).fetchall()
+        Store._release_claims(connection, now, expired_only=True)
+
+    @staticmethod
+    def _release_claims(
+        connection: sqlite3.Connection, now: str, *, expired_only: bool
+    ) -> tuple[int, int]:
+        """Return claims to the queue and report (requeued, failed).
+
+        An expired lease is one whose worker went away. At startup nothing of
+        this process is running yet, so every claim is released the same way.
+        """
+
+        query = "SELECT id, attempt_count FROM extension_commands WHERE state = 'CLAIMED'"
+        parameters: list[Any] = []
+        if expired_only:
+            query += " AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?"
+            parameters.append(now)
+        query += " ORDER BY id"
+        rows = connection.execute(query, tuple(parameters)).fetchall()
+        requeued = 0
+        failed = 0
         for row in rows:
             attempts = int(row["attempt_count"]) + 1
             if attempts >= COMMAND_MAX_ATTEMPTS:
@@ -800,12 +815,84 @@ class Store:
                         int(row["id"]),
                     ),
                 )
+                failed += 1
                 continue
             connection.execute(
                 "UPDATE extension_commands SET state = 'QUEUED', client_id = NULL, claimed_at = NULL, "
                 "claim_token = NULL, lease_expires_at = NULL WHERE id = ?",
                 (int(row["id"]),),
             )
+            requeued += 1
+        return requeued, failed
+
+    def recover_interrupted_runtime_state(self) -> dict[str, int]:
+        """Return runtime state left behind by a previous process to a safe state.
+
+        Every worker lives in memory, so after a restart nothing is running and
+        any state that means "in progress" would wait forever. Nothing is ever
+        marked as succeeded here: an interrupted analysis becomes an explicit
+        error, and a downloaded item stays downloaded.
+        """
+
+        now = utc_now()
+        reason = "a Mesa foi encerrada durante este trabalho"
+        summary = {
+            "commands_requeued": 0,
+            "commands_failed": 0,
+            "jobs_interrupted": 0,
+            "items_requeued": 0,
+            "analysis_interrupted": 0,
+        }
+        with self._transaction() as connection:
+            requeued, failed = self._release_claims(connection, now, expired_only=False)
+            summary["commands_requeued"] = requeued
+            summary["commands_failed"] = failed
+
+            jobs = connection.execute(
+                "SELECT id, job_type FROM jobs WHERE status IN ('PENDING', 'RUNNING')"
+            ).fetchall()
+            for row in jobs:
+                job_id = int(row["id"])
+                connection.execute(
+                    "UPDATE jobs SET status = 'INTERRUPTED', error = ? WHERE id = ?",
+                    (reason, job_id),
+                )
+                summary["items_requeued"] += int(
+                    connection.execute(
+                        "UPDATE job_items SET state = 'QUEUED', error = ?, updated_at = ? "
+                        "WHERE job_id = ? AND state IN ('QUEUED', 'DOWNLOADING', 'ANALISANDO')",
+                        (reason, now, job_id),
+                    ).rowcount
+                )
+                if str(row["job_type"]) == "acquisition":
+                    connection.execute(
+                        "UPDATE processes SET acquisition_state = 'QUEUED', updated_at = ? "
+                        "WHERE id IN (SELECT process_id FROM job_items "
+                        "WHERE job_id = ? AND state = 'QUEUED')",
+                        (now, job_id),
+                    )
+            summary["jobs_interrupted"] = len(jobs)
+
+            interrupted = connection.execute(
+                "SELECT id FROM processes WHERE status = 'ANALISANDO'"
+            ).fetchall()
+            for row in interrupted:
+                process_id = int(row["id"])
+                connection.execute(
+                    "UPDATE processes SET status = 'ERRO', updated_at = ? WHERE id = ?",
+                    (now, process_id),
+                )
+                connection.execute(
+                    "INSERT INTO workflow_events (process_id, event_type, payload, created_at) "
+                    "VALUES (?, 'analysis_interrupted', ?, ?)",
+                    (
+                        process_id,
+                        json.dumps({"reason": reason}, ensure_ascii=False, sort_keys=True),
+                        now,
+                    ),
+                )
+            summary["analysis_interrupted"] = len(interrupted)
+        return summary
 
     def complete_extension_command(
         self,

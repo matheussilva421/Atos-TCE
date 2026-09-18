@@ -210,6 +210,7 @@ POST_ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/area/analyze"), "post_area_analyze", "mesa"),
     Route(re.compile(r"/api/v1/area/analyze-cdp"), "post_area_analyze_cdp", "mesa"),
     Route(re.compile(r"/api/v1/acquisition/jobs"), "post_acquisition_job", "mesa"),
+    Route(re.compile(r"/api/v1/jobs/(?P<job_id>\d+)/resume"), "post_job_resume", "mesa"),
     Route(
         re.compile(r"/api/v1/processes/(?P<process_id>\d+)/fill"),
         "post_process_fill",
@@ -609,6 +610,21 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         job = self.mesa.store.get_job(job_id) or {}
         self._send_json(
             {"job_id": job_id, "status": job.get("status"), "total": job.get("total")}, status=201
+        )
+
+    def post_job_resume(self, job_id: str) -> None:
+        """Continue a paused acquisition instead of starting a second job."""
+
+        if not self._require_session():
+            return
+        try:
+            self.mesa.acquisition.resume_async(int(job_id))
+        except AcquisitionError as error:
+            self._send_json({"error": "resume_refused", "detail": str(error)}, status=409)
+            return
+        job = self.mesa.store.get_job(int(job_id)) or {}
+        self._send_json(
+            {"ok": True, "job_id": int(job_id), "status": job.get("status")}, status=202
         )
 
     def post_process_fill(self, process_id: str) -> None:

@@ -25,10 +25,15 @@ JOB_STATUSES: tuple[str, ...] = (
     "PENDING",
     "RUNNING",
     "WAITING_FOR_LOGIN",
+    "INTERRUPTED",
     "COMPLETED",
     "COMPLETED_WITH_ERRORS",
     "FAILED",
 )
+
+#: Statuses a job may be resumed from: a login pause and an interrupted run are
+#: both "the work stopped halfway", never "the work failed".
+RESUMABLE_JOB_STATUSES: frozenset[str] = frozenset({"WAITING_FOR_LOGIN", "INTERRUPTED"})
 
 FINISHED_JOB_STATUSES: frozenset[str] = frozenset({"COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED"})
 

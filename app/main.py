@@ -42,7 +42,13 @@ def main(argv: list[str] | None = None) -> int:
         folder.mkdir(parents=True, exist_ok=True)
 
     store = Store.open(data_root / "atos-tce.db")
+    # Nothing of a previous process is running any more: hand every in-progress
+    # state back to something the operator can act on before the UI opens.
+    recovered = store.recover_interrupted_runtime_state()
     bridge = Bridge()
+    if any(recovered.values()):
+        summary = ", ".join(f"{key}={value}" for key, value in recovered.items() if value)
+        print(f"Estado recuperado do encerramento anterior: {summary}")
     try:
         server = serve(
             store, data_root, host=args.host, port=args.port, bridge=bridge, verbose=args.verbose

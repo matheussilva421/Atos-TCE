@@ -775,6 +775,7 @@ class AreaAnalyzeFlowTests(ApiTestCase):
 
 PDF_DOWNLOADED = b"%PDF-1.4\ndownload de teste\n%%EOF\n"
 TERMINAL_JOB_STATUSES = {"COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED"}
+AUTH_LINE = "Sessão expirada ou não autorizada. Faça login novamente antes de retomar a coleta."
 
 
 class _FakeCollectorProcess:
@@ -791,6 +792,7 @@ class _FakeCollectorProcess:
 class AcquisitionApiTests(ApiTestCase):
     def serve_kwargs(self):
         self.fail_lots: set[int] = set()
+        self.auth_lots: set[int] = set()
 
         def factory(store, data_root):
             return AcquisitionService(
@@ -800,14 +802,29 @@ class AcquisitionApiTests(ApiTestCase):
         return {"acquisition_factory": factory}
 
     def fake_runner(self, command, **kwargs):
-        """Write the lot's documents exactly where the real collector would."""
+        """Write the lot's documents and receipt exactly where the collector would."""
 
         number = int(command[command.index("-NumeroLote") + 1])
         queue_path = Path(command[command.index("-FilaCongelada") + 1])
+        receipt_path = Path(command[command.index("-ResultadoJson") + 1])
         document = read_frozen_queue(queue_path)
         lot = document["lots"][number - 1]
+        keys = [item["process_key"] for item in lot["items"]]
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
         if number in self.fail_lots:
+            receipt_path.write_text(json.dumps({"processes": {}}), encoding="utf-8")
             return _FakeCollectorProcess(["falha inesperada do coletor"], 1)
+        if number in self.auth_lots:
+            # A login refusal happens once per lot: the operator logs in and
+            # resumes the same job.
+            self.auth_lots.discard(number)
+            receipt_path.write_text(
+                json.dumps(
+                    {"processes": {keys[0]: {"outcome": "auth_required", "error": "login"}}}
+                ),
+                encoding="utf-8",
+            )
+            return _FakeCollectorProcess([AUTH_LINE], 0)
         for item in lot["items"]:
             key = item["process_key"]
             folder = (
@@ -819,6 +836,17 @@ class AcquisitionApiTests(ApiTestCase):
             )
             folder.mkdir(parents=True, exist_ok=True)
             (folder / "documento-001-Ato.pdf").write_bytes(PDF_DOWNLOADED)
+        receipt_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "processes": {
+                        key: {"outcome": "completed", "downloaded": 1} for key in keys
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
         return _FakeCollectorProcess(
             [
                 f"Concluído (progressivo). Baixados: {len(lot['items'])}; reutilizados: 0; "
@@ -863,6 +891,81 @@ class AcquisitionApiTests(ApiTestCase):
                 return payload
             time.sleep(0.1)
         self.fail(f"job {job_id} did not finish: {payload}")
+
+    def wait_for_status(self, job_id, statuses, timeout=120):
+        deadline = time.monotonic() + timeout
+        payload = None
+        while time.monotonic() < deadline:
+            payload = self.get_json(f"/api/v1/jobs/{job_id}")
+            if payload["status"] in statuses:
+                return payload
+            time.sleep(0.1)
+        self.fail(f"job {job_id} never reached {statuses}: {payload}")
+
+    def test_a_paused_job_is_resumed_instead_of_restarted(self):
+        self.seed_pending(["102391/2026", "102392/2026", "102393/2026"])
+        self.auth_lots = {1}
+        opener = self.mesa_opener()
+        status, _headers, created = self.call_json(
+            "/api/v1/acquisition/jobs",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={},
+            opener=opener,
+        )
+        self.assertEqual(status, 201, created)
+        job_id = created["job_id"]
+        paused = self.wait_for_status(job_id, {"WAITING_FOR_LOGIN"})
+        self.assertEqual(paused["status"], "WAITING_FOR_LOGIN")
+        self.assertIn("login", paused["error"])
+
+        status, _headers, resumed = self.call_json(
+            f"/api/v1/jobs/{job_id}/resume",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={},
+            opener=opener,
+        )
+
+        self.assertEqual(status, 202, resumed)
+        self.assertEqual(resumed["job_id"], job_id)
+        job = self.wait_for_job(job_id)
+        self.assertEqual(job["status"], "COMPLETED")
+        self.assertEqual(job["total"], 3)
+        self.assertEqual(job["completed"], 3)
+        self.assertEqual(self.get_json("/api/v1/acquisition/plan")["total"], 0)
+
+    def test_resume_is_refused_for_a_job_that_is_not_paused(self):
+        self.seed_pending(["102391/2026"])
+        opener = self.mesa_opener()
+        status, _headers, created = self.call_json(
+            "/api/v1/acquisition/jobs",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={},
+            opener=opener,
+        )
+        self.assertEqual(status, 201, created)
+        self.wait_for_job(created["job_id"])
+
+        status, _headers, payload = self.call_json(
+            f"/api/v1/jobs/{created['job_id']}/resume",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={},
+            opener=opener,
+        )
+
+        self.assertEqual(status, 409, payload)
+        self.assertEqual(payload["error"], "resume_refused")
+
+    def test_resume_requires_the_mesa_session(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/jobs/1/resume", method="POST", headers=self.mesa_headers(), body={}
+        )
+
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "session_required")
 
     def test_the_plan_reports_how_many_processes_still_need_bytes(self):
         self.seed_pending(["102391/2026", "102392/2026", "102393/2026"])

@@ -38,11 +38,22 @@ def normalize_collector(text: str) -> str:
     """
 
     normalized = []
+    inside_receipt = False
     for line in text.splitlines():
         stripped = line.strip()
+        if stripped.startswith("#region RECIBO"):
+            inside_receipt = True
+            continue
+        if stripped.startswith("#endregion RECIBO"):
+            inside_receipt = False
+            continue
+        if inside_receipt:
+            continue
         if stripped.startswith("#"):
             continue
         if stripped.startswith("[string]$RaizEstado"):
+            continue
+        if stripped.startswith("[string]$ResultadoJson"):
             continue
         if stripped.startswith("if ([string]::IsNullOrWhiteSpace($RaizEstado))"):
             continue
@@ -98,6 +109,14 @@ class PromotedRuntimeEquivalenceTests(unittest.TestCase):
         self.assertIn("[string]$RaizEstado", source)
         self.assertEqual(source.count("Join-Path $RaizEstado 'dados-locais"), 3)
         self.assertNotIn("Join-Path $scriptRoot 'dados-locais", source)
+
+    def test_the_collector_writes_the_receipt_only_when_it_is_asked_to(self):
+        source = (PROMOTED_ROOT / COLLECTOR).read_text(encoding="utf-8-sig")
+
+        self.assertIn("[string]$ResultadoJson", source)
+        self.assertIn("$receipt.processes[$item.key]", source)
+        self.assertIn("if (-not [string]::IsNullOrWhiteSpace($ResultadoJson))", source)
+        self.assertEqual(source.count("#region RECIBO"), source.count("#endregion RECIBO"))
 
 
 @unittest.skipUnless(LEGACY_ROOT.is_dir(), "legacy tree retired (M6 Task 8)")
@@ -163,6 +182,39 @@ class EquivalenceCheckTests(unittest.TestCase):
         ]
 
         self.assertEqual(
+            normalize_collector(chr(10).join(proven)),
+            normalize_collector(chr(10).join(promoted)),
+        )
+
+    def test_the_normalizer_ignores_the_receipt_region(self):
+        proven = ["param(", ")", "Write-Host 'proven'", ""]
+        promoted = [
+            "param(",
+            "    [string]$ResultadoJson = ''",
+            ")",
+            "#region RECIBO",
+            "$receipt = [ordered]@{}",
+            "#endregion RECIBO",
+            "Write-Host 'proven'",
+            "",
+        ]
+
+        self.assertEqual(
+            normalize_collector(chr(10).join(proven)),
+            normalize_collector(chr(10).join(promoted)),
+        )
+
+    def test_a_change_outside_the_receipt_region_still_fails(self):
+        proven = ["Write-Host 'proven'", ""]
+        promoted = [
+            "#region RECIBO",
+            "$receipt = 1",
+            "#endregion RECIBO",
+            "Write-Host 'mutado'",
+            "",
+        ]
+
+        self.assertNotEqual(
             normalize_collector(chr(10).join(proven)),
             normalize_collector(chr(10).join(promoted)),
         )

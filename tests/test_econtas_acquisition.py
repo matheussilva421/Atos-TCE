@@ -6,6 +6,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -696,12 +697,46 @@ class AcquisitionServiceTests(AcquisitionTestCase):
         def runner(command, **kwargs):
             number = int(command[command.index("-NumeroLote") + 1])
             calls.append(number)
+            keys = keys_by_lot[number - 1] if number - 1 < len(keys_by_lot) else []
+            receipt_path = Path(command[command.index("-ResultadoJson") + 1])
+            receipt_path.parent.mkdir(parents=True, exist_ok=True)
             if auth_on_lot == number:
+                # The proven collector stops at the first refusal, so only that
+                # process carries a receipt entry.
+                receipt_path.write_text(
+                    json.dumps(
+                        {
+                            "processes": {
+                                keys[0]: {"outcome": "auth_required", "error": AUTH_LINE}
+                            }
+                        }
+                    ),
+                    encoding="utf-8",
+                )
                 return FakeProcess([AUTH_LINE], 0)
             if fail_on_lot == number:
+                receipt_path.write_text(json.dumps({"processes": {}}), encoding="utf-8")
                 return FakeProcess(["falha inesperada do coletor"], 1)
-            self.write_lot_files(keys_by_lot[number - 1])
-            return FakeProcess([summary(len(keys_by_lot[number - 1]))], 0)
+            self.write_lot_files(keys)
+            receipt_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "processes": {
+                            key: {
+                                "outcome": "completed",
+                                "downloaded": 1,
+                                "reused": 0,
+                                "deduplicated": 0,
+                                "error": None,
+                            }
+                            for key in keys
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return FakeProcess([summary(len(keys))], 0)
 
         return runner, calls
 
@@ -822,6 +857,326 @@ class AcquisitionServiceTests(AcquisitionTestCase):
         self.assertEqual(
             [item["process_key"] for item in loaded["items"]],
             ["102390/2026", "102391/2026", "102392/2026"],
+        )
+
+
+class ResumeTests(AcquisitionServiceTests):
+    """CR-11: a job paused for login continues instead of being restarted."""
+
+    def sequenced_runner(self, keys_by_lot, *, auth_lots=()):
+        """A collector double whose auth refusal happens only the first time."""
+
+        calls = []
+        refused = set()
+
+        def runner(command, **kwargs):
+            number = int(command[command.index("-NumeroLote") + 1])
+            calls.append(number)
+            keys = keys_by_lot[number - 1] if number - 1 < len(keys_by_lot) else []
+            receipt = Path(command[command.index("-ResultadoJson") + 1])
+            receipt.parent.mkdir(parents=True, exist_ok=True)
+            if number in auth_lots and number not in refused:
+                refused.add(number)
+                receipt.write_text(
+                    json.dumps(
+                        {"processes": {keys[0]: {"outcome": "auth_required", "error": AUTH_LINE}}}
+                    ),
+                    encoding="utf-8",
+                )
+                return FakeProcess([AUTH_LINE], 0)
+            self.write_lot_files(keys)
+            receipt.write_text(
+                json.dumps(
+                    {
+                        "processes": {
+                            key: {"outcome": "completed", "downloaded": 1} for key in keys
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return FakeProcess([summary(len(keys))], 0)
+
+        return runner, calls
+
+    def wait_for(self, predicate, timeout=20.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if predicate():
+                return True
+            time.sleep(0.02)
+        return False
+
+    def paused_job(self, keys_by_lot, *, auth_lots, lot_size=2):
+        seed_pending(self.store, [key for lot in keys_by_lot for key in lot])
+        runner, calls = self.sequenced_runner(keys_by_lot, auth_lots=auth_lots)
+        service = self.service(runner, lot_size=lot_size)
+        job_id = service.start(service.plan_pending())
+        service.run(job_id)
+        return service, job_id, calls
+
+    def test_resume_continues_a_job_that_paused_for_login(self):
+        service, job_id, calls = self.paused_job(
+            [["102390/2026", "102391/2026"], ["102392/2026"]], auth_lots={1}
+        )
+        self.assertEqual(self.store.get_job(job_id)["status"], "WAITING_FOR_LOGIN")
+
+        service.resume_async(job_id)
+
+        self.assertTrue(
+            self.wait_for(
+                lambda: self.store.get_job(job_id)["status"]
+                in {"COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED"}
+            )
+        )
+        job = self.store.get_job(job_id)
+        self.assertEqual(job["status"], "COMPLETED")
+        self.assertEqual(job["completed"], 3)
+        self.assertEqual(calls, [1, 1, 2], "the paused lot runs again, then the next one")
+
+    def test_resume_does_not_repeat_what_was_already_downloaded(self):
+        service, job_id, calls = self.paused_job(
+            [["102390/2026", "102391/2026"], ["102392/2026"]], auth_lots={2}
+        )
+        self.assertEqual(self.store.get_job(job_id)["status"], "WAITING_FOR_LOGIN")
+
+        service.resume_async(job_id)
+
+        self.assertTrue(
+            self.wait_for(
+                lambda: self.store.get_job(job_id)["status"]
+                in {"COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED"}
+            )
+        )
+        self.assertEqual(calls, [1, 2, 2], "lot 1 is never downloaded twice")
+        self.assertEqual(self.store.get_job(job_id)["completed"], 3)
+
+    def test_resume_refuses_a_job_that_is_not_paused(self):
+        seed_pending(self.store, ["102390/2026"])
+        runner, _calls = self.make_runner([["102390/2026"]])
+        service = self.service(runner)
+        job_id = service.start(service.plan_pending())
+
+        with self.assertRaises(AcquisitionError):
+            service.resume_async(job_id)
+
+    def test_a_second_resume_is_refused(self):
+        service, job_id, _calls = self.paused_job([["102390/2026"]], auth_lots={1})
+
+        service.resume_async(job_id)
+        with self.assertRaises(AcquisitionError):
+            service.resume_async(job_id)
+
+    def test_resume_refuses_an_unknown_job(self):
+        runner, _calls = self.make_runner([])
+        service = self.service(runner)
+
+        with self.assertRaises(AcquisitionError):
+            service.resume_async(4242)
+
+
+class CollectorReceiptTests(AcquisitionTestCase):
+    """CR-13: only the collector's own receipt may turn a process into DOWNLOADED."""
+
+    def write_files(self, key):
+        folder = (
+            self.data / "archive" / "processos" / key.replace("/", "-") / "evento-0001-x"
+        )
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "documento-001-Ato.pdf").write_bytes(PDF)
+
+    def service_with(self, receipts_by_lot, *, files_by_lot=None):
+        calls = []
+
+        def runner(command, **kwargs):
+            number = int(command[command.index("-NumeroLote") + 1])
+            calls.append(number)
+            receipt = Path(command[command.index("-ResultadoJson") + 1])
+            receipt.parent.mkdir(parents=True, exist_ok=True)
+            for key in (files_by_lot or {}).get(number, []):
+                self.write_files(key)
+            receipt.write_text(
+                json.dumps({"version": 1, "processes": receipts_by_lot[number - 1]}),
+                encoding="utf-8",
+            )
+            return FakeProcess([summary(len(receipts_by_lot[number - 1]))], 0)
+
+        return (
+            AcquisitionService(
+                self.store, self.data, repo_root=REPO_ROOT, runner=runner, lot_size=50
+            ),
+            calls,
+        )
+
+    def test_a_partial_file_without_a_positive_receipt_is_not_a_download(self):
+        rows = seed_pending(self.store, ["102390/2026"])
+        self.write_files("102390/2026")  # left behind by an earlier, partial run
+        service, _calls = self.service_with(
+            [{"102390/2026": {"outcome": "failed", "error": "conexão caiu"}}]
+        )
+
+        job_id = service.start(service.plan_pending())
+        service.run(job_id)
+
+        item = self.store.list_job_items(job_id)[0]
+        self.assertEqual(item["state"], "FAILED")
+        self.assertEqual(self.store.get_process(rows[0]["id"])["acquisition_state"], "FAILED")
+        self.assertIn("conexão caiu", item["error"])
+
+    def test_a_reused_process_with_a_positive_receipt_is_a_download(self):
+        rows = seed_pending(self.store, ["102390/2026"])
+        service, _calls = self.service_with(
+            [{"102390/2026": {"outcome": "completed", "downloaded": 0, "reused": 1}}],
+            files_by_lot={1: ["102390/2026"]},
+        )
+
+        job_id = service.start(service.plan_pending())
+        service.run(job_id)
+
+        self.assertEqual(self.store.list_job_items(job_id)[0]["state"], "DOWNLOADED")
+        self.assertEqual(self.store.get_process(rows[0]["id"])["acquisition_state"], "DOWNLOADED")
+
+    def test_a_positive_receipt_without_files_is_a_failure(self):
+        rows = seed_pending(self.store, ["102390/2026"])
+        service, _calls = self.service_with(
+            [{"102390/2026": {"outcome": "completed", "downloaded": 1}}]
+        )
+
+        job_id = service.start(service.plan_pending())
+        service.run(job_id)
+
+        item = self.store.list_job_items(job_id)[0]
+        self.assertEqual(item["state"], "FAILED")
+        self.assertIn("nenhum documento", item["error"])
+        self.assertEqual(self.store.get_process(rows[0]["id"])["acquisition_state"], "FAILED")
+
+    def test_a_process_missing_from_the_receipt_is_never_a_download(self):
+        seed_pending(self.store, ["102390/2026", "102391/2026"])
+        service, _calls = self.service_with(
+            [{"102390/2026": {"outcome": "completed", "downloaded": 1}}],
+            files_by_lot={1: ["102390/2026", "102391/2026"]},
+        )
+
+        job_id = service.start(service.plan_pending())
+        service.run(job_id)
+
+        items = {
+            self.store.get_process(int(item["process_id"]))["process_key"]: item["state"]
+            for item in self.store.list_job_items(job_id)
+        }
+        self.assertEqual(items["102390/2026"], "DOWNLOADED")
+        self.assertEqual(items["102391/2026"], "FAILED")
+
+    def test_a_receipt_key_outside_the_lot_fails_the_whole_lot(self):
+        seed_pending(self.store, ["102390/2026", "102391/2026"])
+        service, _calls = self.service_with(
+            [
+                {
+                    "102390/2026": {"outcome": "completed"},
+                    "102391/2026": {"outcome": "completed"},
+                    "999999/2026": {"outcome": "completed"},
+                }
+            ],
+            files_by_lot={1: ["102390/2026", "102391/2026"]},
+        )
+
+        job_id = service.start(service.plan_pending())
+        service.run(job_id)
+
+        items = self.store.list_job_items(job_id)
+        self.assertTrue(all(item["state"] == "FAILED" for item in items))
+        self.assertTrue(all("fora do lote" in item["error"] for item in items))
+
+
+class RuntimeRecoveryTests(AcquisitionTestCase):
+    """CR-12: a restart leaves nothing waiting on a worker that no longer exists."""
+
+    def test_a_command_claimed_by_a_dead_worker_returns_to_the_queue(self):
+        command_id = self.store.create_extension_command("SCAN_AREA", {})
+        self.store.claim_extension_command("worker")
+
+        summary = self.store.recover_interrupted_runtime_state()
+
+        self.assertEqual(summary["commands_requeued"], 1)
+        command = self.store.get_extension_command(command_id)
+        self.assertEqual(command["state"], "QUEUED")
+        self.assertIsNone(command["claim_token"])
+
+    def test_a_running_job_becomes_interrupted_and_its_items_are_requeued(self):
+        rows = seed_pending(self.store, ["102390/2026", "102391/2026"])
+        job_id = self.manager.create("acquisition", [row["id"] for row in rows])
+        self.manager.start(job_id)
+        self.manager.mark_item(job_id, rows[0]["id"], "DOWNLOADING")
+
+        summary = self.store.recover_interrupted_runtime_state()
+
+        self.assertEqual(summary["jobs_interrupted"], 1)
+        self.assertEqual(self.store.get_job(job_id)["status"], "INTERRUPTED")
+        items = {
+            int(item["process_id"]): item["state"]
+            for item in self.store.list_job_items(job_id)
+        }
+        self.assertEqual(items[rows[0]["id"]], "QUEUED")
+        self.assertEqual(items[rows[1]["id"]], "QUEUED")
+
+    def test_a_downloaded_item_survives_the_recovery(self):
+        rows = seed_pending(self.store, ["102390/2026", "102391/2026"])
+        job_id = self.manager.create("acquisition", [row["id"] for row in rows])
+        self.manager.start(job_id)
+        self.manager.mark_item(job_id, rows[0]["id"], "DOWNLOADED")
+        self.manager.mark_item(job_id, rows[1]["id"], "DOWNLOADING")
+
+        self.store.recover_interrupted_runtime_state()
+
+        items = {
+            int(item["process_id"]): item["state"]
+            for item in self.store.list_job_items(job_id)
+        }
+        self.assertEqual(items[rows[0]["id"]], "DOWNLOADED")
+        self.assertEqual(items[rows[1]["id"]], "QUEUED")
+        self.assertEqual(
+            self.store.get_process(rows[0]["id"])["acquisition_state"], "DOWNLOADED"
+        )
+
+    def test_a_login_pause_stays_resumable(self):
+        rows = seed_pending(self.store, ["102390/2026"])
+        job_id = self.manager.create("acquisition", [row["id"] for row in rows])
+        self.manager.start(job_id)
+        self.manager.wait_for_login(job_id, "o e-Contas pediu login")
+
+        summary = self.store.recover_interrupted_runtime_state()
+
+        self.assertEqual(summary["jobs_interrupted"], 0)
+        self.assertEqual(self.store.get_job(job_id)["status"], "WAITING_FOR_LOGIN")
+
+    def test_an_interrupted_analysis_never_stays_in_progress(self):
+        rows = seed_pending(self.store, ["102390/2026"])
+        self.store.set_process_status(rows[0]["id"], "ANALISANDO", event_type="analysis_started")
+
+        summary = self.store.recover_interrupted_runtime_state()
+
+        self.assertEqual(summary["analysis_interrupted"], 1)
+        process = self.store.get_process(rows[0]["id"])
+        self.assertEqual(process["status"], "ERRO")
+        events = [event["event_type"] for event in process["events"]]
+        self.assertIn("analysis_interrupted", events)
+
+    def test_recovery_is_idempotent(self):
+        rows = seed_pending(self.store, ["102390/2026"])
+        self.store.set_process_status(rows[0]["id"], "ANALISANDO")
+        self.store.recover_interrupted_runtime_state()
+
+        second = self.store.recover_interrupted_runtime_state()
+
+        self.assertEqual(
+            second,
+            {
+                "commands_requeued": 0,
+                "commands_failed": 0,
+                "jobs_interrupted": 0,
+                "items_requeued": 0,
+                "analysis_interrupted": 0,
+            },
         )
 
 

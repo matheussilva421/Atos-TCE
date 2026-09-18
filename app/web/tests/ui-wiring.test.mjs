@@ -32,3 +32,10 @@ test("the Mesa offers to re-pair an extension that lost its storage", () => {
   assert.match(source, /\/api\/v1\/bridge\/pairing\/reset/u);
   assert.match(source, /addEventListener\("click", resetPairing\)/u);
 });
+
+test("a paused acquisition is resumed instead of restarted", () => {
+  assert.match(page, /id="resume-acquisition"/u);
+  assert.ok(source.includes("/resume"));
+  assert.ok(source.includes('addEventListener("click", resumeAcquisition)'));
+  assert.ok(source.includes("setResumableJob(jobId)"), "a pausa mostra o retomar");
+});

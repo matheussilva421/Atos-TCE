@@ -97,6 +97,7 @@ async function loadPdfjs() {
     query: "",
     status: "",
     acquisitionRunning: false,
+    acquisitionJob: null,
     tab: "dados",
     detail: null,
     viewer: { documentId: null, page: 1, pageCount: 1, scale: 1.5, rotation: 0, rects: [] },
@@ -184,46 +185,91 @@ async function loadPdfjs() {
     }
   }
 
+  /**
+   * Show the "retomar" action only while a job is genuinely paused. Resuming
+   * continues the same job; it never creates a second one.
+   */
+  function setResumableJob(jobId) {
+    state.acquisitionJob = jobId ?? null;
+    document.getElementById("resume-acquisition").hidden = !state.acquisitionJob;
+  }
+
+  async function followAcquisitionJob(jobId) {
+    const status = document.getElementById("acquisition-status");
+    const progress = document.getElementById("acquisition-progress");
+    const deadline = Date.now() + 3600000;
+    for (;;) {
+      await sleep(1000);
+      const job = await getJson(`/api/v1/jobs/${jobId}`);
+      progress.textContent =
+        `${numberFormat.format(job.completed)} de ${numberFormat.format(job.total)} baixados` +
+        (job.failed ? ` · ${numberFormat.format(job.failed)} com falha` : "");
+      if (job.status === "WAITING_FOR_LOGIN") {
+        status.textContent = "Faça login no e-Contas e retome o download.";
+        setResumableJob(jobId);
+        break;
+      }
+      if (job.status === "INTERRUPTED") {
+        status.textContent = "O download foi interrompido; retome para continuar de onde parou.";
+        setResumableJob(jobId);
+        break;
+      }
+      if (job.status === "COMPLETED" || job.status === "COMPLETED_WITH_ERRORS" || job.status === "FAILED") {
+        status.textContent =
+          job.status === "COMPLETED"
+            ? "Download concluído."
+            : `Download terminou com ${numberFormat.format(job.failed)} falha(s).`;
+        renderFailures(job.failures);
+        setResumableJob(null);
+        break;
+      }
+      if (Date.now() > deadline) {
+        status.textContent = "O download demorou demais; verifique o e-Contas.";
+        setResumableJob(jobId);
+        break;
+      }
+    }
+  }
+
   async function startAcquisition() {
     const button = document.getElementById("download-pending");
     const status = document.getElementById("acquisition-status");
-    const progress = document.getElementById("acquisition-progress");
     state.acquisitionRunning = true;
     button.disabled = true;
     renderFailures([]);
-    progress.textContent = "";
+    document.getElementById("acquisition-progress").textContent = "";
     status.textContent = "Iniciando o download dos processos pendentes…";
+    setResumableJob(null);
     try {
       const created = await postJson("/api/v1/acquisition/jobs", {});
-      const deadline = Date.now() + 3600000;
-      for (;;) {
-        await sleep(1000);
-        const job = await getJson(`/api/v1/jobs/${created.job_id}`);
-        progress.textContent =
-          `${numberFormat.format(job.completed)} de ${numberFormat.format(job.total)} baixados` +
-          (job.failed ? ` · ${numberFormat.format(job.failed)} com falha` : "");
-        if (job.status === "WAITING_FOR_LOGIN") {
-          status.textContent = "Faça login no e-Contas para continuar.";
-          break;
-        }
-        if (job.status === "COMPLETED" || job.status === "COMPLETED_WITH_ERRORS" || job.status === "FAILED") {
-          status.textContent =
-            job.status === "COMPLETED"
-              ? "Download concluído."
-              : `Download terminou com ${numberFormat.format(job.failed)} falha(s).`;
-          renderFailures(job.failures);
-          break;
-        }
-        if (Date.now() > deadline) {
-          status.textContent = "O download demorou demais; verifique o e-Contas.";
-          break;
-        }
-      }
+      await followAcquisitionJob(created.job_id);
       await refreshArea();
       await refreshProcesses();
       await refreshStorage();
     } catch (error) {
       status.textContent = `Não foi possível baixar: ${error.message}`;
+    } finally {
+      state.acquisitionRunning = false;
+      await refreshAcquisition();
+    }
+  }
+
+  async function resumeAcquisition() {
+    const jobId = state.acquisitionJob;
+    if (!jobId) return;
+    const status = document.getElementById("acquisition-status");
+    state.acquisitionRunning = true;
+    setResumableJob(null);
+    status.textContent = "Retomando o download de onde parou…";
+    try {
+      await postJson(`/api/v1/jobs/${jobId}/resume`, {});
+      await followAcquisitionJob(jobId);
+      await refreshArea();
+      await refreshProcesses();
+      await refreshStorage();
+    } catch (error) {
+      status.textContent = `Não foi possível retomar: ${error.message}`;
+      setResumableJob(jobId);
     } finally {
       state.acquisitionRunning = false;
       await refreshAcquisition();
@@ -809,6 +855,7 @@ async function loadPdfjs() {
     });
     document.getElementById("renew-pairing").addEventListener("click", renewPairing);
     document.getElementById("reset-pairing").addEventListener("click", resetPairing);
+    document.getElementById("resume-acquisition").addEventListener("click", resumeAcquisition);
 
     refreshHealth();
     refreshStorage();

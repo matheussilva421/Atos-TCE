@@ -14,6 +14,7 @@ Two safety rules live here:
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -68,6 +69,10 @@ class CollectorRequest:
     #: M4: the Mesa runs the analysis itself, so the collector must not prepare.
     preparation_mode: str = "nenhum"
     max_downloads: int = DEFAULT_MAX_DOWNLOADS
+    #: Where the collector writes the per-process receipt. None means the
+    #: collector is not asked for one, and then no process may be reported as
+    #: downloaded (CR-13).
+    receipt_path: Path | None = None
 
 
 @dataclass(slots=True)
@@ -81,6 +86,8 @@ class CollectorResult:
     summary_found: bool = False
     error: str | None = None
     output_tail: list[str] = field(default_factory=list)
+    #: Per process key: outcome, counts and a sanitized error (CR-13).
+    per_process: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -115,14 +122,37 @@ def build_collector_command(request: CollectorRequest, repo_root: str | Path) ->
         str(request.preparation_mode),
         "-MaxDownloads",
         str(int(request.max_downloads)),
-        # Browser profile and bridge live under the data root, never in app/.
-        "-RaizEstado",
-        str(Path(request.destination).resolve().parent),
-        "-NaoInterativo",
     ]
+    if request.receipt_path is not None:
+        command.extend(["-ResultadoJson", str(Path(request.receipt_path))])
+    command.extend(
+        [
+            # Browser profile and bridge live under the data root, never in app/.
+            "-RaizEstado",
+            str(Path(request.destination).resolve().parent),
+            "-NaoInterativo",
+        ]
+    )
     if request.keep_browser_open:
         command.append("-ManterNavegadorAberto")
     return command
+
+
+def read_receipt(path: str | Path) -> dict[str, dict[str, Any]]:
+    """Read the per-process receipt the collector writes, if there is one."""
+
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return {}
+    processes = payload.get("processes") if isinstance(payload, dict) else None
+    if not isinstance(processes, dict):
+        return {}
+    return {
+        str(key): dict(value)
+        for key, value in processes.items()
+        if isinstance(value, dict)
+    }
 
 
 def parse_summary_line(line: str) -> dict[str, object] | None:
@@ -208,6 +238,8 @@ def run_collector(
 
     exit_code = _wait(process, timeout)
     result.exit_code = exit_code
+    if request.receipt_path is not None:
+        result.per_process = read_receipt(request.receipt_path)
     if exit_code != 0 and not result.summary_found and result.error is None:
         result.error = f"the legacy collector exited with code {exit_code}"
     return result

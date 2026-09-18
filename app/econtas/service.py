@@ -22,7 +22,7 @@ from ..archive.legacy_import import (
     canonicalize_process_tree,
     collect_process_documents,
 )
-from ..core.jobs import JobManager
+from ..core.jobs import RESUMABLE_JOB_STATUSES, JobManager
 from ..core.store import Store
 from .collector import CollectorRequest, CollectorResult, redact, run_collector
 from .legacy_queue import DEFAULT_LOT_SIZE, SOURCE_SCOPES, write_frozen_queue
@@ -97,6 +97,11 @@ class AcquisitionService:
     def queue_path(self, job_id: int) -> Path:
         return self._data_root / QUEUE_TREE / f"acquisition-{int(job_id)}.json"
 
+    def receipt_path(self, job_id: int, lot_number: int) -> Path:
+        """Where the collector writes the per-process receipt of one lot."""
+
+        return self._data_root / "logs" / f"collector-{int(job_id)}-lot-{int(lot_number)}.json"
+
     def _scan_spec(self) -> tuple[str, dict[str, object]]:
         scan = self._store.latest_area_scan()
         if scan is None:
@@ -138,6 +143,31 @@ class AcquisitionService:
         thread.start()
         return job_id
 
+    def resume_async(self, job_id: int) -> int:
+        """Continue a job that paused for login or was interrupted by a restart.
+
+        The queue is rebuilt from the job itself, every item that already
+        reached DOWNLOADED is kept, and only the incomplete ones run again. The
+        status transition happens inside the lock, so two resumes can never run
+        the same job twice.
+        """
+
+        with self._lock:
+            job = self._store.get_job(job_id)
+            if job is None:
+                raise AcquisitionError(f"unknown job: {job_id}")
+            status = str(job["status"])
+            if status not in RESUMABLE_JOB_STATUSES:
+                raise AcquisitionError(
+                    "só um job pausado por login ou interrompido pode ser retomado"
+                )
+            self._store.set_job_status(job_id, "PENDING")
+        thread = threading.Thread(
+            target=self._run_guarded, args=(job_id,), name=f"acquisition-{job_id}", daemon=True
+        )
+        thread.start()
+        return job_id
+
     def _run_guarded(self, job_id: int) -> None:
         try:
             self.run(job_id)
@@ -167,10 +197,18 @@ class AcquisitionService:
             queue_path,
             self._lot_size,
         )
+        # A resumed job never repeats what already reached DOWNLOADED.
+        done = {
+            int(item["process_id"])
+            for item in self._store.list_job_items(job_id)
+            if str(item["state"]) == "DOWNLOADED"
+        }
         self._jobs.start(job_id)
         paused = False
         for lot_number in range(1, info.lot_count + 1):
-            lot_ids = plan.lot_ids(lot_number)
+            lot_ids = [process_id for process_id in plan.lot_ids(lot_number) if process_id not in done]
+            if not lot_ids:
+                continue
             for process_id in lot_ids:
                 self._jobs.mark_item(job_id, process_id, "DOWNLOADING")
             result = run_collector(
@@ -180,6 +218,7 @@ class AcquisitionService:
                     destination=self._data_root / ARCHIVE_TREE,
                     source_scope=scope,
                     keep_browser_open=self._keep_browser_open,
+                    receipt_path=self.receipt_path(job_id, lot_number),
                 ),
                 repo_root=self._repo_root,
                 runner=self._runner,
@@ -218,20 +257,60 @@ class AcquisitionService:
         lot_keys: list[str],
         result: CollectorResult,
     ) -> None:
-        """Decide per process from what is really in the acervo now."""
+        """Decide per process from the collector's receipt, never from files alone.
+
+        A process only becomes DOWNLOADED when the collector says the lot
+        finished for it *and* the documents really are in the acervo. Files
+        left behind by an earlier partial run can no longer become a success,
+        and a receipt that names a process outside the lot fails the lot.
+        """
 
         keys_by_id = dict(zip(lot_ids, lot_keys, strict=False))
+        outside = sorted(set(result.per_process) - set(lot_keys))
+        if outside:
+            reason = "recibo do coletor trouxe processo fora do lote: " + ", ".join(outside[:5])
+            for process_id in lot_ids:
+                self._jobs.mark_item(job_id, process_id, "FAILED", reason)
+            return
         for process_id in lot_ids:
-            documents = collect_process_documents(self._data_root, keys_by_id[process_id])
-            if documents:
-                self._store.replace_documents(process_id, documents)
-                self._jobs.mark_item(job_id, process_id, "DOWNLOADED")
-                if self._analysis is not None:
-                    self._analysis.enqueue(process_id)
+            key = keys_by_id[process_id]
+            outcome = result.per_process.get(key)
+            if outcome is None:
+                # No receipt is not a success: the file may be a leftover from
+                # an earlier partial run. The collector's own error is kept so
+                # the operator sees why the lot stopped.
+                reason = "o coletor não devolveu resultado para este processo"
+                if result.error:
+                    reason = f"{reason}: {redact(result.error)[:200]}"
+                elif result.auth_required:
+                    reason = "login necessário no e-Contas"
+                self._jobs.mark_item(
+                    job_id,
+                    process_id,
+                    "FAILED",
+                    reason,
+                )
                 continue
-            reason = "nenhum documento novo apareceu no acervo"
-            if result.error:
-                reason = redact(result.error)[:300]
-            elif result.auth_required:
-                reason = "login necessário no e-Contas"
-            self._jobs.mark_item(job_id, process_id, "FAILED", reason)
+            state = str(outcome.get("outcome") or "").strip().lower()
+            if state == "auth_required":
+                self._jobs.mark_item(job_id, process_id, "FAILED", "login necessário no e-Contas")
+                continue
+            if state != "completed":
+                reason = redact(str(outcome.get("error") or ""))[:300] or (
+                    f"o coletor recusou o processo ({state or 'sem resultado'})"
+                )
+                self._jobs.mark_item(job_id, process_id, "FAILED", reason)
+                continue
+            documents = collect_process_documents(self._data_root, key)
+            if not documents:
+                self._jobs.mark_item(
+                    job_id,
+                    process_id,
+                    "FAILED",
+                    "o coletor declarou sucesso, mas nenhum documento apareceu no acervo",
+                )
+                continue
+            self._store.replace_documents(process_id, documents)
+            self._jobs.mark_item(job_id, process_id, "DOWNLOADED")
+            if self._analysis is not None:
+                self._analysis.enqueue(process_id)
