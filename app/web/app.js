@@ -35,6 +35,15 @@
     genero: "Gênero",
   };
 
+  const AREA_COUNTER_LABELS = {
+    total: "Processos vistos",
+    pending: "Precisam complementar",
+    completed: "Já complementados",
+    ambiguous: "Ambíguos",
+    blocked: "Bloqueados",
+    not_found: "Não encontrados",
+  };
+
   const state = { items: [], selectedId: null, query: "", status: "" };
 
   const numberFormat = new Intl.NumberFormat("pt-BR");
@@ -78,6 +87,106 @@
     const response = await fetch(path, { headers: { Accept: "application/json" } });
     if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
     return response.json();
+  }
+
+  async function postJson(path, body) {
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body ?? {}),
+    });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    return response.json();
+  }
+
+  function sleep(milliseconds) {
+    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+  }
+
+  function renderArea(payload) {
+    const host = document.getElementById("area-counters");
+    const counters = payload.counters || {};
+    host.replaceChildren(
+      ...Object.entries(AREA_COUNTER_LABELS).map(([key, label]) =>
+        element("div", {}, [
+          element("dt", { text: label }),
+          element("dd", { text: numberFormat.format(counters[key] ?? 0) }),
+        ])
+      )
+    );
+  }
+
+  async function refreshArea() {
+    try {
+      renderArea(await getJson("/api/v1/area/latest"));
+    } catch (error) {
+      document.getElementById("area-counters").replaceChildren(
+        element("p", { className: "error-note", text: `Falha ao ler a análise: ${error.message}` })
+      );
+    }
+  }
+
+  async function refreshPairing() {
+    const section = document.getElementById("pairing");
+    try {
+      const payload = await getJson("/api/v1/bridge/pairing");
+      if (payload.paired) {
+        section.hidden = true;
+        return;
+      }
+      section.hidden = false;
+      document.getElementById("pairing-code").textContent = payload.code || "expirado — renove";
+    } catch {
+      // Without a session yet, the pairing panel simply stays hidden.
+      section.hidden = true;
+    }
+  }
+
+  async function renewPairing() {
+    try {
+      await postJson("/api/v1/bridge/pairing/renew", {});
+    } finally {
+      await refreshPairing();
+    }
+  }
+
+  async function analyzeArea() {
+    const button = document.getElementById("analyze-area");
+    const status = document.getElementById("analyze-status");
+    button.disabled = true;
+    status.textContent = "Solicitando a leitura do portal…";
+    try {
+      const created = await postJson("/api/v1/area/analyze", {});
+      status.textContent = "Analisando a Área Restrita…";
+      const deadline = Date.now() + 180000;
+      let ticks = 0;
+      for (;;) {
+        await sleep(1000);
+        const command = await getJson(`/api/v1/extension/commands/${created.command_id}`);
+        if (command.state === "SUCCEEDED") {
+          status.textContent = "Análise concluída.";
+          break;
+        }
+        if (command.state === "FAILED") {
+          status.textContent = `Não foi possível analisar: ${command.error || "erro no portal"}`;
+          break;
+        }
+        ticks += 1;
+        if (ticks === 4) {
+          status.textContent = "Aguardando a extensão (Área Restrita aberta e pareada)…";
+        }
+        if (Date.now() > deadline) {
+          status.textContent = "A análise não respondeu a tempo. Verifique a extensão.";
+          break;
+        }
+      }
+      await refreshArea();
+      await refreshProcesses();
+    } catch (error) {
+      status.textContent = `Não foi possível analisar: ${error.message}`;
+    } finally {
+      button.disabled = false;
+    }
   }
 
   function renderHealth(payload) {
@@ -318,10 +427,18 @@
       refreshProcesses();
     });
 
+    document.getElementById("analyze-area").addEventListener("click", analyzeArea);
+    document.getElementById("renew-pairing").addEventListener("click", renewPairing);
+
     refreshHealth();
     refreshStorage();
     refreshProcesses();
-    window.setInterval(refreshHealth, 5000);
+    refreshArea();
+    refreshPairing();
+    window.setInterval(() => {
+      refreshHealth();
+      refreshPairing();
+    }, 5000);
   }
 
   document.addEventListener("DOMContentLoaded", init);

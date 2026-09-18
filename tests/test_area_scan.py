@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from app.api.views import area_summary_payload
 from app.core.models import ProcessRecord
 from app.core.store import SCHEMA_V1, Store
 
@@ -179,6 +180,51 @@ class AreaScanMappingTests(AreaScanTestCase):
 
     def test_unknown_scan_returns_none(self):
         self.assertIsNone(self.store.get_area_scan(4242))
+
+
+class AreaSummaryViewTests(AreaScanTestCase):
+    def test_summary_is_empty_before_the_first_scan(self):
+        payload = area_summary_payload(self.store)
+
+        self.assertIsNone(payload["scan"])
+        self.assertEqual(
+            payload["counters"],
+            {"total": 0, "pending": 0, "completed": 0, "ambiguous": 0, "blocked": 0, "not_found": 0},
+        )
+
+    def test_summary_reports_the_latest_scan_counters(self):
+        self.scan([row()])
+        self.scan(
+            [
+                row(),
+                row(
+                    process_key="102391/2026",
+                    interested="Outra Pessoa",
+                    interested_normalized="outra pessoa",
+                    classification="ATO_COMPLEMENTADO",
+                    needs_complement=False,
+                ),
+                row(
+                    process_key="102392/2026",
+                    interested="Terceira Pessoa",
+                    interested_normalized="terceira pessoa",
+                    classification="AMBIGUO",
+                    needs_complement=False,
+                ),
+            ]
+        )
+
+        payload = area_summary_payload(self.store)
+
+        self.assertEqual(
+            payload["counters"],
+            {"total": 3, "pending": 1, "completed": 1, "ambiguous": 1, "blocked": 0, "not_found": 0},
+        )
+        self.assertEqual(payload["scan"]["marker_label"], MARKER_LABEL)
+        self.assertEqual(payload["scan"]["marker_value"], "6189")
+        self.assertEqual(payload["scan"]["source_scope"], "sector_finalistic")
+        self.assertEqual(payload["scan"]["origin"], "extension")
+        self.assertTrue(payload["scan"]["observed_at"])
 
 
 class ExtensionCommandTests(AreaScanTestCase):

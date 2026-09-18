@@ -17,6 +17,24 @@ from ..core.store import Store
 
 API_VERSION = 1
 
+#: Fields of a scan the Mesa counters panel reads.
+AREA_SUMMARY_FIELDS = (
+    "id",
+    "source_scope",
+    "marker_label",
+    "marker_value",
+    "observed_at",
+    "origin",
+    "total",
+    "pending",
+    "completed",
+    "ambiguous",
+    "blocked",
+    "not_found",
+)
+
+AREA_COUNTER_FIELDS = ("total", "pending", "completed", "ambiguous", "blocked", "not_found")
+
 
 def health_payload(store: Store, data_root: Path) -> dict[str, Any]:
     """Report that the Mesa is answering and which schema it is reading."""
@@ -85,6 +103,19 @@ def storage_payload(store: Store, data_root: Path) -> dict[str, Any]:
             "deduplicated_bytes": max(0, views["bytes"] - views["physical_bytes"]),
         },
     }
+
+
+def area_summary_payload(store: Store) -> dict[str, Any]:
+    """Report the latest Área Restrita scan and its counter block."""
+
+    scan = store.latest_area_scan()
+    counters = {field: 0 for field in AREA_COUNTER_FIELDS}
+    summary = None
+    if scan is not None:
+        summary = {field: scan.get(field) for field in AREA_SUMMARY_FIELDS}
+        for field in AREA_COUNTER_FIELDS:
+            counters[field] = int(scan.get(field) or 0)
+    return {"api_version": API_VERSION, "scan": summary, "counters": counters}
 
 
 def resolve_document_file(store: Store, data_root: Path, document_id: int) -> Path | None:

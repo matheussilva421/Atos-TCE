@@ -24,6 +24,22 @@
         <dl id="storage-summary" class="storage-grid"></dl>
       </section>
 
+      <section class="panel" aria-labelledby="area-title">
+        <h2 id="area-title">Área Restrita</h2>
+        <div class="area-actions">
+          <button id="analyze-area" type="button">Analisar Área Restrita</button>
+          <span id="analyze-status" class="muted">Ainda não analisada nesta sessão.</span>
+        </div>
+        <dl id="area-counters" class="storage-grid"></dl>
+        <div id="pairing" class="pairing" hidden>
+          <p class="muted">
+            Extensão não pareada. Código de pareamento:
+            <strong id="pairing-code" class="mono"></strong>
+          </p>
+          <button id="renew-pairing" class="ghost" type="button">Renovar código</button>
+        </div>
+      </section>
+
       <div class="columns">
         <section class="panel" aria-labelledby="process-list-title">
           <h2 id="process-list-title">Processos</h2>

@@ -361,3 +361,45 @@ a {
   margin: 0 auto;
   padding: 0 22px 28px;
 }
+
+.area-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+button.primary,
+#analyze-area {
+  font: inherit;
+  font-weight: 600;
+  padding: 9px 16px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+#analyze-area:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+button.ghost,
+#renew-pairing {
+  font: inherit;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.pairing {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}

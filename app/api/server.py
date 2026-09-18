@@ -43,6 +43,11 @@ MAX_BODY_BYTES = 8 * 1024 * 1024
 #: list with OPEN_ACT, READ_FORM and FILL_FORM; there is never a submit type.
 ALLOWED_COMMAND_TYPES = frozenset({"STATUS", "SCAN_AREA"})
 
+#: Portal roles a sanitized snapshot may declare. Anything else is recorded as
+#: a command result but never persisted as a scan, so a malformed payload
+#: cannot corrupt the Mesa's view of the Área Restrita.
+PORTAL_ROLES = frozenset({"list", "interested", "form", "buttons", "unknown"})
+
 
 @dataclass(frozen=True)
 class Route:
@@ -58,6 +63,7 @@ ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/processes/(?P<process_id>\d+)"), "handle_process_detail", "public"),
     Route(re.compile(r"/api/v1/documents/(?P<document_id>\d+)/pdf"), "handle_document_pdf", "public"),
     Route(re.compile(r"/api/v1/bridge/pairing"), "handle_bridge_pairing", "mesa"),
+    Route(re.compile(r"/api/v1/area/latest"), "handle_area_latest", "public"),
     Route(re.compile(r"/api/v1/bridge/status"), "handle_bridge_status", "extension"),
     Route(re.compile(r"/api/v1/extension/commands/next"), "handle_command_next", "extension"),
     Route(re.compile(r"/api/v1/extension/commands/(?P<command_id>\d+)"), "handle_command_status", "mesa"),
@@ -70,6 +76,7 @@ POST_ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/extension/commands"), "post_extension_command", "mesa"),
     Route(re.compile(r"/api/v1/extension/commands/(?P<command_id>\d+)/result"), "post_command_result", "extension"),
     Route(re.compile(r"/api/v1/area/scans"), "post_area_scan", "mesa"),
+    Route(re.compile(r"/api/v1/area/analyze"), "post_area_analyze", "mesa"),
 )
 
 
@@ -313,6 +320,9 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_json(self._pairing_payload())
 
+    def handle_area_latest(self, query: dict[str, list[str]]) -> None:
+        self._send_json(views.area_summary_payload(self.mesa.store))
+
     def handle_bridge_status(self, query: dict[str, list[str]]) -> None:
         client_id = self._require_extension()
         if client_id is None:
@@ -405,10 +415,47 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         if self._require_extension() is None:
             return
         payload = self._read_json_body()
-        self.mesa.store.complete_extension_command(
-            int(command_id), result=payload, error=None
+        command = self.mesa.store.get_extension_command(int(command_id))
+        if command is None:
+            self._send_json(
+                {"error": "command_not_found", "command_id": int(command_id)}, status=404
+            )
+            return
+        error = None if payload.get("ok") is not False else str(payload.get("error") or "") or "command failed"
+        detail = self._persist_scan_result(command, payload) if error is None else None
+        self.mesa.store.complete_extension_command(int(command_id), result=payload, error=error)
+        self._send_json({"ok": True, **(detail or {})})
+
+    def _persist_scan_result(self, command: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any] | None:
+        """Turn an extension SCAN_AREA result into a persisted Mesa scan."""
+
+        if command.get("type") != "SCAN_AREA":
+            return None
+        if str(payload.get("role") or "") not in PORTAL_ROLES:
+            return None
+        rows = payload.get("rows")
+        if not isinstance(rows, list):
+            return None
+        marker = payload.get("marker")
+        marker = marker if isinstance(marker, dict) else {}
+        scan_id = self.mesa.store.create_area_scan(
+            source_scope=str(payload.get("source_scope") or "") or "unknown",
+            marker_label=str(marker.get("label") or "") or None,
+            marker_value=str(marker.get("value") or "") or None,
+            rows=rows,
+            origin="extension",
         )
-        self._send_json({"ok": True})
+        return {"scan_id": scan_id}
+
+    def post_area_analyze(self) -> None:
+        """Queue the single read-only command the Mesa can start by itself."""
+
+        if not self._require_session():
+            return
+        command_id = self.mesa.store.create_extension_command("SCAN_AREA", {"origin": "mesa"})
+        self._send_json(
+            {"command_id": command_id, "type": "SCAN_AREA", "state": "QUEUED"}, status=201
+        )
 
     def post_area_scan(self) -> None:
         if not self._require_session():

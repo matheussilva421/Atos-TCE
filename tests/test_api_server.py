@@ -8,11 +8,13 @@ import sys
 import threading
 import time
 import unittest
+from http.cookiejar import CookieJar
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.error import HTTPError
-from urllib.request import urlopen
+from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
+from app.api.bridge import Bridge, hash_token
 from app.api.server import serve
 from app.archive.legacy_import import blob_path, sha256_file
 from app.core.models import DocumentRecord, FieldRecord, ProcessRecord
@@ -31,7 +33,8 @@ class ApiTestCase(unittest.TestCase):
         self.store = Store.open(self.data_root / "atos-tce.db")
         self.addCleanup(self.store.close)
         self.seed()
-        self.server = serve(self.store, self.data_root, port=0)
+        self.bridge = Bridge(code="618900", bootstrap_token="bootstrap-token")
+        self.server = serve(self.store, self.data_root, port=0, bridge=self.bridge)
         self.addCleanup(self.server.server_close)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -91,24 +94,89 @@ class ApiTestCase(unittest.TestCase):
         )
         self.store.add_workflow_event(self.process_id, "analysis_finished", {"status": "PRONTO"})
 
+    def call(self, path, method="GET", headers=None, body=None, opener=None):
+        payload = None if body is None else json.dumps(body).encode("utf-8")
+        request = Request(f"{self.base}{path}", data=payload, method=method)
+        for key, value in (headers or {}).items():
+            request.add_header(key, value)
+        if payload is not None:
+            request.add_header("Content-Type", "application/json")
+        send = opener.open if opener is not None else urlopen
+        try:
+            with send(request, timeout=15) as response:
+                raw = response.read()
+                return response.status, dict(response.headers), raw
+        except HTTPError as error:
+            raw = error.read()
+            headers_out = dict(error.headers)
+            code = error.code
+            error.close()
+            return code, headers_out, raw
+
+    def call_json(self, path, *args, **kwargs):
+        status, headers, raw = self.call(path, *args, **kwargs)
+        return status, headers, (json.loads(raw.decode("utf-8")) if raw else None)
+
     def get(self, path):
-        return urlopen(f"{self.base}{path}", timeout=10)
+        status, headers, raw = self.call(path)
+        self.assertEqual(status, 200, f"GET {path} answered {status}")
+        return _InMemoryResponse(raw, headers)
 
     def get_json(self, path):
-        with self.get(path) as response:
-            return json.loads(response.read().decode("utf-8"))
+        status, _headers, payload = self.call_json(path)
+        self.assertEqual(status, 200, f"GET {path} answered {status}")
+        return payload
+
+    def mesa_headers(self):
+        return {"Origin": self.base}
+
+    def mesa_opener(self):
+        """Return an opener holding a valid Mesa session cookie."""
+
+        jar = CookieJar()
+        opener = build_opener(HTTPCookieProcessor(jar))
+        status, _headers, payload = self.call_json(
+            "/api/v1/session/bootstrap",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={"token": self.bridge.bootstrap_value},
+            opener=opener,
+        )
+        self.assertEqual(status, 200, payload)
+        return opener
+
+    def pair_extension(self, token="extension-token", client_id="extension-test"):
+        self.store.pair_bridge_client(
+            client_id, hash_token(token), origin="chrome-extension://abcdefghijklmnop"
+        )
+        return {
+            "Authorization": f"Bearer {token}",
+            "X-TCE-Client": client_id,
+            "Origin": "chrome-extension://abcdefghijklmnop",
+        }
 
     def status_of(self, path):
         """Return the HTTP status without leaking an unclosed error body."""
 
-        try:
-            with self.get(path) as response:
-                response.read()
-                return response.status
-        except HTTPError as error:
-            code = error.code
-            error.close()
-            return code
+        return self.call(path)[0]
+
+
+class _InMemoryResponse:
+    """Context manager mimicking the urllib response used by the tests."""
+
+    def __init__(self, body: bytes, headers: dict):
+        self._body = body
+        self.headers = headers
+        self.status = 200
+
+    def read(self) -> bytes:
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        return None
 
 
 class HealthTests(ApiTestCase):
@@ -294,22 +362,190 @@ class MesaUiTests(ApiTestCase):
         self.assertIn("location.hash", body)
         self.assertIn("location.replace(\"/\")", body)
 
-    def test_mesa_is_read_only_in_m1(self):
+    def test_the_mesa_exposes_the_area_analysis_action(self):
+        with self.get("/") as response:
+            shell = response.read().decode("utf-8")
+
+        self.assertIn('id="analyze-area"', shell)
+        self.assertIn("Analisar Área Restrita", shell)
+        self.assertIn('id="analyze-status"', shell)
+        self.assertIn('id="area-counters"', shell)
+        self.assertIn('id="pairing-code"', shell)
+        self.assertIn('id="renew-pairing"', shell)
+
+        with self.get("/app.js") as response:
+            script = response.read().decode("utf-8")
+        for counter in ("total", "pending", "completed", "ambiguous"):
+            with self.subTest(counter=counter):
+                self.assertIn(f"{counter}:", script)
+
+    def test_the_mesa_only_posts_the_documented_analyze_action(self):
         with self.get("/") as response:
             shell = response.read().decode("utf-8")
         with self.get("/app.js") as response:
             script = response.read().decode("utf-8")
         source = shell + script
 
+        # M2 adds exactly one state-changing action: Analisar Área Restrita.
+        self.assertIn("/api/v1/area/analyze", source)
         for forbidden in (
             "/api/v1/acquisition",
             "/api/v1/fill",
-            "/api/v1/area/analyze",
-            "method: 'POST'",
-            'method: "POST"',
+            "/api/v1/portal/manual-form",
+            "autoSubmit",
+            "real_send",
         ):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, source)
+
+
+SNAPSHOT = {
+    "role": "list",
+    "source_scope": "sector_finalistic",
+    "marker": {"label": "PROFESSOR - IPERN - 2 RUBRICAS", "value": "6189"},
+    "page": 1,
+    "total_pages": 1,
+    "rows": [
+        {
+            "process_key": "102391/2026",
+            "interested": "Outra Pessoa",
+            "interested_normalized": "outra pessoa",
+            "portal_act_id": None,
+            "classification": "ATO_COMPLEMENTADO",
+            "needs_complement": False,
+            "action_observed": "Ato Complementado",
+        },
+        {
+            "process_key": "102392/2026",
+            "interested": "Terceira Pessoa",
+            "interested_normalized": "terceira pessoa",
+            "portal_act_id": "987654",
+            "classification": "PRECISA_COMPLEMENTAR",
+            "needs_complement": True,
+            "action_observed": "Complementar Ato",
+        },
+        {
+            "process_key": "102390/2026",
+            "interested": "Pessoa Exemplo",
+            "interested_normalized": "pessoa exemplo",
+            "portal_act_id": "123",
+            "classification": "PRECISA_COMPLEMENTAR",
+            "needs_complement": True,
+            "action_observed": "Complementar Ato",
+        },
+    ],
+    "skipped_rows": 0,
+}
+
+
+class AreaAnalyzeFlowTests(ApiTestCase):
+    def start_analyze(self):
+        opener = self.mesa_opener()
+        status, _headers, created = self.call_json(
+            "/api/v1/area/analyze", method="POST", headers=self.mesa_headers(), body={}, opener=opener
+        )
+        self.assertEqual(status, 201, created)
+        return opener, created["command_id"]
+
+    def test_analyze_flow_persists_the_scan_and_updates_processes(self):
+        opener, command_id = self.start_analyze()
+
+        status, _headers, command = self.call_json(
+            f"/api/v1/extension/commands/{command_id}", headers=self.mesa_headers(), opener=opener
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(command["state"], "QUEUED")
+        self.assertEqual(command["type"], "SCAN_AREA")
+
+        extension_headers = self.pair_extension()
+        status, _headers, claimed = self.call_json(
+            "/api/v1/extension/commands/next", headers=extension_headers
+        )
+        self.assertEqual(claimed["command"]["id"], command_id)
+
+        status, _headers, posted = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/result",
+            method="POST",
+            headers=extension_headers,
+            body={**SNAPSHOT, "command_id": command_id, "ok": True},
+        )
+        self.assertEqual(status, 200, posted)
+        self.assertEqual(posted["scan_id"], 1)
+
+        payload = self.get_json("/api/v1/area/latest")
+        self.assertEqual(payload["scan"]["total"], 3)
+        self.assertEqual(payload["scan"]["pending"], 2)
+        self.assertEqual(payload["scan"]["completed"], 1)
+        self.assertEqual(payload["scan"]["ambiguous"], 0)
+        self.assertEqual(payload["scan"]["marker_value"], "6189")
+        self.assertEqual(payload["scan"]["source_scope"], "sector_finalistic")
+
+        processes = {row["process_key"]: row for row in self.get_json("/api/v1/processes")["items"]}
+        self.assertEqual(processes["102391/2026"]["status"], "CONCLUÍDO")
+        self.assertEqual(processes["102392/2026"]["status"], "PENDENTE")
+        self.assertEqual(processes["102392/2026"]["needs_complement"], 1)
+        self.assertEqual(processes["102392/2026"]["portal_act_id"], "987654")
+        # The seeded process was already PRONTO: a portal scan never regresses it.
+        self.assertEqual(processes["102390/2026"]["status"], "PRONTO")
+        self.assertEqual(processes["102390/2026"]["needs_complement"], 1)
+
+        status, _headers, command = self.call_json(
+            f"/api/v1/extension/commands/{command_id}", headers=self.mesa_headers(), opener=opener
+        )
+        self.assertEqual(command["state"], "SUCCEEDED")
+
+    def test_analyze_route_requires_a_mesa_session(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/area/analyze", method="POST", headers=self.mesa_headers(), body={}
+        )
+
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "session_required")
+
+    def test_a_result_without_a_portal_role_is_recorded_but_not_persisted(self):
+        opener, command_id = self.start_analyze()
+        extension_headers = self.pair_extension()
+        self.call_json("/api/v1/extension/commands/next", headers=extension_headers)
+
+        status, _headers, posted = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/result",
+            method="POST",
+            headers=extension_headers,
+            body={"ok": True, "rows": [{"process_key": "102390/2026"}]},
+        )
+
+        self.assertEqual(status, 200, posted)
+        self.assertIsNone(posted.get("scan_id"))
+        self.assertIsNone(self.store.latest_area_scan())
+        status, _headers, command = self.call_json(
+            f"/api/v1/extension/commands/{command_id}", headers=self.mesa_headers(), opener=opener
+        )
+        self.assertEqual(command["state"], "SUCCEEDED")
+
+    def test_a_failed_extension_report_is_stored_as_an_error(self):
+        opener, command_id = self.start_analyze()
+        extension_headers = self.pair_extension()
+        self.call_json("/api/v1/extension/commands/next", headers=extension_headers)
+
+        self.call_json(
+            f"/api/v1/extension/commands/{command_id}/result",
+            method="POST",
+            headers=extension_headers,
+            body={"ok": False, "error": "Nenhuma aba autenticada da Área Restrita está aberta."},
+        )
+
+        _status, _headers, command = self.call_json(
+            f"/api/v1/extension/commands/{command_id}", headers=self.mesa_headers(), opener=opener
+        )
+        self.assertEqual(command["state"], "FAILED")
+        self.assertIn("Área Restrita", command["error"])
+        self.assertIsNone(self.store.latest_area_scan())
+
+    def test_area_latest_is_empty_before_the_first_scan(self):
+        payload = self.get_json("/api/v1/area/latest")
+
+        self.assertIsNone(payload["scan"])
+        self.assertEqual(payload["counters"]["total"], 0)
 
 
 def free_port() -> int:
