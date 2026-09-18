@@ -89,7 +89,75 @@ git add app tests
 git commit -m "refactor: promote remaining runtime engines"
 ~~~
 
-### Task 2: Storage inventory and canonical-copy verifier
+### Task 2: Hybrid archive manager for HOT, ARCHIVED and MISSING documents
+
+**Files:**
+- Create: app/archive/manager.py
+- Modify: app/core/store.py
+- Modify: app/api/server.py
+- Modify: app/web/app.js
+- Modify: app/web/index.html
+- Create: tests/test_archive_manager.py
+
+**Interfaces:**
+- ArchiveManager.archive_process(process_id: int, external_root: Path) -> ArchiveResult
+- ArchiveManager.restore_process(process_id: int) -> ArchiveResult
+- ArchiveManager.reconcile_locations() -> dict
+- document storage_state values: HOT, ARCHIVED, MISSING.
+- schema_version becomes 5 through atomic migration 4 -> 5.
+- POST /api/v1/processes/ID/archive requires authenticated Mesa session and external_root configured in SQLite metadata.
+- POST /api/v1/processes/ID/restore requires authenticated Mesa session.
+
+- [ ] **Step 1: Write failing archive/restore tests**
+
+Create one canonical PDF blob, one process-view hardlink, and SQLite document metadata. Archive to a second temporary root, verify the external SHA, remove the process-view link, mark ARCHIVED, then restore and verify HOT.
+
+Also test reconcile_locations marks MISSING only when neither a verified local blob nor verified external blob exists.
+
+- [ ] **Step 2: Verify RED**
+
+Run: python -m unittest tests.test_archive_manager -v
+
+Expected: archive manager missing.
+
+- [ ] **Step 3: Add blob-location metadata**
+
+Add archive_blobs with sha256 primary key, size_bytes, local_relative_path, external_path, local_present, external_present and verified_at. Migration 4 -> 5 populates rows from existing documents and canonical blob paths.
+
+Documents continue referencing sha256; do not duplicate blob bytes per document.
+
+- [ ] **Step 4: Implement archive safely**
+
+For every distinct SHA referenced by the selected process:
+1. copy the canonical blob to external_root/blobs/AA/SHA.pdf using a temporary file;
+2. hash the external temporary file;
+3. atomically publish it only if SHA matches;
+4. remove the selected process-view hardlink;
+5. remove the local canonical blob only when no remaining HOT document references that SHA;
+6. mark selected documents ARCHIVED.
+
+If any copy/hash fails, leave the local source and metadata HOT.
+
+- [ ] **Step 5: Implement restore and reconciliation**
+
+Restore copies a verified external blob back to the canonical local blob path if absent, recreates the process-view hardlink, verifies SHA, and marks documents HOT. reconcile_locations updates presence flags and marks a document MISSING only when no verified location remains.
+
+- [ ] **Step 6: Add Mesa controls and tests**
+
+Show Arquivar processo only for completed/non-active processes. Show Restaurar documentos for ARCHIVED. Display MISSING as an error state, never as successful archival.
+
+Run: python -m unittest tests.test_archive_manager tests.test_api_server -v
+
+Expected: PASS.
+
+- [ ] **Step 7: Commit**
+
+~~~text
+git add app/archive/manager.py app/core/store.py app/api app/web tests/test_archive_manager.py
+git commit -m "feat: add hybrid archive management"
+~~~
+
+### Task 3: Storage inventory and canonical-copy verifier
 
 **Files:**
 - Create: scripts/storage-audit.py
@@ -143,7 +211,7 @@ git add scripts/storage-audit.py tests/test_storage_audit.py
 git commit -m "feat: audit duplicated project storage"
 ~~~
 
-### Task 3: Explicit full backup and restore manifest
+### Task 4: Explicit full backup and restore manifest
 
 **Files:**
 - Create: scripts/backup.py
@@ -182,7 +250,7 @@ git add scripts/backup.py tests/test_backup.py
 git commit -m "feat: add explicit full archive backup"
 ~~~
 
-### Task 4: New archive-free portable builder
+### Task 5: New archive-free portable builder
 
 **Files:**
 - Create: packaging/build-portable.ps1
@@ -261,7 +329,7 @@ git add packaging START.cmd tests/test_packaging_contract.py
 git commit -m "build: add archive-free portable package"
 ~~~
 
-### Task 5: Clean extraction smoke and build retention
+### Task 6: Clean extraction smoke and build retention
 
 **Files:**
 - Modify: packaging/verify-package.ps1
@@ -307,7 +375,7 @@ git add packaging scripts/rotate-builds.py tests/test_build_retention.py
 git commit -m "build: verify clean portable extraction and retain two builds"
 ~~~
 
-### Task 6: Receipt-driven cleanup tool
+### Task 7: Receipt-driven cleanup tool
 
 **Files:**
 - Create: scripts/cleanup-storage.py
@@ -359,7 +427,7 @@ git add scripts/cleanup-storage.py tests/test_cleanup_storage.py
 git commit -m "feat: add verified storage cleanup"
 ~~~
 
-### Task 7: Make new app/extension/package the default and retire legacy surface
+### Task 8: Make new app/extension/package the default and retire legacy surface
 
 **Files:**
 - Modify: README.md
