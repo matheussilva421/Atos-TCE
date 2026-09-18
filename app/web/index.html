@@ -38,12 +38,13 @@
         </div>
         <p id="acquisition-progress" class="muted"></p>
         <ul id="acquisition-failures" class="failures"></ul>
-        <div id="pairing" class="pairing" hidden>
+        <div id="pairing" class="pairing">
           <p class="muted">
-            Extensão não pareada. Código de pareamento:
-            <strong id="pairing-code" class="mono"></strong>
+            <span id="pairing-state">Verificando a extensão…</span>
+            <strong id="pairing-code" class="mono" hidden></strong>
           </p>
-          <button id="renew-pairing" class="ghost" type="button">Renovar código</button>
+          <button id="renew-pairing" class="ghost" type="button" hidden>Renovar código</button>
+          <button id="reset-pairing" class="ghost" type="button" hidden>Reparear extensão</button>
         </div>
       </section>
 

@@ -3,10 +3,12 @@
 import sqlite3
 import threading
 import unittest
+from unittest import mock
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from app.api.views import area_summary_payload
+from app.core import store as store_module
 from app.core.models import ProcessRecord
 from app.core.store import SCHEMA_V1, SCHEMA_VERSION, Store
 
@@ -242,10 +244,16 @@ class ExtensionCommandTests(AreaScanTestCase):
 
     def test_command_completion_stores_result(self):
         command_id = self.store.create_extension_command("SCAN_AREA", {"scope": "x"})
-        self.store.claim_extension_command("extension-test")
+        claim = self.store.claim_extension_command("extension-test")
 
-        self.store.complete_extension_command(command_id, {"ok": True, "rows": []})
+        outcome = self.store.complete_extension_command(
+            command_id,
+            client_id="extension-test",
+            claim_token=claim["claim_token"],
+            result={"ok": True, "rows": []},
+        )
 
+        self.assertEqual(outcome, "ok")
         command = self.store.get_extension_command(command_id)
         self.assertEqual(command["state"], "SUCCEEDED")
         self.assertEqual(command["result"], {"ok": True, "rows": []})
@@ -254,13 +262,107 @@ class ExtensionCommandTests(AreaScanTestCase):
 
     def test_command_failure_stores_error(self):
         command_id = self.store.create_extension_command("SCAN_AREA", {})
-        self.store.claim_extension_command("extension-test")
+        claim = self.store.claim_extension_command("extension-test")
 
-        self.store.complete_extension_command(command_id, None, error="portal fechado")
+        self.store.complete_extension_command(
+            command_id,
+            client_id="extension-test",
+            claim_token=claim["claim_token"],
+            error="portal fechado",
+        )
 
         command = self.store.get_extension_command(command_id)
         self.assertEqual(command["state"], "FAILED")
         self.assertEqual(command["error"], "portal fechado")
+
+    def test_a_claim_carries_a_token_and_a_lease(self):
+        self.store.create_extension_command("SCAN_AREA", {})
+
+        claim = self.store.claim_extension_command("extension-test")
+
+        self.assertTrue(claim["claim_token"])
+        self.assertEqual(claim["attempt_count"], 1)
+        self.assertGreater(claim["lease_expires_at"], claim["claimed_at"])
+
+    def test_a_dead_worker_does_not_hold_the_command_forever(self):
+        command_id = self.store.create_extension_command("SCAN_AREA", {})
+        with mock.patch.object(store_module, "COMMAND_LEASE_SECONDS", 0.0):
+            first = self.store.claim_extension_command("worker-a")
+            second = self.store.claim_extension_command("worker-b")
+
+        self.assertEqual(first["id"], command_id)
+        self.assertEqual(second["id"], command_id)
+        self.assertEqual(second["client_id"], "worker-b")
+        self.assertEqual(second["attempt_count"], 2)
+        self.assertNotEqual(first["claim_token"], second["claim_token"])
+
+    def test_a_command_that_keeps_dying_ends_as_failed(self):
+        command_id = self.store.create_extension_command("SCAN_AREA", {})
+        with mock.patch.object(store_module, "COMMAND_LEASE_SECONDS", 0.0):
+            for _ in range(store_module.COMMAND_MAX_ATTEMPTS):
+                self.store.claim_extension_command("worker")
+
+        command = self.store.get_extension_command(command_id)
+        self.assertEqual(command["state"], "FAILED")
+        self.assertIn("prazo", command["error"])
+
+    def test_a_stale_claim_token_never_finishes_the_command(self):
+        command_id = self.store.create_extension_command("SCAN_AREA", {})
+        self.store.claim_extension_command("extension-test")
+
+        outcome = self.store.complete_extension_command(
+            command_id,
+            client_id="extension-test",
+            claim_token="nao-e-o-token",
+            result={"ok": True},
+        )
+
+        self.assertEqual(outcome, "stale")
+        self.assertEqual(self.store.get_extension_command(command_id)["state"], "CLAIMED")
+
+    def test_another_client_cannot_finish_someone_elses_command(self):
+        command_id = self.store.create_extension_command("SCAN_AREA", {})
+        claim = self.store.claim_extension_command("worker-a")
+
+        outcome = self.store.complete_extension_command(
+            command_id,
+            client_id="worker-b",
+            claim_token=claim["claim_token"],
+            result={"ok": True},
+        )
+
+        self.assertEqual(outcome, "forbidden")
+        self.assertEqual(self.store.get_extension_command(command_id)["state"], "CLAIMED")
+
+    def test_a_repeated_result_is_a_replay_and_changes_nothing(self):
+        command_id = self.store.create_extension_command("SCAN_AREA", {})
+        claim = self.store.claim_extension_command("extension-test")
+        first = self.store.complete_extension_command(
+            command_id,
+            client_id="extension-test",
+            claim_token=claim["claim_token"],
+            result={"ok": True, "scan_id": 1},
+        )
+        second = self.store.complete_extension_command(
+            command_id,
+            client_id="extension-test",
+            claim_token=claim["claim_token"],
+            result={"ok": True, "scan_id": 2},
+        )
+
+        self.assertEqual((first, second), ("ok", "replay"))
+        self.assertEqual(
+            self.store.get_extension_command(command_id)["result"], {"ok": True, "scan_id": 1}
+        )
+
+    def test_a_command_that_was_never_claimed_cannot_be_completed(self):
+        command_id = self.store.create_extension_command("SCAN_AREA", {})
+
+        outcome = self.store.complete_extension_command(
+            command_id, client_id="extension-test", claim_token="x", result={"ok": True}
+        )
+
+        self.assertEqual(outcome, "stale")
 
     def test_payload_round_trips_as_json(self):
         command_id = self.store.create_extension_command(

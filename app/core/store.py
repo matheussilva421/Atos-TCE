@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import hmac
 import json
+import secrets
 import sqlite3
 import threading
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +30,16 @@ from .models import (
     status_rank,
 )
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
+
+#: How long one claimed command may stay unanswered before another poller may
+#: take it over. The MV3 worker can be suspended mid-command, so a claim is a
+#: lease, never ownership until the end of time.
+COMMAND_LEASE_SECONDS = 120.0
+
+#: How many times a command may be re-claimed after an expired lease before it
+#: is given up as FAILED. A command that keeps dying is a defect, not a queue.
+COMMAND_MAX_ATTEMPTS = 3
 
 
 class StoreError(RuntimeError):
@@ -40,6 +50,13 @@ def utc_now() -> str:
     """Return the current UTC time as a stable, sortable ISO-8601 string."""
 
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def utc_after(seconds: float) -> str:
+    """Return the current UTC time shifted forward, in the same sortable format."""
+
+    shifted = datetime.now(timezone.utc) + timedelta(seconds=float(seconds))
+    return shifted.replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 SCHEMA_V1: tuple[str, ...] = (
@@ -242,6 +259,15 @@ SCHEMA_V5: tuple[str, ...] = (
     "CREATE INDEX idx_archive_blobs_presence ON archive_blobs(local_present, external_present)",
 )
 
+SCHEMA_V6: tuple[str, ...] = (
+    # A claim is a lease: without a deadline a command whose worker died stays
+    # CLAIMED forever and the Mesa waits on a result that will never come.
+    "ALTER TABLE extension_commands ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE extension_commands ADD COLUMN claim_token TEXT",
+    "ALTER TABLE extension_commands ADD COLUMN lease_expires_at TEXT",
+    "CREATE INDEX idx_extension_commands_lease ON extension_commands(state, lease_expires_at)",
+)
+
 #: Sentinel that distinguishes "leave this column alone" from "set it to NULL".
 _UNSET: Any = object()
 
@@ -333,6 +359,10 @@ class Store:
             return
         if target == 5:
             for statement in SCHEMA_V5:
+                connection.execute(statement)
+            return
+        if target == 6:
+            for statement in SCHEMA_V6:
                 connection.execute(statement)
             return
         raise StoreError(f"no migration is defined for schema_version {target}")
@@ -713,43 +743,120 @@ class Store:
         """Atomically claim the oldest queued command for ``client_id``.
 
         ``BEGIN IMMEDIATE`` plus the primary key guarantees two pollers can
-        never receive the same command.
+        never receive the same command. A claim carries a token and a lease: the
+        result is only accepted from the client holding the token, and an
+        expired lease returns the command to the queue (or fails it once the
+        attempt budget is exhausted).
         """
 
+        now = utc_now()
         with self._transaction() as connection:
+            self._release_expired_leases(connection, now)
             row = connection.execute(
                 "SELECT * FROM extension_commands WHERE state = 'QUEUED' ORDER BY id LIMIT 1"
             ).fetchone()
             if row is None:
                 return None
-            claimed_at = utc_now()
+            attempts = int(row["attempt_count"]) + 1
+            token = secrets.token_urlsafe(24)
+            lease_expires_at = utc_after(COMMAND_LEASE_SECONDS)
             connection.execute(
-                "UPDATE extension_commands SET state = 'CLAIMED', client_id = ?, claimed_at = ? WHERE id = ?",
-                (client_id, claimed_at, int(row["id"])),
+                "UPDATE extension_commands SET state = 'CLAIMED', client_id = ?, claimed_at = ?, "
+                "attempt_count = ?, claim_token = ?, lease_expires_at = ? WHERE id = ?",
+                (client_id, now, attempts, token, lease_expires_at, int(row["id"])),
             )
             claimed = dict(row)
-            claimed["state"] = "CLAIMED"
-            claimed["client_id"] = client_id
-            claimed["claimed_at"] = claimed_at
+            claimed.update(
+                {
+                    "state": "CLAIMED",
+                    "client_id": client_id,
+                    "claimed_at": now,
+                    "attempt_count": attempts,
+                    "claim_token": token,
+                    "lease_expires_at": lease_expires_at,
+                }
+            )
         return self._decode_command(claimed)
 
-    def complete_extension_command(
-        self, command_id: int, result: dict[str, Any] | None = None, error: str | None = None
-    ) -> None:
-        """Record the outcome of a claimed command."""
+    @staticmethod
+    def _release_expired_leases(connection: sqlite3.Connection, now: str) -> None:
+        """Requeue, or give up on, every claim whose lease already expired."""
 
-        state = "FAILED" if error else "SUCCEEDED"
-        with self._transaction() as connection:
+        rows = connection.execute(
+            "SELECT id, attempt_count FROM extension_commands "
+            "WHERE state = 'CLAIMED' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ? "
+            "ORDER BY id",
+            (now,),
+        ).fetchall()
+        for row in rows:
+            attempts = int(row["attempt_count"]) + 1
+            if attempts >= COMMAND_MAX_ATTEMPTS:
+                connection.execute(
+                    "UPDATE extension_commands SET state = 'FAILED', error = ?, finished_at = ?, "
+                    "client_id = NULL, claim_token = NULL, lease_expires_at = NULL WHERE id = ?",
+                    (
+                        "a extensão não devolveu o resultado do comando dentro do prazo",
+                        now,
+                        int(row["id"]),
+                    ),
+                )
+                continue
             connection.execute(
-                "UPDATE extension_commands SET state = ?, result = ?, error = ?, finished_at = ? WHERE id = ?",
+                "UPDATE extension_commands SET state = 'QUEUED', client_id = NULL, claimed_at = NULL, "
+                "claim_token = NULL, lease_expires_at = NULL WHERE id = ?",
+                (int(row["id"]),),
+            )
+
+    def complete_extension_command(
+        self,
+        command_id: int,
+        *,
+        client_id: str,
+        claim_token: str | None,
+        result: dict[str, Any] | None = None,
+        error: str | None = None,
+    ) -> str:
+        """Record the outcome of a claimed command and report what happened.
+
+        The transition is conditional on the claim: another client may not
+        finish someone else's command, and a claim whose token does not match is
+        stale. Returns "ok", "replay" (already finished, so the caller must not
+        repeat its side effects), "stale", "forbidden" or "unknown".
+        """
+
+        now = utc_now()
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT state, client_id, claim_token FROM extension_commands WHERE id = ?",
+                (command_id,),
+            ).fetchone()
+            if row is None:
+                return "unknown"
+            state = str(row["state"])
+            if state in {"SUCCEEDED", "FAILED"}:
+                return "replay"
+            if state != "CLAIMED":
+                return "stale"
+            if str(row["client_id"] or "") != str(client_id):
+                return "forbidden"
+            expected = str(row["claim_token"] or "")
+            presented = str(claim_token or "")
+            if not expected or not hmac.compare_digest(
+                expected.encode("utf-8"), presented.encode("utf-8")
+            ):
+                return "stale"
+            connection.execute(
+                "UPDATE extension_commands SET state = ?, result = ?, error = ?, finished_at = ?, "
+                "lease_expires_at = NULL WHERE id = ?",
                 (
-                    state,
+                    "FAILED" if error else "SUCCEEDED",
                     json.dumps(result, ensure_ascii=False, sort_keys=True) if result is not None else None,
                     error,
-                    utc_now(),
+                    now,
                     command_id,
                 ),
             )
+        return "ok"
 
     def get_extension_command(self, command_id: int) -> dict[str, Any] | None:
         with self._lock:
@@ -799,6 +906,45 @@ class Store:
         if row is None:
             return False
         return hmac.compare_digest(str(row["token_hash"]), str(token_hash))
+
+    def authenticate_bridge_client(
+        self,
+        client_id: str,
+        token_hash: str,
+        origin: str | None,
+        extension_id: str | None,
+    ) -> bool:
+        """Check the token *and* the origin that owns it.
+
+        A paired token is only valid from the extension origin it was paired
+        with: a token that leaks to another page cannot be replayed from there,
+        and an extension id that does not match the Origin is refused.
+        """
+
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT token_hash, origin, extension_id FROM bridge_clients WHERE client_id = ?",
+                (client_id,),
+            ).fetchone()
+        if row is None:
+            return False
+        if not hmac.compare_digest(str(row["token_hash"]), str(token_hash)):
+            return False
+        paired_origin = str(row["origin"] or "").strip().casefold()
+        presented_origin = str(origin or "").strip().casefold()
+        if not paired_origin or not presented_origin or paired_origin != presented_origin:
+            return False
+        paired_id = str(row["extension_id"] or "").strip().casefold()
+        if paired_id and paired_id != str(extension_id or "").strip().casefold():
+            return False
+        return True
+
+    def revoke_bridge_clients(self) -> int:
+        """Forget every paired client, so the next pairing starts from zero."""
+
+        with self._transaction() as connection:
+            removed = connection.execute("DELETE FROM bridge_clients").rowcount
+        return int(removed)
 
     def list_bridge_clients(self) -> list[dict[str, Any]]:
         with self._lock:

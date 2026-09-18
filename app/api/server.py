@@ -24,6 +24,7 @@ import ipaddress
 import json
 import mimetypes
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -31,15 +32,26 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from ..core.store import Store
-from ..area_restrita import PORTAL_ROLES
+from ..area_restrita import AREA_CLASSIFICATIONS, PORTAL_ROLES
 from ..area_restrita import cdp_fallback
-from ..area_restrita.fill_service import FillError, FillService
+from ..area_restrita.fill_service import (
+    OPEN_ACT_ACTIONS,
+    OPEN_ACT_SCREENS,
+    FillError,
+    FillService,
+)
 from ..archive.manager import ArchiveError, ArchiveManager
 from ..analysis.service import AnalysisService
 from ..analysis.evidence import evidence_for_field
 from ..econtas.service import AcquisitionError, AcquisitionService
 from . import views
-from .bridge import SESSION_COOKIE, Bridge, hash_token, is_extension_origin
+from .bridge import (
+    SESSION_COOKIE,
+    Bridge,
+    extension_id_from_origin,
+    hash_token,
+    is_extension_origin,
+)
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 18743
@@ -50,6 +62,107 @@ MAX_BODY_BYTES = 8 * 1024 * 1024
 #: Command types the Mesa may queue for the thin extension. There is never a
 #: submit type: the final completion click stays with the operator.
 ALLOWED_COMMAND_TYPES = frozenset({"STATUS", "SCAN_AREA", "OPEN_ACT", "READ_FORM", "FILL_FORM"})
+
+
+def _scan_result_problem(payload: Mapping[str, Any]) -> str | None:
+    """Why a SCAN_AREA success may not be persisted, or None when it may."""
+
+    if str(payload.get("role") or "") not in PORTAL_ROLES:
+        return "role desconhecido no resultado da varredura"
+    if not isinstance(payload.get("source_scope"), str):
+        return "source_scope ausente no resultado da varredura"
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        return "rows ausente no resultado da varredura"
+    for index, row in enumerate(rows):
+        if not isinstance(row, Mapping):
+            return f"linha {index} da varredura não é um objeto"
+        if not str(row.get("process_key") or "").strip():
+            return f"linha {index} da varredura não traz process_key"
+        classification = str(row.get("classification") or "").strip().upper()
+        if classification and classification not in AREA_CLASSIFICATIONS:
+            return f"linha {index} da varredura traz classificação desconhecida: {classification}"
+    marker = payload.get("marker")
+    if marker is not None and not isinstance(marker, Mapping):
+        return "marker inválido no resultado da varredura"
+    return None
+
+
+def _identity_problem(identity: Any) -> str | None:
+    if not isinstance(identity, Mapping):
+        return "identidade ausente"
+    if not str(identity.get("processKey") or identity.get("process_key") or "").strip():
+        return "identidade sem processKey"
+    if not str(
+        identity.get("interestedNormalized") or identity.get("interested_normalized") or ""
+    ).strip():
+        return "identidade sem interessado"
+    return None
+
+
+def _read_form_result_problem(payload: Mapping[str, Any]) -> str | None:
+    problem = _identity_problem(payload.get("identity"))
+    if problem:
+        return f"{problem} no formulário lido"
+    generation = payload.get("generation")
+    if not isinstance(generation, int) or isinstance(generation, bool) or generation < 1:
+        return "generation inválida no formulário lido"
+    if not isinstance(payload.get("fields"), Mapping):
+        return "fields ausente no formulário lido"
+    return None
+
+
+def _fill_result_problem(payload: Mapping[str, Any]) -> str | None:
+    field_results = payload.get("field_results")
+    if not isinstance(field_results, Mapping) or not field_results:
+        return "field_results ausente no resultado do preenchimento"
+    for name, entry in field_results.items():
+        if not isinstance(entry, Mapping):
+            return f"resultado inválido para o campo {name}"
+        if not str(entry.get("status") or "").strip():
+            return f"campo {name} sem status na releitura"
+    return None
+
+
+def _open_act_result_problem(payload: Mapping[str, Any]) -> str | None:
+    action = str(payload.get("action") or "").strip().lower()
+    screen = str(payload.get("screen") or "").strip().lower()
+    if action not in OPEN_ACT_ACTIONS or screen not in OPEN_ACT_SCREENS:
+        return "resultado de navegação desconhecido"
+    return None
+
+
+def check_command_result(
+    command_type: str, payload: Mapping[str, Any]
+) -> tuple[str | None, str | None]:
+    """Return (error, invalid_reason) for one reported command result.
+
+    A success is only a success when the payload declares ok=true *and* carries
+    the shape its command type requires. A payload that declares neither
+    ok=true nor ok=false is refused instead of being recorded as a finished
+    command.
+    """
+
+    declared = payload.get("ok")
+    if declared is False:
+        return (
+            str(payload.get("error") or "").strip() or f"{command_type} recusado pela extensão",
+            None,
+        )
+    if declared is not True:
+        return None, "o resultado precisa declarar ok=true ou ok=false"
+    if command_type == "STATUS":
+        return None, None
+    checker = {
+        "SCAN_AREA": _scan_result_problem,
+        "READ_FORM": _read_form_result_problem,
+        "FILL_FORM": _fill_result_problem,
+        "OPEN_ACT": _open_act_result_problem,
+    }.get(command_type)
+    if checker is None:
+        return None, f"tipo de comando sem contrato de resultado: {command_type}"
+    reason = checker(payload)
+    return (None, reason) if reason else (None, None)
 
 #: Only work that reached its end may leave the local machine.
 ARCHIVE_ELIGIBLE_STATUSES = frozenset({"CONCLUÍDO", "PREENCHIDO"})
@@ -90,6 +203,7 @@ POST_ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/session/bootstrap"), "post_session_bootstrap", "public"),
     Route(re.compile(r"/api/v1/bridge/pair"), "post_bridge_pair", "public"),
     Route(re.compile(r"/api/v1/bridge/pairing/renew"), "post_pairing_renew", "mesa"),
+    Route(re.compile(r"/api/v1/bridge/pairing/reset"), "post_pairing_reset", "mesa"),
     Route(re.compile(r"/api/v1/extension/commands"), "post_extension_command", "mesa"),
     Route(re.compile(r"/api/v1/extension/commands/(?P<command_id>\d+)/result"), "post_command_result", "extension"),
     Route(re.compile(r"/api/v1/area/scans"), "post_area_scan", "mesa"),
@@ -295,9 +409,13 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             return None
         token = header[7:].strip()
         client_id = str(self.headers.get("X-TCE-Client") or "").strip()
-        if not token or not client_id:
+        origin = str(self.headers.get("Origin") or "").strip()
+        extension_id = extension_id_from_origin(origin)
+        if not token or not client_id or extension_id is None:
             return None
-        if not self.mesa.store.verify_bridge_token(client_id, hash_token(token)):
+        if not self.mesa.store.authenticate_bridge_client(
+            client_id, hash_token(token), origin=origin, extension_id=extension_id
+        ):
             return None
         self.mesa.store.touch_bridge_client(client_id)
         return client_id
@@ -637,6 +755,20 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         self.mesa.bridge.renew_pairing_code()
         self._send_json(self._pairing_payload())
 
+    def post_pairing_reset(self) -> None:
+        """Revoke every paired client and issue a fresh pairing code.
+
+        Reinstalling the extension or losing its storage would otherwise leave
+        the Mesa believing it is paired with a client that no longer holds a
+        token, and no new pairing would ever be offered (CR-09).
+        """
+
+        if not self._require_session():
+            return
+        revoked = self.mesa.store.revoke_bridge_clients()
+        self.mesa.bridge.renew_pairing_code()
+        self._send_json({**self._pairing_payload(), "revoked": revoked})
+
     def post_extension_command(self) -> None:
         if not self._require_session():
             return
@@ -655,7 +787,8 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         )
 
     def post_command_result(self, command_id: str) -> None:
-        if self._require_extension() is None:
+        client_id = self._require_extension()
+        if client_id is None:
             return
         payload = self._read_json_body()
         command = self.mesa.store.get_extension_command(int(command_id))
@@ -664,9 +797,39 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
                 {"error": "command_not_found", "command_id": int(command_id)}, status=404
             )
             return
-        error = None if payload.get("ok") is not False else str(payload.get("error") or "") or "command failed"
+        error, invalid = check_command_result(str(command.get("type") or ""), payload)
+        if invalid is not None:
+            self._send_json({"error": "invalid_result", "detail": invalid}, status=400)
+            return
+        claim_token = str(payload.pop("claim_token", "") or "")
+        outcome = self.mesa.store.complete_extension_command(
+            int(command_id),
+            client_id=client_id,
+            claim_token=claim_token,
+            result=payload,
+            error=error,
+        )
+        if outcome == "replay":
+            # The same result arriving twice must not run the workflow twice.
+            self._send_json({"ok": True, "command_id": int(command_id), "replayed": True})
+            return
+        if outcome == "forbidden":
+            self._send_json({"error": "command_owned_by_another_client"}, status=403)
+            return
+        if outcome == "stale":
+            self._send_json({"error": "stale_command_result"}, status=409)
+            return
+        if outcome == "unknown":
+            self._send_json(
+                {"error": "command_not_found", "command_id": int(command_id)}, status=404
+            )
+            return
         detail = self._persist_scan_result(command, payload) if error is None else None
-        self.mesa.store.complete_extension_command(int(command_id), result=payload, error=error)
+        if command.get("type") == "SCAN_AREA" and error is None and detail is None:
+            # The command is already recorded; the operator still needs to know
+            # that the observation was not persisted as a scan.
+            self._send_json({"ok": True, "scan_id": None, "warning": "scan_not_persisted"})
+            return
         if command.get("fill_request_id"):
             # M5: a result that belongs to a fill request advances the workflow.
             try:

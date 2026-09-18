@@ -176,6 +176,141 @@ class ExtensionPairingTests(BridgeTestCase):
         self.assertNotIn(token.encode("utf-8"), database)
         self.assertNotIn(b"618900", database)
 
+    def test_a_token_is_only_valid_from_the_origin_it_was_paired_with(self):
+        token = self.pair()
+
+        status, _headers, payload = self.call_json(
+            "/api/v1/extension/commands/next",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-TCE-Client": "extension-test",
+                "Origin": "chrome-extension://outraextensaoqualquer",
+            },
+        )
+
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "unauthorized")
+
+    def test_a_request_without_an_extension_origin_is_rejected(self):
+        token = self.pair()
+
+        status, _headers, _payload = self.call_json(
+            "/api/v1/extension/commands/next",
+            headers={"Authorization": f"Bearer {token}", "X-TCE-Client": "extension-test"},
+        )
+
+        self.assertEqual(status, 401)
+
+    def test_the_declared_extension_id_must_match_the_origin(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/bridge/pair",
+            method="POST",
+            headers={"Origin": EXTENSION_ORIGIN},
+            body={
+                "client_id": "extension-test",
+                "code": "618900",
+                "extension_id": "outraextensaoqualquer",
+            },
+        )
+
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "pairing_rejected")
+        self.assertEqual(self.store.list_bridge_clients(), [])
+
+    def test_the_paired_extension_id_comes_from_the_origin(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/bridge/pair",
+            method="POST",
+            headers={"Origin": EXTENSION_ORIGIN},
+            body={
+                "client_id": "extension-test",
+                "code": "618900",
+                "extension_id": "abcdefghijklmnopabcdefghijklmnop",
+            },
+        )
+
+        self.assertEqual(status, 200, payload)
+        row = self.store.list_bridge_clients()[0]
+        self.assertEqual(row["origin"], EXTENSION_ORIGIN)
+        self.assertEqual(row["extension_id"], "abcdefghijklmnopabcdefghijklmnop")
+
+    def test_reset_revokes_the_old_client_and_offers_a_new_code(self):
+        old_token = self.pair()
+        opener = self.mesa_opener()
+
+        status, _headers, reset = self.call_json(
+            "/api/v1/bridge/pairing/reset",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={},
+            opener=opener,
+        )
+
+        self.assertEqual(status, 200, reset)
+        self.assertEqual(reset["revoked"], 1)
+        self.assertFalse(reset["paired"])
+        self.assertTrue(reset["code"])
+        self.assertEqual(self.store.list_bridge_clients(), [])
+
+        status, _headers, _payload = self.call_json(
+            "/api/v1/extension/commands/next", headers=self.extension_headers(old_token)
+        )
+        self.assertEqual(status, 401, "o token antigo deixa de funcionar")
+
+        status, _headers, paired = self.call_json(
+            "/api/v1/bridge/pair",
+            method="POST",
+            headers={"Origin": EXTENSION_ORIGIN},
+            body={"client_id": "extension-test", "code": reset["code"]},
+        )
+
+        self.assertEqual(status, 200, paired)
+        new_token = paired["token"]
+        self.assertNotEqual(new_token, old_token)
+        status, _headers, payload = self.call_json(
+            "/api/v1/extension/commands/next", headers=self.extension_headers(new_token)
+        )
+        self.assertEqual(status, 200)
+        self.assertIsNone(payload["command"])
+
+    def test_the_token_issued_after_a_reset_survives_a_restart(self):
+        self.pair()
+        opener = self.mesa_opener()
+        _status, _headers, reset = self.call_json(
+            "/api/v1/bridge/pairing/reset",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={},
+            opener=opener,
+        )
+        _status, _headers, paired = self.call_json(
+            "/api/v1/bridge/pair",
+            method="POST",
+            headers={"Origin": EXTENSION_ORIGIN},
+            body={"client_id": "extension-test", "code": reset["code"]},
+        )
+        token = paired["token"]
+        restarted = self.start_server(Bridge(code="999999"))
+        self.base = f"http://127.0.0.1:{restarted.server_address[1]}"
+
+        status, _headers, payload = self.call_json(
+            "/api/v1/extension/commands/next", headers=self.extension_headers(token)
+        )
+
+        self.assertEqual(status, 200)
+        self.assertIsNone(payload["command"])
+
+    def test_reset_requires_the_mesa_session(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/bridge/pairing/reset",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={},
+        )
+
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "session_required")
+
     def test_token_survives_a_new_server_instance(self):
         token = self.pair()
         restarted = self.start_server(Bridge(code="999999"))
@@ -403,13 +538,21 @@ class ExtensionCommandApiTests(BridgeTestCase):
         )
         command_id = created["command_id"]
         token = self.pair()
-        self.call_json("/api/v1/extension/commands/next", headers=self.extension_headers(token))
+        _status, _headers, claimed = self.call_json(
+            "/api/v1/extension/commands/next", headers=self.extension_headers(token)
+        )
 
         status, _headers, payload = self.call_json(
             f"/api/v1/extension/commands/{command_id}/result",
             method="POST",
             headers=self.extension_headers(token),
-            body={"ok": True, "rows": [{"process_key": "102390/2026"}]},
+            body={
+                "ok": True,
+                "role": "list",
+                "source_scope": "sector_finalistic",
+                "rows": [{"process_key": "102390/2026"}],
+                "claim_token": claimed["command"]["claim_token"],
+            },
         )
         self.assertEqual(status, 200, payload)
 
@@ -420,7 +563,8 @@ class ExtensionCommandApiTests(BridgeTestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(payload["state"], "SUCCEEDED")
-        self.assertEqual(payload["result"], {"ok": True, "rows": [{"process_key": "102390/2026"}]})
+        self.assertEqual(payload["result"]["rows"], [{"process_key": "102390/2026"}])
+        self.assertNotIn("claim_token", payload["result"])
 
     def test_result_route_rejects_an_invalid_token(self):
         status, _headers, payload = self.call_json(

@@ -56,6 +56,21 @@ def is_extension_origin(origin: str | None) -> bool:
     return bool(origin) and origin.strip().casefold().startswith("chrome-extension://")
 
 
+def extension_id_from_origin(origin: str | None) -> str | None:
+    """The extension id an Origin names, or None when it is not an extension origin.
+
+    The Origin header is the only part of an extension request the browser
+    itself fills in, so the id is derived from it and never taken from the
+    request body.
+    """
+
+    if not is_extension_origin(origin):
+        return None
+    parts = urlsplit(str(origin).strip())
+    identifier = (parts.netloc or "").strip()
+    return identifier.casefold() or None
+
+
 @dataclass
 class _ExpiringSecret:
     value: str
@@ -137,11 +152,19 @@ class Bridge:
 
         if not client_id.strip() or not is_extension_origin(origin):
             return None
+        derived = extension_id_from_origin(origin)
+        declared = str(extension_id or "").strip().casefold()
+        if declared and derived and declared != derived:
+            # The body may only agree with the Origin, never replace it.
+            return None
         if not self._accept_code(code.strip()):
             return None
         token = new_token()
         store.pair_bridge_client(
-            client_id.strip(), hash_token(token), origin=origin.strip(), extension_id=extension_id
+            client_id.strip(),
+            hash_token(token),
+            origin=origin.strip(),
+            extension_id=derived or declared or None,
         )
         with self._lock:
             assert self._pairing is not None

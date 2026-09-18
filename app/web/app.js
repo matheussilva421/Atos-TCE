@@ -259,14 +259,25 @@ async function loadPdfjs() {
 
   async function refreshPairing() {
     const section = document.getElementById("pairing");
+    const state_ = document.getElementById("pairing-state");
+    const code = document.getElementById("pairing-code");
+    const renew = document.getElementById("renew-pairing");
+    const reset = document.getElementById("reset-pairing");
     try {
       const payload = await getJson("/api/v1/bridge/pairing");
+      section.hidden = false;
+      reset.hidden = !payload.paired;
+      renew.hidden = Boolean(payload.paired);
+      code.hidden = Boolean(payload.paired) || !payload.code;
+      code.textContent = payload.code || "";
       if (payload.paired) {
-        section.hidden = true;
+        const client = (payload.clients || [])[0] || {};
+        state_.textContent = `Extensão pareada (${client.client_id || "cliente"}).`;
         return;
       }
-      section.hidden = false;
-      document.getElementById("pairing-code").textContent = payload.code || "expirado — renove";
+      state_.textContent = payload.code
+        ? "Extensão não pareada. Código de pareamento:"
+        : "Extensão não pareada. O código expirou — renove para parear.";
     } catch {
       // Without a session yet, the pairing panel simply stays hidden.
       section.hidden = true;
@@ -276,6 +287,19 @@ async function loadPdfjs() {
   async function renewPairing() {
     try {
       await postJson("/api/v1/bridge/pairing/renew", {});
+    } finally {
+      await refreshPairing();
+    }
+  }
+
+  /**
+   * Forget the paired client and show a fresh code. The old token stops
+   * working, which is the only way out when the extension lost its storage.
+   */
+  async function resetPairing() {
+    if (!window.confirm("Reparear a extensão? O token atual deixa de funcionar.")) return;
+    try {
+      await postJson("/api/v1/bridge/pairing/reset", {});
     } finally {
       await refreshPairing();
     }
@@ -784,6 +808,7 @@ async function loadPdfjs() {
       document.getElementById("pdf-viewer").hidden = true;
     });
     document.getElementById("renew-pairing").addEventListener("click", renewPairing);
+    document.getElementById("reset-pairing").addEventListener("click", resetPairing);
 
     refreshHealth();
     refreshStorage();

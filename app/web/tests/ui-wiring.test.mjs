@@ -26,3 +26,9 @@ test("the documents tab is where the viewer is opened from", () => {
   assert.match(source, /button\.source-link/u);
   assert.match(source, /openDocument\(document\.id/u);
 });
+
+test("the Mesa offers to re-pair an extension that lost its storage", () => {
+  assert.match(page, /id="reset-pairing"/u);
+  assert.match(source, /\/api\/v1\/bridge\/pairing\/reset/u);
+  assert.match(source, /addEventListener\("click", resetPairing\)/u);
+});

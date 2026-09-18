@@ -425,7 +425,7 @@ class SchemaV4Tests(FillRequestTestCase):
         # The single place that pins the current schema version for the whole
         # suite; a milestone that bumps it must update this assertion.
         self.assertEqual(self.store.schema_version, SCHEMA_VERSION)
-        self.assertEqual(SCHEMA_VERSION, 5)
+        self.assertEqual(SCHEMA_VERSION, 6)
 
     def test_a_fill_request_round_trips_its_json_snapshot(self):
         process_id = self.make_process()

@@ -519,12 +519,14 @@ class AreaAnalyzeFlowTests(ApiTestCase):
             "/api/v1/extension/commands/next", headers=extension_headers
         )
         self.assertEqual(claimed["command"]["id"], command_id)
+        claim_token = claimed["command"]["claim_token"]
+        self.assertTrue(claim_token)
 
         status, _headers, posted = self.call_json(
             f"/api/v1/extension/commands/{command_id}/result",
             method="POST",
             headers=extension_headers,
-            body={**SNAPSHOT, "command_id": command_id, "ok": True},
+            body={**SNAPSHOT, "command_id": command_id, "ok": True, "claim_token": claim_token},
         )
         self.assertEqual(status, 200, posted)
         self.assertEqual(posted["scan_id"], 1)
@@ -559,36 +561,50 @@ class AreaAnalyzeFlowTests(ApiTestCase):
         self.assertEqual(status, 401)
         self.assertEqual(payload["error"], "session_required")
 
-    def test_a_result_without_a_portal_role_is_recorded_but_not_persisted(self):
+    def test_a_result_without_a_portal_role_is_refused_and_not_recorded(self):
         opener, command_id = self.start_analyze()
         extension_headers = self.pair_extension()
-        self.call_json("/api/v1/extension/commands/next", headers=extension_headers)
+        _status, _headers, claimed = self.call_json(
+            "/api/v1/extension/commands/next", headers=extension_headers
+        )
 
         status, _headers, posted = self.call_json(
             f"/api/v1/extension/commands/{command_id}/result",
             method="POST",
             headers=extension_headers,
-            body={"ok": True, "rows": [{"process_key": "102390/2026"}]},
+            body={
+                "ok": True,
+                "rows": [{"process_key": "102390/2026"}],
+                "claim_token": claimed["command"]["claim_token"],
+            },
         )
 
-        self.assertEqual(status, 200, posted)
-        self.assertIsNone(posted.get("scan_id"))
+        self.assertEqual(status, 400, posted)
+        self.assertEqual(posted["error"], "invalid_result")
+        self.assertIn("role", posted["detail"])
         self.assertIsNone(self.store.latest_area_scan())
         status, _headers, command = self.call_json(
             f"/api/v1/extension/commands/{command_id}", headers=self.mesa_headers(), opener=opener
         )
-        self.assertEqual(command["state"], "SUCCEEDED")
+        # A payload that does not describe a scan never finishes the command.
+        self.assertEqual(command["state"], "CLAIMED")
 
     def test_a_failed_extension_report_is_stored_as_an_error(self):
         opener, command_id = self.start_analyze()
         extension_headers = self.pair_extension()
-        self.call_json("/api/v1/extension/commands/next", headers=extension_headers)
+        _status, _headers, claimed = self.call_json(
+            "/api/v1/extension/commands/next", headers=extension_headers
+        )
 
         self.call_json(
             f"/api/v1/extension/commands/{command_id}/result",
             method="POST",
             headers=extension_headers,
-            body={"ok": False, "error": "Nenhuma aba autenticada da Área Restrita está aberta."},
+            body={
+                "ok": False,
+                "error": "Nenhuma aba autenticada da Área Restrita está aberta.",
+                "claim_token": claimed["command"]["claim_token"],
+            },
         )
 
         _status, _headers, command = self.call_json(
@@ -597,6 +613,107 @@ class AreaAnalyzeFlowTests(ApiTestCase):
         self.assertEqual(command["state"], "FAILED")
         self.assertIn("Área Restrita", command["error"])
         self.assertIsNone(self.store.latest_area_scan())
+
+    def test_a_stale_claim_token_is_refused_with_conflict(self):
+        opener, command_id = self.start_analyze()
+        extension_headers = self.pair_extension()
+        self.call_json("/api/v1/extension/commands/next", headers=extension_headers)
+
+        status, _headers, posted = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/result",
+            method="POST",
+            headers=extension_headers,
+            body={**SNAPSHOT, "ok": True, "claim_token": "token-antigo"},
+        )
+
+        self.assertEqual(status, 409, posted)
+        self.assertEqual(posted["error"], "stale_command_result")
+        self.assertIsNone(self.store.latest_area_scan())
+        _status, _headers, command = self.call_json(
+            f"/api/v1/extension/commands/{command_id}", headers=self.mesa_headers(), opener=opener
+        )
+        self.assertEqual(command["state"], "CLAIMED")
+
+    def test_another_client_cannot_finish_a_command_it_does_not_own(self):
+        opener, command_id = self.start_analyze()
+        owner = self.pair_extension()
+        _status, _headers, claimed = self.call_json(
+            "/api/v1/extension/commands/next", headers=owner
+        )
+        intruder = self.pair_extension(token="outro-token", client_id="outro-cliente")
+
+        status, _headers, posted = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/result",
+            method="POST",
+            headers=intruder,
+            body={**SNAPSHOT, "ok": True, "claim_token": claimed["command"]["claim_token"]},
+        )
+
+        self.assertEqual(status, 403, posted)
+        self.assertEqual(posted["error"], "command_owned_by_another_client")
+        self.assertIsNone(self.store.latest_area_scan())
+
+    def test_a_payload_without_a_boolean_ok_is_refused(self):
+        opener = self.mesa_opener()
+        extension_headers = self.pair_extension()
+        for body in ({}, {"ok": "true"}, {"ok": 1}, {"ok": None}):
+            with self.subTest(body=body):
+                status, _headers, created = self.call_json(
+                    "/api/v1/area/analyze",
+                    method="POST",
+                    headers=self.mesa_headers(),
+                    body={},
+                    opener=opener,
+                )
+                self.assertEqual(status, 201, created)
+                command_id = created["command_id"]
+                _status, _headers, claimed = self.call_json(
+                    "/api/v1/extension/commands/next", headers=extension_headers
+                )
+                self.assertEqual(claimed["command"]["id"], command_id)
+
+                status, _headers, posted = self.call_json(
+                    f"/api/v1/extension/commands/{command_id}/result",
+                    method="POST",
+                    headers=extension_headers,
+                    body={**body, "claim_token": claimed["command"]["claim_token"]},
+                )
+
+                self.assertEqual(status, 400, posted)
+                self.assertEqual(posted["error"], "invalid_result")
+        self.assertIsNone(self.store.latest_area_scan())
+
+    def test_a_replayed_result_does_not_create_a_second_scan(self):
+        _opener, command_id = self.start_analyze()
+        extension_headers = self.pair_extension()
+        _status, _headers, claimed = self.call_json(
+            "/api/v1/extension/commands/next", headers=extension_headers
+        )
+        body = {
+            **SNAPSHOT,
+            "command_id": command_id,
+            "ok": True,
+            "claim_token": claimed["command"]["claim_token"],
+        }
+
+        first_status, _headers, first = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/result",
+            method="POST",
+            headers=extension_headers,
+            body=body,
+        )
+        second_status, _headers, second = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/result",
+            method="POST",
+            headers=extension_headers,
+            body=body,
+        )
+
+        self.assertEqual(first_status, 200, first)
+        self.assertEqual(first["scan_id"], 1)
+        self.assertEqual(second_status, 200, second)
+        self.assertTrue(second["replayed"])
+        self.assertEqual(self.store.latest_area_scan()["id"], 1)
 
     def test_area_latest_is_empty_before_the_first_scan(self):
         payload = self.get_json("/api/v1/area/latest")
@@ -1015,6 +1132,7 @@ class FillOrchestrationTests(ApiTestCase):
         )
         self.extension = self.pair_extension()
         self.opener = self.mesa_opener()
+        self.claim_tokens: dict[int, str | None] = {}
 
     # ---------------------------------------------------------------- helpers
 
@@ -1023,17 +1141,33 @@ class FillOrchestrationTests(ApiTestCase):
             "/api/v1/extension/commands/next", headers=self.extension
         )
         self.assertEqual(status, 200, payload)
-        return payload["command"]
+        command = payload["command"]
+        if command:
+            self.claim_tokens[int(command["id"])] = command.get("claim_token")
+        return command
 
     def report(self, command_id, body):
+        # A result is only accepted from the client holding the lease (CR-06).
+        claim_token = self.claim_tokens.get(int(command_id))
         status, _headers, payload = self.call_json(
             f"/api/v1/extension/commands/{command_id}/result",
             method="POST",
             headers=self.extension,
-            body=body,
+            body={**body, "claim_token": claim_token},
         )
         self.assertEqual(status, 200, payload)
         return payload
+
+    def report_raw(self, command_id, body):
+        """Report a result without asserting the status, for refusal cases."""
+
+        claim_token = self.claim_tokens.get(int(command_id))
+        return self.call_json(
+            f"/api/v1/extension/commands/{command_id}/result",
+            method="POST",
+            headers=self.extension,
+            body={**body, "claim_token": claim_token},
+        )
 
     def start_fill(self):
         status, _headers, payload = self.call_json(
@@ -1099,6 +1233,24 @@ class FillOrchestrationTests(ApiTestCase):
         }
 
     # ------------------------------------------------------------------ tests
+
+    def test_a_fill_result_without_a_reread_is_refused(self):
+        # CR-08: a FILL_FORM success that carries no field_results would mark
+        # the act as filled on no evidence at all.
+        request_id = self.start_fill()
+        open_command = self.claim()
+        self.report(open_command["id"], self.open_result())
+        read_command = self.claim()
+        self.report(read_command["id"], self.read_form_result())
+        fill_command = self.claim()
+        self.assertEqual(fill_command["type"], "FILL_FORM")
+
+        status, _headers, posted = self.report_raw(fill_command["id"], {"ok": True})
+
+        self.assertEqual(status, 400, posted)
+        self.assertEqual(posted["error"], "invalid_result")
+        self.assertIn("field_results", posted["detail"])
+        self.assertEqual(self.fill_state(request_id)["state"], "FILLING")
 
     def test_the_full_chain_opens_reads_preflights_and_fills(self):
         request_id = self.start_fill()

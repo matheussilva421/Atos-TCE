@@ -441,7 +441,12 @@ export function installRouter({
           error: String(error?.message ?? error),
         };
       }
-      await api.reportResult(outcome.command.id, result);
+      // The claim token proves this client still holds the lease, so a stale
+      // result can never finish a command another poller already took over.
+      await api.reportResult(outcome.command.id, {
+        ...result,
+        claim_token: outcome.command.claim_token ?? null,
+      });
       if (verbose) console.debug(`ATOS TCE: comando ${outcome.command.id} (${result.ok ? "ok" : "falhou"})`);
       return { ok: true, command: outcome.command.id, result };
     } finally {
