@@ -810,6 +810,27 @@ Pacote reconstruído depois das mudanças de documentação e extensão:
 430 arquivos de runtime conferidos; rotação aplicada com esse hash, deixando
 `Atos-TCE-portable.zip` (novo) e `Atos-TCE-portable.previous.zip` (91,6 MB cada).
 
+Preparação da remoção (achados desta varredura, todos não destrutivos e já no
+repositório):
+
+1. `tests/legal_parity_harness.mjs` carregava o oráculo legal JS do legado — os 7
+   arquivos do fecho foram promovidos para `tests/oracles/legal/` (com README de
+   proveniência) e o harness lê de lá, então o gate de paridade de M4 sobrevive à
+   retirada;
+2. `tests/test_econtas_acquisition.py` lia a fila congelada pelo validador legado
+   em 5 testes — eles agora pulam quando a árvore não existe e um teste novo,
+   ancorado no validador promovido (`app/econtas/runtime/TceFrozenQueue.psm1`),
+   cobre as mesmas invariantes (lotes 50/42 e colapso de duplicatas);
+3. `app/analysis/legacy_adapter.py` sondava `portable/runtime/tesseract` como
+   fallback de desenvolvimento — a sonda saiu: só `<data_root>/runtime/tesseract`
+   e `<repo>/runtime/tesseract` são procuradas, e o erro lista os caminhos;
+4. `tests/test_no_legacy_paths.py` agora reprova também o segmento
+   `tce-extractor`, pegando caminho composto (`"work" / "tce-extractor" / ...`);
+5. `tests/test_legal_rules.py` ganhou um teste que exige o oráculo dentro do
+   repositório.
+
+Suíte após a preparação: 407 testes, 407 aprovados.
+
 **A remoção (passos 4, 5 e 7 do plano) não foi executada.** O gate destrutivo
 continua exigindo: M2 real de leitura da Área Restrita, M3 real de aquisição
 limitada e M5 supervisionado de preenchimento (todos dependem de portal e

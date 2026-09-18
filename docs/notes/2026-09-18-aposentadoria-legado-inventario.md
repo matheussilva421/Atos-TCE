@@ -80,6 +80,21 @@ aqui).
    `packaging/` já foram reescritas; a fronteira é verificada por
    `tests/test_no_legacy_paths.py`.
 
+5. **Quatro dependências reais da superfície de teste apontavam para o legado.**
+   Elas foram encontradas nesta varredura e já estão re-ancoradas, para que a
+   remoção não quebre os gates:
+
+   | Dependência | Situação agora |
+   |---|---|
+   | `tests/legal_parity_harness.mjs` carregava o oráculo legal JS do legado | os 7 arquivos do fecho foram promovidos para `tests/oracles/legal/` (com README de proveniência) e o harness lê de lá; teste novo garante que o oráculo mora no repositório |
+   | `tests/test_econtas_acquisition.py` lia a fila congelada pelo validador legado em 5 testes | esses testes agora pulam quando a árvore não existe e um teste novo, ancorado no validador promovido (`app/econtas/runtime/TceFrozenQueue.psm1`), cobre as mesmas invariantes (lotes 50/42, ordem e colapso de duplicatas) |
+   | `app/analysis/legacy_adapter.py` sondava `portable/runtime/tesseract` como fallback de desenvolvimento | removido: só as localizações suportadas (`<data_root>/runtime/tesseract` e `<repo>/runtime/tesseract`) são sondadas, e o erro lista os caminhos tentados |
+   | varredura de fronteira só via o caminho literal | agora reprova também o *segmento* `tce-extractor`, pegando caminho composto (`"work" / "tce-extractor" / ...`) |
+
+   Com isso, `app/`, `extension/`, `packaging/` e `START.cmd` não citam o legado
+   nem por segmento, e os gates de M4 (paridade legal) e de M3 (fila congelada)
+   continuam verificáveis depois da retirada.
+
 ## 4. Sequência proposta (cada passo exige autorização)
 
 **Etapa A — retirar o stack legado (U1, U2, U3, U4, U6, U7).**
