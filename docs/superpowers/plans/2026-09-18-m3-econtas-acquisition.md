@@ -238,7 +238,7 @@ git commit -m "feat: adapt proven e-Contas collector"
 - AcquisitionPlan: process_ids, process_keys, total, lot_size=50, lot_count.
 - AcquisitionService.start(plan) -> job_id
 - worker processes lots serially; legacy collector may still download at MaxDownloads 2 inside one process.
-- After each lot, service rescans the archive and updates document/acquisition state.
+- After each lot, service calls app.archive.legacy_import.canonicalize_process_tree(data_root, store), then rescans the archive and updates document/acquisition state. This moves newly downloaded bytes into the canonical SHA blob store and leaves the legacy-shaped process path as a verified hardlink whenever supported.
 
 - [ ] **Step 1: Write failing plan test**
 
@@ -252,7 +252,7 @@ Expected: service missing.
 
 - [ ] **Step 3: Implement coordinator**
 
-Use the latest area_scan order. Generate one frozen queue for the whole plan, then invoke lot 1..N. Mark each process QUEUED before start. Update states after each lot by comparing archive contents to requested keys. A lot failure does not erase prior successes. auth_required pauses the job as WAITING_FOR_LOGIN and stops later lots.
+Use the latest area_scan order. Generate one frozen queue for the whole plan, then invoke lot 1..N. Mark each process QUEUED before start. After each lot, canonicalize the process tree before updating states by comparing archive contents to requested keys. A lot failure does not erase prior successes. auth_required pauses the job as WAITING_FOR_LOGIN and stops later lots.
 
 - [ ] **Step 4: Verify GREEN**
 
