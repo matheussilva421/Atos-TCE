@@ -109,7 +109,9 @@ git commit -m "feat: persist Área Restrita scans and extension commands"
 **Interfaces:**
 - POST /api/v1/bridge/pair with client_id + six-digit code -> bearer token
 - GET /api/v1/bridge/status with bearer token
-- POST /api/v1/extension/commands with same-origin Mesa request
+- POST /api/v1/session/bootstrap consumes a one-time Mesa bootstrap token and sets an HttpOnly SameSite=Strict loopback session cookie
+- Every state-changing Mesa route requires that session cookie plus same-origin Origin/Sec-Fetch-Site validation
+- POST /api/v1/extension/commands with authenticated same-origin Mesa request
 - GET /api/v1/extension/commands/next with bearer token + X-TCE-Client
 - POST /api/v1/extension/commands/ID/result with bearer token
 - POST /api/v1/area/scans is internal command-result handling, not public unauthenticated input.
@@ -139,7 +141,9 @@ Expected: pairing/command routes are 404.
 
 Generate a six-digit in-memory pairing code at server startup. Display it in the Mesa only while no valid bridge client is connected. On successful pairing, return a 32-byte URL-safe token and persist SHA-256(token) with client_id. Never persist plaintext token or pairing code.
 
-Allow CORS only for chrome-extension origins on authenticated extension routes. Same-origin Mesa requests do not require bridge bearer auth.
+For the Mesa itself, app.main generates a separate one-time bootstrap token and opens /bootstrap#token=TOKEN. Bootstrap JavaScript posts that token to /api/v1/session/bootstrap; the server consumes it once and sets an HttpOnly, SameSite=Strict session cookie. Reject state-changing Mesa requests without that cookie or with a non-loopback/non-same-origin Origin.
+
+Allow CORS only for chrome-extension origins on authenticated extension routes. Extension bearer authentication and Mesa session authentication are separate contracts.
 
 - [ ] **Step 4: Verify GREEN**
 
