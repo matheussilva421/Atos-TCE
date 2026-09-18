@@ -45,9 +45,9 @@ WEB_ROOT = Path(__file__).resolve().parent.parent / "web"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MAX_BODY_BYTES = 8 * 1024 * 1024
 
-#: Command types the Mesa may queue for the thin extension. M5 extends this
-#: list with OPEN_ACT, READ_FORM and FILL_FORM; there is never a submit type.
-ALLOWED_COMMAND_TYPES = frozenset({"STATUS", "SCAN_AREA"})
+#: Command types the Mesa may queue for the thin extension. There is never a
+#: submit type: the final completion click stays with the operator.
+ALLOWED_COMMAND_TYPES = frozenset({"STATUS", "SCAN_AREA", "OPEN_ACT", "READ_FORM", "FILL_FORM"})
 
 @dataclass(frozen=True)
 class Route:

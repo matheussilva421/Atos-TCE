@@ -17,6 +17,8 @@ import {
 
 const RETRY_ATTEMPTS = 4;
 const RETRY_DELAY_MS = 300;
+const FORM_READ_ATTEMPTS = 10;
+const FORM_READ_DELAY_MS = 800;
 
 function delay(milliseconds) {
   return new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds));
@@ -35,8 +37,27 @@ export async function executeCommand(command, dependencies = {}) {
   if (type === COMMAND_TYPES.STATUS) {
     return { command_id: commandId, ok: true, status: "ready" };
   }
-  const snapshot = await dependencies.scanPortal(command.payload ?? {});
-  return { ...snapshot, command_id: commandId, ok: true };
+  if (type === COMMAND_TYPES.SCAN_AREA) {
+    const snapshot = await dependencies.scanPortal(command.payload ?? {});
+    return { ...snapshot, command_id: commandId, ok: true };
+  }
+  if (type === COMMAND_TYPES.OPEN_ACT) {
+    const outcome = (await dependencies.openAct(command.payload ?? {})) ?? {};
+    return { ...outcome, command_id: commandId };
+  }
+  if (type === COMMAND_TYPES.READ_FORM) {
+    const form = await dependencies.readForm(command.payload ?? {});
+    if (!form) {
+      return {
+        command_id: commandId,
+        ok: false,
+        error: "o formulário do ato não apareceu a tempo na Área Restrita",
+      };
+    }
+    return { ...form, command_id: commandId, ok: true };
+  }
+  // Declared by the protocol but not implemented yet: refuse instead of guessing.
+  return { command_id: commandId, ok: false, error: `unsupported command: ${type}` };
 }
 
 /**
@@ -133,6 +154,48 @@ export function installRouter({
     });
   }
 
+  async function portalTabs() {
+    return (await chromeApi.tabs.query({ url: [`${PORTAL_ORIGIN}/*`] })) ?? [];
+  }
+
+  /**
+   * Ask every Área Restrita tab to open the act. The legacy portal opens the
+   * form in a sibling tab, so the loop is over tabs, not over one document.
+   */
+  async function openAct(payload) {
+    const tabs = await portalTabs();
+    if (tabs.length === 0) {
+      throw new Error("Nenhuma aba autenticada da Área Restrita está aberta.");
+    }
+    let lastRefusal = { ok: false, code: "SCREEN_NOT_NAVIGABLE" };
+    for (const tab of tabs) {
+      try {
+        const response = await sendToTab(tab.id, { type: MESSAGE_TYPES.OPEN_ACT, payload });
+        if (response?.ok === true) return response;
+        if (response?.ok === false) lastRefusal = response;
+      } catch (error) {
+        lastRefusal = { ok: false, code: "TAB_UNREACHABLE", error: String(error?.message ?? error) };
+      }
+    }
+    return lastRefusal;
+  }
+
+  /** Wait for the act form to appear, then return its sanitized state. */
+  async function readForm(payload) {
+    for (let attempt = 0; attempt < FORM_READ_ATTEMPTS; attempt += 1) {
+      for (const tab of await portalTabs()) {
+        try {
+          const response = await sendToTab(tab.id, { type: MESSAGE_TYPES.READ_FORM, payload });
+          if (response?.ok === true && response.form) return response.form;
+        } catch {
+          // The sibling tab is usually still loading on the first attempts.
+        }
+      }
+      await delay(FORM_READ_DELAY_MS);
+    }
+    return null;
+  }
+
   async function poll() {
     if (running) return { ok: true, skipped: true };
     running = true;
@@ -143,7 +206,7 @@ export function installRouter({
 
       let result;
       try {
-        result = await executeCommand(outcome.command, { scanPortal });
+        result = await executeCommand(outcome.command, { scanPortal, openAct, readForm });
       } catch (error) {
         result = {
           command_id: outcome.command.id,
@@ -174,7 +237,7 @@ export function installRouter({
     if (alarm?.name === "tce-recovery-poll") poll();
   });
 
-  return { poll, scanPortal };
+  return { poll, scanPortal, openAct, readForm };
 }
 
 if (globalThis.chrome?.runtime?.onMessage?.addListener) {

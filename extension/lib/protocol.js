@@ -11,12 +11,17 @@ export const MESSAGE_TYPES = Object.freeze({
   POLL_COMMANDS: "POLL_COMMANDS",
   SCAN_PAGE: "SCAN_PAGE",
   LIST_PAGE: "LIST_PAGE",
+  OPEN_ACT: "OPEN_ACT",
+  READ_FORM: "READ_FORM",
 });
 
-/** Command types the Mesa may queue. M5 adds OPEN_ACT, READ_FORM and FILL_FORM. */
+/** Command types the Mesa may queue. There is still no submit type. */
 export const COMMAND_TYPES = Object.freeze({
   STATUS: "STATUS",
   SCAN_AREA: "SCAN_AREA",
+  OPEN_ACT: "OPEN_ACT",
+  READ_FORM: "READ_FORM",
+  FILL_FORM: "FILL_FORM",
 });
 
 /**

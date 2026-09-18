@@ -18,14 +18,37 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const extensionRoot = join(here, "..");
 
-test("M2 supports exactly STATUS and SCAN_AREA", () => {
-  assert.deepEqual(Object.values(COMMAND_TYPES).sort(), ["SCAN_AREA", "STATUS"]);
+test("the protocol declares the scanning and filling commands", () => {
+  assert.deepEqual(Object.values(COMMAND_TYPES).sort(), [
+    "FILL_FORM",
+    "OPEN_ACT",
+    "READ_FORM",
+    "SCAN_AREA",
+    "STATUS",
+  ]);
   assert.ok(isSupportedCommand("SCAN_AREA"));
   assert.ok(isSupportedCommand("scan_area"));
   assert.ok(isSupportedCommand("STATUS"));
-  assert.equal(isSupportedCommand("OPEN_ACT"), false);
+  assert.ok(isSupportedCommand("OPEN_ACT"));
+  assert.ok(isSupportedCommand("READ_FORM"));
+  assert.ok(isSupportedCommand("FILL_FORM"));
   assert.equal(isSupportedCommand(""), false);
   assert.equal(isSupportedCommand(undefined), false);
+});
+
+test("no submit command was added with the filling vocabulary", () => {
+  assert.equal(Object.values(COMMAND_TYPES).includes("COMPLEMENT_ACT"), false);
+  assert.equal(Object.values(MESSAGE_TYPES).includes("SUBMIT"), false);
+});
+
+test("the manifest loads the scanner, the form reader and the navigator", () => {
+  const manifest = JSON.parse(readFileSync(join(extensionRoot, "manifest.json"), "utf8"));
+  const scripts = manifest.content_scripts[0].js;
+
+  assert.ok(scripts.includes("lib/area-snapshot.js"));
+  assert.ok(scripts.includes("content/detect-form.js"));
+  assert.ok(scripts.includes("content/navigate.js"));
+  assert.ok(scripts.indexOf("lib/area-snapshot.js") < scripts.indexOf("content/detect-form.js"));
 });
 
 test("the protocol has no way to finish an act", () => {

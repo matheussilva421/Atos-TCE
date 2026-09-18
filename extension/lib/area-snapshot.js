@@ -597,6 +597,37 @@
     });
   }
 
+  /**
+   * Locate the Complementar Ato control of one exact row on a list screen.
+   * The caller decides whether to paginate first; this only reads.
+   */
+  function findActControl(documentRef, identity) {
+    const wantedKey = String(identity?.processKey ?? "").trim();
+    const wanted = normalizeInterested(identity?.interestedNormalized);
+    if (!wantedKey || !wanted) return null;
+    for (const entry of listIdentityEntries(documentRef)) {
+      if (String(entry.identity.processKey ?? "") !== wantedKey) continue;
+      if (normalizeInterested(entry.identity.interestedNormalized) !== wanted) continue;
+      if (entry.control) return entry.control;
+    }
+    return null;
+  }
+
+  /**
+   * Locate the radio of the exact interested person on the interested screen.
+   * The name resolution is the proven row/header rule, shared with the scan.
+   */
+  function findInterestedRadio(documentRef, identity) {
+    const wanted = normalizeInterested(identity?.interestedNormalized);
+    if (!wanted) return null;
+    for (const row of interestedRows(documentRef)) {
+      const radio = queryOne(row, 'input[type="radio"]');
+      if (!radio) continue;
+      if (normalizeInterested(interestedTextFromRow(row, radio)) === wanted) return radio;
+    }
+    return null;
+  }
+
   globalThis.TCEAreaSnapshot = Object.freeze({
     scan,
     normalizeInterested,
@@ -604,6 +635,9 @@
     pageInfo,
     findNextPageControl,
     findFirstPageControl,
+    findActControl,
+    findInterestedRadio,
+    dom: Object.freeze({ queryAll, queryOne, byId, getAttribute, textOf, hasCanonicalIdentity }),
     PORTAL_ROLES,
     AREA_CLASSIFICATIONS,
   });

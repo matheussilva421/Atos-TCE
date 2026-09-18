@@ -46,6 +46,59 @@ test("an unknown command type is refused, never guessed", async () => {
   assert.match(result.error, /unsupported command/u);
 });
 
+const IDENTITY = { processKey: "102390/2026", interestedNormalized: "pessoa exemplo" };
+
+test("an OPEN_ACT command reports the navigation outcome", async () => {
+  const result = await executeCommand(
+    { id: 21, type: "OPEN_ACT", payload: { identity: IDENTITY } },
+    { openAct: async () => ({ ok: true, action: "open_act", screen: "list", waitingForFrame: true }) }
+  );
+
+  assert.equal(result.command_id, 21);
+  assert.equal(result.ok, true);
+  assert.equal(result.action, "open_act");
+  assert.equal(result.waitingForFrame, true);
+});
+
+test("a navigation refusal keeps its code", async () => {
+  const result = await executeCommand(
+    { id: 22, type: "OPEN_ACT", payload: {} },
+    { openAct: async () => ({ ok: false, code: "ROW_ACTION_NOT_FOUND" }) }
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "ROW_ACTION_NOT_FOUND");
+});
+
+test("a READ_FORM command returns the sanitized form", async () => {
+  const result = await executeCommand(
+    { id: 23, type: "READ_FORM", payload: {} },
+    { readForm: async () => ({ identity: IDENTITY, generation: 3, fields: {}, options: {} }) }
+  );
+
+  assert.equal(result.command_id, 23);
+  assert.equal(result.ok, true);
+  assert.equal(result.generation, 3);
+  assert.equal(result.identity.processKey, "102390/2026");
+});
+
+test("a form that never appears fails instead of inventing a snapshot", async () => {
+  const result = await executeCommand(
+    { id: 24, type: "READ_FORM", payload: {} },
+    { readForm: async () => null }
+  );
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /formulário/u);
+});
+
+test("FILL_FORM is declared but the router still refuses to guess it", async () => {
+  const result = await executeCommand({ id: 25, type: "FILL_FORM", payload: { fields: {} } }, {});
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /unsupported command/u);
+});
+
 test("a command without a type is refused", async () => {
   const result = await executeCommand({ id: 6 }, {});
 

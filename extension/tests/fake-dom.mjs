@@ -276,3 +276,96 @@ export function buildFormDocument({
   documentRef.body.append(form);
   return documentRef;
 }
+
+export const ACT_FIELD_IDS = Object.freeze({
+  modalidade: "txtModalidade",
+  fundamento_legal: "txtFundamentoLegal",
+  data_publicacao_doe: "txtDataDOE",
+  cargo: "txtCargo",
+  matricula: "txtMatricula",
+  data_nascimento: "txtDataNascimento",
+  genero: "txtGenero",
+});
+
+/** A frame element as the visibility rule sees it. */
+export function buildFrameElement({ visible = true } = {}) {
+  const frame = new FakeElement("iframe");
+  frame.getBoundingClientRect = () => (visible ? { width: 800, height: 600 } : { width: 0, height: 0 });
+  frame.getClientRects = () => (visible ? [{}] : []);
+  return frame;
+}
+
+/**
+ * The act form of the restricted portal: process identity, the seven mapped
+ * controls (inputs and selects) and, when asked, the interested radio table.
+ */
+export function buildActFormDocument({
+  processKey = "102390/2026",
+  values = {},
+  selects = {},
+  selected = null,
+  frame = null,
+  hiddenAncestor = false,
+  complete = true,
+} = {}) {
+  const documentRef = new FakeDocument({ screen: "form" });
+  const parentWindow = frame ? { document: null } : null;
+  documentRef.defaultView = {
+    location: { href: "https://portal.test/complementarato.asp" },
+    frameElement: frame,
+    parent: frame ? parentWindow : null,
+    getComputedStyle: () => ({}),
+  };
+  if (!frame) documentRef.defaultView.parent = documentRef.defaultView;
+
+  const form = new FakeElement("form", { id: "complementarAtoForm" });
+  const [number, year] = String(processKey).split("/");
+  form.append(
+    new FakeElement("input", { id: "txtNumeroProcesso", value: number ?? "" }),
+    new FakeElement("input", { id: "txtAnoProcesso", value: year ?? "" })
+  );
+  for (const [name, id] of Object.entries(ACT_FIELD_IDS)) {
+    if (selects[name]) {
+      const select = new FakeElement("select", { id });
+      for (const option of selects[name]) {
+        const node = new FakeElement("option", {
+          text: option.label ?? "",
+          value: option.value ?? "",
+        });
+        if (option.selected) {
+          node.selected = true;
+          select.value = option.value;
+        }
+        select.append(node);
+      }
+      form.append(select);
+      continue;
+    }
+    if (!complete && name === "genero") continue;
+    const input = new FakeElement("input", { id, value: values[name] ?? "" });
+    form.append(input);
+  }
+  documentRef.body.append(form);
+
+  if (selected !== null) {
+    const table = new FakeElement("table", { id: "PessoasAssocicadas" });
+    for (const person of [selected]) {
+      const row = new FakeElement("tr");
+      const radio = new FakeElement("input", { attrs: { type: "radio" } });
+      radio.setAttribute("data-interested-name", person);
+      radio.checked = true;
+      const control = new FakeElement("td");
+      control.append(radio);
+      row.append(cell(person), control);
+      table.append(row);
+    }
+    documentRef.body.append(table);
+  }
+
+  if (hiddenAncestor) {
+    const wrapper = new FakeElement("div", { attrs: { "aria-hidden": "true" } });
+    wrapper.append(form);
+    documentRef.body.append(wrapper);
+  }
+  return documentRef;
+}

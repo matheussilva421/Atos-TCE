@@ -18,6 +18,8 @@
       "matches": ["https://novaarearestrita.tce.rn.gov.br/*"],
       "js": [
         "lib/area-snapshot.js",
+        "content/detect-form.js",
+        "content/navigate.js",
         "content/scan-area.js",
         "content/paging.js",
         "content/heartbeat.js"
