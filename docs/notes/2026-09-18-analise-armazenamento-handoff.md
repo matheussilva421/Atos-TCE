@@ -116,3 +116,33 @@ Antes de qualquer remoção: (1) encerrar/confirmar os processos que usam
 canônicos; (3) gerar manifesto com caminhos, tamanhos e SHA-256; (4) mover
 primeiro para quarentena fora do caminho de execução; (5) revalidar os gates e
 o espaço livre; (6) só então considerar exclusão autorizada.
+
+## Segunda medição — 2026-09-18
+
+O estado atual foi medido novamente sem alterações destrutivas:
+
+- `outputs/`: 39.909.298.353 bytes, praticamente igual à medição anterior
+  (variação de aproximadamente +102 KB);
+- `Versions/`: 10.585.452.797 bytes, sem variação relevante;
+- `work/`: 9.407.409.500 bytes, sem variação relevante;
+- total lógico do projeto: aproximadamente 60,1 GB;
+- espaço livre no volume C: 56,59 GB, contra 56,43 GB na medição anterior.
+
+O crescimento está concentrado em `outputs/qa-extract-2026-09-17/`, que passou
+de 33.059 para 33.063 arquivos e aumentou 98.555 bytes. Os novos/atualizados
+artefatos incluem `.workflow-state.lock`, estado de execução, ordem/progresso
+do portal e `dados-locais/bridge/service.json`. A pasta foi atualizada às
+08:14 e continua operacionalmente ativa; não é candidata segura a remoção.
+
+Foi observado também um estado que precisa de reconciliação antes de qualquer
+limpeza: o marcador de serviço dessa extração registra
+`real_send_enabled=true` com `real_send_qualification=missing`, mas aponta para
+o PID 16140, que não está em execução. Há outro Python ativo usando o runtime
+da extração de QA. Esse marcador pode ser obsoleto, mas deve ser tratado como
+estado operacional sensível: não apagar, não reutilizar e não interpretar como
+qualificação válida sem confirmar o serviço atual e a fronteira
+`real_send_enabled=false`.
+
+O Git avançou para `fe35a0c` (`origin/main`) e o worktree agora só mostra o
+arquivo não rastreado `work/tce-extractor/.codex-live-pilot.py`. Nenhum arquivo
+foi modificado por esta segunda auditoria.
