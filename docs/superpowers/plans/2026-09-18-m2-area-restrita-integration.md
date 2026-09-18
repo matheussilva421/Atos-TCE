@@ -63,6 +63,22 @@ def test_area_scan_updates_processes_and_counts(self):
     self.assertEqual(scan["pending"], 1)
     self.assertEqual(store.list_processes()[0]["status"], "PENDENTE")
 
+    completed_id = store.create_area_scan(
+        source_scope="sector_finalistic",
+        marker_label="PROFESSOR - IPERN - 2 RUBRICAS",
+        marker_value="6189",
+        rows=[{
+            "process_key": "102390/2026",
+            "interested": "Pessoa Exemplo",
+            "interested_normalized": "pessoa exemplo",
+            "portal_act_id": "123",
+            "classification": "ATO_COMPLEMENTADO",
+            "needs_complement": False,
+            "action_observed": "Ato Complementado",
+        }],
+    )
+    self.assertEqual(store.get_process(store.list_processes()[0]["id"])["status"], "CONCLUÍDO")
+
 def test_extension_command_is_claimed_once(self):
     command_id = store.create_extension_command("SCAN_AREA", {})
     first = store.claim_extension_command("extension-test")
@@ -79,7 +95,7 @@ Expected: missing methods/schema.
 
 - [ ] **Step 3: Implement migration 1 to 2**
 
-Add tables area_scans, area_scan_items, bridge_clients and extension_commands. Add process columns portal_act_id, area_classification, needs_complement and last_area_scan_id.
+Add tables area_scans, area_scan_items, bridge_clients and extension_commands. Add process columns portal_act_id, area_classification, needs_complement and last_area_scan_id. Mapping is fail-closed: PRECISA_COMPLEMENTAR -> PENDENTE unless a later workflow state is more advanced; ATO_COMPLEMENTADO -> CONCLUÍDO with portal_completed workflow event; AMBIGUO/BLOQUEADO never become PRONTO automatically.
 
 Command states are QUEUED, CLAIMED, SUCCEEDED, FAILED. Claim must be atomic using BEGIN IMMEDIATE so two pollers cannot claim one command.
 
@@ -139,7 +155,7 @@ Expected: pairing/command routes are 404.
 
 - [ ] **Step 3: Implement pairing**
 
-Generate a six-digit in-memory pairing code at server startup. Display it in the Mesa only while no valid bridge client is connected. On successful pairing, return a 32-byte URL-safe token and persist SHA-256(token) with client_id. Never persist plaintext token or pairing code.
+Generate a six-digit in-memory pairing code at server startup with a 120-second TTL and at most five failed attempts, preserving the current fail-closed behavior. Display it in the Mesa only while no valid bridge client is connected. Bind the paired client record to the observed chrome-extension origin/extension id as well as client_id. On successful pairing, return a 32-byte URL-safe token and persist SHA-256(token) with client_id. Never persist plaintext token or pairing code.
 
 For the Mesa itself, app.main generates a separate one-time bootstrap token and opens /bootstrap#token=TOKEN. Bootstrap JavaScript posts that token to /api/v1/session/bootstrap; the server consumes it once and sets an HttpOnly, SameSite=Strict session cookie. Reject state-changing Mesa requests without that cookie or with a non-loopback/non-same-origin Origin.
 
