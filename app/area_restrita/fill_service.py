@@ -16,6 +16,7 @@ from typing import Any
 
 from ..core.identity import normalize_interested
 from ..core.store import Store
+from .preflight import FillBlocked, build_fill_plan
 
 FILL_STATES: tuple[str, ...] = (
     "OPENING",
@@ -54,7 +55,7 @@ def identity_of(process: Mapping[str, Any]) -> dict[str, Any]:
 class FillService:
     def __init__(self, store: Store, *, preflight: Any | None = None) -> None:
         self._store = store
-        self._preflight = preflight
+        self._preflight = preflight or build_fill_plan
 
     # ------------------------------------------------------------- entry points
 
@@ -175,9 +176,47 @@ class FillService:
         if mismatch:
             self._block(request, mismatch)
             return
-        # The backend preflight (M5 Task 2) decides what happens next.
         self._store.update_fill_request(
             int(request["id"]), state="PREFLIGHT", error=None, form_snapshot=dict(result)
+        )
+        self._run_preflight(request, process, result)
+
+    def _run_preflight(
+        self, request: Mapping[str, Any], process: Mapping[str, Any], snapshot: Mapping[str, Any]
+    ) -> None:
+        """Decide the exact fields to write, or block without touching a control."""
+
+        try:
+            plan = self._preflight(process, snapshot)
+        except FillBlocked as blocked:
+            reason = blocked.code
+            if blocked.details:
+                reason = f"{blocked.code}: {', '.join(blocked.details)}"
+            self._block(request, reason)
+            return
+        except Exception as error:  # a broken plan must never reach the portal
+            self._fail(request, f"preflight falhou: {type(error).__name__}")
+            return
+        command_id = self._store.queue_fill_command(
+            "FILL_FORM",
+            {
+                "identity": plan.identity,
+                "generation": plan.generation,
+                "fields": plan.fields,
+                "preserved": plan.preserved,
+            },
+            int(request["id"]),
+        )
+        self._store.update_fill_request(
+            int(request["id"]),
+            state="FILLING",
+            current_command_id=command_id,
+            error=None,
+            form_snapshot={
+                "plan": plan.fields,
+                "preserved": plan.preserved,
+                "warnings": plan.warnings,
+            },
         )
 
     # ------------------------------------------------------------------ helpers
