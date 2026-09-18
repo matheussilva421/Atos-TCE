@@ -15,7 +15,7 @@ from app.archive.legacy_import import (
     sha256_file,
 )
 from app.core.identity import normalize_interested
-from app.core.store import Store
+from app.core.store import SCHEMA_VERSION, Store
 
 PDF = b"%PDF-1.4\nfixture\n%%EOF\n"
 OTHER_PDF = b"%PDF-1.4\nother fixture\n%%EOF\n"
@@ -337,7 +337,7 @@ class LegacyMetadataTests(LegacyFixtureTestCase):
         payload = json.loads(receipt.read_text(encoding="utf-8"))
         self.assertEqual(payload["mode"], "apply")
         self.assertEqual(payload["unique_pdfs"], 1)
-        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["schema_version"], SCHEMA_VERSION)
 
 
 class LegacySafetyTests(LegacyFixtureTestCase):

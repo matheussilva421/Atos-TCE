@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from app.core.models import DocumentRecord, FieldRecord, ProcessRecord
-from app.core.store import Store
+from app.core.store import SCHEMA_VERSION, Store
 
 
 class PackageLayoutTests(unittest.TestCase):
@@ -49,7 +49,7 @@ class StoreRoundTripTests(StoreTestCase):
         self.assertEqual(loaded["status"], "PRONTO")
         self.assertEqual(loaded["events"][0]["event_type"], "analysis_finished")
         self.assertEqual(loaded["events"][0]["payload"], {"status": "PRONTO"})
-        self.assertEqual(self.store.schema_version, 1)
+        self.assertEqual(self.store.schema_version, SCHEMA_VERSION)
 
     def test_open_creates_missing_directories(self):
         self.assertTrue((self.data_root / "atos-tce.db").is_file())

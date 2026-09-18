@@ -10,18 +10,26 @@ bumped inside that same transaction, so a half-applied schema is never visible.
 
 from __future__ import annotations
 
+import hmac
 import json
 import sqlite3
 import threading
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .models import DocumentRecord, FieldRecord, ProcessRecord
+from .models import (
+    AREA_CLASSIFICATION_EVENT,
+    AREA_CLASSIFICATION_TARGET,
+    DocumentRecord,
+    FieldRecord,
+    ProcessRecord,
+    status_rank,
+)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class StoreError(RuntimeError):
@@ -105,6 +113,73 @@ SCHEMA_V1: tuple[str, ...] = (
     "CREATE INDEX idx_workflow_events_process ON workflow_events(process_id)",
 )
 
+SCHEMA_V2: tuple[str, ...] = (
+    """
+    CREATE TABLE area_scans (
+      id INTEGER PRIMARY KEY,
+      source_scope TEXT NOT NULL,
+      marker_label TEXT,
+      marker_value TEXT,
+      observed_at TEXT NOT NULL,
+      origin TEXT NOT NULL,
+      raw_sha256 TEXT,
+      total INTEGER NOT NULL DEFAULT 0,
+      pending INTEGER NOT NULL DEFAULT 0,
+      completed INTEGER NOT NULL DEFAULT 0,
+      ambiguous INTEGER NOT NULL DEFAULT 0,
+      blocked INTEGER NOT NULL DEFAULT 0,
+      not_found INTEGER NOT NULL DEFAULT 0
+    )
+    """,
+    """
+    CREATE TABLE area_scan_items (
+      id INTEGER PRIMARY KEY,
+      scan_id INTEGER NOT NULL REFERENCES area_scans(id) ON DELETE CASCADE,
+      process_id INTEGER REFERENCES processes(id) ON DELETE SET NULL,
+      process_key TEXT NOT NULL,
+      interested TEXT NOT NULL,
+      interested_normalized TEXT NOT NULL,
+      portal_act_id TEXT,
+      classification TEXT NOT NULL,
+      needs_complement INTEGER NOT NULL DEFAULT 0,
+      action_observed TEXT,
+      UNIQUE(scan_id, process_key, interested_normalized)
+    )
+    """,
+    """
+    CREATE TABLE bridge_clients (
+      id INTEGER PRIMARY KEY,
+      client_id TEXT NOT NULL UNIQUE,
+      token_hash TEXT NOT NULL,
+      origin TEXT,
+      extension_id TEXT,
+      created_at TEXT NOT NULL,
+      last_seen_at TEXT
+    )
+    """,
+    """
+    CREATE TABLE extension_commands (
+      id INTEGER PRIMARY KEY,
+      command_type TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      state TEXT NOT NULL,
+      client_id TEXT,
+      result TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL,
+      claimed_at TEXT,
+      finished_at TEXT
+    )
+    """,
+    "ALTER TABLE processes ADD COLUMN portal_act_id TEXT",
+    "ALTER TABLE processes ADD COLUMN area_classification TEXT",
+    "ALTER TABLE processes ADD COLUMN needs_complement INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE processes ADD COLUMN last_area_scan_id INTEGER",
+    "CREATE INDEX idx_area_scans_observed ON area_scans(observed_at)",
+    "CREATE INDEX idx_area_scan_items_scan ON area_scan_items(scan_id)",
+    "CREATE INDEX idx_extension_commands_state ON extension_commands(state, id)",
+)
+
 
 class Store:
     """Owns one SQLite database and every workflow decision persisted in it."""
@@ -179,6 +254,10 @@ class Store:
             for statement in SCHEMA_V1:
                 connection.execute(statement)
             return
+        if target == 2:
+            for statement in SCHEMA_V2:
+                connection.execute(statement)
+            return
         raise StoreError(f"no migration is defined for schema_version {target}")
 
     def _read_schema_version(self) -> int:
@@ -201,37 +280,335 @@ class Store:
         scope or marker never erases a value the portal told us earlier.
         """
 
+        with self._transaction() as connection:
+            return self._upsert_process_row(connection, record)
+
+    @staticmethod
+    def _upsert_process_row(connection: sqlite3.Connection, record: ProcessRecord) -> int:
+        """Upsert one process inside an open transaction."""
+
+        now = utc_now()
+        connection.execute(
+            """
+            INSERT INTO processes (
+                process_key, interested, interested_normalized,
+                source_scope, marker, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(process_key, interested_normalized) DO UPDATE SET
+                interested = excluded.interested,
+                source_scope = COALESCE(excluded.source_scope, processes.source_scope),
+                marker = COALESCE(excluded.marker, processes.marker),
+                status = excluded.status,
+                updated_at = excluded.updated_at
+            """,
+            (
+                record.process_key,
+                record.interested,
+                record.interested_normalized,
+                record.source_scope,
+                record.marker,
+                record.status,
+                now,
+                now,
+            ),
+        )
+        row = connection.execute(
+            "SELECT id FROM processes WHERE process_key = ? AND interested_normalized = ?",
+            (record.process_key, record.interested_normalized),
+        ).fetchone()
+        return int(row["id"])
+
+    # ------------------------------------------------------------- area scans
+
+    def create_area_scan(
+        self,
+        source_scope: str,
+        marker_label: str | None,
+        marker_value: str | None,
+        rows: Sequence[Mapping[str, Any]],
+        origin: str = "extension",
+        raw_sha256: str | None = None,
+    ) -> int:
+        """Persist one Área Restrita observation and update process states.
+
+        The mapping is fail-closed: the portal decides which processes need
+        complementation, but only a *more advanced* stored state survives the
+        update, so a finished process is never pushed back to the start.
+        """
+
+        observed_at = utc_now()
+        counters = {"total": 0, "pending": 0, "completed": 0, "ambiguous": 0, "blocked": 0, "not_found": 0}
+        with self._transaction() as connection:
+            cursor = connection.execute(
+                "INSERT INTO area_scans (source_scope, marker_label, marker_value, observed_at, origin, raw_sha256) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (source_scope, marker_label, marker_value, observed_at, origin, raw_sha256),
+            )
+            scan_id = int(cursor.lastrowid)
+            for raw_row in rows:
+                counters["total"] += 1
+                self._apply_scan_row(connection, scan_id, raw_row, observed_at, source_scope, marker_label, counters)
+            connection.execute(
+                "UPDATE area_scans SET total = ?, pending = ?, completed = ?, ambiguous = ?, "
+                "blocked = ?, not_found = ? WHERE id = ?",
+                (
+                    counters["total"],
+                    counters["pending"],
+                    counters["completed"],
+                    counters["ambiguous"],
+                    counters["blocked"],
+                    counters["not_found"],
+                    scan_id,
+                ),
+            )
+        return scan_id
+
+    def _apply_scan_row(
+        self,
+        connection: sqlite3.Connection,
+        scan_id: int,
+        raw_row: Mapping[str, Any],
+        observed_at: str,
+        source_scope: str,
+        marker_label: str | None,
+        counters: dict[str, int],
+    ) -> None:
+        process_key = str(raw_row.get("process_key") or "").strip()
+        interested = str(raw_row.get("interested") or "").strip()
+        interested_normalized = str(raw_row.get("interested_normalized") or "").strip()
+        if not process_key or not interested or not interested_normalized:
+            return
+
+        # An unrecognised or missing classification is treated as AMBIGUO, and
+        # only an explicit PRECISA_COMPLEMENTAR ever queues a download.
+        classification = str(raw_row.get("classification") or "AMBIGUO").strip().upper()
+        if classification not in AREA_CLASSIFICATION_TARGET:
+            classification = "AMBIGUO"
+        counter_key = {
+            "PRECISA_COMPLEMENTAR": "pending",
+            "ATO_COMPLEMENTADO": "completed",
+            "AMBIGUO": "ambiguous",
+            "BLOQUEADO": "blocked",
+            "NAO_ENCONTRADO_AREA_RESTRITA": "not_found",
+        }[classification]
+        counters[counter_key] += 1
+        needs_complement = 1 if classification == "PRECISA_COMPLEMENTAR" else 0
+
+        previous = connection.execute(
+            "SELECT id, status FROM processes WHERE process_key = ? AND interested_normalized = ?",
+            (process_key, interested_normalized),
+        ).fetchone()
+        target = AREA_CLASSIFICATION_TARGET[classification]
+        previous_status = str(previous["status"]) if previous is not None else None
+        if previous_status is not None and status_rank(previous_status) > status_rank(target):
+            target = previous_status
+
+        process_id = self._upsert_process_row(
+            connection,
+            ProcessRecord(
+                process_key=process_key,
+                interested=interested,
+                interested_normalized=interested_normalized,
+                source_scope=source_scope,
+                marker=marker_label,
+                status=target,
+            ),
+        )
+        connection.execute(
+            "UPDATE processes SET portal_act_id = ?, area_classification = ?, needs_complement = ?, "
+            "last_area_scan_id = ? WHERE id = ?",
+            (
+                str(raw_row.get("portal_act_id") or "") or None,
+                classification,
+                needs_complement,
+                scan_id,
+                process_id,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO area_scan_items (scan_id, process_id, process_key, interested, "
+            "interested_normalized, portal_act_id, classification, needs_complement, action_observed) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(scan_id, process_key, interested_normalized) "
+            "DO UPDATE SET classification = excluded.classification, "
+            "needs_complement = excluded.needs_complement, action_observed = excluded.action_observed",
+            (
+                scan_id,
+                process_id,
+                process_key,
+                interested,
+                interested_normalized,
+                str(raw_row.get("portal_act_id") or "") or None,
+                classification,
+                needs_complement,
+                str(raw_row.get("action_observed") or "") or None,
+            ),
+        )
+        if previous_status is not None and previous_status != target:
+            connection.execute(
+                "INSERT INTO workflow_events (process_id, event_type, payload, created_at) VALUES (?, ?, ?, ?)",
+                (
+                    process_id,
+                    AREA_CLASSIFICATION_EVENT[classification],
+                    json.dumps(
+                        {
+                            "scan_id": scan_id,
+                            "from": previous_status,
+                            "to": target,
+                            "classification": classification,
+                            "action_observed": str(raw_row.get("action_observed") or "") or None,
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    observed_at,
+                ),
+            )
+
+    def get_area_scan(self, scan_id: int) -> dict[str, Any] | None:
+        """Return one scan with its items."""
+
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM area_scans WHERE id = ?", (scan_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            scan = dict(row)
+            scan["items"] = [
+                dict(item)
+                for item in self._connection.execute(
+                    "SELECT * FROM area_scan_items WHERE scan_id = ? ORDER BY id", (scan_id,)
+                )
+            ]
+            return scan
+
+    def latest_area_scan(self) -> dict[str, Any] | None:
+        """Return the most recent scan with its items, or ``None``."""
+
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT id FROM area_scans ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        if row is None:
+            return None
+        return self.get_area_scan(int(row["id"]))
+
+    # ------------------------------------------------------ extension commands
+
+    def create_extension_command(self, command_type: str, payload: dict[str, Any] | None = None) -> int:
+        """Queue one command for a paired extension client."""
+
+        with self._transaction() as connection:
+            cursor = connection.execute(
+                "INSERT INTO extension_commands (command_type, payload, state, created_at) "
+                "VALUES (?, ?, 'QUEUED', ?)",
+                (
+                    command_type,
+                    json.dumps(payload or {}, ensure_ascii=False, sort_keys=True),
+                    utc_now(),
+                ),
+            )
+            return int(cursor.lastrowid)
+
+    def claim_extension_command(self, client_id: str) -> dict[str, Any] | None:
+        """Atomically claim the oldest queued command for ``client_id``.
+
+        ``BEGIN IMMEDIATE`` plus the primary key guarantees two pollers can
+        never receive the same command.
+        """
+
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM extension_commands WHERE state = 'QUEUED' ORDER BY id LIMIT 1"
+            ).fetchone()
+            if row is None:
+                return None
+            claimed_at = utc_now()
+            connection.execute(
+                "UPDATE extension_commands SET state = 'CLAIMED', client_id = ?, claimed_at = ? WHERE id = ?",
+                (client_id, claimed_at, int(row["id"])),
+            )
+            claimed = dict(row)
+            claimed["state"] = "CLAIMED"
+            claimed["client_id"] = client_id
+            claimed["claimed_at"] = claimed_at
+        return self._decode_command(claimed)
+
+    def complete_extension_command(
+        self, command_id: int, result: dict[str, Any] | None = None, error: str | None = None
+    ) -> None:
+        """Record the outcome of a claimed command."""
+
+        state = "FAILED" if error else "SUCCEEDED"
+        with self._transaction() as connection:
+            connection.execute(
+                "UPDATE extension_commands SET state = ?, result = ?, error = ?, finished_at = ? WHERE id = ?",
+                (
+                    state,
+                    json.dumps(result, ensure_ascii=False, sort_keys=True) if result is not None else None,
+                    error,
+                    utc_now(),
+                    command_id,
+                ),
+            )
+
+    def get_extension_command(self, command_id: int) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM extension_commands WHERE id = ?", (command_id,)
+            ).fetchone()
+        return self._decode_command(dict(row)) if row is not None else None
+
+    @staticmethod
+    def _decode_command(raw: dict[str, Any]) -> dict[str, Any]:
+        command = dict(raw)
+        command["type"] = command.pop("command_type")
+        payload = command.get("payload")
+        command["payload"] = json.loads(payload) if payload else {}
+        result = command.get("result")
+        command["result"] = json.loads(result) if result else None
+        return command
+
+    # ----------------------------------------------------------- bridge clients
+
+    def pair_bridge_client(
+        self,
+        client_id: str,
+        token_hash: str,
+        origin: str | None = None,
+        extension_id: str | None = None,
+    ) -> None:
+        """Persist the hash of a freshly paired extension token."""
+
         now = utc_now()
         with self._transaction() as connection:
             connection.execute(
-                """
-                INSERT INTO processes (
-                    process_key, interested, interested_normalized,
-                    source_scope, marker, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(process_key, interested_normalized) DO UPDATE SET
-                    interested = excluded.interested,
-                    source_scope = COALESCE(excluded.source_scope, processes.source_scope),
-                    marker = COALESCE(excluded.marker, processes.marker),
-                    status = excluded.status,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    record.process_key,
-                    record.interested,
-                    record.interested_normalized,
-                    record.source_scope,
-                    record.marker,
-                    record.status,
-                    now,
-                    now,
-                ),
+                "INSERT INTO bridge_clients (client_id, token_hash, origin, extension_id, created_at, last_seen_at) "
+                "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(client_id) DO UPDATE SET "
+                "token_hash = excluded.token_hash, origin = excluded.origin, "
+                "extension_id = excluded.extension_id, last_seen_at = excluded.last_seen_at",
+                (client_id, token_hash, origin, extension_id, now, now),
             )
-            row = connection.execute(
-                "SELECT id FROM processes WHERE process_key = ? AND interested_normalized = ?",
-                (record.process_key, record.interested_normalized),
+
+    def verify_bridge_token(self, client_id: str, token_hash: str) -> bool:
+        """Constant-time check of a paired client's token hash."""
+
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT token_hash FROM bridge_clients WHERE client_id = ?", (client_id,)
             ).fetchone()
-        return int(row["id"])
+        if row is None:
+            return False
+        return hmac.compare_digest(str(row["token_hash"]), str(token_hash))
+
+    def list_bridge_clients(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return [
+                dict(row)
+                for row in self._connection.execute(
+                    "SELECT * FROM bridge_clients ORDER BY id"
+                )
+            ]
 
     def get_process(self, process_id: int) -> dict[str, Any] | None:
         """Return one process with its documents, fields and workflow history."""

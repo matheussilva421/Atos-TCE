@@ -16,7 +16,7 @@ from urllib.request import urlopen
 from app.api.server import serve
 from app.archive.legacy_import import blob_path, sha256_file
 from app.core.models import DocumentRecord, FieldRecord, ProcessRecord
-from app.core.store import Store
+from app.core.store import SCHEMA_VERSION, Store
 
 PDF = b"%PDF-1.4\napi fixture\n%%EOF\n"
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -117,7 +117,7 @@ class HealthTests(ApiTestCase):
 
         self.assertEqual(payload["api_version"], 1)
         self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["schema_version"], SCHEMA_VERSION)
         self.assertEqual(payload["process_count"], 1)
 
 

@@ -28,6 +28,48 @@ EXCEPTIONAL_STATES: tuple[str, ...] = ("ERRO", "BLOQUEADO", "DIVERGENCIA")
 
 ALL_STATES: frozenset[str] = frozenset(WORKFLOW_STATES + EXCEPTIONAL_STATES)
 
+#: What the Área Restrita can report about one process/interested pair.
+AREA_CLASSIFICATIONS: tuple[str, ...] = (
+    "PRECISA_COMPLEMENTAR",
+    "ATO_COMPLEMENTADO",
+    "NAO_ENCONTRADO_AREA_RESTRITA",
+    "AMBIGUO",
+    "BLOQUEADO",
+)
+
+#: Fail-closed target for each portal observation. ``AMBIGUO``,
+#: ``NAO_ENCONTRADO_AREA_RESTRITA`` and an unknown classification never reach
+#: PRONTO on their own; ``BLOQUEADO`` stays visible as an exceptional state.
+AREA_CLASSIFICATION_TARGET: dict[str, str] = {
+    "PRECISA_COMPLEMENTAR": "PENDENTE",
+    "ATO_COMPLEMENTADO": "CONCLUÍDO",
+    "NAO_ENCONTRADO_AREA_RESTRITA": "PENDENTE",
+    "AMBIGUO": "PENDENTE",
+    "BLOQUEADO": "BLOQUEADO",
+}
+
+#: Workflow event recorded when the portal moves a process to each state.
+AREA_CLASSIFICATION_EVENT: dict[str, str] = {
+    "PRECISA_COMPLEMENTAR": "portal_pending",
+    "ATO_COMPLEMENTADO": "portal_completed",
+    "NAO_ENCONTRADO_AREA_RESTRITA": "portal_not_found",
+    "AMBIGUO": "portal_ambiguous",
+    "BLOQUEADO": "portal_blocked",
+}
+
+
+def status_rank(status: str) -> int:
+    """Order workflow states, so a scan never regresses finished work.
+
+    Exceptional states (ERRO, BLOQUEADO, DIVERGENCIA) rank below PENDENTE: a new
+    portal observation is allowed to clear them.
+    """
+
+    try:
+        return WORKFLOW_STATES.index(status)
+    except ValueError:
+        return -1
+
 # Documents are HOT while their bytes are local, ARCHIVED when only an external
 # verified copy remains, MISSING when no verified copy is reachable.
 STORAGE_STATES: tuple[str, ...] = ("HOT", "ARCHIVED", "MISSING")
@@ -90,4 +132,3 @@ class FieldRecord:
     def __post_init__(self) -> None:
         if not self.field_name.strip():
             raise ValueError("field_name is required")
-
