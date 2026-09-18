@@ -503,10 +503,23 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         self._send_json(payload)
 
     def handle_document_pdf(self, query: dict[str, list[str]], document_id: str) -> None:
-        path = views.resolve_document_file(self.mesa.store, self.mesa.data_root, int(document_id))
-        if path is None:
-            self._send_json({"error": "document_not_found", "document_id": int(document_id)}, status=404)
+        location = views.locate_document(self.mesa.store, self.mesa.data_root, int(document_id))
+        if location.path is None:
+            status = 404
+            if location.error == views.DOCUMENT_ARCHIVED:
+                status = 409
+            elif location.error == views.DOCUMENT_MISSING:
+                status = 410
+            self._send_json(
+                {
+                    "error": location.error,
+                    "document_id": int(document_id),
+                    "detail": location.detail,
+                },
+                status=status,
+            )
             return
+        path = location.path
         try:
             total = path.stat().st_size
             requested = _parse_range(str(self.headers.get("Range") or ""), total)

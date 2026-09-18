@@ -298,6 +298,31 @@ class Store:
         store._migrate()
         return store
 
+    @classmethod
+    def open_read_only(cls, path: str | Path) -> "Store":
+        """Open an existing database without ever migrating it.
+
+        Inspection tools must not change what they inspect: a schema this build
+        does not understand is reported, never upgraded in place.
+        """
+
+        database = Path(path)
+        if not database.is_file():
+            raise StoreError(f"database not found: {database}")
+        connection = sqlite3.connect(
+            f"file:{database.as_posix()}?mode=ro", uri=True, check_same_thread=False
+        )
+        connection.row_factory = sqlite3.Row
+        store = cls(connection, database)
+        version = store._read_schema_version()
+        if version != SCHEMA_VERSION:
+            connection.close()
+            raise StoreError(
+                f"database schema_version {version} is not the expected {SCHEMA_VERSION}; "
+                "refusing to inspect it instead of migrating it"
+            )
+        return store
+
     def close(self) -> None:
         with self._lock:
             self._connection.close()
@@ -1296,16 +1321,37 @@ class Store:
     # --------------------------------------------------------------- documents
 
     def replace_documents(self, process_id: int, documents: Sequence[DocumentRecord]) -> None:
-        """Replace the full document set of one process."""
+        """Reconcile the document set of one process, keeping stable ids.
 
+        Deleting and reinserting would hand every document a new id, and a
+        field that points at one (fields.document_id) would silently lose its
+        evidence. Documents are matched by (process_id, source_id): existing
+        rows are updated in place, new ones inserted, and only the ones that
+        really disappeared are removed - with the loss recorded.
+        """
+
+        wanted = {document.source_id: document for document in documents}
         with self._transaction() as connection:
-            connection.execute("DELETE FROM documents WHERE process_id = ?", (process_id,))
+            existing = {
+                str(row["source_id"]): int(row["id"])
+                for row in connection.execute(
+                    "SELECT id, source_id FROM documents WHERE process_id = ?", (process_id,)
+                )
+            }
             connection.executemany(
                 """
                 INSERT INTO documents (
                     process_id, source_id, event, title, relative_path,
                     sha256, page_count, classification, storage_state
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(process_id, source_id) DO UPDATE SET
+                    event = excluded.event,
+                    title = excluded.title,
+                    relative_path = excluded.relative_path,
+                    sha256 = excluded.sha256,
+                    page_count = excluded.page_count,
+                    classification = excluded.classification,
+                    storage_state = excluded.storage_state
                 """,
                 [
                     (
@@ -1322,6 +1368,42 @@ class Store:
                     for document in documents
                 ],
             )
+            removed = sorted(source_id for source_id in existing if source_id not in wanted)
+            if not removed:
+                return
+            placeholders = ", ".join("?" for _ in removed)
+            lost_evidence = int(
+                connection.execute(
+                    "SELECT COUNT(*) AS n FROM fields WHERE process_id = ? AND document_id IN "
+                    f"(SELECT id FROM documents WHERE process_id = ? AND source_id IN ({placeholders}))",
+                    (process_id, process_id, *removed),
+                ).fetchone()["n"]
+            )
+            connection.executemany(
+                "DELETE FROM documents WHERE process_id = ? AND source_id = ?",
+                [(process_id, source_id) for source_id in removed],
+            )
+            if lost_evidence:
+                # A field pointed at a document that is gone: say so and put
+                # the process back in front of the operator.
+                now = utc_now()
+                connection.execute(
+                    "UPDATE processes SET status = 'REVISAR', updated_at = ? WHERE id = ?",
+                    (now, process_id),
+                )
+                connection.execute(
+                    "INSERT INTO workflow_events (process_id, event_type, payload, created_at) "
+                    "VALUES (?, 'documents_removed', ?, ?)",
+                    (
+                        process_id,
+                        json.dumps(
+                            {"removed": removed, "lost_evidence": lost_evidence},
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        ),
+                        now,
+                    ),
+                )
 
     def list_documents(self, process_id: int) -> list[dict[str, Any]]:
         with self._lock:

@@ -24,6 +24,7 @@ Fail-closed by design:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import shutil
@@ -35,6 +36,32 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+_AUDIT_MODULE: Any = None
+
+
+def audit_module() -> Any:
+    """Load storage-audit.py, whose dash makes it un-importable by name.
+
+    The cleanup shares the auditor's hashing rules instead of re-implementing
+    them: a fingerprint that is computed differently is not a fingerprint.
+    """
+
+    global _AUDIT_MODULE
+    if _AUDIT_MODULE is None:
+        path = Path(__file__).resolve().parent / "storage-audit.py"
+        spec = importlib.util.spec_from_file_location("atos_tce_storage_audit", path)
+        if spec is None or spec.loader is None:  # pragma: no cover - import plumbing
+            raise CleanupError(f"não foi possível carregar o auditor: {path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        try:
+            spec.loader.exec_module(module)
+        except BaseException:  # pragma: no cover - import plumbing
+            sys.modules.pop(spec.name, None)
+            raise
+        _AUDIT_MODULE = module
+    return _AUDIT_MODULE
 
 RECEIPT_VERSION = 1
 DATABASE_NAME = "atos-tce.db"
@@ -212,6 +239,10 @@ def _decide(
         reasons.append("canonical_data_missing")
     if not candidate.get("safe_to_delete"):
         reasons.append("audit_not_safe")
+    if not candidate.get("fingerprint"):
+        reasons.append("audit_without_fingerprint")
+    if not isinstance(candidate.get("reclaimable_sha256"), list):
+        reasons.append("audit_without_reclaimable_shas")
     if relative == LEGACY_ARCHIVE:
         if not allow_legacy_archive:
             reasons.append("legacy_archive_requires_flag")
@@ -292,7 +323,18 @@ def plan_cleanup(
 
     canonical = payload.get("canonical") or {}
     blobs_root = data_root.joinpath(*BLOB_TREE_PARTS)
-    canonical_ready = bool(blobs_root.is_dir()) and int(canonical.get("blob_count") or 0) > 0
+    # A receipt may only authorise a deletion when the canonical store was
+    # verified by content: a name-only audit could not tell a corrupted blob
+    # from an intact one (CR-15).
+    canonical_ready = (
+        bool(blobs_root.is_dir())
+        and int(canonical.get("blob_count") or 0) > 0
+        and canonical.get("hash_verified") is True
+        and not canonical.get("corrupted_blobs")
+        and not canonical.get("external_corrupted")
+        and not canonical.get("malformed_entries")
+        and not canonical.get("referenced_without_blob")
+    )
 
     receipt, receipt_problems = _find_migration_receipt(data_root, migration_receipt)
     entries = tuple(
@@ -312,7 +354,10 @@ def plan_cleanup(
     refused = tuple(entry for entry in entries if entry.decision != "delete")
     notes: list[str] = []
     if not canonical_ready:
-        notes.append(f"acervo canônico ausente ou vazio em {blobs_root}; nenhuma remoção é permitida")
+        notes.append(
+            f"acervo canônico ausente, vazio ou não verificado por hash em {blobs_root}; "
+            "nenhuma remoção é permitida"
+        )
     if receipt:
         notes.append(f"recibo de migração de M1: {receipt}")
 
@@ -329,6 +374,17 @@ def plan_cleanup(
         receipt=None,
         notes=tuple(notes),
     )
+
+
+def _canonical_intact(audit: Any, data_root: Path, sha: str, cache: dict[str, bool]) -> bool:
+    """Re-hash one canonical blob: a receipt is only as good as the bytes."""
+
+    if sha not in cache:
+        path = data_root.joinpath(*BLOB_TREE_PARTS, sha[:2], f"{sha}.pdf")
+        cache[sha] = path.is_file() and (
+            audit.sha256_file(path, audit.HASH_CHUNK_SIZE) == sha
+        )
+    return cache[sha]
 
 
 def _remove_tree(path: Path) -> None:
@@ -361,6 +417,13 @@ def apply_cleanup(
     data_root = Path(plan.data_root)
     audit_payload = _read_audit(Path(plan.audit))
     removed: list[dict[str, Any]] = []
+    candidates = {
+        str(candidate.get("relative_path") or ""): candidate
+        for candidate in audit_payload["candidates"]
+        if isinstance(candidate, dict)
+    }
+    audit = audit_module()
+    verified_canonical: dict[str, bool] = {}
 
     for entry in plan.entries:
         if entry.decision != "delete":
@@ -375,6 +438,19 @@ def apply_cleanup(
             raise CleanupError(
                 f"{entry.relative_path} mudou depois do plano "
                 f"({files} arquivos/{total} bytes contra {entry.file_count}/{entry.bytes}); rode a auditoria de novo"
+            )
+        candidate = candidates.get(entry.relative_path) or {}
+        for sha in candidate.get("reclaimable_sha256") or []:
+            if not _canonical_intact(audit, data_root, str(sha), verified_canonical):
+                raise CleanupError(
+                    f"o acervo canônico não confirma mais {str(sha)[:12]}…; "
+                    f"{entry.relative_path} não pode ser removido"
+                )
+        scan_warnings: list[str] = []
+        actual = audit.fingerprint_tree(target, repo_root, warnings=scan_warnings)
+        if actual != candidate.get("fingerprint"):
+            raise CleanupError(
+                f"{entry.relative_path} mudou de conteúdo desde a auditoria; rode a auditoria de novo"
             )
         _remove_tree(target)
         removed.append(

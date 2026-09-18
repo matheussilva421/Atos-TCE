@@ -277,6 +277,32 @@ class PdfRouteTests(ApiTestCase):
 
         self.assertEqual(self.status_of(f"/api/v1/documents/{self.document_id}/pdf"), 404)
 
+    def test_an_archived_document_asks_for_a_restore(self):
+        # CR-24: an archived document is not "not found"; it needs a restore.
+        self.blob.unlink()
+        (self.data_root / "archive" / "processos" / "102390-2026" / "Ato.pdf").unlink()
+        self.store.mark_document_storage_state(self.document_id, "ARCHIVED")
+
+        status, _headers, payload = self.call_json(
+            f"/api/v1/documents/{self.document_id}/pdf"
+        )
+
+        self.assertEqual(status, 409, payload)
+        self.assertEqual(payload["error"], "document_archived")
+        self.assertIn("restaure", payload["detail"])
+
+    def test_a_missing_document_is_reported_as_gone(self):
+        self.blob.unlink()
+        (self.data_root / "archive" / "processos" / "102390-2026" / "Ato.pdf").unlink()
+        self.store.mark_document_storage_state(self.document_id, "MISSING")
+
+        status, _headers, payload = self.call_json(
+            f"/api/v1/documents/{self.document_id}/pdf"
+        )
+
+        self.assertEqual(status, 410, payload)
+        self.assertEqual(payload["error"], "document_missing")
+
     def test_query_parameters_cannot_select_a_file(self):
         with self.get(
             f"/api/v1/documents/{self.document_id}/pdf"

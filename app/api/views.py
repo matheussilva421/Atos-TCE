@@ -8,6 +8,7 @@ mutate state, so the read-only Mesa stays read-only by construction.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -174,25 +175,62 @@ def job_payload(store: Store, job_id: int, *, failure_limit: int = 20) -> dict[s
     }
 
 
-def resolve_document_file(store: Store, data_root: Path, document_id: int) -> Path | None:
-    """Resolve a document id to a real file, preferring the process view.
+#: Why a document's bytes are not reachable, as the API reports it.
+DOCUMENT_UNKNOWN = "document_not_found"
+DOCUMENT_ARCHIVED = "document_archived"
+DOCUMENT_MISSING = "document_missing"
+DOCUMENT_FILE_ABSENT = "document_file_absent"
+
+
+@dataclass(frozen=True)
+class DocumentLocation:
+    """Where one document's bytes are, or why they are not reachable."""
+
+    path: Path | None
+    error: str | None
+    detail: str | None
+
+
+def locate_document(store: Store, data_root: Path, document_id: int) -> DocumentLocation:
+    """Resolve a document id to real bytes, naming the reason when there are none.
 
     The path always comes from SQLite; a caller can never name a file. When the
-    process view is gone (archived or cleaned) the canonical blob identified by
-    the stored SHA-256 is used instead.
+    process view is gone the canonical blob identified by the stored SHA-256 is
+    used instead, and only then is the storage state consulted: an archived
+    document needs a restore, a missing one needs the operator, and neither is
+    the same as a document that never existed.
     """
 
     document = store.get_document(document_id)
     if document is None:
-        return None
+        return DocumentLocation(None, DOCUMENT_UNKNOWN, None)
     data_path = Path(data_root)
     candidate = safe_join(data_path, str(document.get("relative_path") or ""))
     if candidate is not None and candidate.is_file():
-        return candidate
+        return DocumentLocation(candidate, None, None)
     fallback = blob_path(data_path, str(document.get("sha256") or ""))
     if fallback.is_file():
-        return fallback
-    return None
+        return DocumentLocation(fallback, None, None)
+    state = str(document.get("storage_state") or "").strip().upper()
+    if state == "ARCHIVED":
+        return DocumentLocation(
+            None, DOCUMENT_ARCHIVED, "o documento está arquivado; restaure-o para visualizá-lo"
+        )
+    if state == "MISSING":
+        return DocumentLocation(
+            None,
+            DOCUMENT_MISSING,
+            "o documento não existe mais no acervo local nem no arquivo externo",
+        )
+    return DocumentLocation(
+        None, DOCUMENT_FILE_ABSENT, "o arquivo do documento não está disponível no acervo"
+    )
+
+
+def resolve_document_file(store: Store, data_root: Path, document_id: int) -> Path | None:
+    """The bytes of one document, or None; see locate_document for the reason."""
+
+    return locate_document(store, data_root, document_id).path
 
 
 def safe_join(root: Path, relative: str) -> Path | None:

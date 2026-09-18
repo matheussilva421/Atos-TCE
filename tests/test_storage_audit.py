@@ -370,6 +370,105 @@ class DatabaseEvidenceTests(StorageAuditTestCase):
         self.assertEqual(audit.canonical.referenced_without_blob, ())
 
 
+class CanonicalIntegrityTests(StorageAuditTestCase):
+    """CR-15: preservation is proven by content, never by the blob file name."""
+
+    def test_a_blob_whose_bytes_do_not_match_its_name_is_not_preserved(self):
+        value = digest(OTHER_PDF)
+        # The file is named after OTHER_PDF but holds other bytes entirely.
+        write(self.data / "archive" / "blobs" / value[:2] / f"{value}.pdf", PDF)
+        write(self.repo / "Versions" / "old" / "b.pdf", OTHER_PDF)
+
+        audit = self.run_audit()
+
+        self.assertTrue(audit.canonical.hash_verified)
+        self.assertEqual(
+            audit.canonical.corrupted_blobs, (f"archive/blobs/{value[:2]}/{value}.pdf",)
+        )
+        self.assertFalse(audit.canonical.trustworthy)
+        versions = self.candidate(audit, "Versions")
+        self.assertEqual(versions.unique_pdf_count, 1)
+        self.assertFalse(versions.safe_to_delete)
+
+    def test_a_blob_with_the_right_bytes_is_preserved(self):
+        self.store_blob(PDF)
+        write(self.repo / "Versions" / "old" / "a.pdf", PDF)
+
+        audit = self.run_audit()
+
+        self.assertEqual(audit.canonical.corrupted_blobs, ())
+        self.assertTrue(audit.canonical.trustworthy)
+        self.assertTrue(self.candidate(audit, "Versions").safe_to_delete)
+
+    def test_an_external_copy_with_the_wrong_bytes_does_not_preserve(self):
+        wrong = OTHER_PDF[:-1] + b"X"
+        self.assertEqual(len(wrong), len(OTHER_PDF), "o teste precisa do mesmo tamanho")
+        external = self.tmp / "externo" / "b.pdf"
+        write(external, wrong)
+        store = Store.open(self.data / "atos-tce.db")
+        try:
+            store.upsert_archive_blob(
+                digest(OTHER_PDF),
+                size_bytes=len(OTHER_PDF),
+                external_path=str(external),
+                external_present=True,
+            )
+        finally:
+            store.close()
+        write(self.repo / "Versions" / "old" / "b.pdf", OTHER_PDF)
+
+        audit = self.run_audit()
+        versions = self.candidate(audit, "Versions")
+
+        self.assertEqual(audit.canonical.external_corrupted, (digest(OTHER_PDF),))
+        self.assertEqual(audit.canonical.external_count, 0)
+        self.assertFalse(audit.canonical.trustworthy)
+        self.assertFalse(versions.safe_to_delete)
+
+    def test_the_fast_mode_never_claims_verification(self):
+        value = digest(OTHER_PDF)
+        write(self.data / "archive" / "blobs" / value[:2] / f"{value}.pdf", PDF)
+
+        audit = self.run_audit(verify_hashes=False)
+
+        self.assertFalse(audit.canonical.hash_verified)
+        self.assertFalse(audit.canonical.trustworthy)
+
+    def test_every_candidate_carries_a_content_fingerprint(self):
+        self.store_blob(PDF)
+        write(self.repo / "Versions" / "old" / "a.pdf", PDF)
+
+        versions = self.candidate(self.run_audit(), "Versions")
+
+        self.assertEqual(len(versions.fingerprint), 64)
+        self.assertEqual(versions.reclaimable_sha256, (digest(PDF),))
+
+    def test_the_tree_fingerprint_matches_what_the_audit_recorded(self):
+        self.store_blob(PDF)
+        write(self.repo / "Versions" / "old" / "a.pdf", PDF)
+        write(self.repo / "Versions" / "old" / "nota.txt", b"nota\n")
+
+        versions = self.candidate(self.run_audit(), "Versions")
+        warnings: list = []
+
+        self.assertEqual(
+            audit_module().fingerprint_tree(self.repo / "Versions", self.repo, warnings=warnings),
+            versions.fingerprint,
+        )
+
+    def test_the_tree_fingerprint_changes_when_the_content_changes(self):
+        self.store_blob(PDF)
+        write(self.repo / "Versions" / "old" / "a.pdf", PDF)
+        versions = self.candidate(self.run_audit(), "Versions")
+        write(self.repo / "Versions" / "old" / "a.pdf", OTHER_PDF)
+        warnings: list = []
+
+        self.assertNotEqual(
+            audit_module().fingerprint_tree(self.repo / "Versions", self.repo, warnings=warnings),
+            versions.fingerprint,
+        )
+
+
 class LinkSafetyTests(StorageAuditTestCase):
     def test_reparse_point_blocks_deletion_and_is_reported(self):
         self.store_blob(PDF)

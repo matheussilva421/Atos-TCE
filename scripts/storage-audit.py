@@ -46,7 +46,7 @@ from app.archive.legacy_import import (  # noqa: E402
     _is_link as is_reparse_point,
     sha256_file,
 )
-from app.core.store import Store  # noqa: E402
+from app.core.store import Store, StoreError  # noqa: E402
 
 HASH_CHUNK_SIZE = 1024 * 1024
 DATABASE_NAME = "atos-tce.db"
@@ -160,6 +160,9 @@ class CanonicalStore:
     blob_count: int
     blob_bytes: int
     malformed_entries: tuple[str, ...]
+    hash_verified: bool
+    corrupted_blobs: tuple[str, ...]
+    external_corrupted: tuple[str, ...]
     external_count: int
     external_bytes: int
     database_checked: bool
@@ -171,11 +174,27 @@ class CanonicalStore:
             "blob_count": self.blob_count,
             "blob_bytes": self.blob_bytes,
             "malformed_entries": list(self.malformed_entries),
+            "hash_verified": self.hash_verified,
+            "corrupted_blobs": list(self.corrupted_blobs),
+            "external_corrupted": list(self.external_corrupted),
             "external_count": self.external_count,
             "external_bytes": self.external_bytes,
             "database_checked": self.database_checked,
             "referenced_without_blob": list(self.referenced_without_blob),
         }
+
+    @property
+    def trustworthy(self) -> bool:
+        """True only when the receipt may authorise a destructive removal."""
+
+        return (
+            self.hash_verified
+            and self.blob_count > 0
+            and not self.corrupted_blobs
+            and not self.external_corrupted
+            and not self.malformed_entries
+            and not self.referenced_without_blob
+        )
 
 
 @dataclass(frozen=True)
@@ -197,6 +216,8 @@ class CandidateReport:
     reclaimable_pdf_count: int
     reclaimable_pdf_bytes: int
     missing_from_canonical_sha256: tuple[str, ...]
+    reclaimable_sha256: tuple[str, ...]
+    fingerprint: str
     unverifiable_archives: tuple[str, ...]
     skipped_links: tuple[str, ...]
     safe_to_delete: bool
@@ -219,6 +240,8 @@ class CandidateReport:
             "reclaimable_pdf_count": self.reclaimable_pdf_count,
             "reclaimable_pdf_bytes": self.reclaimable_pdf_bytes,
             "missing_from_canonical_sha256": list(self.missing_from_canonical_sha256),
+            "reclaimable_sha256": list(self.reclaimable_sha256),
+            "fingerprint": self.fingerprint,
             "unverifiable_archives": list(self.unverifiable_archives),
             "skipped_links": list(self.skipped_links),
             "safe_to_delete": self.safe_to_delete,
@@ -363,15 +386,21 @@ def candidate_roots(repo_root: Path, *, warnings: list[str]) -> list[tuple[str, 
 
 
 def _scan_canonical_blobs(
-    data_root: Path, *, warnings: list[str]
-) -> tuple[set[str], int, int, tuple[str, ...]]:
-    """Return the SHAs physically preserved in the canonical blob tree."""
+    data_root: Path, *, warnings: list[str], verify_hashes: bool = True
+) -> tuple[set[str], int, int, tuple[str, ...], tuple[str, ...]]:
+    """Return the SHAs physically preserved in the canonical blob tree.
+
+    A blob is preserved when its content really hashes to the name it carries.
+    Trusting the file name alone could authorise deleting the last intact copy
+    of a document whose canonical blob was silently corrupted.
+    """
 
     blobs_root = Path(data_root) / ARCHIVE_TREE / BLOB_TREE
     shas: set[str] = set()
     blob_count = 0
     blob_bytes = 0
     malformed: list[str] = []
+    corrupted: list[str] = []
     for entry in _walk(blobs_root, warnings=warnings):
         if entry["kind"] != "file":
             continue
@@ -381,19 +410,24 @@ def _scan_canonical_blobs(
         if match is None:
             malformed.append(_relative(entry["path"], data_root))
             continue
-        shas.add(match.group(1))
-    return shas, blob_count, blob_bytes, tuple(sorted(malformed))
+        digest = match.group(1)
+        if verify_hashes and sha256_file(entry["path"], HASH_CHUNK_SIZE) != digest:
+            corrupted.append(_relative(entry["path"], data_root))
+            continue
+        shas.add(digest)
+    return shas, blob_count, blob_bytes, tuple(sorted(malformed)), tuple(sorted(corrupted))
 
 
 def _scan_external_copies(
-    store: Store, canonical: set[str], *, warnings: list[str]
-) -> tuple[set[str], int, int, set[str]]:
+    store: Store, canonical: set[str], *, warnings: list[str], verify_hashes: bool = True
+) -> tuple[set[str], int, int, set[str], tuple[str, ...]]:
     """Return the SHAs preserved outside the data root, plus referenced ones."""
 
     preserved: set[str] = set()
     count = 0
     total = 0
     referenced: set[str] = set()
+    corrupted: list[str] = []
     for blob in store.list_archive_blobs():
         sha = str(blob.get("sha256") or "").strip().lower()
         if not sha:
@@ -418,6 +452,10 @@ def _scan_external_copies(
         if recorded and size != recorded:
             warnings.append(f"external_size_mismatch:{sha}")
             continue
+        if verify_hashes and sha256_file(path, HASH_CHUNK_SIZE) != sha:
+            warnings.append(f"external_hash_mismatch:{sha}")
+            corrupted.append(sha)
+            continue
         preserved.add(sha)
         count += 1
         total += size
@@ -425,7 +463,7 @@ def _scan_external_copies(
         value = str(sha or "").strip().lower()
         if value:
             referenced.add(value)
-    return preserved, count, total, referenced
+    return preserved, count, total, referenced, tuple(sorted(corrupted))
 
 
 # -------------------------------------------------------------- candidate side
@@ -441,6 +479,47 @@ def _hash_stream(handle: Any) -> tuple[str, int]:
         digest.update(chunk)
         size += len(chunk)
     return digest.hexdigest(), size
+
+
+def fingerprint_of(parts: list[tuple[str, str, str]]) -> str:
+    """A strong fingerprint of a tree: every hashed PDF, ZIP member and size."""
+
+    payload = json.dumps(sorted(parts), ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def fingerprint_tree(root: Path, repo_root: Path, *, warnings: list[str]) -> str:
+    """Recompute a tree fingerprint exactly the way the audit computed it.
+
+    The cleanup calls this immediately before deleting: a tree whose content
+    changed since the receipt - even keeping the same file count and byte
+    total - must invalidate the receipt instead of being removed.
+    """
+
+    parts: list[tuple[str, str, str]] = []
+    for entry in _walk(root, warnings=warnings):
+        if entry["kind"] != "file":
+            continue
+        relative = _relative(entry["path"], repo_root)
+        suffix = entry["path"].suffix.lower()
+        if suffix == PDF_SUFFIX:
+            parts.append(("pdf", relative, sha256_file(entry["path"], HASH_CHUNK_SIZE)))
+            continue
+        if suffix == ZIP_SUFFIX:
+            members, _nested, _failure = _scan_zip(entry["path"], warnings=warnings)
+            parts.append(
+                (
+                    "zip",
+                    relative,
+                    json.dumps(sorted(digest for digest, _ in members), sort_keys=True),
+                )
+            )
+            continue
+        if suffix in UNVERIFIABLE_ARCHIVE_SUFFIXES:
+            parts.append(("archive-unverified", relative, str(entry["size"])))
+            continue
+        parts.append(("file", relative, str(entry["size"])))
+    return fingerprint_of(parts)
 
 
 def _scan_zip(
@@ -494,6 +573,8 @@ def _scan_candidate(
             reclaimable_pdf_count=0,
             reclaimable_pdf_bytes=0,
             missing_from_canonical_sha256=(),
+            reclaimable_sha256=(),
+            fingerprint="",
             unverifiable_archives=(),
             skipped_links=(),
             safe_to_delete=False,
@@ -511,6 +592,7 @@ def _scan_candidate(
     unverifiable: list[str] = []
     skipped_links: list[str] = []
     nested_found = False
+    fingerprint_parts: list[tuple[str, str, str]] = []
 
     for entry in _walk(root, warnings=warnings):
         entry_relative = _relative(entry["path"], repo_root)
@@ -527,6 +609,7 @@ def _scan_candidate(
                 progress(entry_relative)
             digest = sha256_file(entry["path"], HASH_CHUNK_SIZE)
             pdf_sizes.setdefault(digest, entry["size"])
+            fingerprint_parts.append(("pdf", entry_relative, digest))
             continue
         if suffix == ZIP_SUFFIX:
             archive_count += 1
@@ -542,11 +625,21 @@ def _scan_candidate(
             for digest, size in members:
                 archive_pdf_count += 1
                 pdf_sizes.setdefault(digest, size)
+            fingerprint_parts.append(
+                (
+                    "zip",
+                    entry_relative,
+                    json.dumps(sorted(digest for digest, _ in members), sort_keys=True),
+                )
+            )
             continue
         if suffix in UNVERIFIABLE_ARCHIVE_SUFFIXES:
             archive_count += 1
             archive_bytes += entry["size"]
             unverifiable.append(entry_relative)
+            fingerprint_parts.append(("archive-unverified", entry_relative, str(entry["size"])))
+            continue
+        fingerprint_parts.append(("file", entry_relative, str(entry["size"])))
 
     unique = sorted(digest for digest in pdf_sizes if digest not in canonical)
     unique_bytes = sum(pdf_sizes[digest] for digest in unique)
@@ -579,6 +672,8 @@ def _scan_candidate(
         reclaimable_pdf_count=len(reclaimable),
         reclaimable_pdf_bytes=reclaimable_bytes,
         missing_from_canonical_sha256=tuple(unique),
+        reclaimable_sha256=tuple(reclaimable),
+        fingerprint=fingerprint_of(fingerprint_parts),
         unverifiable_archives=tuple(unverifiable),
         skipped_links=tuple(skipped_links),
         safe_to_delete=not reasons,
@@ -595,17 +690,24 @@ def audit_storage(
     *,
     store: Store | None = None,
     use_database: bool = True,
+    verify_hashes: bool = True,
     progress: Callable[[str], None] | None = None,
 ) -> StorageAudit:
-    """Report the storage state of ``repo_root`` without changing anything."""
+    """Report the storage state of the repository without changing anything.
+
+    verify_hashes is what makes the report trustworthy: without it the
+    canonical store is only counted by name, and a receipt produced that way is
+    refused by the cleanup. The fast mode exists to answer how big a tree is,
+    never to authorise a deletion.
+    """
 
     started = time.monotonic()
     repo_path = Path(repo_root).resolve()
     data_path = Path(data_root).resolve() if data_root is not None else repo_path / "data"
     warnings: list[str] = []
 
-    canonical_shas, blob_count, blob_bytes, malformed = _scan_canonical_blobs(
-        data_path, warnings=warnings
+    canonical_shas, blob_count, blob_bytes, malformed, corrupted = _scan_canonical_blobs(
+        data_path, warnings=warnings, verify_hashes=verify_hashes
     )
 
     own_store = None
@@ -613,19 +715,32 @@ def audit_storage(
     external_shas: set[str] = set()
     external_count = 0
     external_bytes = 0
+    external_corrupted: tuple[str, ...] = ()
     referenced_without_blob: tuple[str, ...] = ()
     database_file = data_path / DATABASE_NAME
     if store is None and use_database and database_file.is_file():
-        # The audit only opens a database that already exists, so it never
-        # creates or migrates state while inspecting storage.
-        store = Store.open(database_file)
-        own_store = store
+        # The audit only opens a database that already exists, and only
+        # read-only: inspecting storage must never migrate what it inspects.
+        try:
+            store = Store.open_read_only(database_file)
+            own_store = store
+        except StoreError as error:
+            warnings.append(f"database_not_inspectable:{_posix(database_file)}:{error}")
     if store is None and use_database:
         warnings.append(f"database_absent:{_posix(database_file)}")
     try:
         if store is not None:
-            external_shas, external_count, external_bytes, referenced = _scan_external_copies(
-                store, canonical_shas, warnings=warnings
+            (
+                external_shas,
+                external_count,
+                external_bytes,
+                referenced,
+                external_corrupted,
+            ) = _scan_external_copies(
+                store,
+                canonical_shas,
+                warnings=warnings,
+                verify_hashes=verify_hashes,
             )
             referenced_without_blob = tuple(
                 sorted(referenced - canonical_shas - external_shas)
@@ -665,6 +780,9 @@ def audit_storage(
         blob_count=blob_count,
         blob_bytes=blob_bytes,
         malformed_entries=malformed,
+        hash_verified=verify_hashes,
+        corrupted_blobs=corrupted,
+        external_corrupted=external_corrupted,
         external_count=external_count,
         external_bytes=external_bytes,
         database_checked=database_checked,
@@ -701,6 +819,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-database", action="store_true", help="ignore atos-tce.db and audit the blob tree only"
     )
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help=(
+            "skip hashing the canonical blobs (informational only: "
+            "cleanup --apply refuses a receipt produced this way)"
+        ),
+    )
     return parser
 
 
@@ -719,6 +845,7 @@ def main(argv: list[str] | None = None) -> int:
             args.repo_root,
             data_root,
             use_database=not args.no_database,
+            verify_hashes=not args.fast,
             progress=progress,
         )
     except Exception as error:  # pragma: no cover - surfaced to the operator

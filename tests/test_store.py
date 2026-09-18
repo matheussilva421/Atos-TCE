@@ -1,12 +1,13 @@
 """Root package layout and SQLite store tests for the new Mesa application."""
 
 import importlib
+import sqlite3
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from app.core.models import DocumentRecord, FieldRecord, ProcessRecord
-from app.core.store import SCHEMA_VERSION, Store
+from app.core.store import SCHEMA_VERSION, Store, StoreError
 
 
 class PackageLayoutTests(unittest.TestCase):
@@ -56,6 +57,146 @@ class StoreRoundTripTests(StoreTestCase):
 
     def test_unknown_process_returns_none(self):
         self.assertIsNone(self.store.get_process(4242))
+
+
+class DocumentReconciliationTests(StoreTestCase):
+    """CR-23: reconciling documents must not renumber ids or lose evidence."""
+
+    def document(self, source_id, *, sha="a" * 64, title="Ato"):
+        return DocumentRecord(
+            source_id=source_id,
+            title=title,
+            relative_path=f"archive/processos/102390-2026/{source_id}.pdf",
+            sha256=sha,
+            page_count=2,
+            event="1",
+        )
+
+    def setUp(self):
+        super().setUp()
+        self.process_id = self.store.upsert_process(sample_process())
+
+    def test_updating_a_document_keeps_its_id_and_the_evidence(self):
+        self.store.replace_documents(self.process_id, [self.document("doc-1")])
+        document_id = self.store.list_documents(self.process_id)[0]["id"]
+        self.store.replace_fields(
+            self.process_id,
+            [
+                FieldRecord(
+                    field_name="cargo",
+                    value="Professor",
+                    status="found",
+                    confidence=1.0,
+                    document_id=document_id,
+                )
+            ],
+        )
+
+        self.store.replace_documents(
+            self.process_id, [self.document("doc-1", sha="b" * 64, title="Ato revisado")]
+        )
+
+        documents = self.store.list_documents(self.process_id)
+        self.assertEqual(len(documents), 1)
+        self.assertEqual(documents[0]["id"], document_id)
+        self.assertEqual(documents[0]["sha256"], "b" * 64)
+        self.assertEqual(documents[0]["title"], "Ato revisado")
+        fields = self.store.list_fields(self.process_id)
+        self.assertEqual(fields[0]["document_id"], document_id)
+
+    def test_a_new_document_does_not_touch_the_others(self):
+        self.store.replace_documents(self.process_id, [self.document("doc-1")])
+        first_id = self.store.list_documents(self.process_id)[0]["id"]
+
+        self.store.replace_documents(
+            self.process_id, [self.document("doc-1"), self.document("doc-2")]
+        )
+
+        documents = {row["source_id"]: row for row in self.store.list_documents(self.process_id)}
+        self.assertEqual(len(documents), 2)
+        self.assertEqual(documents["doc-1"]["id"], first_id)
+
+    def test_removing_a_referenced_document_records_the_loss(self):
+        self.store.replace_documents(
+            self.process_id, [self.document("doc-1"), self.document("doc-2")]
+        )
+        documents = {row["source_id"]: row for row in self.store.list_documents(self.process_id)}
+        self.store.replace_fields(
+            self.process_id,
+            [
+                FieldRecord(
+                    field_name="cargo",
+                    value="Professor",
+                    status="found",
+                    confidence=1.0,
+                    document_id=documents["doc-2"]["id"],
+                )
+            ],
+        )
+
+        self.store.replace_documents(self.process_id, [self.document("doc-1")])
+
+        self.assertEqual(len(self.store.list_documents(self.process_id)), 1)
+        process = self.store.get_process(self.process_id)
+        events = {event["event_type"]: event for event in process["events"]}
+        self.assertIn("documents_removed", events)
+        self.assertEqual(events["documents_removed"]["payload"]["removed"], ["doc-2"])
+        self.assertEqual(events["documents_removed"]["payload"]["lost_evidence"], 1)
+        self.assertEqual(process["status"], "REVISAR")
+
+    def test_removing_an_unreferenced_document_is_silent(self):
+        self.store.replace_documents(
+            self.process_id, [self.document("doc-1"), self.document("doc-2")]
+        )
+
+        self.store.replace_documents(self.process_id, [self.document("doc-1")])
+
+        process = self.store.get_process(self.process_id)
+        self.assertNotIn(
+            "documents_removed", [event["event_type"] for event in process["events"]]
+        )
+        self.assertEqual(process["status"], "PRONTO")
+
+
+class ReadOnlyStoreTests(unittest.TestCase):
+    """CR-17: an inspection tool must never migrate the database it inspects."""
+
+    def test_a_current_database_opens_read_only(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "atos-tce.db"
+            created = Store.open(path)
+            created.close()
+
+            store = Store.open_read_only(path)
+            try:
+                self.assertEqual(store.schema_version, SCHEMA_VERSION)
+            finally:
+                store.close()
+
+    def test_an_older_schema_is_refused_instead_of_migrated(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "atos-tce.db"
+            created = Store.open(path)
+            created.close()
+            connection = sqlite3.connect(path)
+            connection.execute("UPDATE metadata SET value = '1' WHERE key = 'schema_version'")
+            connection.commit()
+            connection.close()
+
+            with self.assertRaises(StoreError):
+                Store.open_read_only(path)
+
+            connection = sqlite3.connect(path)
+            row = connection.execute(
+                "SELECT value FROM metadata WHERE key = 'schema_version'"
+            ).fetchone()
+            connection.close()
+            self.assertEqual(row[0], "1", "a recusa não pode ter migrado o arquivo")
+
+    def test_a_missing_database_is_reported(self):
+        with TemporaryDirectory() as tmp:
+            with self.assertRaises(StoreError):
+                Store.open_read_only(Path(tmp) / "ausente.db")
 
 
 class StoreUpsertTests(StoreTestCase):

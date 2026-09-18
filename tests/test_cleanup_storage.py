@@ -12,9 +12,30 @@ from tempfile import TemporaryDirectory
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "cleanup-storage.py"
+AUDIT_SCRIPT_PATH = REPO_ROOT / "scripts" / "storage-audit.py"
 PDF = b"%PDF-1.4\ncleanup fixture\n%%EOF\n"
 
 _MODULE = None
+_AUDIT_MODULE = None
+
+
+def audit_module():
+    """Load the auditor so the fixtures use its real fingerprint rules."""
+
+    global _AUDIT_MODULE
+    if _AUDIT_MODULE is None:
+        spec = importlib.util.spec_from_file_location("storage_audit_cli", AUDIT_SCRIPT_PATH)
+        if spec is None or spec.loader is None:  # pragma: no cover - import plumbing
+            raise AssertionError(f"cannot load {AUDIT_SCRIPT_PATH}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        try:
+            spec.loader.exec_module(module)
+        except BaseException:
+            sys.modules.pop(spec.name, None)
+            raise
+        _AUDIT_MODULE = module
+    return _AUDIT_MODULE
 
 
 def cleanup_module():
@@ -95,6 +116,12 @@ class CleanupTestCase(unittest.TestCase):
     ) -> dict:
         root = self.repo / relative
         files, total = tree_stats(root) if root.exists() else (0, 0)
+        warnings: list = []
+        fingerprint = (
+            audit_module().fingerprint_tree(root, self.repo, warnings=warnings)
+            if root.exists()
+            else ""
+        )
         return {
             "relative_path": relative,
             "category": category,
@@ -111,6 +138,8 @@ class CleanupTestCase(unittest.TestCase):
             "reclaimable_pdf_count": 0,
             "reclaimable_pdf_bytes": 0,
             "missing_from_canonical_sha256": list(missing),
+            "reclaimable_sha256": [],
+            "fingerprint": fingerprint,
             "unverifiable_archives": [],
             "skipped_links": [],
             "safe_to_delete": safe,
@@ -126,6 +155,9 @@ class CleanupTestCase(unittest.TestCase):
                 "blob_count": blob_count,
                 "blob_bytes": blob_bytes,
                 "malformed_entries": [],
+                "hash_verified": True,
+                "corrupted_blobs": [],
+                "external_corrupted": [],
                 "external_count": 0,
                 "external_bytes": 0,
                 "database_checked": True,
@@ -357,6 +389,73 @@ class ApplyTests(CleanupTestCase):
         self.assertEqual(receipt["canonical"]["blob_count"], 7)
         self.assertEqual(receipt["canonical"]["blob_bytes"], 123)
         self.assertTrue(Path(applied.receipt).name.startswith("storage-cleanup-"))
+
+
+class ToughenedApplyTests(CleanupTestCase):
+    """CR-15/CR-16: apply re-proves the bytes instead of trusting the receipt."""
+
+    def write_unverified_audit(self, candidates: list) -> Path:
+        """The same receipt, but produced without hashing the canonical store."""
+
+        self.write_audit(candidates)
+        payload = json.loads(self.audit_path.read_text(encoding="utf-8"))
+        payload["canonical"]["hash_verified"] = False
+        self.audit_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return self.audit_path
+
+    def test_a_receipt_without_hash_verification_cannot_authorise_a_removal(self):
+        write(self.repo / "Versions" / "ref" / "a.pdf", PDF)
+        self.write_unverified_audit([self.candidate_payload("Versions", safe=True)])
+
+        plan = self.plan()
+
+        self.assertEqual(plan.delete, ())
+        self.assertIn("canonical_data_missing", plan.entries[0].reasons)
+        self.assertTrue((self.repo / "Versions").exists())
+
+    def test_a_receipt_with_corrupted_canonical_blobs_cannot_authorise_removal(self):
+        write(self.repo / "Versions" / "ref" / "a.pdf", PDF)
+        self.write_audit([self.candidate_payload("Versions", safe=True)])
+        payload = json.loads(self.audit_path.read_text(encoding="utf-8"))
+        payload["canonical"]["corrupted_blobs"] = ["archive/blobs/aa/" + "a" * 64 + ".pdf"]
+        self.audit_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+        plan = self.plan()
+
+        self.assertEqual(plan.delete, ())
+        self.assertIn("canonical_data_missing", plan.entries[0].reasons)
+
+    def test_a_tree_that_changed_content_keeping_the_same_size_is_refused(self):
+        # Same byte count, different bytes: only the fingerprint can see it.
+        write(self.repo / "Versions" / "ref" / "a.pdf", PDF)
+        self.write_audit([self.candidate_payload("Versions", safe=True)])
+        changed = PDF[:-1] + b"X"
+        self.assertEqual(len(changed), len(PDF))
+        write(self.repo / "Versions" / "ref" / "a.pdf", changed)
+
+        with self.assertRaises(cleanup_module().CleanupError) as context:
+            cleanup_module().apply_cleanup(self.audit_path)
+
+        self.assertIn("mudou de conteúdo", str(context.exception))
+        self.assertTrue((self.repo / "Versions").exists())
+
+    def test_a_corrupted_canonical_blob_blocks_the_removal(self):
+        value = hashlib.sha256(PDF).hexdigest()
+        blob = self.data / "archive" / "blobs" / value[:2] / f"{value}.pdf"
+        write(blob, PDF)
+        write(self.repo / "Versions" / "ref" / "a.pdf", PDF)
+        candidate = self.candidate_payload("Versions", safe=True)
+        candidate["reclaimable_sha256"] = [value]
+        candidate["reclaimable_pdf_count"] = 1
+        self.write_audit([candidate])
+
+        write(blob, PDF[:-1] + b"X")  # the canonical copy is corrupted afterwards
+
+        with self.assertRaises(cleanup_module().CleanupError) as context:
+            cleanup_module().apply_cleanup(self.audit_path)
+
+        self.assertIn("acervo canônico não confirma", str(context.exception))
+        self.assertTrue((self.repo / "Versions").exists())
 
 
 class CleanupCliTests(CleanupTestCase):
