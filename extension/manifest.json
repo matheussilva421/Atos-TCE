@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "ATOS TCE — Ponte da Mesa",
+  "version": "0.1.0",
+  "description": "Adaptador fino entre a Mesa Local e a Área Restrita do TCE/RN: observa, lê páginas e executa instruções específicas da Mesa. Nunca conclui um ato.",
+  "minimum_chrome_version": "116",
+  "permissions": ["alarms", "sidePanel", "storage"],
+  "host_permissions": [
+    "https://novaarearestrita.tce.rn.gov.br/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background/router.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://novaarearestrita.tce.rn.gov.br/*"],
+      "js": [
+        "lib/area-snapshot.js",
+        "content/scan-area.js",
+        "content/paging.js",
+        "content/heartbeat.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidepanel/panel.html"
+  },
+  "action": {
+    "default_title": "ATOS TCE"
+  }
+}

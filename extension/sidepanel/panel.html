@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ATOS TCE</title>
+    <style>
+      :root { color-scheme: light; }
+      body {
+        margin: 0;
+        padding: 14px;
+        font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+        color: #16202e;
+        background: #f4f6f9;
+      }
+      h1 { margin: 0 0 10px; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: #5b6879; }
+      ul { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 6px; }
+      li { display: flex; align-items: center; gap: 8px; }
+      .dot { width: 9px; height: 9px; border-radius: 50%; background: #c2c9d4; flex: 0 0 auto; }
+      .dot.ok { background: #14683f; }
+      .dot.warn { background: #8a5200; }
+      .dot.error { background: #8f1d1d; }
+      section { margin-bottom: 12px; }
+      label { display: block; font-size: 12px; color: #5b6879; margin-bottom: 4px; }
+      input, button {
+        font: inherit;
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid #dde3ec;
+        box-sizing: border-box;
+      }
+      button { background: #1e3f6d; color: #fff; border: 0; cursor: pointer; margin-top: 6px; }
+      button.secondary { background: #eaf0f8; color: #1e3f6d; }
+      button:disabled { opacity: 0.6; cursor: default; }
+      p { margin: 10px 0 0; font-size: 12px; color: #5b6879; }
+      .error { color: #8f1d1d; }
+    </style>
+  </head>
+  <body>
+    <h1>ATOS TCE</h1>
+    <ul>
+      <li><span id="mesa-dot" class="dot"></span><span id="mesa-status">Mesa: verificando…</span></li>
+      <li><span id="portal-dot" class="dot"></span><span id="portal-status">Área Restrita: verificando…</span></li>
+    </ul>
+    <section id="pair-section" hidden>
+      <label for="pair-code">Código exibido na Mesa</label>
+      <input id="pair-code" inputmode="numeric" maxlength="6" autocomplete="off" />
+      <button id="pair-action" type="button">Parear</button>
+    </section>
+    <button id="open-mesa" class="secondary" type="button">Abrir Mesa</button>
+    <p id="diagnostic"></p>
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>

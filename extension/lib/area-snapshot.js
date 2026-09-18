@@ -475,6 +475,58 @@
   }
 
   /**
+   * The proven legacy pagination discovery, including the old portal's
+   * ``NumeroPagina.value=N`` javascript links whose Portuguese label may arrive
+   * with a replacement character.
+   */
+  function findNextPageControl(documentRef) {
+    const explicit = queryAll(
+      documentRef,
+      '[data-action="next-page"], [data-action="next_page"], a[rel="next"], button[rel="next"]'
+    )[0];
+    if (explicit) return explicit;
+    const currentNumber = Number.parseInt(textOf(queryOne(documentRef, "[aria-current='page']")), 10);
+    const labeled = queryAll(documentRef, "nav a, nav button, a, button").find((control) => {
+      if (getAttribute(control, "aria-current") === "page") return false;
+      if (NEXT_LABELS.includes(normalizeInterested(textOf(control)))) return true;
+      const number = Number.parseInt(normalizeInterested(textOf(control)), 10);
+      return Number.isInteger(number) && Number.isInteger(currentNumber) && number > currentNumber;
+    });
+    if (labeled) return labeled;
+
+    const currentPageControl =
+      byId(documentRef, "NumeroPagina") ||
+      queryOne(documentRef, 'input[name="NumeroPagina"]') ||
+      queryOne(documentRef, 'select[name="pagina"]');
+    const legacyCurrent = Number.parseInt(String(currentPageControl?.value ?? ""), 10);
+    const legacy = queryAll(documentRef, "a")
+      .map((control) => {
+        const match = getAttribute(control, "href").match(/NumeroPagina\.value\s*=\s*['"]?(\d+)/iu);
+        return match ? { control, page: Number.parseInt(match[1], 10) } : null;
+      })
+      .filter(Boolean)
+      .filter(({ page }) => Number.isInteger(legacyCurrent) && page > legacyCurrent)
+      .sort((left, right) => left.page - right.page)[0];
+    return legacy?.control ?? null;
+  }
+
+  function findFirstPageControl(documentRef) {
+    const controls = queryAll(documentRef, "nav a, nav button, a, button");
+    const explicit = controls.find((control) => {
+      const action = getAttribute(control, "data-action");
+      return action === "first-page" || action === "first_page";
+    });
+    if (explicit) return explicit;
+    return (
+      controls.find(
+        (control) =>
+          /NumeroPagina\.value\s*=\s*['"]?1(?:\D|$)/iu.test(getAttribute(control, "href")) &&
+          /primeira|first|<<|NumeroPagina/iu.test(`${textOf(control)} ${getAttribute(control, "href")}`)
+      ) ?? null
+    );
+  }
+
+  /**
    * Page numbers come from the same controls the legacy driver paginated with.
    * Numeric labels are authoritative; when the portal only renders a "Próxima"
    * control, the total is the current page plus that pending step.
@@ -550,6 +602,8 @@
     normalizeInterested,
     detectDocumentRole,
     pageInfo,
+    findNextPageControl,
+    findFirstPageControl,
     PORTAL_ROLES,
     AREA_CLASSIFICATIONS,
   });
