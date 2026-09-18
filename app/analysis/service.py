@@ -104,8 +104,8 @@ class AnalysisService:
         process_key = str(process["process_key"])
         self._store.set_process_status(process_id, "ANALISANDO", event_type="analysis_started")
         try:
-            payload = self._adapter.analyze(process_key)
             documents = self._store.list_documents(process_id)
+            payload = self._adapter.analyze(process_key, process=process, documents=documents)
             analysis = self._normalizer(process_key, payload, documents=documents)
         except Exception as error:
             self._store.set_process_status(

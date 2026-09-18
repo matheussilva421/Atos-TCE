@@ -8,8 +8,11 @@ one process, and the engine that actually runs is the copy promoted into
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
+
+from .execution_view import ensure_process_manifest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -77,8 +80,22 @@ class LegacyAnalysisAdapter:
             self._tesseract = resolve_tesseract(self._data_root, self._repo_root)
         return self._tesseract
 
-    def analyze(self, process_key: str) -> dict[str, Any]:
-        """Return the raw legacy result for one process."""
+    def analyze(
+        self,
+        process_key: str,
+        *,
+        process: Mapping[str, Any] | None = None,
+        documents: Sequence[Mapping[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Return the raw engine result for one process.
+
+        When the canonical rows are supplied, the engine's execution view is
+        rendered first: the M1 import writes only the documents, so without the
+        manifest the promoted engine cannot see any canonical process.
+        """
+
+        if process is not None and documents is not None:
+            ensure_process_manifest(self._data_root, process, documents)
 
         module = _engine()
         paths = self._paths()

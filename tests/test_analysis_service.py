@@ -221,7 +221,9 @@ class FakeAdapter:
         self.error = error
         self.calls = []
 
-    def analyze(self, process_key):
+    def analyze(self, process_key, **kwargs):
+        # The service passes the canonical rows so the real adapter can render
+        # the engine's execution view; this stub records only the key.
         self.calls.append(process_key)
         if self.error is not None:
             raise self.error
