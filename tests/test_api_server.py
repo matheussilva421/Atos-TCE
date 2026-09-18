@@ -285,6 +285,15 @@ class MesaUiTests(ApiTestCase):
         self.assertIn("/api/v1/processes", script)
         self.assertIn("/api/v1/storage", script)
 
+    def test_bootstrap_page_keeps_the_token_in_the_fragment(self):
+        with self.get("/bootstrap") as response:
+            self.assertEqual(response.status, 200)
+            body = response.read().decode("utf-8")
+
+        self.assertIn("/api/v1/session/bootstrap", body)
+        self.assertIn("location.hash", body)
+        self.assertIn("location.replace(\"/\")", body)
+
     def test_mesa_is_read_only_in_m1(self):
         with self.get("/") as response:
             shell = response.read().decode("utf-8")

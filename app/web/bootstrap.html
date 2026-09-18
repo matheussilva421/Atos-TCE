@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ATOS TCE · Mesa Local</title>
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body class="bootstrap">
+    <main>
+      <h1>ATOS TCE · Mesa Local</h1>
+      <p id="bootstrap-status">Abrindo a sessão da Mesa…</p>
+    </main>
+    <script>
+      // O token viaja no fragmento da URL, portanto nunca aparece em log de
+      // servidor, histórico de proxy ou cabeçalho Referer. Ele é de uso único.
+      (async () => {
+        const status = document.getElementById("bootstrap-status");
+        const token = new URLSearchParams(location.hash.replace(/^#/, "")).get("token") || "";
+        try {
+          const response = await fetch("/api/v1/session/bootstrap", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+          });
+          if (!response.ok) throw new Error(String(response.status));
+          location.replace("/");
+        } catch (error) {
+          status.textContent =
+            "Não foi possível abrir a sessão da Mesa (" + error.message + "). " +
+            "Feche esta aba e rode START.cmd novamente.";
+        }
+      })();
+    </script>
+  </body>
+</html>

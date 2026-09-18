@@ -13,6 +13,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
+from .api.bridge import PAIRING_TTL_SECONDS, Bridge
 from .api.server import DEFAULT_HOST, DEFAULT_PORT, serve
 from .core.store import Store
 
@@ -41,21 +42,32 @@ def main(argv: list[str] | None = None) -> int:
         folder.mkdir(parents=True, exist_ok=True)
 
     store = Store.open(data_root / "atos-tce.db")
+    bridge = Bridge()
     try:
-        server = serve(store, data_root, host=args.host, port=args.port, verbose=args.verbose)
+        server = serve(
+            store, data_root, host=args.host, port=args.port, bridge=bridge, verbose=args.verbose
+        )
     except (OSError, ValueError) as error:
         print(f"Não foi possível iniciar a Mesa: {error}", file=sys.stderr)
         store.close()
         return 2
 
     address = f"http://{args.host}:{server.server_address[1]}/"
+    # The one-time bootstrap token stays in the URL fragment: it is never sent
+    # to the server as part of a path, a query string or a Referer header.
+    bootstrap_url = f"{address}bootstrap#token={bridge.bootstrap_value}"
     thread = threading.Thread(target=server.serve_forever, name="mesa-http", daemon=True)
     thread.start()
     print(f"Mesa Local em {address}")
     print(f"Banco de dados: {store.path}")
+    if not store.list_bridge_clients():
+        print(
+            f"Código de pareamento da extensão: {bridge.pairing_code} "
+            f"(válido por {int(PAIRING_TTL_SECONDS)}s; use 'Renovar código' na Mesa se expirar)"
+        )
     print("Pressione Ctrl+C para encerrar.")
     if not args.no_browser:
-        webbrowser.open(address)
+        webbrowser.open(bootstrap_url)
 
     try:
         while thread.is_alive():

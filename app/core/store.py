@@ -610,6 +610,15 @@ class Store:
                 )
             ]
 
+    def touch_bridge_client(self, client_id: str) -> None:
+        """Record that a paired client just authenticated successfully."""
+
+        with self._transaction() as connection:
+            connection.execute(
+                "UPDATE bridge_clients SET last_seen_at = ? WHERE client_id = ?",
+                (utc_now(), client_id),
+            )
+
     def get_process(self, process_id: int) -> dict[str, Any] | None:
         """Return one process with its documents, fields and workflow history."""
 
