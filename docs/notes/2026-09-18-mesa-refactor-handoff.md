@@ -407,6 +407,20 @@ processo; `app/web/tests/ui-wiring.test.mjs` trava a fiação (3 testes) e
 Prova no navegador real, contra a raiz real: abrir o processo `100015/2026` → a
 aba de documentos lista **17 documentos** → "abrir no visualizador" → canvas
 884x1294 com "página 1 de 57", sem erro; captura em `tmp/mesa-ui-viewer.png`.
+As **ações da UI** foram dirigidas no mesmo navegador e na mesma raiz isolada, sem
+portal e sem extensão conectada:
+
+| Processo / ação | Resultado |
+|---|---|
+| `PRONTO`: painel de preenchimento | visível e habilitado |
+| `PRONTO`: clique em "Preencher ato" | status "Abrindo o ato no portal…" e, no banco, pedido de preenchimento em `OPENING` (modo automático) com o comando enfileirado — sem extensão nada avança e nada é enviado |
+| `PRONTO`: "Arquivar"/"Restaurar" | ocultos (o processo não está concluído nem preenchido) |
+| `REVISAR`: painel de preenchimento | oculto — o processo ambíguo não é preenchível |
+| "Baixar processos pendentes" | desabilitado (0 pendentes) |
+| "Analisar Área Restrita" | enfileira o comando e mostra "Analisando a Área Restrita…" |
+
+Cada ação é barrada por estado no cliente e fail-closed no servidor.
+
 
 `POST /api/v1/processes/<id>/fill` inicia o fluxo (somente processo `PRONTO`),
 `GET /api/v1/fill-requests/<id>` acompanha o estado, e o resultado de cada
