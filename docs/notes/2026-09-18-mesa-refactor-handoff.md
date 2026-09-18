@@ -392,6 +392,22 @@ economizados por dedup, chips "Mesa conectada — API v1", "Banco schema v5" e
 foram clicados no ensaio: o caminho de dados deles está provado pelas rotas acima
 e a lógica pelos testes Node do gate.
 
+Defeito encontrado ao dirigir o navegador de verdade (Chrome headless via CDP,
+2026-09-18): `renderDetail` nunca guardava o payload em `state.detail`, então os
+botões de aba (`dados`/`documentos`/`histórico`) só repintavam a barra e a aba de
+documentos **nunca abria** — e, como o visualizador de PDF é aberto por um botão
+dentro dela, o visualizador ficava inalcançável pela UI. O teste Node do gate
+cobria só `pdf-viewer.js`; a fiação das abas não tinha teste.
+
+Correção: `renderDetail` guarda o payload e `selectProcess` o limpa ao trocar de
+processo; `app/web/tests/ui-wiring.test.mjs` trava a fiação (3 testes) e
+`tests/test_web_suite.py` passa a rodar a suíte web da Mesa dentro da suíte raiz
+(o estágio "web" do gate legado cobre apenas a árvore antiga).
+
+Prova no navegador real, contra a raiz real: abrir o processo `100015/2026` → a
+aba de documentos lista **17 documentos** → "abrir no visualizador" → canvas
+884x1294 com "página 1 de 57", sem erro; captura em `tmp/mesa-ui-viewer.png`.
+
 `POST /api/v1/processes/<id>/fill` inicia o fluxo (somente processo `PRONTO`),
 `GET /api/v1/fill-requests/<id>` acompanha o estado, e o resultado de cada
 comando da extensão entra pelo mesmo caminho autenticado já existente. Ao
@@ -668,6 +684,11 @@ Build atualizado depois das correções de análise (2026-09-18, mais tarde):
 conferidos e smoke de extração limpa verde; rotação aplicada com esse hash, então
 `dist/` tem esse build como atual e `f1e47da…` como anterior. O contrato do pacote
 segue 11/11 com o ZIP real.
+
+Depois da correção das abas da Mesa o pacote foi reconstruído outra vez:
+`dist/Atos-TCE-portable.zip`, SHA-256
+`0bbd52f778917a7ed4339d558021e575f67294bdad48a8cb89b012fa4b76dc81`, 509 entradas,
+smoke de extração limpa verde e rotação aplicada (anterior: `5c83663…`).
 
 #### Tarefa 7 — limpeza por recibo
 
