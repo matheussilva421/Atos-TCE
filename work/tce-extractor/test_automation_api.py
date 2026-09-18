@@ -469,6 +469,78 @@ class AutomationApiTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=3)
 
+    def test_operator_started_service_releases_auto_submit_without_qualification(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _dataset, digest = write_fixture(root, "Ana")
+            server = create_server(root, port=0, enable_real_send=True)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://127.0.0.1:{server.server_port}"
+            try:
+                token = self.pair(server, base)
+                status, _headers, capabilities = request_json(
+                    f"{base}/api/v1/automation/capabilities", token=token
+                )
+                self.assertEqual(status, 200, capabilities)
+                self.assertTrue(capabilities["real_send_enabled"])
+                status, _headers, created = request_json(
+                    f"{base}/api/v1/automation/runs",
+                    method="POST",
+                    token=token,
+                    payload=self.run_spec(
+                        digest,
+                        auto_submit=True,
+                        lot_size=100,
+                        event_id="operator-released-batch",
+                    ),
+                )
+                self.assertEqual(status, 200, created)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+
+    def test_auto_submit_batch_rejects_lot_size_above_one_hundred(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _dataset, digest = write_fixture(root, "Ana")
+            server = create_server(root, port=0, enable_real_send=True)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://127.0.0.1:{server.server_port}"
+            try:
+                token = self.pair(server, base)
+                for lot_size in (101, 300):
+                    status, _headers, body = request_json(
+                        f"{base}/api/v1/automation/runs",
+                        method="POST",
+                        token=token,
+                        payload=self.run_spec(
+                            digest,
+                            auto_submit=True,
+                            lot_size=lot_size,
+                            event_id=f"batch-limit-{lot_size}",
+                        ),
+                    )
+                    self.assertEqual(status, 400, body)
+                    self.assertEqual(body["error"]["code"], "AUTO_SUBMIT_LOT_LIMIT")
+                status, _headers, created = request_json(
+                    f"{base}/api/v1/automation/runs",
+                    method="POST",
+                    token=token,
+                    payload=self.run_spec(
+                        digest,
+                        lot_size=300,
+                        event_id="batch-large-manual",
+                    ),
+                )
+                self.assertEqual(status, 200, created)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+
     def test_pilot_run_requires_explicit_service_flag(self):
         with running_server() as (root, server, base):
             _dataset, digest = write_fixture(root, "Ana")

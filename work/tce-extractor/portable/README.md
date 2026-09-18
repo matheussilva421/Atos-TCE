@@ -147,12 +147,14 @@ interessado e faz preflight dos sete campos antes de congelar a fila. Linhas
 sem identidade ou sem ação observável **Complementar Ato** ficam pendentes.
 
 O checkbox **Concluir automaticamente os atos elegíveis** é um opt-in separado
-e só fica habilitado quando há serviço, qualificação versionada e observador de
-resultado do portal. Nesse modo, cada ato exige intenção persistida, comando
-único, releitura e confirmação; timeout ou resultado incerto pausa o lote e não
-faz reenvio automático. A versão atual do pacote mantém
-`real_send_enabled=false` até a qualificação real, portanto a execução real
-continua bloqueada neste checkout. Fechar o painel não retoma a execução.
+e só fica habilitado quando o serviço local é iniciado com o envio real
+(`INICIAR.cmd envio-real`), que ativa `real_send_enabled` no helper. Nesse
+modo, cada ato exige intenção persistida, comando único, releitura e
+confirmação; timeout ou resultado incerto pausa o lote e não faz reenvio
+automático. Cada execução automática processa no máximo 100 atos elegíveis; os
+demais ficam pendentes para o próximo lote confirmado. Sem o comando de envio
+real, `real_send_enabled=false` e o checkbox permanece desabilitado. Fechar o
+painel não retoma a execução.
 
 ## HTML, revisão e diagnóstico
 

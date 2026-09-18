@@ -735,6 +735,37 @@ test("freezes then resets from the final discovery page and completes the full f
   assert.equal(chromeApi.calls.filter(([, message]) => message.type === "PORTAL_NAVIGATE" && message.payload.action === "open_act").length, 5);
 });
 
+test("caps an automatic batch run at the requested lot size and defers the rest", async () => {
+  const identities = [
+    identity("103401/2023", "ana da silva", "act-1"),
+    identity("103402/2023", "bruno de souza", "act-2"),
+    identity("103403/2023", "carla de lima", "act-3"),
+    identity("103404/2023", "diego alves", "act-4"),
+    identity("103405/2023", "erica santos", "act-5"),
+  ];
+  const bridge = bridgeMock();
+  bridge.getAutomationCapabilities = async () => ({
+    api_version: 1,
+    automation_schema: 1,
+    legal_context_schema: 1,
+    rules_version: "legal-foundation-v3",
+    real_send_enabled: true,
+  });
+  const chromeApi = lifecycleChromeMock({ 1: lifecycleList(1, identities, { first: true }) });
+
+  const result = await createAutomationController({ chromeApi, bridge }).start({
+    spec: { ...runSpec(), autoSubmit: true, lotSize: 2 },
+    eventId: "start-auto-batch-cap",
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.queueFrozen, true);
+  assert.equal(bridge.calls.find(([name]) => name === "freeze")[2].identities.length, 2);
+  assert.equal(chromeApi.calls.filter(([, message]) => message.type === "PORTAL_NAVIGATE" && message.payload.action === "open_act").length, 2);
+  assert.equal(result.totals.unique, 5);
+  assert.equal(result.totals.pending, 3);
+});
+
 test("integrated local qualification processes 25 acts across two pages and preserves three pending identities", async () => {
   const all = Array.from({ length: 22 }, (_, index) => identity(
     `${200000 + index}/2024`,

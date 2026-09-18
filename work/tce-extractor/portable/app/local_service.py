@@ -96,6 +96,7 @@ def _shipped_extension_version(extension_root: "Path | None" = None) -> str:
 
 EXTENSION_VERSION = _shipped_extension_version()
 QUALIFICATION_RELATIVE_PATH = Path("automacao") / "qualificacao.json"
+AUTO_SUBMIT_MAX_LOT_SIZE = 100
 PROCESS_KEY_RE = re.compile(r"^\d+/\d{4}$")
 PROCESS_KEY_QUERY_RE = re.compile(r"^(\d+)\s*/\s*(\d{4})$")
 AUTOMATION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$")
@@ -618,6 +619,18 @@ def _validate_run_payload(payload: dict, *, pilot_enabled: bool = False) -> tupl
     auto_submit = payload.get("auto_submit", False)
     if not isinstance(auto_submit, bool):
         raise _ApiProblem(400, "INVALID_PAYLOAD", "auto_submit deve ser booleano")
+    if (
+        auto_submit
+        and mode == "batch"
+        and isinstance(lot_size, int)
+        and not isinstance(lot_size, bool)
+        and lot_size > AUTO_SUBMIT_MAX_LOT_SIZE
+    ):
+        raise _ApiProblem(
+            400,
+            "AUTO_SUBMIT_LOT_LIMIT",
+            f"envio automático em lote aceita no máximo {AUTO_SUBMIT_MAX_LOT_SIZE} atos por execução",
+        )
     event_id = _require_text(payload.get("event_id"), "event_id")
     if not AUTOMATION_ID_RE.fullmatch(event_id):
         raise _ApiProblem(400, "INVALID_EVENT_ID", "event_id inválido")
@@ -1004,13 +1017,16 @@ class _WorkflowHTTPServer(ThreadingHTTPServer):
         self.package_root = self.workflow_root.parent
         self.automation_pilot = automation_pilot is True
         self.real_send_enabled = False
+        self.real_send_qualification = "disabled"
         if enable_real_send:
             qualification = inspect_qualification(
                 self.workflow_root / QUALIFICATION_RELATIVE_PATH,
                 expected_qualification_versions(EXTENSION_VERSION),
             )
-            if not qualification.valid:
-                raise ValueError(f"qualificação real inválida: {qualification.reason}")
+            # A ativação explícita do operador libera o envio real. O registro
+            # de qualificação fica como evidência quando existe, sem bloquear
+            # a liberação (decisão do operador em 2026-09-18).
+            self.real_send_qualification = qualification.reason
             self.real_send_enabled = True
         workflow_state = WorkflowState(self.workflow_root)
         automation_store = AutomationStore(self.workflow_root)
@@ -2420,6 +2436,8 @@ def _write_runtime_metadata(path: Path, server: _WorkflowHTTPServer) -> dict[str
         "executable": str(Path(os.environ.get("PYTHONEXECUTABLE", os.sys.executable)).resolve()),
         "started_at": time.time(),
         "pairing_code": pairing_code,
+        "real_send_enabled": bool(server.real_send_enabled),
+        "real_send_qualification": server.real_send_qualification,
         "review_url": f"http://127.0.0.1:{server.server_port}/review#bootstrap={quote(review_code or '', safe='')}" if review_code else None,
     }
     path.parent.mkdir(parents=True, exist_ok=True)

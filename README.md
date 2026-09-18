@@ -67,9 +67,12 @@ um runtime local vivo como encerrado.
 
 - Repositório local: nenhum upload ao GitHub é feito automaticamente.
 - `.gitignore` usa lista de permissão; dados pessoais, PDFs, ZIPs, backups, caches e perfis de navegador não são versionados.
-- O envio automático ainda não está qualificado: `real_send_enabled=false` e
-  `pilot_enabled=false`. Nenhum ato foi enviado; conclusão, confirmação e envio
-  permanecem manuais e sujeitos aos gates portal-real.
+- O envio automático é um opt-in explícito do operador: fica desabilitado por
+  padrão (`real_send_enabled=false`) e só é liberado quando a mesa local é
+  iniciada com `INICIAR.cmd envio-real`. Cada execução automática processa no
+  máximo 100 atos elegíveis, exige intenção persistida e comando único por ato e
+  pausa em resultado incerto. Sem o comando de envio real, o checkbox do painel
+  permanece desabilitado.
 - A regra operacional solicitada para DOE usa a data da Resolução Administrativa; não equivale a comprovação independente da publicação no Diário Oficial.
 - Preserve backups até conferir o novo lote. Nunca publique `outputs`, `tmp` ou perfis autenticados.
 

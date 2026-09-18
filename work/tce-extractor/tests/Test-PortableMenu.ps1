@@ -128,6 +128,8 @@ Assert-True ($launcherText -match '(?i)LaunchLocalService') 'iniciador inicia a 
 Assert-True ($launcherText -notmatch '(?i)netsh|firewall|RunOnce|Startup') 'iniciador não cria firewall nem inicialização automática'
 Assert-True ($launcherText -match '(?i)abrir-mesa') 'iniciador oferece comando público abrir-mesa'
 Assert-True ($launcherText -match '(?i)OpenReview') 'abrir-mesa delega para a validação HTTP da mesa'
+Assert-True ($launcherText -match '(?i)envio-real') 'iniciador oferece comando explícito para habilitar o envio real'
+Assert-True ($launcherText -match '(?i)EnableRealSend') 'envio-real delega para o interruptor explícito do menu'
 $reviewLauncher = Join-Path $PSScriptRoot '..\portable\ABRIR-MESA.cmd'
 Assert-True (Test-Path -LiteralPath $reviewLauncher -PathType Leaf) 'pacote inclui ABRIR-MESA.cmd'
 $reviewLauncherText = if (Test-Path -LiteralPath $reviewLauncher) { Get-Content -LiteralPath $reviewLauncher -Raw } else { '' }

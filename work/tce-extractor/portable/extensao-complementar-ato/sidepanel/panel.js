@@ -9,6 +9,7 @@ import {
   validateDataset,
 } from "../lib/schema.js";
 import { createBridgeClient, pairBridge } from "../lib/bridge-client.js";
+import { MAX_AUTO_SUBMIT_BATCH } from "../lib/automation-schema.js";
 import { buildPanelViewModel, renderPanelView } from "./panel-view.js";
 
 export const PANEL_FIELD_ORDER = Object.freeze([...ALLOWED_FIELDS]);
@@ -1208,21 +1209,34 @@ export function createPanelApp({
       if (marker) spec.marker = marker;
       const sourceScope = text(elements["automation-source-scope"]?.value).trim();
       if (sourceScope) spec.sourceScope = sourceScope;
-      const lotSize = Number.parseInt(text(elements["automation-lot-size"]?.value).trim(), 10);
-      if (Number.isSafeInteger(lotSize) && lotSize > 0) spec.lotSize = lotSize;
-      spec.acquisitionSource = "econtas";
       const autoSubmit = elements["automation-auto-submit"]?.checked === true;
+      const requestedLotSize = Number.parseInt(text(elements["automation-lot-size"]?.value).trim(), 10);
+      const batchLotSize = Number.isSafeInteger(requestedLotSize) && requestedLotSize > 0
+        ? requestedLotSize
+        : MAX_AUTO_SUBMIT_BATCH;
+      const lotSize = autoSubmit && mode !== "pilot"
+        ? Math.min(batchLotSize, MAX_AUTO_SUBMIT_BATCH)
+        : batchLotSize;
+      spec.lotSize = lotSize;
+      if (autoSubmit && mode !== "pilot" && lotSize !== requestedLotSize) {
+        elements["automation-lot-size"].value = String(lotSize);
+      }
+      spec.acquisitionSource = "econtas";
       const autoSubmitAllowed = mode === "pilot"
         ? state.automationCapabilities.pilot_enabled === true
           && state.automationCapabilities.pilot_consumes_remaining === true
         : state.automationCapabilities.real_send_enabled === true;
       if (autoSubmit && !autoSubmitAllowed) {
-        setMessage("Envio automático indisponível: a mesa local não está qualificada para este modo.", true);
+        setMessage("Envio automático indisponível: inicie a mesa local com o envio real habilitado.", true);
         render();
         return false;
       }
       if (autoSubmit) {
-        const target = marker ? `o marcador "${marker}"` : "todos os atos elegíveis";
+        const target = mode === "pilot"
+          ? "o ato do piloto"
+          : marker
+            ? `até ${lotSize} atos elegíveis do marcador "${marker}"`
+            : `até ${lotSize} atos elegíveis`;
         if (!confirmFn(`ATENÇÃO: concluir automaticamente ${target} executará ações externas no portal, clicará em Complementar Ato e exigirá conciliação em caso de resultado incerto. Continuar?`)) {
           setMessage("Execução automática cancelada antes de qualquer ação externa.");
           render();

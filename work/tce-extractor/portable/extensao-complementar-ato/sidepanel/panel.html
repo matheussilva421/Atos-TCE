@@ -99,11 +99,11 @@
           <select id="automation-lot-size">
             <option value="300" selected>300 processos (padrão da lista autoritativa)</option>
             <option value="50">50 processos (fluxo legado)</option>
-            <option value="100">100 processos</option>
+            <option value="100">100 processos (limite do envio automático)</option>
             <option value="200">200 processos</option>
             <option value="1">1 processo (piloto)</option>
           </select>
-          <p class="manual-mode-note">Na opção de lista autoritativa, escolha 50, 100, 200 ou 300 processos; cada lote exige confirmação humana antes do download e nunca ultrapassa 300.</p>
+          <p class="manual-mode-note">Na opção de lista autoritativa, escolha 50, 100, 200 ou 300 processos; cada lote exige confirmação humana antes do download e nunca ultrapassa 300. O envio automático de atos usa no máximo 100 atos por execução.</p>
           <button id="analysis-preview-button" type="button" disabled>Analisar pendências no portal</button>
           <button id="analysis-lots-button" type="button" disabled>Criar lotes da análise</button>
           <p id="analysis-status" role="status" aria-live="polite">Nenhuma análise da lista autenticada foi criada.</p>
@@ -117,7 +117,7 @@
           <button id="analysis-acquisition-button" type="button" disabled>Baixar, aplicar OCR e atualizar a mesa</button>
           <p id="analysis-acquisition-status" role="status" aria-live="polite">Nenhuma aquisição de lote iniciada.</p>
           <label><input id="automation-auto-submit" type="checkbox"> Concluir automaticamente os atos elegíveis</label>
-          <p class="manual-mode-note">Disponível somente com qualificação de envio ativa. Ao marcar, o portal será preenchido e o botão Complementar Ato será clicado após a confirmação acima.</p>
+          <p class="manual-mode-note">Disponível quando o serviço local é iniciado com envio real (INICIAR.cmd envio-real). Ao marcar, o portal será preenchido e o botão Complementar Ato será clicado para os atos elegíveis, no máximo 100 por execução, após a confirmação acima.</p>
         </section>
       </section>
 

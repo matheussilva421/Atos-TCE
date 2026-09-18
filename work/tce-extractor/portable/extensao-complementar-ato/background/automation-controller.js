@@ -1,5 +1,6 @@
 import { MESSAGE_TYPES, createMessage } from "../lib/messages.js";
 import {
+  autoSubmitBatchLimit,
   validateAutomationIdentity,
   validateAutomationRunSpec,
   validateAutomationSnapshot,
@@ -658,6 +659,12 @@ export function createAutomationController({
         state.totals.pending += 1;
         continue;
       }
+      if (state.autoSubmitLimit !== null && state.queue.length >= state.autoSubmitLimit) {
+        // Automatic batch runs stop at the requested lot size; the remaining
+        // identities stay pending for the next confirmed batch.
+        state.totals.pending += 1;
+        continue;
+      }
       state.queue.push(identity);
     }
   }
@@ -789,7 +796,7 @@ export function createAutomationController({
       ? capabilities?.pilot_enabled === true && capabilities?.pilot_consumes_remaining === true
       : capabilities?.real_send_enabled === true;
     if (!allowed) {
-      const error = new Error("envio automático exige uma qualificação local ativa");
+      const error = new Error("envio automático exige ativação explícita no serviço local");
       error.code = "REAL_SEND_DISABLED";
       throw error;
     }
@@ -1697,6 +1704,7 @@ export function createAutomationController({
       mode: spec?.mode ?? "batch",
       marker: spec?.marker ?? null,
       autoSubmit: spec?.autoSubmit === true,
+      autoSubmitLimit: autoSubmitBatchLimit(spec ?? {}),
       pilotIdentity: spec?.pilotIdentity ?? null,
       queueFrozen: queue.length > 0,
       currentIdentity: null,
@@ -1762,6 +1770,7 @@ export function createAutomationController({
       mode: spec.mode ?? "batch",
       marker: spec.marker ?? null,
       autoSubmit: spec.autoSubmit === true,
+      autoSubmitLimit: autoSubmitBatchLimit(spec),
       pilotIdentity: spec.pilotIdentity ?? null,
       queueFrozen: false,
       currentIdentity: null,
@@ -1874,6 +1883,7 @@ export function createAutomationController({
       mode: "batch",
       marker: spec.marker ?? null,
       autoSubmit: false,
+      autoSubmitLimit: null,
       pilotIdentity: null,
       queueFrozen: false,
       currentIdentity: null,

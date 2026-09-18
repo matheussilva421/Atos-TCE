@@ -97,7 +97,8 @@ $readmeText = if (Test-Path -LiteralPath $readmePath -PathType Leaf) {
 
 Assert-True ($readmeText -match '(?is)acervo\s+privado.{0,240}227\s+processos') 'README distingue acervo privado de 227 processos'
 Assert-True ($readmeText -match '(?is)runtime.{0,80}fase11k') 'README identifica o runtime fase11k'
-Assert-True ($readmeText -match '(?is)envio\s+autom\u00E1tico.{0,240}(?:n\u00E3o\s+est\u00E1\s+qualificado|real_send_enabled\s*=\s*false)') 'README declara envio automatico nao qualificado'
+Assert-True ($readmeText -match '(?is)envio\s+autom\u00E1tico.{0,240}real_send_enabled\s*=\s*false') 'README declara envio automatico desabilitado por padrao'
+Assert-True ($readmeText -match '(?is)INICIAR\.cmd\s+envio-real') 'README declara o comando explicito de envio real'
 
 Write-Host "`nResultado: $script:passed passaram; $script:failed falharam."
 if ($script:failed -gt 0) { exit 1 }

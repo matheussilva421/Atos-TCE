@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   AutomationSchemaError,
+  autoSubmitBatchLimit,
   validateAutomationCapabilities,
   validateAutomationEvent,
   validateAutomationIdentity,
@@ -156,6 +157,21 @@ test("validates the selected portal scope, e-Contas acquisition and frozen lot",
     () => validateAutomationRunSpec(runSpec({ acquisitionSource: "area_restrita" })),
     (error) => error instanceof AutomationSchemaError && error.code === "INVALID_VALUE",
   );
+});
+
+test("caps automatic batch runs at one hundred acts", () => {
+  const capped = runSpec({ autoSubmit: true, lotSize: 100 });
+  assert.deepEqual(validateAutomationRunSpec(capped), capped);
+  assert.throws(
+    () => validateAutomationRunSpec(runSpec({ autoSubmit: true, lotSize: 101 })),
+    (error) => error instanceof AutomationSchemaError && error.code === "INVALID_VALUE",
+  );
+  assert.deepEqual(validateAutomationRunSpec(runSpec({ lotSize: 300 })).lotSize, 300);
+  assert.equal(autoSubmitBatchLimit({ autoSubmit: true, mode: "batch" }), 100);
+  assert.equal(autoSubmitBatchLimit({ autoSubmit: true, mode: "batch", lotSize: 40 }), 40);
+  assert.equal(autoSubmitBatchLimit({ autoSubmit: true, mode: "batch", lotSize: 300 }), 100);
+  assert.equal(autoSubmitBatchLimit({ autoSubmit: true, mode: "pilot" }), null);
+  assert.equal(autoSubmitBatchLimit({ autoSubmit: false, mode: "batch" }), null);
 });
 
 test("validates the explicit one-act pilot mode and optional pilot capabilities", () => {

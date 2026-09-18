@@ -3,7 +3,8 @@
     [switch]$LaunchLocalService,
     [switch]$StopLocalService,
     [switch]$BridgeStatusOnly,
-    [switch]$OpenReview
+    [switch]$OpenReview,
+    [switch]$EnableRealSend
 )
 
 Set-StrictMode -Version 2.0
@@ -220,6 +221,7 @@ function Start-TceLocalService {
         [Parameter(Mandatory)][string]$PackageRoot,
         [Parameter(Mandatory)][string]$ArchiveRoot,
         [Parameter(Mandatory)][string]$Python,
+        [switch]$EnableRealSend,
         [scriptblock]$ProcessStarter
     )
     $canonicalPackage = [IO.Path]::GetFullPath($PackageRoot)
@@ -257,6 +259,7 @@ function Start-TceLocalService {
         '--bridge-root', (& $quoteArgument $bridgeRoot),
         '--port', '18743'
     )
+    if ($EnableRealSend) { $arguments += '--enable-real-send' }
     try {
         $process = if ($null -ne $ProcessStarter) {
             & $ProcessStarter $Python $arguments (Join-Path $canonicalPackage 'app')
@@ -413,7 +416,7 @@ function Invoke-TceMenuAction {
 }
 
 function Start-TcePortableMenu {
-    param([switch]$LaunchLocalService, [switch]$StopLocalService, [switch]$BridgeStatusOnly, [switch]$OpenReview)
+    param([switch]$LaunchLocalService, [switch]$StopLocalService, [switch]$BridgeStatusOnly, [switch]$OpenReview, [switch]$EnableRealSend)
     $appRoot = $script:TceMenuAppRoot
     $codes = Get-TceExitCodes
     $packageRoot = Split-Path -Parent $appRoot
@@ -523,7 +526,7 @@ function Start-TcePortableMenu {
     $service = $null
     if ($LaunchLocalService) {
         try {
-            $service = Start-TceLocalService -PackageRoot $packageRoot -ArchiveRoot $archiveRoot -Python $runtime.Python
+            $service = Start-TceLocalService -PackageRoot $packageRoot -ArchiveRoot $archiveRoot -Python $runtime.Python -EnableRealSend:$EnableRealSend
             Write-Host "Serviço local disponível na porta $($service.port)." -ForegroundColor Green
             if ($service.pairing_code) {
                 Write-Host "Código temporário para a extensão: $($service.pairing_code)" -ForegroundColor Yellow
@@ -573,7 +576,7 @@ function Start-TcePortableMenu {
         if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
         $metadataPath = Get-TceLocalServiceMetadataPath -PackageRoot $packageRoot
         if (-not (Test-Path -LiteralPath $metadataPath -PathType Leaf)) {
-            $started = Start-TceLocalService -PackageRoot $packageRoot -ArchiveRoot $archiveRoot -Python $runtime.Python
+            $started = Start-TceLocalService -PackageRoot $packageRoot -ArchiveRoot $archiveRoot -Python $runtime.Python -EnableRealSend:$EnableRealSend
             Write-Host "Ponte local iniciada na porta $($started.port); pareie a extensão com o código mostrado." -ForegroundColor Yellow
         }
         Write-Host 'Lista registrada. Abra o painel da extensão e use a análise da Área Restrita; a fase de download exigirá confirmação para cada lote de até 300.' -ForegroundColor Green
@@ -621,5 +624,5 @@ function Start-TcePortableMenu {
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
-    exit (Start-TcePortableMenu -LaunchLocalService:$LaunchLocalService -StopLocalService:$StopLocalService -BridgeStatusOnly:$BridgeStatusOnly -OpenReview:$OpenReview)
+    exit (Start-TcePortableMenu -LaunchLocalService:$LaunchLocalService -StopLocalService:$StopLocalService -BridgeStatusOnly:$BridgeStatusOnly -OpenReview:$OpenReview -EnableRealSend:$EnableRealSend)
 }

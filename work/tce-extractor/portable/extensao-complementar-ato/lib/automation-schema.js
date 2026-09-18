@@ -3,6 +3,7 @@ const LEGAL_CONTEXT_SCHEMA_VERSION = 1;
 const API_VERSION = 1;
 const MAX_CONTEXT_BYTES = 2 * 1024 * 1024;
 const MAX_QUEUE_ITEMS = 10000;
+const MAX_AUTO_SUBMIT_BATCH = 100;
 const SHA256_RE = /^[0-9a-f]{64}$/u;
 const PROCESS_KEY_RE = /^\d+\/\d{4}$/u;
 const EVENT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/u;
@@ -202,6 +203,12 @@ export function validateAutomationIdentity(value) {
   return value;
 }
 
+export function autoSubmitBatchLimit(value) {
+  if (!isRecord(value) || value.autoSubmit !== true || value.mode === "pilot") return null;
+  const lotSize = Number.isSafeInteger(value.lotSize) ? value.lotSize : MAX_AUTO_SUBMIT_BATCH;
+  return Math.min(lotSize, MAX_AUTO_SUBMIT_BATCH);
+}
+
 export function validateAutomationRunSpec(value) {
   if (!isRecord(value)) invalid("RunSpec must be an object", "INVALID_RUN_SPEC");
   exactKeysWithOptional(value, ["tabId", "sector", "datasetSha256", "rulesVersion"], [
@@ -259,6 +266,10 @@ export function validateAutomationRunSpec(value) {
   }
   if (Object.hasOwn(value, "autoSubmit") && typeof value.autoSubmit !== "boolean") {
     invalid("autoSubmit must be boolean", "INVALID_VALUE");
+  }
+  if (value.autoSubmit === true && value.mode !== "pilot"
+    && Number.isSafeInteger(value.lotSize) && value.lotSize > MAX_AUTO_SUBMIT_BATCH) {
+    invalid("automatic batch runs accept at most 100 acts", "INVALID_VALUE");
   }
   if (Object.hasOwn(value, "analysisOnly") && typeof value.analysisOnly !== "boolean") {
     invalid("analysisOnly must be boolean", "INVALID_VALUE");
@@ -518,4 +529,5 @@ export {
   LEGAL_CONTEXT_SCHEMA_VERSION,
   MAX_CONTEXT_BYTES,
   MAX_QUEUE_ITEMS,
+  MAX_AUTO_SUBMIT_BATCH,
 };
