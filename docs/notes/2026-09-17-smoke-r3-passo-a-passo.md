@@ -55,6 +55,19 @@ Set-Location 'C:\Users\slvma\Downloads\Github\Atos-TCE\outputs\qa-extract-2026-0
 Extensão: Chrome → `chrome://extensions` → Modo do desenvolvedor → **Carregar sem
 compactação** → `<pacote>\extensao-complementar-ato`. Usar perfil dedicado, nunca o pessoal.
 
+## 1.1 Escolha dos atos (atalho)
+
+O contexto jurídico do pacote tem 739 identidades: 679 `complete`, 49 `conflict`,
+7 `incomplete` e 4 `missing`. Para localizar candidatos rapidamente:
+
+```powershell
+& '.\outputs\qa-extract-2026-09-17\runtime\python\python.exe' -B .\outputs\smoke-candidates.py '.\outputs\qa-extract-2026-09-17'
+```
+
+Use um processo `complete` para tentar o **caso A** (contexto utilizável; AUTO ainda depende
+do catálogo do portal e dos limiares) e um `conflict`/`incomplete`/`missing` para o **caso B**
+sem depender de sorte.
+
 ## 2. Portal (login manual)
 
 1. Fazer login manualmente na Área Restrita (nenhuma credencial por automação).
@@ -135,4 +148,3 @@ principal preenchido.
 - fundamento escrito em estado não-AUTO;
 - decisão antiga reapresentada como atual depois de mudança de evidência;
 - qualquer tentativa de envio/finalização ou de habilitar envio automático.
-
