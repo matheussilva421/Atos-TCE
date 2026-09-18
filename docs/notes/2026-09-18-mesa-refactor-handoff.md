@@ -1064,3 +1064,23 @@ O schema passou de 5 para 6 (lease dos comandos) e a extensão ganhou a permiss�
 `webNavigation`, necessária para endereçar as molduras do portal. O gate real de
 M2 continua sendo o primeiro passo humano, e o roteiro segue em
 `docs/notes/2026-09-18-roteiro-gates-supervisionados.md`.
+
+#### Follow-up pós-remediação (F1 → F7)
+
+O follow-up corrigiu o CI remoto vermelho e mais cinco pontos encontrados depois
+da remediação; o recibo está em
+`docs/notes/2026-09-18-followup-pos-remediacao.md` (commits `7b17c63`,
+`b7d7cc6`, `ba300f9`, `a1dda0f`, `0244a01`, `c96f51d`).
+
+Em resumo: o scanner CDP passou a ser versionado (era ignorado e faltava em
+clone limpo); a comparação de caminhos Windows deixou de ser textual; a
+`generation` do preenchimento é obrigatória; a varredura nunca devolve parcial;
+o efeito durável de um comando é gravado antes de o comando virar terminal
+(schema **7**, com `area_scans.source_command_id` único); a fase 2 do
+arquivamento ganhou journal e recovery; e o smoke do pacote prova que o processo
+e a porta morreram antes de remover a extração.
+
+Gates no fechamento do follow-up: 559 testes Python, 111 da extensão, 15 da web,
+11 do contrato do pacote, `verify-package.ps1` com smoke verde duas vezes
+seguidas e o gate do projeto com 1254 executados e 0 falhas. Pacote promovido com
+SHA-256 `7f5c0a0bbd6f1bb0064f2912e4d09cf3467037c6730ac89228017bb29501e210`.
