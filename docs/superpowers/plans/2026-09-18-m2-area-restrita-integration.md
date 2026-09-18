@@ -263,7 +263,9 @@ Expected: missing modules.
 
 Manifest permissions: storage, sidePanel, alarms, webNavigation only if pagination requires it. Host permissions: novaarearestrita.tce.rn.gov.br and 127.0.0.1. Do not request e-Contas permissions in this extension.
 
-Poll commands every 1 second while the sidepanel is open and with a conservative alarm when closed. Persist client_id and bearer token in chrome.storage.local. No dataset import UI, no lot UI, no OCR controls.
+Do not depend on the sidepanel staying open. While an authorized Área Restrita tab is loaded, a tiny content-script heartbeat sends POLL_COMMANDS to the service worker every 1500 ms; that browser event wakes the MV3 worker, which performs the authenticated loopback fetch. Use chrome.alarms only as a slow recovery fallback. When no Área Restrita tab is connected, the Mesa reports that state and leaves commands queued rather than pretending the scan started.
+
+Persist client_id and bearer token in chrome.storage.local. No dataset import UI, no lot UI, no OCR controls.
 
 - [ ] **Step 4: Verify extension tests**
 
