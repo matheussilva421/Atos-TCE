@@ -382,6 +382,16 @@ varredura e `/api/v1/acquisition/plan` com 0 lotes (nada pendente de download).
 Nenhuma rota de escrita foi chamada: `archive`, `restore`, `fill` e
 `acquisition/jobs` não foram exercitadas na raiz real.
 
+A **UI** também foi aberta num navegador real (Chrome headless com `--dump-dom`,
+sem janela visível) contra a raiz real: 739 linhas de processo renderizadas
+(`span.process-key`), resumo "739 processos no acervo", grade de armazenamento com
+14.483 documentos, 14.179 PDFs únicos, 14.179 blobs, 8,28 GB canônicos e 8,28 GB
+economizados por dedup, chips "Mesa conectada — API v1", "Banco schema v5" e
+"739 processos", e nenhuma nota de erro. O DOM capturado ficou em
+`tmp/mesa-ui-real.html`. Os painéis interativos (viewer de PDF e evidência) não
+foram clicados no ensaio: o caminho de dados deles está provado pelas rotas acima
+e a lógica pelos testes Node do gate.
+
 `POST /api/v1/processes/<id>/fill` inicia o fluxo (somente processo `PRONTO`),
 `GET /api/v1/fill-requests/<id>` acompanha o estado, e o resultado de cada
 comando da extensão entra pelo mesmo caminho autenticado já existente. Ao
