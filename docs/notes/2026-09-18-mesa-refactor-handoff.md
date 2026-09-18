@@ -613,6 +613,18 @@ preenchimento (M5 tarefa 7, ainda BLOCKED) e autorização explícita do usuári
 A rota de remoção está provada por testes de fixture (dry-run, apply em candidato
 seguro, recusa dos casos perigosos e gravação do recibo).
 
+Correção encontrada no ensaio real do importador (2026-09-18, mais tarde): o
+dry-run do `migrate-legacy.py` também grava recibo em `data/logs/`, então o
+recibo mais novo passaria a ser um `mode=dry-run` e autorizaria a remoção de
+`acervo-tce` sem prova de materialização. A limpeza agora só aceita recibo de
+migração com `mode=apply` e `errors` vazio, com três testes novos
+(`migration_receipt_not_apply`, `migration_receipt_has_errors` e "apply antigo
+ganha de dry-run novo").
+
+O inventário completo da aposentadoria do legado (unidades, tamanhos, o que
+ainda é carga e a sequência proposta) está em
+`docs/notes/2026-09-18-aposentadoria-legado-inventario.md`.
+
 #### Tarefa 1 — o que já foi promovido (e-Contas)
 
 `app/econtas/runtime/` agora contém os quatro arquivos comprovados
