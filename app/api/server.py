@@ -34,6 +34,7 @@ from ..core.store import Store
 from ..area_restrita import PORTAL_ROLES
 from ..area_restrita import cdp_fallback
 from ..area_restrita.fill_service import FillError, FillService
+from ..archive.manager import ArchiveError, ArchiveManager
 from ..analysis.service import AnalysisService
 from ..analysis.evidence import evidence_for_field
 from ..econtas.service import AcquisitionError, AcquisitionService
@@ -49,6 +50,9 @@ MAX_BODY_BYTES = 8 * 1024 * 1024
 #: Command types the Mesa may queue for the thin extension. There is never a
 #: submit type: the final completion click stays with the operator.
 ALLOWED_COMMAND_TYPES = frozenset({"STATUS", "SCAN_AREA", "OPEN_ACT", "READ_FORM", "FILL_FORM"})
+
+#: Only work that reached its end may leave the local machine.
+ARCHIVE_ELIGIBLE_STATUSES = frozenset({"CONCLUÍDO", "PREENCHIDO"})
 
 @dataclass(frozen=True)
 class Route:
@@ -97,6 +101,16 @@ POST_ROUTES: tuple[Route, ...] = (
         "post_process_fill",
         "mesa",
     ),
+    Route(
+        re.compile(r"/api/v1/processes/(?P<process_id>\d+)/archive"),
+        "post_process_archive",
+        "mesa",
+    ),
+    Route(
+        re.compile(r"/api/v1/processes/(?P<process_id>\d+)/restore"),
+        "post_process_restore",
+        "mesa",
+    ),
     Route(re.compile(r"/api/v1/portal/manual-form"), "post_manual_form", "mesa"),
 )
 
@@ -136,6 +150,7 @@ class MesaServer(ThreadingHTTPServer):
         self._acquisition_factory = acquisition_factory
         self._analysis: AnalysisService | None = None
         self._fill: FillService | None = None
+        self._archive: ArchiveManager | None = None
 
     @property
     def analysis(self) -> AnalysisService:
@@ -152,6 +167,14 @@ class MesaServer(ThreadingHTTPServer):
         if self._fill is None:
             self._fill = FillService(self.store)
         return self._fill
+
+    @property
+    def archive(self) -> ArchiveManager:
+        """The hybrid archive manager (M6): HOT, ARCHIVED and MISSING."""
+
+        if self._archive is None:
+            self._archive = ArchiveManager(self.store, self.data_root)
+        return self._archive
 
     @property
     def acquisition(self) -> AcquisitionService:
@@ -505,6 +528,43 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         self._send_json(
             {"fill_request_id": request_id, "state": request.get("state"), "mode": "manual"}, status=201
         )
+
+    def post_process_archive(self, process_id: str) -> None:
+        """Move one finished process's documents to the external archive."""
+
+        if not self._require_session():
+            return
+        process = self.mesa.store.get_process(int(process_id))
+        if process is None:
+            self._send_json({"error": "process_not_found", "process_id": int(process_id)}, status=404)
+            return
+        if str(process.get("status")) not in ARCHIVE_ELIGIBLE_STATUSES:
+            self._send_json(
+                {
+                    "error": "archive_refused",
+                    "detail": "somente processos concluídos podem ser arquivados",
+                },
+                status=409,
+            )
+            return
+        manager = self.mesa.archive
+        try:
+            result = manager.archive_process(int(process_id))
+        except ArchiveError as error:
+            self._send_json({"error": "archive_not_configured", "detail": str(error)}, status=409)
+            return
+        self._send_json(views.archive_result_payload(result), status=200 if result.ok else 502)
+
+    def post_process_restore(self, process_id: str) -> None:
+        """Bring one process's archived documents back to HOT."""
+
+        if not self._require_session():
+            return
+        if self.mesa.store.get_process(int(process_id)) is None:
+            self._send_json({"error": "process_not_found", "process_id": int(process_id)}, status=404)
+            return
+        result = self.mesa.archive.restore_process(int(process_id))
+        self._send_json(views.archive_result_payload(result), status=200 if result.ok else 502)
 
     def handle_bridge_status(self, query: dict[str, list[str]]) -> None:
         client_id = self._require_extension()

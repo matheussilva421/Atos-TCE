@@ -1239,5 +1239,106 @@ class FillOrchestrationTests(ApiTestCase):
         self.assertEqual(payload["error"], "fill_request_not_found")
 
 
+class ArchiveRouteTests(ApiTestCase):
+    """M6 Task 2: archiving and restoring through the authenticated Mesa."""
+
+    def setUp(self):
+        super().setUp()
+        self.external_root = self.tmp / "acervo-externo"
+        self.opener = self.mesa_opener()
+        self.digest = sha256_file(self.blob)
+        self.store.set_process_status(self.process_id, "CONCLUÍDO")
+
+    def blob_file(self):
+        return blob_path(self.data_root, self.digest)
+
+    def external_file(self):
+        return self.external_root / "blobs" / self.digest[:2] / f"{self.digest}.pdf"
+
+    def post(self, action):
+        return self.call_json(
+            f"/api/v1/processes/{self.process_id}/{action}",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={},
+            opener=self.opener,
+        )
+
+    def test_archiving_needs_a_configured_external_root(self):
+        status, _headers, payload = self.post("archive")
+
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["error"], "archive_not_configured")
+
+    def test_archiving_moves_the_bytes_and_marks_the_documents(self):
+        self.store.set_metadata("archive.external_root", str(self.external_root))
+
+        status, _headers, payload = self.post("archive")
+
+        self.assertEqual(status, 200, payload)
+        self.assertEqual(payload["archived"], 1)
+        self.assertTrue(self.external_file().is_file())
+        self.assertEqual(sha256_file(self.external_file()), self.digest)
+        self.assertFalse(self.blob_file().exists())
+        documents = self.store.get_process(self.process_id)["documents"]
+        self.assertEqual(documents[0]["storage_state"], "ARCHIVED")
+
+    def test_only_a_finished_process_can_be_archived(self):
+        self.store.set_metadata("archive.external_root", str(self.external_root))
+        self.store.set_process_status(self.process_id, "PENDENTE")
+
+        status, _headers, payload = self.post("archive")
+
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["error"], "archive_refused")
+        self.assertTrue(self.blob_file().is_file())
+
+    def test_restoring_brings_the_documents_back_to_hot(self):
+        self.store.set_metadata("archive.external_root", str(self.external_root))
+        self.post("archive")
+
+        status, _headers, payload = self.post("restore")
+
+        self.assertEqual(status, 200, payload)
+        self.assertEqual(payload["restored"], 1)
+        self.assertTrue(self.blob_file().is_file())
+        documents = self.store.get_process(self.process_id)["documents"]
+        self.assertEqual(documents[0]["storage_state"], "HOT")
+
+    def test_restore_reports_a_missing_document_as_failure(self):
+        self.store.set_metadata("archive.external_root", str(self.external_root))
+        self.post("archive")
+        self.external_file().unlink()
+
+        status, _headers, payload = self.post("restore")
+
+        self.assertEqual(status, 502)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["missing"], 1)
+
+    def test_the_archive_routes_require_a_mesa_session(self):
+        for action in ("archive", "restore"):
+            with self.subTest(action=action):
+                status, _headers, payload = self.call_json(
+                    f"/api/v1/processes/{self.process_id}/{action}",
+                    method="POST",
+                    headers=self.mesa_headers(),
+                    body={},
+                )
+                self.assertEqual(status, 401)
+                self.assertEqual(payload["error"], "session_required")
+
+    def test_an_unknown_process_is_404(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/processes/4242/archive",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={},
+            opener=self.opener,
+        )
+        self.assertEqual(status, 404)
+        self.assertEqual(payload["error"], "process_not_found")
+
+
 if __name__ == "__main__":
     unittest.main()

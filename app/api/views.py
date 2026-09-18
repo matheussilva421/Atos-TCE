@@ -129,6 +129,19 @@ def acquisition_plan_payload(plan: Any) -> dict[str, Any]:
     }
 
 
+def archive_result_payload(result: Any) -> dict[str, Any]:
+    """Report an archive/restore outcome as counts the operator can act on."""
+
+    return {
+        "ok": bool(result.ok),
+        "documents": int(result.documents),
+        "archived": len(result.archived),
+        "restored": len(result.restored),
+        "missing": len(result.missing),
+        "errors": list(result.errors)[:20],
+    }
+
+
 def job_payload(store: Store, job_id: int, *, failure_limit: int = 20) -> dict[str, Any] | None:
     """Report a job as progress plus process-level failures, never as lot ids."""
 
