@@ -97,6 +97,7 @@ POST_ROUTES: tuple[Route, ...] = (
         "post_process_fill",
         "mesa",
     ),
+    Route(re.compile(r"/api/v1/portal/manual-form"), "post_manual_form", "mesa"),
 )
 
 
@@ -284,13 +285,15 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "unauthorized"}, status=401)
         return client_id
 
-    def _require_session(self) -> bool:
+    def _require_session(self, *, silent: bool = False) -> bool:
         session_id = self._cookie(SESSION_COOKIE)
         if not self.mesa.bridge.valid_session(session_id):
-            self._send_json({"error": "session_required"}, status=401)
+            if not silent:
+                self._send_json({"error": "session_required"}, status=401)
             return False
         if not self.mesa.bridge.is_same_origin(self.headers, self.mesa.origins):
-            self._send_json({"error": "origin_not_allowed"}, status=403)
+            if not silent:
+                self._send_json({"error": "origin_not_allowed"}, status=403)
             return False
         return True
 
@@ -480,6 +483,27 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         request = self.mesa.store.get_fill_request(request_id) or {}
         self._send_json(
             {"fill_request_id": request_id, "state": request.get("state")}, status=201
+        )
+
+    def post_manual_form(self) -> None:
+        """Fill the act the operator opened by hand (M5 Task 6).
+
+        Two authenticated local callers exist: the Mesa UI (HttpOnly session
+        plus same-origin) and the paired sidepanel, which has no Mesa session
+        and therefore presents the extension bearer token. Nothing here is
+        reachable without one of those two credentials.
+        """
+
+        if not (self._require_session(silent=True) or self._require_extension()):
+            return
+        try:
+            request_id = self.mesa.fill.request_manual_fill(self._read_json_body())
+        except FillError as error:
+            self._send_json({"error": "manual_fill_refused", "detail": str(error)}, status=409)
+            return
+        request = self.mesa.store.get_fill_request(request_id) or {}
+        self._send_json(
+            {"fill_request_id": request_id, "state": request.get("state"), "mode": "manual"}, status=201
         )
 
     def handle_bridge_status(self, query: dict[str, list[str]]) -> None:

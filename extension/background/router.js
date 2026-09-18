@@ -213,6 +213,19 @@ export function installRouter({
     return { ok: false, code: "FORM_NOT_AVAILABLE" };
   }
 
+  /** Read the form the operator opened by hand, for the sidepanel fallback. */
+  async function readCurrentForm() {
+    for (const tab of await portalTabs()) {
+      try {
+        const response = await sendToTab(tab.id, { type: MESSAGE_TYPES.READ_FORM });
+        if (response?.ok === true && response.form) return { ok: true, form: response.form };
+      } catch {
+        // Keep looking: the form may live in another portal tab.
+      }
+    }
+    return { ok: false, error: "nenhum formulário de ato está aberto na Área Restrita" };
+  }
+
   async function poll() {
     if (running) return { ok: true, skipped: true };
     running = true;
@@ -240,6 +253,12 @@ export function installRouter({
   }
 
   chromeApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === MESSAGE_TYPES.READ_CURRENT_FORM) {
+      readCurrentForm()
+        .then((outcome) => sendResponse(outcome))
+        .catch((error) => sendResponse({ ok: false, error: String(error?.message ?? error) }));
+      return true;
+    }
     if (message?.type !== MESSAGE_TYPES.POLL_COMMANDS) return undefined;
     poll()
       .then((outcome) => sendResponse(outcome))
@@ -254,7 +273,7 @@ export function installRouter({
     if (alarm?.name === "tce-recovery-poll") poll();
   });
 
-  return { poll, scanPortal, openAct, readForm, fillForm };
+  return { poll, scanPortal, openAct, readForm, fillForm, readCurrentForm };
 }
 
 if (globalThis.chrome?.runtime?.onMessage?.addListener) {

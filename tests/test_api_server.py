@@ -1205,6 +1205,32 @@ class FillOrchestrationTests(ApiTestCase):
         self.assertEqual(payload["error"], "session_required")
         self.assertEqual(self.status_of("/api/v1/fill-requests/1"), 401)
 
+    def test_the_manual_form_route_accepts_the_paired_extension(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/portal/manual-form",
+            method="POST",
+            headers=self.extension,
+            body=self.read_form_result(),
+        )
+
+        self.assertEqual(status, 201, payload)
+        self.assertEqual(payload["mode"], "manual")
+        self.assertEqual(payload["state"], "FILLING")
+        fill_command = self.claim()
+        self.assertEqual(fill_command["type"], "FILL_FORM")
+        self.assertEqual(fill_command["payload"]["fields"]["cargo"], "Professor")
+
+    def test_the_manual_form_route_is_never_public(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/portal/manual-form",
+            method="POST",
+            headers={"Origin": self.base},
+            body=self.read_form_result(),
+        )
+
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "unauthorized")
+
     def test_an_unknown_fill_request_is_404(self):
         status, _headers, payload = self.call_json(
             "/api/v1/fill-requests/4242", headers=self.mesa_headers(), opener=self.opener

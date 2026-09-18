@@ -132,6 +132,13 @@ class FillService:
         self._store.add_workflow_event(
             process_id, "fill_requested", {"fill_request_id": request_id, "mode": "manual"}
         )
+        # The operator already opened the act, so the manual path skips
+        # OPEN_ACT/READ_FORM and goes straight to the same backend preflight the
+        # automatic path uses: identical snapshot, identical plan, one filler.
+        process = self._store.get_process(process_id)
+        if process is None:
+            raise FillError("processo desapareceu durante o preenchimento manual")
+        self._run_preflight({"id": request_id, "process_id": process_id}, process, snapshot)
         return request_id
 
     # ------------------------------------------------------------ state machine

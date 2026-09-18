@@ -85,6 +85,27 @@ test("only the Área Restrita host and the loopback Mesa are addressed", () => {
   assert.match(MESA_ORIGIN, /^http:\/\/127\.0\.0\.1:/u);
 });
 
+test("the sidepanel stays an operational panel, not a second application", () => {
+  const html = readFileSync(join(extensionRoot, "sidepanel/panel.html"), "utf8");
+  const script = readFileSync(join(extensionRoot, "sidepanel/panel.js"), "utf8");
+
+  for (const id of [
+    "mesa-status",
+    "portal-status",
+    "form-info",
+    "fill-current",
+    "open-mesa",
+    "diagnostic",
+  ]) {
+    assert.ok(html.includes(`id="${id}"`), `the sidepanel is missing ${id}`);
+  }
+  assert.ok(html.includes("Preencher formulário atual"));
+  for (const forbidden of ["autoSubmit", "AUTO_SUBMIT", "real_send", "qualification", "ocr"]) {
+    assert.equal(html.includes(forbidden), false, `the sidepanel mentions ${forbidden}`);
+    assert.equal(script.includes(forbidden), false, `the sidepanel script mentions ${forbidden}`);
+  }
+});
+
 test("the manifest requests no e-Contas access and no scripting permission", () => {
   const manifest = JSON.parse(readFileSync(join(extensionRoot, "manifest.json"), "utf8"));
 

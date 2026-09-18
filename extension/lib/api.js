@@ -142,6 +142,24 @@ export function createApi({
       };
     },
 
+    /** Hand the operator-opened form to the Mesa (M5 Task 6, manual fallback). */
+    async requestManualFill(snapshot) {
+      const { clientId, token } = await readState();
+      if (!clientId || !token) return { ok: false, status: 0, error: "not_paired" };
+      const response = await request("/api/v1/portal/manual-form", {
+        method: "POST",
+        body: snapshot,
+        token,
+        clientId,
+      });
+      return {
+        ok: response.ok,
+        status: response.status,
+        payload: response.payload,
+        error: response.ok ? null : response.payload?.detail ?? response.payload?.error ?? "request_failed",
+      };
+    },
+
     async clear() {
       state = { clientId: null, token: null, baseUrl }; 
       await storage?.remove?.([STORAGE_KEYS.clientId, STORAGE_KEYS.token]);

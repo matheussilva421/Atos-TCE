@@ -47,6 +47,7 @@ async function refresh() {
   try {
     const mesa = await refreshMesa();
     await refreshPortal();
+    await refreshCurrentForm();
     pairSection.hidden = mesa.paired;
     diagnostic.className = "";
     diagnostic.textContent = mesa.paired
@@ -57,6 +58,58 @@ async function refresh() {
     diagnostic.textContent = `Falha ao consultar o estado: ${error?.message ?? error}`;
   }
 }
+
+/**
+ * The sidepanel never decides anything: it reads the form the operator opened
+ * and hands the snapshot to the Mesa, which owns the whole fill workflow.
+ */
+async function refreshCurrentForm() {
+  const info = document.getElementById("form-info");
+  const button = document.getElementById("fill-current");
+  try {
+    const response = await globalThis.chrome.runtime.sendMessage({ type: "READ_CURRENT_FORM" });
+    if (response?.ok && response.form) {
+      info.textContent = `Processo atual: ${response.form.identity.processKey} — ${response.form.identity.interestedNormalized}`;
+      button.disabled = false;
+      return response.form;
+    }
+    info.textContent = "Nenhum formulário de ato aberto.";
+    button.disabled = true;
+    return null;
+  } catch {
+    info.textContent = "Abra a Área Restrita autenticada para o modo manual.";
+    button.disabled = true;
+    return null;
+  }
+}
+
+document.getElementById("fill-current").addEventListener("click", async () => {
+  const diagnostic = document.getElementById("diagnostic");
+  const button = document.getElementById("fill-current");
+  button.disabled = true;
+  diagnostic.className = "";
+  diagnostic.textContent = "Enviando o formulário atual para a Mesa…";
+  try {
+    const form = await refreshCurrentForm();
+    if (!form) {
+      diagnostic.textContent = "Abra o formulário do ato antes de preencher.";
+      return;
+    }
+    const outcome = await api.requestManualFill(form);
+    if (!outcome.ok) {
+      diagnostic.className = "error";
+      diagnostic.textContent = `A Mesa recusou o preenchimento: ${outcome.error}`;
+      return;
+    }
+    diagnostic.textContent =
+      `Estado ${outcome.payload?.state ?? ""}. Acompanhe os campos na Mesa; a conclusão do ato continua manual.`;
+  } catch (error) {
+    diagnostic.className = "error";
+    diagnostic.textContent = `Falha ao preencher: ${error?.message ?? error}`;
+  } finally {
+    await refreshCurrentForm();
+  }
+});
 
 document.getElementById("pair-action").addEventListener("click", async () => {
   const input = document.getElementById("pair-code");

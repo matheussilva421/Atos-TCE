@@ -274,6 +274,65 @@ test("the router answers the content-script heartbeat", async () => {
   assert.equal(polls.length, 1);
 });
 
+test("the sidepanel can read the form the operator opened by hand", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7 }],
+    onMessage: (message) =>
+      message.type === "READ_FORM"
+        ? { ok: true, form: { identity: { processKey: "102390/2026" }, generation: 4 } }
+        : { ok: false, error: "unexpected" },
+  });
+  const router = installRouter({
+    api: { nextCommand: async () => ({ ok: true, command: null }), reportResult: async () => {} },
+    chromeApi,
+  });
+
+  const response = await router.readCurrentForm();
+
+  assert.equal(response.ok, true);
+  assert.equal(response.form.identity.processKey, "102390/2026");
+  assert.equal(response.form.generation, 4);
+});
+
+test("the sidepanel is told when no form is open", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7 }],
+    onMessage: () => ({ ok: false, error: "o formulário do ato ainda não está disponível" }),
+  });
+  const router = installRouter({
+    api: { nextCommand: async () => ({ ok: true, command: null }), reportResult: async () => {} },
+    chromeApi,
+  });
+
+  const response = await router.readCurrentForm();
+
+  assert.equal(response.ok, false);
+  assert.match(response.error, /nenhum formulário/u);
+});
+
+test("the router answers the sidepanel READ_CURRENT_FORM message", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 3 }],
+    onMessage: (message) =>
+      message.type === "READ_FORM"
+        ? { ok: true, form: { identity: { processKey: "102391/2026" } } }
+        : { ok: false },
+  });
+  installRouter({
+    api: { nextCommand: async () => ({ ok: true, command: null }), reportResult: async () => {} },
+    chromeApi,
+  });
+
+  const response = await new Promise((resolve) => {
+    for (const listener of chromeApi.listeners) {
+      listener({ type: "READ_CURRENT_FORM" }, {}, resolve);
+    }
+  });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.form.identity.processKey, "102391/2026");
+});
+
 test("the router registers a slow recovery alarm", () => {
   const chromeApi = fakeChrome();
 

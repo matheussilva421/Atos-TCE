@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 
 from app.area_restrita.fill_service import FILL_STATES, FillError, FillService
 from app.area_restrita.preflight import FillBlocked, FillPlan, build_fill_plan
-from app.core.models import DocumentRecord, ProcessRecord
+from app.core.models import DocumentRecord, FieldRecord, ProcessRecord
 from app.core.store import SCHEMA_VERSION, Store
 
 IDENTITY = {"processKey": "102390/2026", "interestedNormalized": "pessoa exemplo"}
@@ -162,23 +162,37 @@ class FillStateMachineTests(FillRequestTestCase):
 
 
 class ManualFillRequestTests(FillRequestTestCase):
+    def ready_process(self, *, status="PRONTO"):
+        process_id = self.make_process(status=status)
+        self.store.replace_fields(
+            process_id,
+            [
+                FieldRecord(field_name=name, value=value, status="found", confidence=1.0)
+                for name, value in MANDATORY_VALUES.items()
+            ],
+        )
+        return process_id
+
     def snapshot(self, process_key="102390/2026", interested="pessoa exemplo"):
         return {
             "identity": {"processKey": process_key, "interestedNormalized": interested},
             "generation": 3,
-            "fields": {},
+            "fields": form_controls(),
         }
 
     def test_a_manual_snapshot_matching_one_pronto_process_creates_a_request(self):
-        process_id = self.make_process()
+        process_id = self.ready_process()
 
         request_id = self.service.request_manual_fill(self.snapshot())
 
         request = self.store.get_fill_request(request_id)
-        self.assertEqual(request["state"], "PREFLIGHT")
+        # The manual path runs the same backend preflight, so a matching form
+        # with proposals goes straight to FILLING.
+        self.assertEqual(request["state"], "FILLING")
         self.assertEqual(request["mode"], "manual")
         self.assertEqual(request["process_id"], process_id)
-        self.assertEqual(request["form_snapshot"]["generation"], 3)
+        # The preflight replaced the raw snapshot with the authorized plan.
+        self.assertEqual(request["form_snapshot"]["plan"]["cargo"], "Professor")
 
     def test_zero_matches_block(self):
         self.make_process()
@@ -202,23 +216,100 @@ class ManualFillRequestTests(FillRequestTestCase):
             self.service.request_manual_fill(self.snapshot(interested="outra pessoa"))
 
     def test_the_identity_is_matched_through_the_canonical_normalization(self):
-        self.make_process()
+        self.ready_process()
 
         request_id = self.service.request_manual_fill(
             self.snapshot(interested="  PESSOA   Exemplo ")
         )
 
-        self.assertEqual(self.store.get_fill_request(request_id)["state"], "PREFLIGHT")
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "FILLING")
 
     def test_a_snapshot_without_identity_blocks(self):
         with self.assertRaises(FillError):
             self.service.request_manual_fill({"generation": 1})
 
     def test_a_process_that_is_not_pronto_never_matches(self):
-        self.make_process(status="REVISAR")
+        self.ready_process(status="REVISAR")
 
         with self.assertRaises(FillError):
             self.service.request_manual_fill(self.snapshot())
+
+
+class ManualFallbackTests(FillRequestTestCase):
+    """The operator-opened form must produce the same plan as the automatic path."""
+
+    def ready_process(self, *, values=None):
+        process_id = self.make_process()
+        self.store.replace_fields(
+            process_id,
+            [
+                FieldRecord(field_name=name, value=value, status="found", confidence=1.0)
+                for name, value in (values or MANDATORY_VALUES).items()
+            ],
+        )
+        return process_id
+
+    def snapshot(self, **overrides):
+        controls = form_controls()
+        controls["fundamento_legal"]["options"] = [
+            {"value": "A", "label": MANDATORY_VALUES["fundamento_legal"]}
+        ]
+        for name, control in (overrides.pop("controls", {}) or {}).items():
+            controls[name] = {**controls[name], **control}
+        payload = {
+            "identity": dict(IDENTITY),
+            "generation": 3,
+            "fields": controls,
+            "options": {},
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_the_manual_path_queues_the_same_fill_command_as_the_automatic_path(self):
+        process_id = self.ready_process()
+        service = FillService(self.store)
+
+        manual_request = service.request_manual_fill(self.snapshot())
+        manual_command = self.store.claim_extension_command("extension-test")
+
+        automatic_request = service.request_fill(process_id)
+        open_command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(open_command["id"], {"ok": True, "identity": IDENTITY})
+        read_command = self.store.claim_extension_command("extension-test")
+        # The extension always answers a command with an explicit ``ok``.
+        service.handle_command_result(read_command["id"], {**self.snapshot(), "ok": True})
+        automatic_command = self.store.claim_extension_command("extension-test")
+
+        self.assertEqual(manual_command["type"], "FILL_FORM")
+        self.assertEqual(automatic_command["type"], "FILL_FORM")
+        self.assertEqual(manual_command["payload"], automatic_command["payload"])
+        self.assertEqual(self.store.get_fill_request(manual_request)["state"], "FILLING")
+        self.assertEqual(self.store.get_fill_request(automatic_request)["state"], "FILLING")
+        self.assertEqual(self.store.get_fill_request(manual_request)["mode"], "manual")
+
+    def test_the_manual_path_blocks_without_queuing_when_a_value_diverges(self):
+        self.ready_process()
+        service = FillService(self.store)
+
+        request_id = service.request_manual_fill(
+            self.snapshot(controls={"matricula": {"value": "11.111-1/1", "options": []}})
+        )
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "BLOQUEADO")
+        self.assertIn("EXISTING_VALUE_DIVERGENCE", request["error"])
+        self.assertIsNone(self.store.claim_extension_command("extension-test"))
+
+    def test_a_snapshot_without_controls_blocks_instead_of_filling(self):
+        self.ready_process()
+        service = FillService(self.store)
+
+        request_id = service.request_manual_fill({"identity": dict(IDENTITY), "generation": 3})
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "BLOQUEADO")
+        self.assertIn("CONTROL_NOT_FOUND", request["error"])
+        self.assertIsNone(self.store.claim_extension_command("extension-test"))
 
 
 class SchemaV4Tests(FillRequestTestCase):
@@ -297,6 +388,18 @@ def form_snapshot(**controls):
     snapshot = {"identity": dict(IDENTITY), "generation": 3, "fields": fields}
     snapshot.update(controls)
     return snapshot
+
+
+def form_controls(**overrides):
+    """The seven mapped controls as the extension reports them."""
+
+    controls = {
+        name: {"value": "", "disabled": False, "readOnly": False, "options": []}
+        for name in list(MANDATORY_VALUES) + ["genero"]
+    }
+    for name, control in overrides.items():
+        controls[name] = {**controls[name], **control}
+    return controls
 
 
 class PreflightTests(unittest.TestCase):
