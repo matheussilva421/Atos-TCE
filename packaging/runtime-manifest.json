@@ -1,0 +1,1404 @@
+{
+  "schema_version": 1,
+  "package": "tce-extractor-portable-runtime",
+  "platform": {
+    "os": "windows",
+    "architecture": "amd64"
+  },
+  "python": {
+    "name": "CPython embeddable distribution",
+    "version": "3.14.4",
+    "architecture": "amd64",
+    "source": "https://www.python.org/ftp/python/3.14.4/python-3.14.4-embeddable-amd64.zip",
+    "sha256": "fa2e63e9f0607e34d8841cc8080641069b71d2bddb5a69fa30c24eb5599da9fe",
+    "hash_source": "https://www.python.org/ftp/python/3.14.4/windows-3.14.4.json",
+    "license": "Python Software Foundation License; LICENSE.txt from the official embed archive"
+  },
+  "pymupdf": {
+    "name": "PyMuPDF",
+    "version": "1.28.2",
+    "source": "https://pypi.org/project/PyMuPDF/1.28.2/",
+    "artifact": "pymupdf-1.28.2-cp310-abi3-win_amd64.whl",
+    "sha256": "ebd244918798502d7b4504c90410d1711a4d7675a32584ca30f1bab419ecbffe",
+    "hash_source": "PyPI file metadata for pymupdf-1.28.2-cp310-abi3-win_amd64.whl",
+    "license": "GNU AGPL v3 or applicable Artifex commercial license; license files from the wheel"
+  },
+  "openpyxl": {
+    "name": "openpyxl",
+    "version": "3.1.5",
+    "source": "https://pypi.org/project/openpyxl/3.1.5/",
+    "artifact": "openpyxl-3.1.5-py2.py3-none-any.whl",
+    "sha256": "5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2",
+    "hash_source": "Observed SHA-256 of the PyPI wheel downloaded during the verified build",
+    "license": "MIT License; license files from the wheel"
+  },
+  "et_xmlfile": {
+    "name": "et-xmlfile",
+    "version": "2.0.0",
+    "source": "https://pypi.org/project/et-xmlfile/2.0.0/",
+    "artifact": "et_xmlfile-2.0.0-py3-none-any.whl",
+    "sha256": "7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa",
+    "hash_source": "Observed SHA-256 of the PyPI wheel downloaded during the verified build",
+    "license": "MIT License; license files from the wheel"
+  },
+  "tesseract": {
+    "name": "Tesseract OCR Windows build by UB Mannheim",
+    "version": "5.4.0.20240606",
+    "source": "https://github.com/UB-Mannheim/tesseract/releases/download/v5.4.0.20240606/tesseract-ocr-w64-setup-5.4.0.20240606.exe",
+    "sha256": "c885fff6998e0608ba4bb8ab51436e1c6775c2bafc2559a19b423e18678b60c9",
+    "hash_source": "Observed checksum published for the official HTTPS installer; the upstream release does not publish a checksum",
+    "materialization": "The builder downloads and verifies the NSIS installer, extracts it with verified 7z.exe, and copies only from that extraction tree; no installer runs and no system installation is performed",
+    "language_data": {
+      "por": {
+        "source": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/por.traineddata",
+        "sha256": "c4932b937207a9514b7514d518b931a99938c02a28a5a5a553f8599ed58b7deb"
+      }
+    },
+    "license": "Apache License 2.0 for Tesseract; bundled Leptonica dependency is BSD-2-Clause; source documentation is copied"
+  },
+  "sevenzip": {
+    "name": "7-Zip Extra",
+    "version": "26.02",
+    "source": "https://github.com/ip7z/7zip/releases/download/26.02/7z2602-extra.7z",
+    "artifact": "7z2602-extra.7z",
+    "sha256": "081df9e9311dfd9c9e0e98c1c80180b99bb51e4cb24156b5f3057fe3c259d70a",
+    "standalone_source": "https://github.com/ip7z/7zip/releases/download/26.02/7zr.exe",
+    "standalone_artifact": "7zr.exe",
+    "standalone_sha256": "56b8cc9f4971cef253644fafe54063ed7fdca551d4dee0f8c6baa81b855acd72",
+    "full_source": "https://github.com/ip7z/7zip/releases/download/26.02/7z2602-x64.exe",
+    "full_artifact": "7z2602-x64.exe",
+    "full_sha256": "6745fa76dc2ea031596d8678f6f6b99c3c1b435b4164a63485adbbc7b8d82ef0",
+    "license": "GNU LGPL v2.1 or later; 7-Zip license and source notices apply"
+  },
+  "build_policy": {
+    "downloads_only_at_build_time": true,
+    "destination_installation": false,
+    "path_fallback": false,
+    "required_languages": [
+      "por",
+      "eng",
+      "osd"
+    ],
+    "staging_must_be_reserved_direct_child": true,
+    "staging_must_be_outside_outputs": true,
+    "generated_file_hashes_are_recorded": true
+  },
+  "build": {
+    "built_at_utc": "2026-09-05T05:06:02.2540398Z",
+    "tesseract_source_kind": "verified-nsis-extraction",
+    "tesseract_source_version": "5.4.0.20240606",
+    "tesseract_source_path_recorded": false,
+    "sevenzip_source_kind": "verified-extra-archive-and-standalone",
+    "license_file_counts": {
+      "python": 2,
+      "pymupdf": 1,
+      "openpyxl": 1,
+      "et_xmlfile": 3,
+      "tesseract": 2
+    },
+    "included_files": [
+      {
+        "path": "runtime/python/__install__.json",
+        "component": "python",
+        "size": 1949,
+        "sha256": "8e532cbd002d3b4881dbb325c807bcc1e1a747e963216118082131cd459f07fa"
+      },
+      {
+        "path": "runtime/python/_asyncio.pyd",
+        "component": "python",
+        "size": 78160,
+        "sha256": "13b374175108c266f4a5bdf907f990d0ccd5b486d0313856e08a60ba9bf856cf"
+      },
+      {
+        "path": "runtime/python/_bz2.pyd",
+        "component": "python",
+        "size": 87896,
+        "sha256": "33641a8ad0403473d678c7435197d49550fc5185ba7979fb16ab80256b1f9072"
+      },
+      {
+        "path": "runtime/python/_ctypes.pyd",
+        "component": "python",
+        "size": 142680,
+        "sha256": "79967d8614f735cc62b81649641fd8d0414ca66d3d6656fa7788334bbdbbd35b"
+      },
+      {
+        "path": "runtime/python/_decimal.pyd",
+        "component": "python",
+        "size": 291160,
+        "sha256": "1f4a8ca9814508d3597992173fdf4db312f3b970f6baeb053b9d8c3087f907e7"
+      },
+      {
+        "path": "runtime/python/_elementtree.pyd",
+        "component": "python",
+        "size": 138584,
+        "sha256": "557da5278599b51f1c0a53b2ffc617a05a21be23a2a6b862a5b5ce04667c5f70"
+      },
+      {
+        "path": "runtime/python/_hashlib.pyd",
+        "component": "python",
+        "size": 69464,
+        "sha256": "58c5c9ff93f989e2a233b8c5e06420ea73dd6c013e1f08d996fb0f2828eba0aa"
+      },
+      {
+        "path": "runtime/python/_lzma.pyd",
+        "component": "python",
+        "size": 161112,
+        "sha256": "a01f1927adaa60adcfbe3b0314205a528cb9dd5a93b7e61cb284eddee9b0b347"
+      },
+      {
+        "path": "runtime/python/_multiprocessing.pyd",
+        "component": "python",
+        "size": 38744,
+        "sha256": "a88475c4cba47977eef5756c217c79441c53cf57d0b05441de87744313e2898b"
+      },
+      {
+        "path": "runtime/python/_overlapped.pyd",
+        "component": "python",
+        "size": 58200,
+        "sha256": "43b9e0bdc41646fc363f144bf050600dab647ce9e7c251a2b6d0e75358cb10cf"
+      },
+      {
+        "path": "runtime/python/_queue.pyd",
+        "component": "python",
+        "size": 36696,
+        "sha256": "2a7bb0a53e86ae4982a6f64e2570137829a0be66537bb1c166913af273edbf0c"
+      },
+      {
+        "path": "runtime/python/_remote_debugging.pyd",
+        "component": "python",
+        "size": 76632,
+        "sha256": "2c21987b99ca5f0946b0585ab7a534967c7b4d7c5db0102fc625dbfa05a0d4e0"
+      },
+      {
+        "path": "runtime/python/_socket.pyd",
+        "component": "python",
+        "size": 87888,
+        "sha256": "435a86973131c5d5dc90f828e72d7bb0607578a48ab5bc5377f4a280a6beb8f7"
+      },
+      {
+        "path": "runtime/python/_sqlite3.pyd",
+        "component": "python",
+        "size": 132432,
+        "sha256": "9a31c522e38cdea19386ae912f44fb75bb7f155d14d486d6bcf4de7e16883949"
+      },
+      {
+        "path": "runtime/python/_ssl.pyd",
+        "component": "python",
+        "size": 184664,
+        "sha256": "06f51fbe150c831af619890eea2d9fca9ce8b49758bfe3f382883551c592e6b3"
+      },
+      {
+        "path": "runtime/python/_uuid.pyd",
+        "component": "python",
+        "size": 28504,
+        "sha256": "35f26f7f55ded30da92ed30258fb9624a7398ba3eadee134813133c560fcbbae"
+      },
+      {
+        "path": "runtime/python/_wmi.pyd",
+        "component": "python",
+        "size": 40280,
+        "sha256": "eccb72a070d63f0ddde054c7a15d375b11b1dfc3362452c55ccabb487dee87fc"
+      },
+      {
+        "path": "runtime/python/_zoneinfo.pyd",
+        "component": "python",
+        "size": 52048,
+        "sha256": "65fad0efc2524e411c65919288835bb8781926bf9e7a5f92912b6ffa393a226b"
+      },
+      {
+        "path": "runtime/python/_zstd.pyd",
+        "component": "python",
+        "size": 503128,
+        "sha256": "e5924e2985186797668dd3b2e1efeb9313459258a4564dbf5499935c7ebd44e7"
+      },
+      {
+        "path": "runtime/python/libcrypto-3.dll",
+        "component": "python",
+        "size": 5231984,
+        "sha256": "eaf6d613b95b61a39558d84c50e72630a66c99914292df88e7b54ebd60c5bd34"
+      },
+      {
+        "path": "runtime/python/libffi-8.dll",
+        "component": "python",
+        "size": 39696,
+        "sha256": "eff52743773eb550fcc6ce3efc37c85724502233b6b002a35496d828bd7b280a"
+      },
+      {
+        "path": "runtime/python/libssl-3.dll",
+        "component": "python",
+        "size": 794992,
+        "sha256": "cf1a5fdcefa3daf69041f31f98ece1d7911ca4fcb8e9f1043b4d0f459ae4c936"
+      },
+      {
+        "path": "runtime/python/LICENSE.txt",
+        "component": "python",
+        "size": 35407,
+        "sha256": "935cf13e19f8c31b497d20b05d73623431a226b230c3599bc30fa3348979bc68"
+      },
+      {
+        "path": "runtime/python/pyexpat.pyd",
+        "component": "python",
+        "size": 218968,
+        "sha256": "05530afc9cbfe68c28c052eec159b852e731316007e1f52e0a31412e4eda07f9"
+      },
+      {
+        "path": "runtime/python/python.cat",
+        "component": "python",
+        "size": 595451,
+        "sha256": "ca197e78d981f26ad84f1c784f75c9e76a1f7bd6c5e700f11976fbc6a2a1845a"
+      },
+      {
+        "path": "runtime/python/python.exe",
+        "component": "python",
+        "size": 106328,
+        "sha256": "7ca24f26d6e3f463419ee4f537ddd3acd312c38fe45e678cce08572f26a8bd1a"
+      },
+      {
+        "path": "runtime/python/python3.dll",
+        "component": "python",
+        "size": 74072,
+        "sha256": "1dd696f02326e32e67b52c25b249b3acce3238176212d16e8fb1a050a1455ae9"
+      },
+      {
+        "path": "runtime/python/python314._pth",
+        "component": "python",
+        "size": 99,
+        "sha256": "a84e4c1a0cd32450363201c392ea0906f76f3de8e68a4479d98457891d83ff89"
+      },
+      {
+        "path": "runtime/python/python314.dll",
+        "component": "python",
+        "size": 6767440,
+        "sha256": "a07f7d09c3121492bb066535c6d0811df5fbc2090cbca7031a97bb47ce1480c9"
+      },
+      {
+        "path": "runtime/python/python314.zip",
+        "component": "python",
+        "size": 4116510,
+        "sha256": "3007c5d41a1fd34519515cde1a1a151aa3a7a32a49367cbb159f798bb14ad224"
+      },
+      {
+        "path": "runtime/python/pythonw.exe",
+        "component": "python",
+        "size": 104792,
+        "sha256": "9361f3ad569a3cd484f9af3c0fdae252cd4ec564f817632a706746f57e09c8cc"
+      },
+      {
+        "path": "runtime/python/select.pyd",
+        "component": "python",
+        "size": 33624,
+        "sha256": "56441c3148743a0890986ccdf93fea8174155b0ee84db2493151f075d8e7c51a"
+      },
+      {
+        "path": "runtime/python/sqlite3.dll",
+        "component": "python",
+        "size": 1584984,
+        "sha256": "792d69122e0c46705b8778bf038aca6569fe6c96ece1d97d32b5d9bad887a81e"
+      },
+      {
+        "path": "runtime/python/unicodedata.pyd",
+        "component": "python",
+        "size": 758616,
+        "sha256": "58013696b4f08717aee2885aefa24031f4b18b3e62faa8125248cc3e0a86af2a"
+      },
+      {
+        "path": "runtime/python/vcruntime140_1.dll",
+        "component": "python",
+        "size": 49776,
+        "sha256": "6a99bc0128e0c7d6cbbf615fcc26909565e17d4ca3451b97f8987f9c6acbc6c8"
+      },
+      {
+        "path": "runtime/python/vcruntime140.dll",
+        "component": "python",
+        "size": 120400,
+        "sha256": "052ad6a20d375957e82aa6a3c441ea548d89be0981516ca7eb306e063d5027f4"
+      },
+      {
+        "path": "runtime/python/winsound.pyd",
+        "component": "python",
+        "size": 33112,
+        "sha256": "959771d50f61fa373b05a076af29696209c12457ea9d6a78c5afc5aa8638190a"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/fitz/__init__.py",
+        "component": "python",
+        "size": 589,
+        "sha256": "399f8de397746c980c547f7c345d2c90d4cb2922cf7e9532c78b31c088951118"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/fitz/table.py",
+        "component": "python",
+        "size": 85,
+        "sha256": "8ab84abc4a59ff83cdfbe4c95ccdaf6eb4ac438415bdee3747d0b2d8a65e2713"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/fitz/utils.py",
+        "component": "python",
+        "size": 85,
+        "sha256": "4e72ca23d6bad3e263113f4a8fda7b1a5e0ca00be96847031bd64fef2c2fa130"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/__init__.py",
+        "component": "python",
+        "size": 924164,
+        "sha256": "e8cdb45ed0afa21f919cec30e69b7b572c3db7bc80d203e4e07e4c7ea2b19cce"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/__main__.py",
+        "component": "python",
+        "size": 41358,
+        "sha256": "763a97305937d0665a43d4b6920924efb15d8f87795ec2926c09f9da69bfd2cb"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/_apply_pages.py",
+        "component": "python",
+        "size": 7716,
+        "sha256": "720b52015d70320bb3603c1a724c0741c9b53e87a9943ec96a911ef38b5bd457"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/_build.py",
+        "component": "python",
+        "size": 471,
+        "sha256": "6561ced4e8b28638d0ca36a028d4f91d1ac2ca309750930283f125aa0b04cae2"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/_extra.pyd",
+        "component": "python",
+        "size": 190976,
+        "sha256": "43292c50f18dafa1d92dec67e076d2340a361a24e510edb6ccfe8de7364b6b10"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/_mupdf.pyd",
+        "component": "python",
+        "size": 13063168,
+        "sha256": "8b0a0a990523eaecf695ec7f9bb5660047b11948649a7e89369141c03dc589d9"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/_table_headers.py",
+        "component": "python",
+        "size": 38558,
+        "sha256": "881a63053ebcb2ce48c87689380774391bbe09eb0996a14b8df7f0b2465e9215"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/_table_refine.py",
+        "component": "python",
+        "size": 31792,
+        "sha256": "37e9f101c3285633a4d62181f008fa36daba1efde30eda1bb7395908aa3af5d2"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/_table_spans.py",
+        "component": "python",
+        "size": 23067,
+        "sha256": "caec10e8e755984e14f3b27463b9e725897d7b98c22e4b447951a9c563b5f949"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/_table_union.py",
+        "component": "python",
+        "size": 15322,
+        "sha256": "efd332e5b513c758425a53c8b8f6b5b99c15bdda7f884818ee62e406d9265592"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/_wxcolors.py",
+        "component": "python",
+        "size": 20533,
+        "sha256": "02363faab89d46857e25e7ca88707ca2975d36754a4fa9fd1d15081fc523ac1d"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/extra.py",
+        "component": "python",
+        "size": 6882,
+        "sha256": "1888affc6f914edef4730c87bcb19849d5f10c9f65334fd329e728565a9980a3"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf.py",
+        "component": "python",
+        "size": 2747394,
+        "sha256": "527bb3b4be763143666049efe255092d847a9a13e15a943fef63135bc6653186"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdfcpp64.dll",
+        "component": "python",
+        "size": 26295808,
+        "sha256": "998184dce298f24a4c2b080a9173594c96c6f78796732bdd8e95ca0e557557cb"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/py.typed",
+        "component": "python",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/pymupdf.py",
+        "component": "python",
+        "size": 64,
+        "sha256": "4e6040168b78f7ddf96f6ce4b0ddb59e6702a979b55704e62c38b9b430596352"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/table.py",
+        "component": "python",
+        "size": 109087,
+        "sha256": "c6523e32da763bd2b84e7b0cb3d221c9938ff1dc06c19a2d0d97d3635999d6ca"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/utils.py",
+        "component": "python",
+        "size": 39718,
+        "sha256": "cc172067fe277068a3abdb9c8886efbfacaabc9b261f82ecb686ecd85fb7622d"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/classes.h",
+        "component": "python",
+        "size": 770545,
+        "sha256": "4dbab31f95a0e12f783137b796a3780836d61d4ce6cdf17c4974532dc7d35149"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/classes2.h",
+        "component": "python",
+        "size": 525997,
+        "sha256": "068c2655e386e842bd8a2b57211e55fc66cf5ad5c5a6c5281b5ad1152904394c"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/exceptions.h",
+        "component": "python",
+        "size": 2197,
+        "sha256": "f8a94473f9470c5866fcbb28451452e7357d1b686ede9488cb80791ec7421512"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/extra.h",
+        "component": "python",
+        "size": 8513,
+        "sha256": "d621e1c26ab9177b8a15800ad2aa8f435426a2de842104196a577c62b2d57722"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz.h",
+        "component": "python",
+        "size": 2877,
+        "sha256": "3c851e3727717bd651128371da8e5e4276334159cfa59aa4f7a633467bedeb7b"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/functions.h",
+        "component": "python",
+        "size": 579432,
+        "sha256": "7a09205f934db773be2438c637441ef5820a742a29a23c3504e14b9213b40620"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/html.h",
+        "component": "python",
+        "size": 2074,
+        "sha256": "44972ea016ae9ce65cbeea8c647306bc27a9638adcfcb6de9e3fe33997fa503b"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/internal.h",
+        "component": "python",
+        "size": 1391,
+        "sha256": "c4365a086fb77cc3cf08eefb385ff9a3e76b6760d6efa8c2c2b4965599284d33"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/memento.h",
+        "component": "python",
+        "size": 17041,
+        "sha256": "312a318d0270fb6a7dc4f92fb8f9f95606983c2e648db0730629ef4ad64e7179"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf.h",
+        "component": "python",
+        "size": 1692,
+        "sha256": "1b31e9a7ef52807a8ce361e52a778e3361644b616e0eb39ee44f9f3c10e646c8"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/ucdn.h",
+        "component": "python",
+        "size": 14378,
+        "sha256": "872446ff16664050594bc1e6c2b4a95a35f5c1c9a65565430efa8c286235ca75"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/archive.h",
+        "component": "python",
+        "size": 12458,
+        "sha256": "2eba82c2015535f41de90e94ad7389e8b252f26e7364e7e190b6b18227395061"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/band-writer.h",
+        "component": "python",
+        "size": 3759,
+        "sha256": "44be4eca94818d624772bec2eea3d9912734a6c631a1f0ece0af379b3d44dfa9"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/barcode.h",
+        "component": "python",
+        "size": 4245,
+        "sha256": "75f0e4ce540f571db2f5c9e2ee897f8d73a4002f42a66f7d8c39978d6e1f2cc1"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/bidi.h",
+        "component": "python",
+        "size": 2530,
+        "sha256": "627146b07faf503c9434cdc6a2fa3efa75a036f2fb96d6d2c4e6fd47afa19b37"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/bitmap.h",
+        "component": "python",
+        "size": 5350,
+        "sha256": "1a8fad7b399b82630b83a44951c50802f5581c69ba0c62af61fdda3857fba5cd"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/buffer.h",
+        "component": "python",
+        "size": 8089,
+        "sha256": "dd14c15f836831fe8314e908d409bff6cf6506aecf282ad2535a921707070d56"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/color.h",
+        "component": "python",
+        "size": 13251,
+        "sha256": "940820d1c64c2ddd63766b188f9b9798a7865e0bf951e13c46396bfa27fd6988"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/compress.h",
+        "component": "python",
+        "size": 5188,
+        "sha256": "ab336a35dad5c56e1cf8b62a70727086081ce11e0082c0c207dc52b80a2ac7f7"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/compressed-buffer.h",
+        "component": "python",
+        "size": 4643,
+        "sha256": "4cec63441089eac89ea77197b82077682a740625782a555f48980c653ef3f24b"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/config.h",
+        "component": "python",
+        "size": 8245,
+        "sha256": "134195a6dec13aa8e217882cd78b3610c8966f465d393be4bd9a373dfad429b4"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/context.h",
+        "component": "python",
+        "size": 31974,
+        "sha256": "d7fbe6da14ff6abcf00ad56f8626642ce708166e6454074f309786c0fd02c05d"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/crypt.h",
+        "component": "python",
+        "size": 6750,
+        "sha256": "b450f276736931a98595c20ba397f05a742237563e6a5a14113a60b9dcaaa546"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/deskew.h",
+        "component": "python",
+        "size": 1442,
+        "sha256": "537342f379f7ac930dfc93a121fe9f3983478f897489a9de9eb78c95625759f5"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/device.h",
+        "component": "python",
+        "size": 25696,
+        "sha256": "6b12f488c9b69eee072d64aed9c5fb956ff39e5924117c077a423ada4d3f7bae"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/display-list.h",
+        "component": "python",
+        "size": 4954,
+        "sha256": "c98b57de844757c0c50a38c16b210357e70b99db51156d921891fffa3c6f2e9a"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/document.h",
+        "component": "python",
+        "size": 35716,
+        "sha256": "f51abb1e802db10be17b46402732f0ffb50adee2f2b809947399384260ea2d0a"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/export.h",
+        "component": "python",
+        "size": 1689,
+        "sha256": "f93587a7b608eeb8396d83a060c3721b13951942c9dd2465c6d47314b0113d2c"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/filter.h",
+        "component": "python",
+        "size": 8104,
+        "sha256": "173b32b75dac41c6661782e1fc283e55621d9e607571ef2bb71bd830b529731f"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/font.h",
+        "component": "python",
+        "size": 25042,
+        "sha256": "d581849d2a51dd21b128b2edf37ec96818adbe68dc25fb1400651e278c7a607b"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/geometry.h",
+        "component": "python",
+        "size": 24294,
+        "sha256": "cefc87522783de2dc65ba0c0e50c4718517f477c1816ead818d01d7ad3680c75"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/getopt.h",
+        "component": "python",
+        "size": 4934,
+        "sha256": "27ea89de11d5be647d9f5994bfbc68bad50752f6c6bbce7f34c2ef135851e261"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/glyph-cache.h",
+        "component": "python",
+        "size": 3417,
+        "sha256": "e45eeb4a37a3f6fc3e3410cb992774cddc29b14ea8923b850f11c1dada74c4c3"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/glyph.h",
+        "component": "python",
+        "size": 2397,
+        "sha256": "8d28fe8eca52390351d1cfd58bdaad98758daa483a1b14890bf16ce1a138ecb4"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/hash.h",
+        "component": "python",
+        "size": 4107,
+        "sha256": "dabd114f9476b54a75c4368624fda367ed52b8bef510140dee55cf1ca74ef72c"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/heap-imp.h",
+        "component": "python",
+        "size": 4514,
+        "sha256": "29fd176fa89d50b117b2b56fcd53d3ce20514feb3ec185fe6916e0e5d60a3523"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/heap.h",
+        "component": "python",
+        "size": 5171,
+        "sha256": "36392e523b8b51d6259c001dcae7a7e0c134af4b2b5fae45411a904ae07c549f"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/hyphen.h",
+        "component": "python",
+        "size": 2018,
+        "sha256": "8cfdfbfc9fa1c40cbf10faed8b5239940d0177083431a1a8e586793f3717848f"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/image.h",
+        "component": "python",
+        "size": 15513,
+        "sha256": "ec4fc7fb94e3ecbd52354fd4e3a5582194cd9db0078fbcc46713f891c8c4574e"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/json.h",
+        "component": "python",
+        "size": 3263,
+        "sha256": "d399be259e5c589c8beec3b9b41038251f4837c2add27854fe6ba82385df3223"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/link.h",
+        "component": "python",
+        "size": 4129,
+        "sha256": "ccc11438759247393d9dddaf9026920e400d24e346cd8915cc35946a6f766c35"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/log.h",
+        "component": "python",
+        "size": 1961,
+        "sha256": "e319a159d830b81b45a9b7f5d8e5217ca8014f81cb10439d59e66a1e323e0917"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/options.h",
+        "component": "python",
+        "size": 6705,
+        "sha256": "a7c9ea8c302b565e70e29623084a4d81395f370694a0e183d2741f160e616307"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/outline.h",
+        "component": "python",
+        "size": 8148,
+        "sha256": "e85933f83ca4d1a91657169019160165d55a941f4d1b48961ce74e442bcfad34"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/output-svg.h",
+        "component": "python",
+        "size": 2947,
+        "sha256": "ef60697e748e3e1fc6ce775099f15a86de36946c56335cf58b2f072bbef58919"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/output.h",
+        "component": "python",
+        "size": 13780,
+        "sha256": "24e7b9a0dd4cbc99264cf19f399f6d7f6f1e8a0fd83a49918390ac1a6e415325"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/path.h",
+        "component": "python",
+        "size": 14146,
+        "sha256": "1644bfa7df3549cf8028b3eba7f93d3473f18fa3116bd8190855c56c64a61bc5"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/pixmap.h",
+        "component": "python",
+        "size": 16252,
+        "sha256": "a6cd7aafbd8b1bfae091e080a3b184a161eae449283540750c153703219477ca"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/pool.h",
+        "component": "python",
+        "size": 3302,
+        "sha256": "e690110a2dff0393751f4cacdb3abacaa25124edb7db2c9cc8b5bac19ffd3d47"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/separation.h",
+        "component": "python",
+        "size": 4603,
+        "sha256": "d8df4cb980c86ba8c3e67e11a4e8cfa962649f4e6f2a496a1839b511241cabdd"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/shade.h",
+        "component": "python",
+        "size": 6211,
+        "sha256": "74f1e40ab5f10faadaec0d92441ab10d2e1aa09bf4f43e90d9d3557ab3c7f9cb"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/store.h",
+        "component": "python",
+        "size": 14139,
+        "sha256": "bf3a29039908745131714a84f8602faf8f2b772de23b7532c5cc6296b1545588"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/story-writer.h",
+        "component": "python",
+        "size": 6916,
+        "sha256": "1b7f9e778667b7c7e390f3e142f9cceb788d103861380574aa9eb15fac530d3e"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/story.h",
+        "component": "python",
+        "size": 7681,
+        "sha256": "774d15d23dd1efb428a8a5e6a2f141d584e24c6b6a3eccd1256ac49e1100fdbe"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/stream.h",
+        "component": "python",
+        "size": 16683,
+        "sha256": "c1c60ec456a96746a95a966324e74cbb6746b85a3be80e2217ea57942a8f68df"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/string-util.h",
+        "component": "python",
+        "size": 12673,
+        "sha256": "62f5f52ddd6242f0f37bf303c20885abbfadb2cf7b197c63a2acbc0942b4d8e6"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/structured-text.h",
+        "component": "python",
+        "size": 44671,
+        "sha256": "14f6425c468e8d4be79075ae347dd3907bdecf5971fb630d516e61c7d993b636"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/system.h",
+        "component": "python",
+        "size": 15316,
+        "sha256": "073e469542ba3a84b3fad93bd5fab1464bb792aa82dea6b91558e5e355630be5"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/text.h",
+        "component": "python",
+        "size": 6456,
+        "sha256": "174b56b21d13fe18246427dd68d712b0a81c254fbc17cd48154d023a4c1195c9"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/track-usage.h",
+        "component": "python",
+        "size": 1707,
+        "sha256": "a25792ab5670596a8cb00ca4bc52aac5c4c60470d0a568e643845114bb1d072a"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/transition.h",
+        "component": "python",
+        "size": 2188,
+        "sha256": "07951b7fd6e3fd65a8a9ad3922721d93defcf95460eab474ecfbb16ad7eee7ac"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/tree.h",
+        "component": "python",
+        "size": 1983,
+        "sha256": "e36e427266db0748fd3c5b6ae12e13c0b9445af2d310c27dda685e5e8116585f"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/types.h",
+        "component": "python",
+        "size": 1470,
+        "sha256": "3f458b09794660dc954ab76f8e546074b528647a6d13f582937e5892c59ed9fd"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/util.h",
+        "component": "python",
+        "size": 12276,
+        "sha256": "6023a214810ad85d254e41362506b5c0f14ea1ef6f248a503bf012b8b95c1041"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/version.h",
+        "component": "python",
+        "size": 1200,
+        "sha256": "e29279facac2566060ba013550bd6178fefc6c4d0eca49433044489396768502"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/write-pixmap.h",
+        "component": "python",
+        "size": 16876,
+        "sha256": "82218ff6d619fa9d1746aefa952e66845af2d9fddc988cb14c988b92051aab1c"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/writer.h",
+        "component": "python",
+        "size": 10455,
+        "sha256": "dab95772c6d1e3bd2a487b67fac36f14a580bef74b729864223d77de7bb7d953"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/fitz/xml.h",
+        "component": "python",
+        "size": 12937,
+        "sha256": "d80c67814bf1adfd4f52c6585bf6a1ff6f1112564dc0e177adf2dd0167578436"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/helpers/mu-office-lib.h",
+        "component": "python",
+        "size": 22192,
+        "sha256": "cb1bc9e41f747354eee6caaaf1de8ee1d21924ee3c641bd75a5bb913a6d54811"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/helpers/mu-threads.h",
+        "component": "python",
+        "size": 5774,
+        "sha256": "f594589fe460ff4d968c74eda602fa03d806b94f122169be18cd49417e09f210"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/helpers/pkcs7-openssl.h",
+        "component": "python",
+        "size": 2427,
+        "sha256": "8d06f568c3447200bc11a2a17d7e2623313b29cbc010d94affe8cc893a5e961e"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf/annot.h",
+        "component": "python",
+        "size": 35759,
+        "sha256": "0c0c3d9a22d2d361f2c0812f35ca7acbfffd9239a4dc6336ecc3bd9f9ab0bbed"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf/clean.h",
+        "component": "python",
+        "size": 2872,
+        "sha256": "c989642f135090ee63fce8e8db09152e7fa2d6faa50c72fa73e5d0032eebba16"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf/cmap.h",
+        "component": "python",
+        "size": 3954,
+        "sha256": "ba25bb58f39c235b67125053c4022d3889cd1c8727e6de89a3e6c288920ab7fe"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf/crypt.h",
+        "component": "python",
+        "size": 4548,
+        "sha256": "e546987708e80e0f65163d4ba773ec3368f6d3a8566a4dc38f192ee5feacbea6"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf/document.h",
+        "component": "python",
+        "size": 33002,
+        "sha256": "6a17c1f8d0fe2149e609094a20d0665bd2229d55f1fc575a361c1ce4226b23d4"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf/event.h",
+        "component": "python",
+        "size": 4777,
+        "sha256": "27fc16c1e10772f553073bb103b73f8cebf5a5fd9c08494ac02b243baf750ea6"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf/font.h",
+        "component": "python",
+        "size": 5391,
+        "sha256": "aefff8634d5e035ab3bf0f14a3a9892c3cf72d2eed9dc878779f6b6d0362d7d7"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf/form.h",
+        "component": "python",
+        "size": 15059,
+        "sha256": "91969646a2d9cead53f9be1d3e8cd8109023709572e9ef5556aa2cac5a57cdb2"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf/image-rewriter.h",
+        "component": "python",
+        "size": 3565,
+        "sha256": "d7999b657f43edcba6e4b8a527fc9301308a6f15b9513bb0f0f3590b1267361e"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf/interpret.h",
+        "component": "python",
+        "size": 20664,
+        "sha256": "2af5eb6ae564b09fbf4ca82baf7afdbe70c78538be5c695f25874ea8e4c92e0d"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf/javascript.h",
+        "component": "python",
+        "size": 1823,
+        "sha256": "342addf0d1bfaa23498a270456ef284f52189e9bd726570d8e525b3a840dc2e0"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf/name-table.h",
+        "component": "python",
+        "size": 20990,
+        "sha256": "3a23207fb4cb723c11d9c324f388cc5bc6df4cc0dff4354022b72e36a98d7f4f"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf/object.h",
+        "component": "python",
+        "size": 20933,
+        "sha256": "cebc8f81d07380a776c066fa91dce76252dbbabdb9127d8548dd73052463ebc8"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf/page.h",
+        "component": "python",
+        "size": 12356,
+        "sha256": "e60801c6f080fef1bffee4aadb11ddc5a9250f40a5a2ea7aab3812d3890aabde"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf/parse.h",
+        "component": "python",
+        "size": 2596,
+        "sha256": "9d7d82a04a4eec8ee98b9c7df5c30b1e1ca02d36494ae697e0fe05f77d0a6753"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf/recolor.h",
+        "component": "python",
+        "size": 1563,
+        "sha256": "284afd1764a75be4b7a7ddae9d3291b6526d84a2375e5918f7168e014b871930"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf/resource.h",
+        "component": "python",
+        "size": 6902,
+        "sha256": "427b22972c0398d5d0b6d7935351179e804504f0b21ed5c1f4e6afb9985ef45d"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf/xref.h",
+        "component": "python",
+        "size": 12131,
+        "sha256": "4d54ed3f01ca989426bb200b78d4ca8cb54ae930d4c6b870abc00871d8ef0585"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/include/mupdf/pdf/zugferd.h",
+        "component": "python",
+        "size": 1616,
+        "sha256": "99adf5e050ccdfb24576dab245830b8011bc171c339087911344e96cd5d44fcf"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/lib/libmuthreads.lib",
+        "component": "python",
+        "size": 24968,
+        "sha256": "556b5975a7c6d120c1e768a71280aa0a00740aa6be28105edeb661023338a4a9"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf/mupdf-devel/lib/mupdfcpp64.lib",
+        "component": "python",
+        "size": 4032678,
+        "sha256": "53551847c2eb0f7168a4cd1f61a8113422fbe37d7044446040923b4502253ea5"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf-1.28.2.dist-info/COPYING",
+        "component": "python",
+        "size": 64,
+        "sha256": "40e60697600535eabfb5ae05f72829d88cfe8d02dd4792f5a754f6f51dabe55b"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf-1.28.2.dist-info/entry_points.txt",
+        "component": "python",
+        "size": 51,
+        "sha256": "f4d707fc25641d5b8b3711354d86dfc17c0295590c70cf3dd133132770b97c30"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf-1.28.2.dist-info/METADATA",
+        "component": "python",
+        "size": 26483,
+        "sha256": "5c1fc460889bd3ff8d213e6c0f29154a8cd3576505f4844d7c3e089fa45eed40"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf-1.28.2.dist-info/README.md",
+        "component": "python",
+        "size": 25223,
+        "sha256": "d0d17bed851133430744866941a1707542d1aeb072bbab681deec1e49498663c"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf-1.28.2.dist-info/RECORD",
+        "component": "python",
+        "size": 11693,
+        "sha256": "7ab6fcb57f8352ad0b1be5044a564d2bb941af135aff0baab85f668a63ad7111"
+      },
+      {
+        "path": "runtime/python/Lib/site-packages/pymupdf-1.28.2.dist-info/WHEEL",
+        "component": "python",
+        "size": 85,
+        "sha256": "50d3a8365836c950c31389b47166585f10c0b69085073bc27928af534fcae7a1"
+      },
+      {
+        "path": "runtime/tesseract/libarchive-13.dll",
+        "component": "tesseract",
+        "size": 769154,
+        "sha256": "98b9b7e9259f23eab6749ee25cca2c0643f09df6b23c58229fd43bf6249195e9"
+      },
+      {
+        "path": "runtime/tesseract/libb2-1.dll",
+        "component": "tesseract",
+        "size": 34372,
+        "sha256": "7fb8418a1172042dab5227fcd466b1bf293737f5b5cf35359e851516227f109c"
+      },
+      {
+        "path": "runtime/tesseract/libbrotlicommon.dll",
+        "component": "tesseract",
+        "size": 143397,
+        "sha256": "62f363f6aac0d54ce7b115c0412b19e0fe5480f4e6fc1254f663b0ab6868e46f"
+      },
+      {
+        "path": "runtime/tesseract/libbrotlidec.dll",
+        "component": "tesseract",
+        "size": 60412,
+        "sha256": "7d6c0f954b6f2db1c1c5fd5904886ae055859a02ca31b6dde5f96f6b0259d23f"
+      },
+      {
+        "path": "runtime/tesseract/libbz2-1.dll",
+        "component": "tesseract",
+        "size": 100964,
+        "sha256": "b79cd3a7102e359ef6324e98966a67939e58ec2b651ae2847cae84a4dfa453f7"
+      },
+      {
+        "path": "runtime/tesseract/libcairo-2.dll",
+        "component": "tesseract",
+        "size": 1213715,
+        "sha256": "c531e50be733f641e39419bf62cb799698b20086afb958d73f56677ea0c3f9da"
+      },
+      {
+        "path": "runtime/tesseract/libcrypto-3-x64.dll",
+        "component": "tesseract",
+        "size": 5130880,
+        "sha256": "c0674a225d30f1642ca1da45ac040a9c1885d8f23883532b42987bae458edc4d"
+      },
+      {
+        "path": "runtime/tesseract/libdatrie-1.dll",
+        "component": "tesseract",
+        "size": 34386,
+        "sha256": "f760aef8a31b7c3670484ca4eabab1ab8e95c14052167e191463f6371c3f0850"
+      },
+      {
+        "path": "runtime/tesseract/libdeflate.dll",
+        "component": "tesseract",
+        "size": 91035,
+        "sha256": "b6ee7b31a23605d8e8b9be5eae782a3ddf7adf2b7ca2c8e0041bdfd4fe4659ee"
+      },
+      {
+        "path": "runtime/tesseract/libexpat-1.dll",
+        "component": "tesseract",
+        "size": 188909,
+        "sha256": "d9ea333175b1e995bbe6a062567f38ff362f1b2f369fa8ebdb0eeed21813bdc6"
+      },
+      {
+        "path": "runtime/tesseract/libffi-8.dll",
+        "component": "tesseract",
+        "size": 33708,
+        "sha256": "f1ed51652b3746c1b4bce497b7041e677e5d80c5ab8198efebb8fc6f75329ae8"
+      },
+      {
+        "path": "runtime/tesseract/libfontconfig-1.dll",
+        "component": "tesseract",
+        "size": 350185,
+        "sha256": "d6c70b7e205f24ff96b29a80849b59c84f8701b311434f64f2bf93bd36bdb163"
+      },
+      {
+        "path": "runtime/tesseract/libfreetype-6.dll",
+        "component": "tesseract",
+        "size": 776690,
+        "sha256": "5297f754dfca04abdb0d21705d5afc3c4122aa25c7afbdd87900313cb780c868"
+      },
+      {
+        "path": "runtime/tesseract/libfribidi-0.dll",
+        "component": "tesseract",
+        "size": 144627,
+        "sha256": "449085380e54089871ccc9f32b715f65a2e53eb9f5125793fed900461d29a420"
+      },
+      {
+        "path": "runtime/tesseract/libgcc_s_seh-1.dll",
+        "component": "tesseract",
+        "size": 150707,
+        "sha256": "b22b954397a52703579d92db64b57812af70f2afcafe2e742a009c1640b9ec1a"
+      },
+      {
+        "path": "runtime/tesseract/libgif-7.dll",
+        "component": "tesseract",
+        "size": 41367,
+        "sha256": "a1a179853ae6fad8eb045b8e9f12c55e6fc99929446b02fa345512354cf5e582"
+      },
+      {
+        "path": "runtime/tesseract/libgio-2.0-0.dll",
+        "component": "tesseract",
+        "size": 1814226,
+        "sha256": "07bda2471ca0490598d1e6fbdfc8958cd91926d68effc90d9eda0ea2f9279c7c"
+      },
+      {
+        "path": "runtime/tesseract/libglib-2.0-0.dll",
+        "component": "tesseract",
+        "size": 1456928,
+        "sha256": "12b2f4d609a5d3cf714a8c502074409d32f21082a682373f4e1bca36821f08bc"
+      },
+      {
+        "path": "runtime/tesseract/libgmodule-2.0-0.dll",
+        "component": "tesseract",
+        "size": 26783,
+        "sha256": "8cf9bb9be24c88a66ad478214a55357a9d44702636789dfa436ca509457d781c"
+      },
+      {
+        "path": "runtime/tesseract/libgobject-2.0-0.dll",
+        "component": "tesseract",
+        "size": 359001,
+        "sha256": "4fcf4fb2d5ef234e717b389f3b637f05ee6ff111b698ef59664394f10622aef6"
+      },
+      {
+        "path": "runtime/tesseract/libgraphite2.dll",
+        "component": "tesseract",
+        "size": 152538,
+        "sha256": "f927efecd958f0e54a24ae297f86cd6aed05e7fc20e5da0882050ab9ec464395"
+      },
+      {
+        "path": "runtime/tesseract/libharfbuzz-0.dll",
+        "component": "tesseract",
+        "size": 1329363,
+        "sha256": "c1fa05f089041e348c9fcf18ae115942c989ac5259069d0ae83aa63e9a7c66ea"
+      },
+      {
+        "path": "runtime/tesseract/libiconv-2.dll",
+        "component": "tesseract",
+        "size": 1118202,
+        "sha256": "967189adfbc889fde89aafc867f7a1f02731f8592cf6fd5a4ace1929213e2e13"
+      },
+      {
+        "path": "runtime/tesseract/libicudt75.dll",
+        "component": "tesseract",
+        "size": 30743046,
+        "sha256": "6a60829e1c13fd73043af6f475f85971a42eb5553e88c92f26b8802bde92c2f4"
+      },
+      {
+        "path": "runtime/tesseract/libicuin75.dll",
+        "component": "tesseract",
+        "size": 3381215,
+        "sha256": "9fad2353a168134305e67a62fedff21cd43293055b7f4b9c39ff30cc78f30be0"
+      },
+      {
+        "path": "runtime/tesseract/libicuuc75.dll",
+        "component": "tesseract",
+        "size": 1932464,
+        "sha256": "60e6f91536efd0a8e408b060edb76a2148a7a397399b76ee39e4ed61de0774b0"
+      },
+      {
+        "path": "runtime/tesseract/libintl-8.dll",
+        "component": "tesseract",
+        "size": 188681,
+        "sha256": "42a63cb4c3c28a683d9f6c3510de5ec17849eb18c097fa02cd78aeb800bff202"
+      },
+      {
+        "path": "runtime/tesseract/libjbig-0.dll",
+        "component": "tesseract",
+        "size": 62083,
+        "sha256": "275a827ba6839d47cfdbe059db1b1b403a92ff26e2b76a29362915487868bef2"
+      },
+      {
+        "path": "runtime/tesseract/libjpeg-8.dll",
+        "component": "tesseract",
+        "size": 912746,
+        "sha256": "e44514c4e7753635e79bdb668f1e10315c1a93287f8d044ae74594ed57de619d"
+      },
+      {
+        "path": "runtime/tesseract/libleptonica-6.dll",
+        "component": "tesseract",
+        "size": 2721006,
+        "sha256": "26861baff4d25446a03ed1f6064d2eae7435eddf51bb36af4e634c0eb4eb3af0"
+      },
+      {
+        "path": "runtime/tesseract/libLerc.dll",
+        "component": "tesseract",
+        "size": 761261,
+        "sha256": "4ab688c7c5c4afdfee0f519f942759137067a7876a1c1bb825ee575b0a5760b1"
+      },
+      {
+        "path": "runtime/tesseract/liblz4.dll",
+        "component": "tesseract",
+        "size": 147105,
+        "sha256": "1b64d6429ae4aacf9eb35b8158d98556859a5c5e8ee817e155da343e194dd8e3"
+      },
+      {
+        "path": "runtime/tesseract/liblzma-5.dll",
+        "component": "tesseract",
+        "size": 184667,
+        "sha256": "3a599d97ea4dd002166ee7ffdc527c129d2cf8b05e9152ca7cae006c4187977e"
+      },
+      {
+        "path": "runtime/tesseract/libopenjp2-7.dll",
+        "component": "tesseract",
+        "size": 462194,
+        "sha256": "5ff762ff6d672a06ee502819daf1494aa3aa3acf408805f0429303e026705011"
+      },
+      {
+        "path": "runtime/tesseract/libpango-1.0-0.dll",
+        "component": "tesseract",
+        "size": 401912,
+        "sha256": "834caf40403a447634b0e80ff4ea290f1ee361364cf24ffc8bb55b048f9254a9"
+      },
+      {
+        "path": "runtime/tesseract/libpangocairo-1.0-0.dll",
+        "component": "tesseract",
+        "size": 74540,
+        "sha256": "ee706c4561af24de6cbe7ad10b46852fc8b0f328534ea2beb5f1147696e87b55"
+      },
+      {
+        "path": "runtime/tesseract/libpangoft2-1.0-0.dll",
+        "component": "tesseract",
+        "size": 102261,
+        "sha256": "7c80bc1949255a8bc62fe05ab003b777aa844ac8f6c5da1ebc4c49ee35f3b9b8"
+      },
+      {
+        "path": "runtime/tesseract/libpangowin32-1.0-0.dll",
+        "component": "tesseract",
+        "size": 114044,
+        "sha256": "d940a831f2a9be33dd36ff3d8b97488a068b1699fb6b2e874633d4d5564f301c"
+      },
+      {
+        "path": "runtime/tesseract/libpcre2-8-0.dll",
+        "component": "tesseract",
+        "size": 399737,
+        "sha256": "5ffa31709c275120a745f9f714974db1e86c8fd54f8ca6889617530dffbff95b"
+      },
+      {
+        "path": "runtime/tesseract/libpixman-1-0.dll",
+        "component": "tesseract",
+        "size": 714812,
+        "sha256": "8f8b8f09ec8fe9945ba76fadf8a04183056afd2c35aa7be1808e1a1301d87757"
+      },
+      {
+        "path": "runtime/tesseract/libpng16-16.dll",
+        "component": "tesseract",
+        "size": 247380,
+        "sha256": "f1b0a9d6cf3b8809c22fa0e27b5b82d9357e5bca43ab0ce8762f55fb303ed23f"
+      },
+      {
+        "path": "runtime/tesseract/libsharpyuv-0.dll",
+        "component": "tesseract",
+        "size": 57852,
+        "sha256": "60bcc87ac64a834e967e9ec9461be37395dbc090c579f3e23497ef69a5d8323e"
+      },
+      {
+        "path": "runtime/tesseract/libstdc++-6.dll",
+        "component": "tesseract",
+        "size": 2409896,
+        "sha256": "0d9c01ab1771df439c75f144b2d855b4ac400243f006d14d9a043493de628f0d"
+      },
+      {
+        "path": "runtime/tesseract/libtesseract-5.dll",
+        "component": "tesseract",
+        "size": 101471336,
+        "sha256": "279488c41bd341edaa03dcd097faa33604ba330e6254ac97bcaf2229d8d7ac1a"
+      },
+      {
+        "path": "runtime/tesseract/libthai-0.dll",
+        "component": "tesseract",
+        "size": 69739,
+        "sha256": "420e08cedaf9daaabcf8f6c92349d9dadb7b5ad9e4e79d1126bb2a55a7cdbe09"
+      },
+      {
+        "path": "runtime/tesseract/libtiff-6.dll",
+        "component": "tesseract",
+        "size": 576887,
+        "sha256": "e000306d3de299b05ebef443e48c1486d9fa291b0244f6ca6225843b75fdf581"
+      },
+      {
+        "path": "runtime/tesseract/libwebp-7.dll",
+        "component": "tesseract",
+        "size": 743580,
+        "sha256": "687b8859e1f739dad5800fdc293a6ee1fd0dd4b33380ab283681a5a12eb3d4fa"
+      },
+      {
+        "path": "runtime/tesseract/libwebpmux-3.dll",
+        "component": "tesseract",
+        "size": 78730,
+        "sha256": "ad10bacecd37b44c7c2c813da098a8bf6a42a3bf0152f7f33726d216815558f9"
+      },
+      {
+        "path": "runtime/tesseract/libwinpthread-1.dll",
+        "component": "tesseract",
+        "size": 60798,
+        "sha256": "bbcbe5eb8e806f3537585d4c9832b4ee15f86617328a566695d7d3728aa370ee"
+      },
+      {
+        "path": "runtime/tesseract/libzstd.dll",
+        "component": "tesseract",
+        "size": 1179848,
+        "sha256": "f216ea8efb5b3bb9ad3d938fb9ac07e3b8f78c2c92faab03d2c468d0b6798a5a"
+      },
+      {
+        "path": "runtime/tesseract/tesseract.exe",
+        "component": "tesseract",
+        "size": 1585024,
+        "sha256": "babb405f4366b480d02cd8ff2bac8d497170f6c1711ce6f3d5d8bf0fb7fa6ed9"
+      },
+      {
+        "path": "runtime/tesseract/zlib1.dll",
+        "component": "tesseract",
+        "size": 120814,
+        "sha256": "cb7ab3788d10940df874acd97b1821bbb5ee4a91f3eec11982bb5bf7a3c96443"
+      },
+      {
+        "path": "runtime/tesseract/tessdata/eng.traineddata",
+        "component": "tesseract",
+        "size": 4113088,
+        "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
+      },
+      {
+        "path": "runtime/tesseract/tessdata/osd.traineddata",
+        "component": "tesseract",
+        "size": 10562727,
+        "sha256": "9cf5d576fcc47564f11265841e5ca839001e7e6f38ff7f7aacf46d15a96b00ff"
+      },
+      {
+        "path": "runtime/tesseract/tessdata/por.traineddata",
+        "component": "tesseract",
+        "size": 1982756,
+        "sha256": "c4932b937207a9514b7514d518b931a99938c02a28a5a5a553f8599ed58b7deb"
+      },
+      {
+        "path": "licenses/README.md",
+        "component": "licenses",
+        "size": 1915,
+        "sha256": "6ebd24680048b4ccb588babf7671de69dd59800af995c281bdae67605b021ca9"
+      },
+      {
+        "path": "licenses/PyMuPDF/COPYING",
+        "component": "licenses",
+        "size": 64,
+        "sha256": "40e60697600535eabfb5ae05f72829d88cfe8d02dd4792f5a754f6f51dabe55b"
+      },
+      {
+        "path": "licenses/Python/LICENSE.txt",
+        "component": "licenses",
+        "size": 35407,
+        "sha256": "935cf13e19f8c31b497d20b05d73623431a226b230c3599bc30fa3348979bc68"
+      },
+      {
+        "path": "licenses/Python/Lib/site-packages/pymupdf-1.28.2.dist-info/COPYING",
+        "component": "licenses",
+        "size": 64,
+        "sha256": "40e60697600535eabfb5ae05f72829d88cfe8d02dd4792f5a754f6f51dabe55b"
+      },
+      {
+        "path": "licenses/Tesseract/doc/AUTHORS",
+        "component": "licenses",
+        "size": 787,
+        "sha256": "720862b7253993b348fe15f37ed6e0d4feb0fc8df8324284d75975d54dd29923"
+      },
+      {
+        "path": "licenses/Tesseract/doc/LICENSE",
+        "component": "licenses",
+        "size": 11358,
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      }
+    ]
+  }
+}
