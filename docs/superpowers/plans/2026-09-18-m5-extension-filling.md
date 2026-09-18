@@ -38,6 +38,8 @@ Create app/area_restrita/fill_service.py and tests/test_fill_service.py. Expand 
 - FillService.request_manual_fill(form_snapshot: dict) -> int
 - fill request states: OPENING, READING, PREFLIGHT, FILLING, PREENCHIDO, BLOQUEADO, ERRO.
 - Store methods create_fill_request, get_fill_request, update_fill_request.
+- schema_version becomes 4 through an atomic migration 3 -> 4.
+- all POST fill routes inherit the authenticated Mesa session and same-origin checks introduced in M2.
 - extension command metadata contains fill_request_id.
 
 - [ ] **Step 1: Write failing state-machine test**
@@ -65,7 +67,7 @@ Expected: fill service missing.
 
 - [ ] **Step 3: Implement store migration and state machine**
 
-Add portal_fill_requests with process_id, state, current_command_id, error, created_at, updated_at. request_fill validates PRONTO and creates OPEN_ACT. Result handling must transition only through the defined sequence and reject stale/foreign command ids.
+Add portal_fill_requests with process_id, state, current_command_id, error, created_at, updated_at. Apply it as schema migration 3 -> 4 and update metadata.schema_version only after commit. request_fill validates PRONTO and creates OPEN_ACT. Result handling must transition only through the defined sequence and reject stale/foreign command ids.
 
 - [ ] **Step 4: Verify GREEN**
 
