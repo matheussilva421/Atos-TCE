@@ -431,7 +431,7 @@ O que falta na tarefa 2 (próximo passo):
 | 4. Backup completo explícito e manifesto de restauração | **concluída** | `db6be11` |
 | 5. Builder do ZIP portátil sem acervo | **concluída** | `a947c00` |
 | 6. Smoke de extração limpa e retenção de dois builds | **concluída** | (este commit) |
-| 7. Limpeza por recibo (destrutiva, exige autorização) | pendente | — |
+| 7. Limpeza por recibo (destrutiva, exige autorização) | **ferramenta concluída**; apply real aguarda autorização | (este commit) |
 | 8. Tornar app/extensão/pacote o padrão e retirar o legado | pendente | — |
 
 #### Tarefa 3 — auditor de armazenamento (somente leitura)
@@ -560,6 +560,41 @@ reportam), então só um pacote que já passou no gate vira o build atual.
 Rotação real executada em `dist/` depois do smoke: `Atos-TCE-portable.zip`
 (atual) e `Atos-TCE-portable.previous.zip` (91,6 MB cada, ambos do mesmo build
 verificado) — exatamente dois arquivos.
+
+#### Tarefa 7 — limpeza por recibo
+
+`scripts/cleanup-storage.py` só toca nas árvores listadas no recibo da auditoria
+e recusa: caminho fora do repositório (inclusive `..` e caminho absoluto); raízes
+protegidas (`.git`, `app`, `data`, `dist`, `docs`, `extension`, `packaging`,
+`scripts`, `tests`); candidato sem `safe_to_delete` ou sem acervo canônico;
+candidato cuja contagem de arquivos ou bytes mudou depois do recibo
+(`changed_since_audit`); árvore com junction/reparse point; e
+`work/tce-extractor/acervo-tce` sem `--allow-legacy-archive` mais o recibo de
+migração de M1. O padrão é dry-run e `--apply` grava
+`data/logs/storage-cleanup-<UTC>.json` com o que saiu, os bytes e o resumo
+canônico do recibo de auditoria.
+
+Dry-run real (`python scripts/cleanup-storage.py --audit data/logs/storage-audit.json`):
+
+| Árvore | Bytes | Decisão | Motivo |
+|---|---|---|---|
+| `Versions` | 10,6 GB | recusa | `audit_not_safe` (3.273 PDFs exclusivos) |
+| `outputs` | 39,9 GB | recusa | `audit_not_safe` (ZIP aninhado/corrompido) |
+| `tmp` | 0,3 MB | recusa | `audit_not_safe` |
+| `work/tce-extractor/acervo-tce` | 9,0 GB | recusa | `legacy_archive_requires_flag` |
+| `work/tce-extractor/Versions` | 0 | recusa | `absent` |
+| `work/outputs` | 40 KB | **aprovado** | — |
+| `work/tmp` | 0 | **aprovado** | — |
+| `work/tce-extractor/outputs` | 0,7 MB | **aprovado** | — |
+
+Total aprovado: 740.149 bytes. Recibo de migração de M1 localizado em
+`data/logs/legacy-import-20260918T123734Z.json`.
+
+O `--apply` real **não** foi executado: o gate destrutivo de M6 exige, além do
+recibo e do acervo canônico completo, execução real supervisionada do
+preenchimento (M5 tarefa 7, ainda BLOCKED) e autorização explícita do usuário.
+A rota de remoção está provada por testes de fixture (dry-run, apply em candidato
+seguro, recusa dos casos perigosos e gravação do recibo).
 
 #### Tarefa 1 — o que já foi promovido (e-Contas)
 
