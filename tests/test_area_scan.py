@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 
 from app.api.views import area_summary_payload
 from app.core.models import ProcessRecord
-from app.core.store import SCHEMA_V1, Store
+from app.core.store import SCHEMA_V1, SCHEMA_VERSION, Store
 
 MARKER_LABEL = "PROFESSOR - IPERN - 2 RUBRICAS"
 
@@ -358,7 +358,8 @@ class SchemaV2MigrationTests(unittest.TestCase):
 
             store = Store.open(database)
             try:
-                self.assertEqual(store.schema_version, 2)
+                # The v2 database must migrate forward, keeping every row.
+                self.assertEqual(store.schema_version, SCHEMA_VERSION)
                 processes = store.list_processes()
                 self.assertEqual(len(processes), 1)
                 self.assertEqual(processes[0]["process_key"], "102390/2026")
@@ -372,12 +373,12 @@ class SchemaV2MigrationTests(unittest.TestCase):
             database = Path(tmp) / "atos-tce.db"
             store = Store.open(database)
             try:
-                self.assertEqual(store.schema_version, 2)
+                self.assertEqual(store.schema_version, SCHEMA_VERSION)
             finally:
                 store.close()
             reopened = Store.open(database)
             try:
-                self.assertEqual(reopened.schema_version, 2)
+                self.assertEqual(reopened.schema_version, SCHEMA_VERSION)
             finally:
                 reopened.close()
 

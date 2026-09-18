@@ -155,10 +155,88 @@ marcador. Diferenças bloqueiam a saída de M2 antes de M3 ser considerado
 fechado. Exige Chrome aberto com `--remote-debugging-port` e Área Restrita
 autenticada; nunca digitar credenciais por automação.
 
-### M3 a M6
+### M3 — e-Contas Acquisition Controlled by Mesa
 
-M3 iniciado. Não avançar sem o Exit Gate do marco anterior verde; os gates que
+| Tarefa | Estado | Commit |
+|---|---|---|
+| 1. Modelo de jobs de aquisição (schema v3) | concluída | `43f8d0a` |
+| 2. Escritor da fila congelada compatível | concluída | `43f8d0a` |
+| 3. Adaptador do coletor comprovado | concluída | `afbe02f` |
+| 4. Coordenador e lotes internos automáticos | concluída | `afbe02f` |
+| 5. API e controles de aquisição na Mesa | concluída | `40e0c18` |
+| 6. Gate real supervisionado do e-Contas | BLOCKED (supervisionado) | — |
+
+#### Decisões de M3
+
+| Decisão | Motivo |
+|---|---|
+| A migração 2 -> 3 marca `acquisition_state='DOWNLOADED'` para processos que já têm documentos | Sem isso o acervo real de 739 processos apareceria como faltando baixar |
+| O importador legado marca `DOWNLOADED` ao gravar documentos | Mantém a mesma verdade em reimportações |
+| A fila congelada é escrita uma vez por plano e reescrita no início do run | O coletor valida `lots` na ordem da `queue`; reescrever garante o mesmo conteúdo após reinício |
+| Toda linha do coletor passa por `redact` antes de ir para log ou para a Mesa | URLs, tokens e valores com cara de segredo nunca são persistidos |
+| `-Selecao` e `-ServiceChild` nunca são passados | A Mesa é dona da seleção e não é o serviço-pai do lock legado |
+| Falha de autenticação pausa o job em `WAITING_FOR_LOGIN` e para os lotes seguintes | Evita insistir no portal sem sessão |
+
+#### M3 Exit Gate
+
+| Critério | Evidência | Classificação |
+|---|---|---|
+| A Mesa decide quais pendentes precisam de download | `list_missing_pending_processes` filtra `needs_complement=1`, estado `NOT_DOWNLOADED` ou `FAILED`, e exclui `ATO_COMPLEMENTADO` | PASS_FIXTURE |
+| Lotes internos são automáticos e invisíveis | `AcquisitionPlan.lot_count` 50/32; nenhuma API expõe número de lote (teste dedicado) | PASS_FIXTURE |
+| O coletor existente aceita a fila gerada pela Mesa | `load_frozen_queue` (Python) e `Read-TceFrozenQueue` (PowerShell) aceitam a mesma fila | PASS_FIXTURE + PASS_PACKAGE |
+| Um download real limitado baixa só as chaves pedidas | Requer portal | BLOCKED (supervisionado) |
+| Falha de autenticação pausa em vez de continuar | Teste com `auth_required` prova a pausa e a parada dos lotes seguintes | PASS_FIXTURE |
+| O coletor legado continua disponível | Apenas o `ValidateSet` de `-ModoPreparacao` mudou (M4 Task 2), com teste de regressão | PASS_PACKAGE |
+
+Observação operacional: o acervo real já está completo. São 739 processos, todos
+`DOWNLOADED`, e `list_missing_pending_processes` devolve 0. O gate real de M3 só
+poderá ser exercitado quando uma nova varredura da Área Restrita revelar
+processos pendentes; nesse momento os passos 3 a 5 da tarefa 6 se aplicam.
+
+### M4 — Analysis, Legal Rules and Evidence
+
+| Tarefa | Estado | Commit |
+|---|---|---|
+| 1. Normalizar análise incremental em SQLite | concluída | `2299c4b` |
+| 2. Serviço de análise e encadeamento automático | concluída | `92fcf2a` |
+| 3. Portar regras de fundamento legal para Python | pendente | — |
+| 4. Serviço de evidência e Range de PDF | pendente | — |
+| 5. UI de revisão com PDF viewer integrado | pendente | — |
+| 6. Gate real de equivalência da análise | BLOCKED (supervisionado) | — |
+
+#### Decisões de M4 (tarefas 1 e 2)
+
+| Decisão | Motivo |
+|---|---|
+| `normalize_analysis` é puro e recebe os documentos do processo | A regra de prontidão fica testável sem SQLite nem Tesseract |
+| Campo obrigatório ausente ou com status diferente de found implica REVISAR | O plano exige que faltar campo obrigatório nunca vire preenchimento parcial |
+| Documento citado que não está registrado resolve para vazio mais aviso | Não inventar vínculo de evidência: o link deve apontar para a fonte real |
+| `-ModoPreparacao nenhum` no adaptador do coletor | A Mesa passa a ser dona da análise; o coletor apenas baixa |
+| Um worker com fila tipada, não um segundo executor global | Encadeamento download -> análise sem concorrência entre executores |
+
+Divergência registrada no plano, tarefa 1 de M4: o payload de exemplo traz
+somente o campo cargo e ainda assim espera status PRONTO. Isso contradiz as
+regras explícitas do mesmo plano, que exigem REVISAR quando falta campo
+obrigatório e listam seis campos obrigatórios. A implementação seguiu a regra:
+PRONTO exige os seis campos obrigatórios marcados como found. Os testes cobrem
+os dois lados, inclusive o caso em que falta apenas genero e o status segue
+PRONTO.
+
+### M5 a M6
+
+Não iniciados. Não avançar sem o Exit Gate do marco anterior verde; os gates que
 exigem portal real ficam registrados como supervisionados.
+
+## 9. Estado verificado nesta sessão (2026-09-18)
+
+| Camada | Resultado |
+|---|---|
+| Python (raiz `tests/`) | 208 testes, 208 aprovados |
+| Extensão (`extension/`, `node --test`) | 42 testes, 42 aprovados |
+| Suíte legada PowerShell (`Test-TcePortable.ps1`) | 140 passaram, 0 falharam |
+| `verify-project.ps1` (7 estágios) | verde |
+| Banco real `data/atos-tce.db` | schema 3, 739 processos, 14.483 documentos e 14.179 blobs |
+| Origem preservada | `work/tce-extractor/acervo-tce` intacto, 14.179 PDFs e 8,28 GB |
 
 ## 4. Arquivos criados/alterados
 
