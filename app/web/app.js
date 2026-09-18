@@ -488,6 +488,9 @@ async function loadPdfjs() {
   }
 
   function renderDetail(process) {
+    // The tab buttons re-render from this payload; without storing it the tabs
+    // only repaint the bar and the documents/history tabs never open.
+    state.detail = process;
     const host = document.getElementById("process-detail");
     const badges = element("div", { className: "detail-badges" }, [
       chip(process.status, process.status),
@@ -707,6 +710,7 @@ async function loadPdfjs() {
 
   async function selectProcess(processId) {
     state.selectedId = processId;
+    state.detail = null;
     state.viewer = { documentId: null, page: 1, pageCount: 1, scale: 1.5, rotation: 0, rects: [] };
     document.getElementById("pdf-viewer").hidden = true;
     document.getElementById("viewer-caption").textContent = "";
