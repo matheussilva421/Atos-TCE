@@ -77,6 +77,11 @@
 **/*.zip
 **/*.log
 **/runtime/
+# The promoted e-Contas runtime is code the Mesa executes, not build output:
+# the collector and its modules must travel with the repository, otherwise a
+# clone would run a different download engine than the one reviewed here.
+!app/econtas/runtime/
+!app/econtas/runtime/**
 **/dados-locais/
 **/acervo-tce/
 **/backups-acervo/
