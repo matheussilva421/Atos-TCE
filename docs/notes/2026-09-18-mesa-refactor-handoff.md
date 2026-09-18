@@ -847,7 +847,18 @@ repositório):
 5. `tests/test_legal_rules.py` ganhou um teste que exige o oráculo dentro do
    repositório.
 
-Suíte após a preparação: 407 testes, 407 aprovados.
+6. `tests/test_promoted_equivalence.py` trava a promoção por comparação estática
+   com os arquivos comprovados: os três módulos do runtime e-Contas
+   (`TceFrozenQueue.psm1`, `TcePortable.Core.psm1`, `TcePortal.Driver.js`) são
+   **byte a byte idênticos** aos legados e o coletor difere apenas no
+   `-RaizEstado` documentado (o teste reverte a mudança e exige igualdade do
+   resto). No motor de análise, `archive_index.py`, `evidence_geometry.py` e
+   `legal_context.py` também são byte a byte idênticos, enquanto
+   `tce_extractor.py` e `batch_runner.py` diferem só nos imports (o teste remove
+   os imports e compara a lógica). O arquivo traz auto-testes que provam que a
+   checagem falha diante de uma mudança real.
+
+Suíte após a preparação: 424 testes, 424 aprovados.
 
 **A remoção (passos 4, 5 e 7 do plano) não foi executada.** O gate destrutivo
 continua exigindo: M2 real de leitura da Área Restrita, M3 real de aquisição
