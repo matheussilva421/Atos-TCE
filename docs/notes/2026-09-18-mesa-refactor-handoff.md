@@ -32,6 +32,40 @@ do ato permanece humano em todos os marcos (`autoSubmit=false`,
 
 ## 3. Estado das tarefas
 
+### 3.1 Estado consolidado (fonte única)
+
+Esta é a única tabela de estado. As tabelas por marco mais abaixo são o
+detalhe histórico que levou até aqui e podem citar classificações antigas
+(por exemplo M4 como BLOCKED antes da equivalência real); quando houver
+divergência, vale esta tabela.
+
+Vocabulário de classificação:
+
+| Classificação | Significado |
+|---|---|
+| PASS_UNIT | comportamento provado por teste de unidade, sem portal |
+| PASS_FIXTURE | fluxo inteiro provado por rotas/fixtures, sem portal |
+| PASS_PARITY | paridade com a implementação comprovada (oráculo/arquivos promovidos) |
+| PASS_REAL_LOCAL | provado sobre o acervo real, sem depender do portal |
+| BLOCKED_HUMAN_PORTAL | exige portal autenticado e operador humano |
+
+| Marco | Estado | Evidência | Classificação |
+|---|---|---|---|
+| M1 — Fundação, SQLite e Mesa somente leitura | fechado | suíte Python, importação real do acervo, Exit Gate verde | PASS_REAL_LOCAL |
+| M2 — Integração com a Área Restrita | código fechado | fila de comandos, scanner, fallback CDP, comparação de varreduras (11 testes) | PASS_FIXTURE |
+| M2 — varredura real extensão × CDP no mesmo marcador | pendente | requer login humano no portal | **BLOCKED_HUMAN_PORTAL** |
+| M3 — Aquisição e-Contas controlada pela Mesa | código fechado | plano, fila congelada, coordenador, verificador local do pedido | PASS_FIXTURE |
+| M3 — download real limitado pelo e-Contas | pendente | requer portal; só exercitável quando houver pendentes | **BLOCKED_HUMAN_PORTAL** |
+| M4 — Análise, regras legais e evidências | fechado | 10 processos reais, 70/70 campos iguais ao oráculo, 20/20 classificações | PASS_REAL_LOCAL |
+| M4 — paridade legal com o oráculo legado | fechado | `tests/legal_parity_harness.mjs` sobre `tests/oracles/legal/` | PASS_PARITY |
+| M5 — Extensão fina e preenchimento pela Mesa | código fechado | cadeia OPEN→READ→PREFLIGHT→FILL, preflight fail-closed, roteamento por moldura | PASS_FIXTURE |
+| M5 — preenchimento real supervisionado | pendente | requer portal e operador; clique final é humano | **BLOCKED_HUMAN_PORTAL** |
+| M6 — Pacote, arquivo híbrido, auditoria e limpeza | passos 1–6 e 8 concluídos | pacote reconstruído, auditor com hash real, limpeza por recibo | PASS_REAL_LOCAL |
+| M6 — retirada do legado e limpeza por recibo | pendente | exige os gates humanos + tag `pre-legacy-retirement` + autorização explícita | **BLOCKED_HUMAN_PORTAL** |
+
+A revisão de código independente e as correções CR-01..CR-26 estão em
+`docs/notes/2026-09-18-code-review-remediation.md`.
+
 ### M1 — Foundation, SQLite and Read-Only Mesa
 
 | Tarefa | Estado | Commit |

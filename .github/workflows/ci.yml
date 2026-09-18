@@ -1,0 +1,48 @@
+# Offline gates only. The real M2/M3/M5 gates need an authenticated portal and
+# a human operator, and the private archive never reaches CI: nothing here
+# pretends to cover them.
+name: Mesa Local offline gates
+
+on:
+  push:
+    branches: ["main", "codex/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mesa-offline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    name: Offline gates (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Root Python suite
+        run: python -m unittest discover -s tests -p 'test_*.py' -q
+
+      - name: Extension suite
+        working-directory: extension
+        run: npm test
+
+      - name: Mesa web suite
+        run: node --test app/web/tests/*.test.mjs
+
+      - name: Package contract
+        run: python -m unittest tests.test_packaging_contract -v
+
+      - name: Whitespace check
+        run: git diff --check
