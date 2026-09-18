@@ -196,7 +196,7 @@ python scripts/compare-area-scans.py --cdp-json data\logs\area-cdp.json --db dat
 | A Mesa decide quais pendentes precisam de download | `list_missing_pending_processes` filtra `needs_complement=1`, estado `NOT_DOWNLOADED` ou `FAILED`, e exclui `ATO_COMPLEMENTADO` | PASS_FIXTURE |
 | Lotes internos são automáticos e invisíveis | `AcquisitionPlan.lot_count` 50/32; nenhuma API expõe número de lote (teste dedicado) | PASS_FIXTURE |
 | O coletor existente aceita a fila gerada pela Mesa | `load_frozen_queue` (Python) e `Read-TceFrozenQueue` (PowerShell) aceitam a mesma fila | PASS_FIXTURE + PASS_PACKAGE |
-| Um download real limitado baixa só as chaves pedidas | Requer portal | BLOCKED (supervisionado) |
+| Um download real limitado baixa só as chaves pedidas | Requer portal; o verificador local do pedido está pronto (`scripts/verify-acquisition.py`, 11 testes: fila congelada × itens do job × processos, com reprovação por chave sem pedido, chave não baixada, item em andamento e contador divergente) | BLOCKED (supervisionado) |
 | Falha de autenticação pausa em vez de continuar | Teste com `auth_required` prova a pausa e a parada dos lotes seguintes | PASS_FIXTURE |
 | O coletor legado continua disponível | Apenas o `ValidateSet` de `-ModoPreparacao` mudou (M4 Task 2), com teste de regressão | PASS_PACKAGE |
 

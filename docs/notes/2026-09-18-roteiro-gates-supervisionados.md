@@ -54,6 +54,18 @@ python scripts/compare-area-scans.py --cdp-json data\logs\area-cdp.json --db dat
 4. Evidência a guardar: o JSON do job (`/api/v1/jobs/<id>`), a lista de processos
    com `acquisition_state` alterado e o recibo em `data/logs/`.
 
+O verificador do gate é local e somente leitura:
+
+```powershell
+python scripts/verify-acquisition.py --db data\atos-tce.db --job <id> --json data\logs\acquisition-<id>-check.json
+```
+
+Ele compara a fila congelada (o pedido) com os itens do job e com os processos
+que o banco viu: chave baixada sem pedido, chave pedida sem item, item ainda em
+andamento depois do job terminar e contadores divergentes **reprovam** (saída 1);
+processos atualizados durante o job fora do pedido aparecem como avisos para você
+conferir.
+
 Observação: hoje o acervo real tem 739 processos, todos `DOWNLOADED`, e o plano
 volta com 0 lotes. Este gate só é exercitável quando uma varredura nova revelar
 processos pendentes — nesse momento ele passa a ser o próximo passo natural.
@@ -90,4 +102,3 @@ processos pendentes — nesse momento ele passa a ser o próximo passo natural.
 - `Versions/`, `outputs/`, `dados-locais/` e o acervo privado não são tocados.
 - As rotas `archive` e `restore` não entram na sessão: elas mexem em bytes do
   acervo e têm gate próprio.
-
