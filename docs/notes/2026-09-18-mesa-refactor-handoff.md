@@ -392,7 +392,7 @@ migração comparam com `SCHEMA_VERSION` e continuam válidos.
 | Tarefa | Estado | Commit |
 |---|---|---|
 | 1. Remover dependência operacional de `work/tce-extractor/portable` | **concluída** | `ec2234d`, `ae80073` |
-| 2. Arquivo híbrido HOT/ARCHIVED/MISSING (schema v5) | **parcial** (núcleo e rotas prontos; UI pendente) | `256a857` |
+| 2. Arquivo híbrido HOT/ARCHIVED/MISSING (schema v5) | **concluída** | `256a857`, `4b91568`, `be953d0` |
 
 Rotas concluídas: `POST /api/v1/processes/ID/archive` (só status `CONCLUÍDO` ou
 `PREENCHIDO`, exige `external_root` em `metadata`) e `POST .../restore`, ambas com
