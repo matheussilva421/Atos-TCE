@@ -978,3 +978,26 @@ como fallback documentado.
 O roteiro da sessão supervisionada (M2, M3 e M5) está em
 `docs/notes/2026-09-18-roteiro-gates-supervisionados.md`: pré-requisitos, comandos
 de cada gate, o que o operador faz à mão e onde cada evidência fica.
+
+#### Reverificação independente (2026-09-18, antes da sessão supervisionada)
+
+Passada somente de leitura: nada de código foi alterado, só se confere que o
+estado commitado continua verde.
+
+| Gate | Comando | Resultado |
+|---|---|---|
+| Suíte Python da raiz | `python -m unittest discover -s tests -p 'test_*.py' -q` | 452 testes, 452 aprovados, 0 falhas (76 s) |
+| Gate do projeto | `verify-project.ps1` | 7 estágios verdes: 1254 executados, 1252 aprovados, 0 falhas, 2 pulados |
+
+Detalhe dos estágios do `verify-project.ps1`: extensão 479/479, web 6/6, python
+portable 6/6, PowerShell 20/20 + 100/100 + 31/31 + 1/1 + 140/140 + 307/307,
+pacote 80/82 (2 pulados), automação 81/81 e `git diff --check` limpo. Log local
+desta passada em `tmp/verify-project-2026-09-18.log` (não versionado).
+
+`git status` na branch `codex/mesa-local-refactor`: limpo, exceto o arquivo não
+rastreado `work/tce-extractor/.codex-live-pilot.py` (piloto de 17/09, anterior a
+esta refatoração; fora do allowlist, não é artefato desta entrega).
+
+Com os dois gates verdes, o que resta é exatamente o que depende do operador
+humano: os três gates supervisionados (M2, M3, M5) e, depois deles, a retirada do
+legado e a limpeza por recibo — as duas últimas só com autorização explícita.
