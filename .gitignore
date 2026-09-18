@@ -47,6 +47,29 @@
 !/work/tce-extractor/portable/extensao-complementar-ato/lib/
 !/work/tce-extractor/portable/extensao-complementar-ato/sidepanel/
 !/work/tce-extractor/portable/extensao-complementar-ato/tests/
+# Root Mesa application: the default-deny allowlist for the new source tree.
+!/app/
+/app/*
+!/app/**
+!/extension/
+/extension/*
+!/extension/**
+!/packaging/
+/packaging/*
+!/packaging/**
+!/scripts/
+/scripts/*
+!/scripts/*.py
+!/tests/
+/tests/*
+!/tests/**
+!/START.cmd
+
+# New runtime data, build output and scratch areas are never versioned.
+/data/
+/dist/
+/tmp/
+
 **/__pycache__/
 **/node_modules/
 **/.pytest_cache/
