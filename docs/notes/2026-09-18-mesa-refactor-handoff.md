@@ -273,8 +273,39 @@ PRONTO.
 | 3. Extrair navegação e leitor de formulário para a extensão fina | concluída | `a764167` |
 | 4. Implementação única de preenchimento sem submit | concluída | `67a24f7` |
 | 5. Orquestração completa OPEN -> READ -> PREFLIGHT -> FILL | concluída | `c43fd1c` |
-| 6. Fallback manual do formulário atual | pendente | — |
+| 6. Fallback manual do formulário atual | concluída | `077fe43` |
 | 7. Gate real supervisionado de preenchimento | BLOCKED (supervisionado) | — |
+
+#### Tarefa 6: o caminho manual usa o mesmo preenchimento
+
+O operador abre o ato à mão, o sidepanel lê o formulário atual (mensagem
+`READ_CURRENT_FORM` ao service worker, que fala com a aba do portal) e envia o
+snapshot para `POST /api/v1/portal/manual-form`. O backend encontra o **único**
+processo `PRONTO` correspondente e roda o mesmo `build_fill_plan` do caminho
+automático — o teste compara o payload de `FILL_FORM` dos dois caminhos e exige
+igualdade. Zero ou vários processos correspondentes bloqueiam; o preflight
+bloqueia sem enfileirar nenhum `FILL_FORM`.
+
+Autenticação: a rota aceita a sessão da Mesa (UI) **ou** o bearer pareado, porque
+o sidepanel não tem cookie de sessão. Nada nela é público — há teste para os dois
+casos e para a chamada sem credencial (401).
+
+O sidepanel continua sendo painel operacional: conexão da Mesa, Área Restrita
+detectada, identidade do formulário aberto, `Preencher formulário atual`,
+`Abrir Mesa` e diagnóstico. Um teste falha se ele mencionar dataset, lote, OCR ou
+qualquer interruptor de envio automático.
+
+#### M5 Exit Gate
+
+| Critério | Evidência | Classificação |
+|---|---|---|
+| Mesa é dona do fluxo de preenchimento | rotas, máquina de estados e testes da cadeia completa | PASS_FIXTURE |
+| Extensão só varre, navega, lê e preenche | 86 testes; fonte sem superfície de submit | PASS_FIXTURE |
+| O protocolo não consegue enviar um ato | `FORBIDDEN_COMMAND_TYPES` + varredura de fonte | PASS_FIXTURE |
+| Automático e manual usam o mesmo preenchimento | teste que compara os dois payloads de `FILL_FORM` | PASS_FIXTURE |
+| Preflight do backend é autoritativo | identidade, geração, valor divergente, controle e catálogo | PASS_FIXTURE |
+| Preenchimentos reais releem exatamente o proposto | Requer portal e operador | **BLOCKED (supervisionado)** |
+| Extensão legada continua disponível para rollback | nada em `work/tce-extractor/` foi removido | PASS_PACKAGE |
 
 #### Tarefa 5: o que a Mesa comanda hoje
 
