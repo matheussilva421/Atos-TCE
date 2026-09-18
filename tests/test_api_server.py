@@ -445,6 +445,8 @@ class MesaUiTests(ApiTestCase):
         self.assertIn("/api/v1/acquisition/jobs", source)
         self.assertIn("/api/v1/fill-requests", source)
         self.assertIn("Preencher ato", source)
+        self.assertIn("Arquivar processo", source)
+        self.assertIn("Restaurar documentos", source)
         for forbidden in (
             "autoSubmit",
             "real_send",

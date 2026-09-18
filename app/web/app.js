@@ -517,12 +517,63 @@ async function loadPdfjs() {
       element("p", { className: "detail-sub", text: process.interested }),
       badges,
       fillPanel(process),
+      archivePanel(process),
       (tabs[state.tab] || tabs.dados)()
     );
     refreshTabBar();
   }
 
   /** The fill action exists only for a process the backend marked PRONTO. */
+  const ARCHIVE_ELIGIBLE = new Set(["CONCLUÍDO", "PREENCHIDO"]);
+
+  async function runArchiveAction(action, label) {
+    const status = document.getElementById("archive-status");
+    if (!state.selectedId || !status) return;
+    status.textContent = `${label} em andamento…`;
+    try {
+      const result = await postJson(`/api/v1/processes/${state.selectedId}/${action}`, {});
+      const moved = result.archived || result.restored || 0;
+      status.textContent = result.ok
+        ? `${label} concluída (${numberFormat.format(moved)} documento(s)).`
+        : `${label} falhou: ${(result.errors || []).join("; ") || "sem detalhe"}`;
+      await selectProcess(state.selectedId);
+    } catch (error) {
+      status.textContent = `${label} recusada: ${error.message}`;
+    }
+  }
+
+  /** Archiving is offered only for finished work; MISSING is never "success". */
+  function archivePanel(process) {
+    const documents = process.documents || [];
+    const archived = documents.filter((doc) => doc.storage_state === "ARCHIVED").length;
+    const missing = documents.filter((doc) => doc.storage_state === "MISSING").length;
+    const panel = element("div", { className: "archive-panel" }, [
+      element("button", { className: "ghost", text: "Arquivar processo", attrs: { type: "button", id: "archive-process" } }),
+      element("button", { className: "ghost", text: "Restaurar documentos", attrs: { type: "button", id: "restore-process" } }),
+      element("span", { className: "muted", attrs: { id: "archive-status" } }),
+    ]);
+    const buttons = panel.querySelectorAll("button");
+    if (ARCHIVE_ELIGIBLE.has(process.status)) {
+      buttons[0].addEventListener("click", () => runArchiveAction("archive", "Arquivamento"));
+    } else {
+      buttons[0].hidden = true;
+    }
+    if (archived > 0) {
+      buttons[1].addEventListener("click", () => runArchiveAction("restore", "Restauração"));
+    } else {
+      buttons[1].hidden = true;
+    }
+    if (missing > 0) {
+      panel.append(
+        element("span", {
+          className: "error-note",
+          text: `${numberFormat.format(missing)} documento(s) sem cópia local nem externa`,
+        })
+      );
+    }
+    return panel;
+  }
+
   function fillPanel(process) {
     const panel = element("div", { className: "fill-panel" }, [
       element("button", {
