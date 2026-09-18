@@ -77,7 +77,22 @@ como evidência registrada, sem bloquear a liberação.
 outputs/qa-extract-2026-09-17 foi sincronizado com os oito arquivos de código
 alterados (INICIAR.cmd, README, app/local_service.py, app/menu.ps1,
 automation-controller.js, automation-schema.js, panel.html, panel.js). O acervo
-não foi tocado. TESTAR-PACOTE.ps1: _pendente de resultado_.
+não foi tocado.
+
+Verificação do pacote depois da sincronização:
+
+* Serviço iniciado com --enable-real-send na própria pasta:
+  metadata real_send_enabled=True qualificacao=missing; capabilities
+  real_send_enabled=true; lote 101 responde 400 AUTO_SUBMIT_LOT_LIMIT; lote 100
+  segue para a validação do dataset (409 DATASET_MISMATCH com hash sintético),
+  ou seja, o gate de envio está liberado e o teto vale no artefato real.
+* TESTAR-PACOTE.ps1: 6 de 7 passos verdes; a auditoria private acusa 9 achados,
+  todos sob dados-locais/bridge (diretório, .operation.lock e service.json, com
+  o código de pareamento gravado pelo uso do INICIAR.cmd). Não há achado em
+  nenhum arquivo do código sincronizado. O empacotador exclui dados-locais do
+  ZIP, então uma reconstrução pelo helper não carrega esses itens. Para deixar
+  a pasta de trabalho auditável, basta remover dados-locais/bridge (o serviço
+  recria no próximo início).
 
 O ZIP privado de referência
 (Atos-TCE-Professor-IPERN-completo-2026-09-17.zip, SHA-256 cf64e3f8...) não
