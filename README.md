@@ -1,117 +1,184 @@
 # Complementação de Atos — TCE/RN
 
-Ferramentas locais para coletar eventos do e-Contas, identificar Resolução Administrativa e Guia Financeira/Taxação de Proventos, gerar uma mesa HTML de conferência e exportar os dados para a extensão da Área Restrita.
+A Mesa Local é o centro de workflow e estado do sistema: varredura da Área
+Restrita, coleta no e-Contas, análise com OCR/evidências, revisão e
+preenchimento assistido do ato. O acervo canônico de PDFs fica em `data/`, fora
+do Git, e é independente da versão do programa.
 
-## Mesa Local (nova arquitetura — em construção)
+## Começar
 
-A Mesa Local é o centro de workflow e estado que está substituindo gradualmente
-o menu PowerShell, o serviço local e o sidepanel. A migração segue os marcos M1
-a M6 de `docs/superpowers/plans/2026-09-18-atos-tce-plano-completo.md`; o fluxo
-antigo continua operacional e é o fallback até o último marco.
+```powershell
+.\START.cmd --data-root data --port 18743
+```
 
-Rodar a Mesa (M1 = somente leitura: consulta, não coleta nem preenche):
+`START.cmd` é o launcher único: usa o Python embutido do pacote quando ele
+existe (`runtime\python\python.exe`) e, fora do pacote, o Python do sistema. O
+mesmo comando direto é:
 
 ```powershell
 python -m app.main --data-root data --port 18743
 ```
 
-O mesmo comando está em `START.cmd`. Os dados de runtime ficam fora do Git, em
-`data/` (banco `atos-tce.db`, `archive/` com blobs canônicos SHA-256 e a árvore
-`archive/processos`, `logs/` com os recibos de migração).
+O servidor só aceita loopback. `data/` guarda `atos-tce.db` (SQLite, schema 5),
+`archive/blobs` com os PDFs canônicos nomeados pelo SHA-256, `archive/processos`
+com a visão por processo (hardlinks para os blobs) e `logs/` com os recibos de
+migração, auditoria e limpeza.
 
-Migrar o acervo legado (`work/tce-extractor/acervo-tce`) para o acervo canônico:
+## Fluxo da Mesa
+
+1. **Área Restrita** — a extensão varre a página e envia o retrato; a Mesa cruza
+   com o acervo e marca o que precisa de complementação (`PRECISA_COMPLEMENTAR`).
+2. **e-Contas** — a aquisição de processos é disparada pela Mesa, em lote
+   limitado e fail-closed.
+3. **Análise** — PDFs, OCR/texto nativo, fundamento legal, classificação e
+   evidências alimentam a revisão.
+4. **Revisão** — a Mesa mostra processos, documentos, campos e evidência.
+5. **Preenchimento** — a Mesa monta o plano, a extensão fina navega, lê, preenche
+   e relê o formulário; qualquer divergência bloqueia.
+
+O clique final de complementação do ato **continua humano** em todos os fluxos.
+Se a navegação automática falhar, o caminho manual preenche o formulário que já
+está aberto usando o mesmo plano e o mesmo preflight.
+
+## Extensão
+
+A extensão suportada é a da raiz, `extension/` (Manifest V3 fina): ela observa,
+navega, lê e preenche — nunca envia o ato. Instalação: em `chrome://extensions`
+(ou o equivalente no Edge) ative o modo de desenvolvedor, escolha
+*Carregar sem compactação* e aponte para `extension/`. O pareamento é feito com
+o código que a Mesa imprime ao iniciar (ou `Renovar código` na Mesa).
+
+`extension/lib/protocol.js` mantém `FORBIDDEN_COMMAND_TYPES` justamente para que
+um teste possa provar que não existe comando de SUBMIT, SEND, AUTO_SUBMIT,
+COMPLEMENT_ACT ou FINALIZE.
+
+## Pacote portátil
+
+O ZIP padrão contém aplicação, extensão, runtime fixo e licenças — **nunca** o
+acervo de processos. Ele é construído e verificado por:
 
 ```powershell
-# ensaio: apenas lê, calcula hashes e relata; não escreve blobs nem linhas
-python scripts/migrate-legacy.py --archive-root work\tce-extractor\acervo-tce --data-root data
-# efetivar somente depois de conferir o relatório e o espaço livre
-python scripts/migrate-legacy.py --archive-root work\tce-extractor\acervo-tce --data-root data --apply
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\packaging\build-portable.ps1
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\packaging\verify-package.ps1 -ZipPath .\dist\Atos-TCE-portable.zip
+python scripts/rotate-builds.py --dist dist
+python scripts/rotate-builds.py --dist dist --apply --verified-hash <sha256 do pacote verificado>
 ```
 
-O importador nunca altera o acervo de origem. O ZIP portátil padrão não contém o
-acervo de processos; backup completo é uma operação explícita e separada.
+- `build-portable.ps1` monta o pacote a partir de `app/`, `extension/`,
+  `START.cmd`, `README.md`, do runtime verificado e das licenças; o construtor de
+  runtime baixa as versões fixas por HTTPS e confere cada SHA-256 antes de usar.
+- `verify-package.ps1` recusa PDFs, bancos, perfis de navegador, `data/`,
+  `acervo-tce/`, bytecode e arquivos de build; confere cada arquivo de runtime
+  contra o `runtime-manifest.json` e roda o smoke de extração limpa (o pacote
+  sobe numa raiz de dados isolada, responde `/api/v1/health` e a extração é
+  apagada no PASS).
+- `rotate-builds.py` mantém apenas o build atual e o anterior em `dist/`; o modo
+  `--apply` exige o hash do pacote que passou na verificação.
 
-Testes da Mesa (raiz do repositório):
+O ZIP antigo (com acervo) continua no histórico e nas entregas privadas, mas não
+é mais o artefato padrão: atualizar o programa não copia PDFs.
+
+## Backup e limpeza de armazenamento
+
+Backup completo é uma ação explícita e separada do release:
 
 ```powershell
-python -m unittest tests.test_store tests.test_legacy_import tests.test_api_server -v
+python scripts/backup.py --data-root data --output D:\backups\atos-tce-2026-09-18.zip
 ```
 
-Fronteiras que a Mesa preserva: `autoSubmit=false` e `real_send_enabled=false`.
-O clique final de conclusão do ato permanece humano em todos os marcos.
+O ZIP leva o snapshot do SQLite (pela API de backup, então as linhas que ainda
+estão no WAL entram), todos os blobs canônicos e um `manifest.json` com
+`schema_version`, `db_sha256`, contagem, bytes e o SHA-256 de cada arquivo.
 
-## Usar o pacote pronto
+Antes de apagar qualquer coisa, audite e planeje:
 
-O pacote de runtime mais novo desta rodada é o `fase11k`, preservado em
-`outputs/tce-processos-completo-portatil-fase11k.zip` e auditado em extração
-limpa. Extraia-o inteiro em uma pasta nova e abra `GUIA-RAPIDO.html`; não
-versione nem compartilhe esse ZIP.
+```powershell
+# somente leitura: mede o repositório e prova o que está preservado no acervo canônico
+python scripts/storage-audit.py --repo-root . --data-root data --json data\logs\storage-audit.json
+# dry-run por padrão; só remove o que o recibo aprovou
+python scripts/cleanup-storage.py --audit data\logs\storage-audit.json
+```
 
-O acervo privado de 05/09 é uma entrega diferente: contém 227 processos, 5.236
-eventos e 4.532 PDFs e permanece fora do Git. O runtime `fase11k` é o pacote de
-ferramentas, extensão e serviço para operar sobre dados autorizados; ele não é
-uma publicação do acervo privado. Valores ausentes e conflitantes exigem
-revisão humana.
+A limpeza nunca toca em `data/`, `dist/`, `.git` nem nas árvores de código, exige
+`safe_to_delete` do recibo, re-mede a árvore antes de remover (mudou? novo
+recibo), recusa reparse points e grava `data/logs/storage-cleanup-<UTC>.json`.
 
-O lote real 1/50 foi baixado e fechado com 50 processos e 1.037 PDFs completos;
-essa evidência permanece privada. Um Termo de Apensamento não foi disponibilizado
-pelo portal; capas indisponíveis foram dispensadas.
+## Fronteiras de segurança
+
+- `autoSubmit=false` e `real_send_enabled=false`: a automação para antes do
+  clique final, que é humano.
+- Login na Área Restrita e no e-Contas é sempre humano; nenhuma automação digita
+  credenciais.
+- O servidor da Mesa só escuta loopback e o token de bootstrap vai no fragmento
+  da URL.
+- Nunca versionar PDFs, ZIPs, perfis de navegador, tokens, HAR ou trace.
+
+## Legado (fallback até o gate destrutivo)
+
+`work/tce-extractor` continua no repositório como referência e fallback: o menu
+PowerShell, o serviço local e o sidepanel antigos seguem funcionando, e o
+acervo de origem (`work/tce-extractor/acervo-tce`) é preservado. Nenhum caminho
+de runtime suportado depende dele: `app/`, `extension/`, `packaging/` e
+`START.cmd` são verificados por `tests/test_no_legacy_paths.py`.
+
+A retirada dessa superfície exige o gate destrutivo completo — acervo canônico
+com todos os SHAs únicos, recibo de migração de M1, suíte verde, tag
+`pre-legacy-retirement` e execução real supervisionada do preenchimento — mais a
+autorização explícita do operador. O estado de cada marco está em
+`docs/notes/2026-09-18-mesa-refactor-handoff.md`.
+
+### Notas históricas preservadas
+
+- O acervo privado de 05/09 é uma entrega diferente do pacote de ferramentas:
+  contém 227 processos, 5.236 eventos e 4.532 PDFs, e permanece fora do Git.
+- O runtime `fase11k` (`outputs/tce-processos-completo-portatil-fase11k.zip`) foi
+  o pacote de ferramentas, extensão e serviço da rodada anterior: extraia-o
+  inteiro e abra `GUIA-RAPIDO.html`; não versione nem compartilhe esse ZIP.
+- No pacote legado o envio automático fica desabilitado por padrão
+  (`real_send_enabled = false`) e o comando explícito de envio real é
+  `INICIAR.cmd envio-real` — que a Mesa não usa: aqui o clique final é humano.
+- O lote real 1/50 foi baixado com 50 processos e 1.037 PDFs completos; essa
+  evidência permanece privada.
 
 ## Estrutura
 
 | Pasta | Finalidade | Git |
 |---|---|---|
-| `work/tce-extractor/` | Código Python/PowerShell e testes | Código permitido explicitamente |
-| `work/tce-extractor/portable/` | Fontes do pacote e extensão Chrome | Sem runtime nem dados |
-| `outputs/` | Entregas, PDFs, HTMLs e ZIPs privados | Ignorado |
-| `tmp/` | QA, extrações descartáveis e perfis locais | Ignorado |
-| `portable/` | Materiais de uma montagem anterior | Ignorado |
-| `.codex-remote-attachments/` | Anexos de referência recebidos | Ignorado |
-| `docs/` | Estrutura e handoff da reorganização | Versionado |
-
-O layout relativo foi preservado para não quebrar empacotadores. Os diretórios `staging*` e `.package-staging-*` são montagens locais, não fontes. `staging-task5-verified` é dependência do empacotador do runtime e não deve ser removido indiscriminadamente.
+| `app/` | Mesa Local: serviço, API, análise, e-Contas, arquivo híbrido e web | Versionado |
+| `extension/` | Extensão fina (MV3) suportada | Versionada |
+| `packaging/` | Builder, verificador, manifesto do runtime e licenças | Versionado |
+| `scripts/` | Migração, auditoria, limpeza, backup e retenção de builds | Versionado |
+| `tests/` | Suíte Python da Mesa | Versionada |
+| `data/` | Acervo canônico, banco e recibos (runtime) | Ignorado |
+| `dist/` | ZIP atual e anterior | Ignorado |
+| `tmp/` | Extrações de QA e rascunhos | Ignorado |
+| `work/tce-extractor/` | Extração legada, fallback e acervo de origem | Código permitido |
+| `outputs/`, `Versions/` | Entregas e extrações antigas | Ignorado |
+| `docs/` | Estrutura, planos e handoffs | Versionado |
 
 ## Desenvolvimento e testes
 
-Na raiz, execute:
-
 ```powershell
-Set-Location work/tce-extractor/portable/extensao-complementar-ato
-npm test
+# suíte Python da Mesa (raiz)
+python -m unittest discover -s tests -p 'test_*.py' -q
+# testes da extensão fina
+Set-Location extension; npm test; Set-Location ..
+# contrato do pacote (inclui o allowlist do ZIP real quando dist/ existe)
+python -m unittest tests.test_packaging_contract -v
 ```
 
-Os testes Python ficam em `work/tce-extractor/test_*.py` e os testes PowerShell em `work/tce-extractor/tests/`. A suíte completa requer Python com PyMuPDF, Playwright e dependências de QA; o usuário do ZIP não precisa instalar esse ambiente de desenvolvimento. Alguns helpers de QA históricos contêm caminhos do workspace original: consulte o handoff antes de reutilizá-los.
-
-### Verificação única offline
-
-Para executar os gates locais em um checkout limpo, rode:
+O gate offline do projeto continua sendo:
 
 ```powershell
 powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1
 ```
 
-O comando executa os testes da extensão e da web, a suíte Python de `portable`,
-os testes PowerShell, os testes de empacotamento/auditoria e `git diff --check`.
-`-TimeoutSeconds N` define o limite de cada etapa; o resumo final informa o
-comando, executados, aprovados, falhos e skips. Logs brutos ficam em uma pasta
-temporária fora do repositório. O verificador é somente offline: não abre
-Chrome autenticado, não coleta dados e não envia atos.
+Ele roda extensão, web, Python portátil, testes PowerShell, pacote/auditoria,
+automação da raiz e `git diff --check`; é somente offline (não abre Chrome
+autenticado, não coleta e não envia). Para a suíte Python completa da raiz, rode
+também o `unittest discover` acima, que o gate não cobre inteiro.
 
-No Windows, o runner preserva a semântica de liveness de PID necessária aos
-testes de transferência e mantém stdout/stderr nos logs; isso evita interpretar
-um runtime local vivo como encerrado.
-
-## Segurança
-
-- Repositório local: nenhum upload ao GitHub é feito automaticamente.
-- `.gitignore` usa lista de permissão; dados pessoais, PDFs, ZIPs, backups, caches e perfis de navegador não são versionados.
-- O envio automático é um opt-in explícito do operador: fica desabilitado por
-  padrão (`real_send_enabled=false`) e só é liberado quando a mesa local é
-  iniciada com `INICIAR.cmd envio-real`. Cada execução automática processa no
-  máximo 100 atos elegíveis, exige intenção persistida e comando único por ato e
-  pausa em resultado incerto. Sem o comando de envio real, o checkbox do painel
-  permanece desabilitado.
-- A regra operacional solicitada para DOE usa a data da Resolução Administrativa; não equivale a comprovação independente da publicação no Diário Oficial.
-- Preserve backups até conferir o novo lote. Nunca publique `outputs`, `tmp` ou perfis autenticados.
-
-Veja `docs/notes/2026-09-05-organizacao-handoff.md` para o estado da migração.
+Se você chamar `powershell.exe` a partir de um host que exporta o `PSModulePath`
+do PowerShell 7, o Windows PowerShell 5.1 pode carregar o módulo `Utility` do
+pwsh e perder cmdlets como `Get-FileHash`. Rodar a partir de um PowerShell 5.1
+normal (ou num `PSModulePath` só com os módulos do 5.1) evita esse desvio.

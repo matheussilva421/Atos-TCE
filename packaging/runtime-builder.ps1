@@ -1,7 +1,8 @@
-# Runtime builder promoted from work/tce-extractor/build-portable-runtime.ps1.
-# Only the manifest and licence-readme paths moved into packaging/; every
-# supply-chain check (fixed versions, fixed SHA-256, HTTPS sources, safe
-# staging, verified extraction and licence materialization) is unchanged.
+# Runtime builder promoted from the legacy extractor's runtime builder (its path
+# lives in the Git history). Only the manifest and licence-readme paths moved
+# into packaging/, plus the python314._pth entry below; every supply-chain check
+# (fixed versions, fixed SHA-256, HTTPS sources, safe staging, verified
+# extraction and licence materialization) is unchanged.
 
 [CmdletBinding()]
 param(

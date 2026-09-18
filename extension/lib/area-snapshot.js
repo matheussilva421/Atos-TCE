@@ -2,12 +2,11 @@
  * Read-only Área Restrita snapshot scanner.
  *
  * The behaviour here is ported, not reinvented, from the proven selectors and
- * rules of
- * ``work/tce-extractor/portable/extensao-complementar-ato/content/portal-navigation.js``:
- * the same marker select, the same row/identity extraction and the same
- * fail-closed classification (a red "Complementar Ato" icon means
- * PRECISA_COMPLEMENTAR, an "Ato Complementado" label means ATO_COMPLEMENTADO
- * and anything else is AMBIGUO).
+ * rules of the retired legacy extension's portal navigation module (its path
+ * lives in the Git history): the same marker select, the same row/identity
+ * extraction and the same fail-closed classification (a red "Complementar Ato"
+ * icon means PRECISA_COMPLEMENTAR, an "Ato Complementado" label means
+ * ATO_COMPLEMENTADO and anything else is AMBIGUO).
  *
  * What changed is ownership and blast radius. This file only *reads* the page
  * and returns a sanitized snapshot: it never navigates, writes, clicks or
