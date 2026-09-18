@@ -270,11 +270,43 @@ PRONTO.
 |---|---|---|
 | 1. Máquina de estados do pedido de preenchimento (schema v4) | concluída | `da14094` |
 | 2. Preflight de formulário e plano no backend | concluída | `4c3873f` |
-| 3. Extrair navegação e leitor de formulário para a extensão fina | pendente | — |
-| 4. Implementação única de preenchimento sem submit | pendente | — |
+| 3. Extrair navegação e leitor de formulário para a extensão fina | concluída | `a764167` |
+| 4. Implementação única de preenchimento sem submit | concluída | `67a24f7` |
 | 5. Orquestração completa OPEN -> READ -> PREFLIGHT -> FILL | pendente | — |
 | 6. Fallback manual do formulário atual | pendente | — |
 | 7. Gate real supervisionado de preenchimento | BLOCKED (supervisionado) | — |
+
+#### Tarefa 3: o que a extensão fina sabe fazer do portal
+
+`lib/area-snapshot.js` continua sendo o dono único dos seletores e agora expõe
+também `findActControl`, `findInterestedRadio` e um bloco `dom` de travessia.
+`content/detect-form.js` porta a leitura do formulário comprovado (mapa de
+campos, visibilidade em frames aninhados, rejeição de formulário escondido,
+identidade por número/ano e pessoa selecionada, catálogo de opções e geração).
+`content/navigate.js` porta só o necessário de `portal-navigation.js`:
+localizar a linha exata e abrir o ato, selecionar a pessoa exata, e avançar uma
+página da lista. Cada função devolve um código em vez de adivinhar; o
+`waitingForFrame` preserva o conhecimento real de que o portal abre o ato em
+aba/quadro irmão.
+
+#### Tarefa 4: preenchimento verificado, sem botão final
+
+`content/fill-form.js` porta o caminho de escrita comprovado (setter nativo +
+eventos `input`/`change`/`blur`, select só aceita valor existente) e acrescenta o
+contrato do plano: **uma** verificação de identidade e geração antes de escrever,
+depois releitura de **todos** os campos escritos e preservados. Um único campo
+que não releia como proposto (ou que esteja ausente, desabilitado, somente
+leitura ou fora do catálogo) faz o preenchimento inteiro falhar, para o backend
+nunca marcar `PREENCHIDO` com evidência parcial. O módulo não localiza, não
+procura e não clica o botão de conclusão — há um teste que varre o fonte para
+provar isso.
+
+#### Vocabulário do protocolo após M5
+
+`STATUS`, `SCAN_AREA`, `OPEN_ACT`, `READ_FORM`, `FILL_FORM` — e
+`FORBIDDEN_COMMAND_TYPES` mantém `SUBMIT`, `SEND`, `AUTO_SUBMIT`,
+`COMPLEMENT_ACT` e `FINALIZE` fora do protocolo, com teste que falha se algum
+deles aparecer.
 
 #### Decisões de M5 (tarefas 1 e 2)
 
