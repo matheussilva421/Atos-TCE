@@ -37,6 +37,13 @@ EXPECTED_COMMAND: dict[str, str] = {
     "FILLING": "FILL_FORM",
 }
 
+#: Navigation outcomes OPEN_ACT may report. OPEN_ACT only proves that the
+#: navigation happened: the authoritative identity of the act arrives with
+#: READ_FORM, so an outcome without identity still moves the request to
+#: READING. Anything outside this vocabulary blocks instead of advancing.
+OPEN_ACT_ACTIONS: frozenset[str] = frozenset({"open_act", "select_interested", "already_open"})
+OPEN_ACT_SCREENS: frozenset[str] = frozenset({"list", "interested", "form", "buttons"})
+
 
 class FillError(RuntimeError):
     """Raised when a fill request cannot be created or advanced."""
@@ -178,10 +185,23 @@ class FillService:
         if result.get("ok") is not True:
             self._fail(request, str(result.get("error") or "não foi possível abrir o ato"))
             return
-        mismatch = self._identity_mismatch(process, result.get("identity"))
-        if mismatch:
-            self._block(request, mismatch)
+        action = str(result.get("action") or "").strip().lower()
+        screen = str(result.get("screen") or "").strip().lower()
+        if action not in OPEN_ACT_ACTIONS or screen not in OPEN_ACT_SCREENS:
+            self._block(
+                request,
+                "resultado de navegação desconhecido: "
+                f"action={action or 'ausente'}, screen={screen or 'ausente'}",
+            )
             return
+        # Identity is optional at this stage: it is a defensive echo, never a
+        # requirement. When the extension does report one, it must agree.
+        identity = result.get("identity")
+        if isinstance(identity, Mapping) and identity:
+            mismatch = self._identity_mismatch(process, identity)
+            if mismatch:
+                self._block(request, mismatch)
+                return
         command_id = self._store.queue_fill_command(
             "READ_FORM", {"identity": identity_of(process)}, int(request["id"])
         )

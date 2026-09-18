@@ -11,6 +11,15 @@ from app.core.store import SCHEMA_VERSION, Store
 
 IDENTITY = {"processKey": "102390/2026", "interestedNormalized": "pessoa exemplo"}
 
+#: A realistic OPEN_ACT outcome: the navigation reports the action and the
+#: screen it acted on. The identity is optional at this stage (CR-01).
+OPEN_RESULT = {
+    "ok": True,
+    "action": "open_act",
+    "screen": "list",
+    "waitingForFrame": True,
+}
+
 
 class FillRequestTestCase(unittest.TestCase):
     def setUp(self):
@@ -57,7 +66,7 @@ class FillStateMachineTests(FillRequestTestCase):
         self.assertEqual(open_command["payload"]["identity"]["processKey"], "102390/2026")
         self.assertEqual(self.store.get_fill_request(request_id)["state"], "OPENING")
 
-        self.service.handle_command_result(open_command["id"], {"ok": True, "identity": IDENTITY})
+        self.service.handle_command_result(open_command["id"], {**OPEN_RESULT, "identity": IDENTITY})
 
         request = self.store.get_fill_request(request_id)
         self.assertEqual(request["state"], "READING")
@@ -95,7 +104,10 @@ class FillStateMachineTests(FillRequestTestCase):
 
         self.service.handle_command_result(
             open_command["id"],
-            {"ok": True, "identity": {"processKey": "999999/2026", "interestedNormalized": "pessoa exemplo"}},
+            {
+                **OPEN_RESULT,
+                "identity": {"processKey": "999999/2026", "interestedNormalized": "pessoa exemplo"},
+            },
         )
 
         request = self.store.get_fill_request(request_id)
@@ -106,14 +118,91 @@ class FillStateMachineTests(FillRequestTestCase):
         events = [event["event_type"] for event in self.store.get_process(process_id)["events"]]
         self.assertIn("fill_blocked", events)
 
-    def test_a_missing_identity_blocks_the_request(self):
+    def test_an_open_act_from_the_list_without_identity_advances_to_reading(self):
+        # CR-01: OPEN_ACT only proves the navigation. The authoritative
+        # identity arrives with READ_FORM, so a navigation outcome that carries
+        # no identity must still move the request forward.
         process_id = self.make_process()
         request_id = self.service.request_fill(process_id)
         open_command = self.store.claim_extension_command("extension-test")
 
-        self.service.handle_command_result(open_command["id"], {"ok": True})
+        self.service.handle_command_result(
+            open_command["id"],
+            {"ok": True, "action": "open_act", "screen": "list", "waitingForFrame": True},
+        )
 
-        self.assertEqual(self.store.get_fill_request(request_id)["state"], "BLOQUEADO")
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "READING")
+        read_command = self.store.claim_extension_command("extension-test")
+        self.assertEqual(read_command["type"], "READ_FORM")
+        self.assertEqual(read_command["fill_request_id"], request_id)
+
+    def test_an_open_act_from_the_interested_screen_advances_to_reading(self):
+        process_id = self.make_process()
+        request_id = self.service.request_fill(process_id)
+        open_command = self.store.claim_extension_command("extension-test")
+
+        self.service.handle_command_result(
+            open_command["id"],
+            {"ok": True, "action": "select_interested", "screen": "interested", "waitingForFrame": True},
+        )
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "READING")
+
+    def test_an_open_act_already_on_the_form_advances_to_reading(self):
+        process_id = self.make_process()
+        request_id = self.service.request_fill(process_id)
+        open_command = self.store.claim_extension_command("extension-test")
+
+        self.service.handle_command_result(
+            open_command["id"],
+            {"ok": True, "action": "already_open", "screen": "form", "waitingForFrame": False},
+        )
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "READING")
+
+    def test_an_open_act_with_an_unknown_outcome_blocks(self):
+        for payload in (
+            {"ok": True},
+            {"ok": True, "action": "open_act"},
+            {"ok": True, "screen": "list"},
+            {"ok": True, "action": "teleport", "screen": "list"},
+            {"ok": True, "action": "open_act", "screen": "moon"},
+        ):
+            with self.subTest(payload=payload):
+                process_id = self.make_process(
+                    process_key=f"10{abs(hash(str(payload))) % 10000}/2026"
+                )
+                request_id = self.service.request_fill(process_id)
+                open_command = self.store.claim_extension_command("extension-test")
+
+                self.service.handle_command_result(open_command["id"], payload)
+
+                request = self.store.get_fill_request(request_id)
+                self.assertEqual(request["state"], "BLOQUEADO")
+                self.assertIn("navegação", request["error"])
+                self.assertIsNone(self.store.claim_extension_command("extension-test"))
+
+    def test_an_observed_identity_on_open_act_is_still_checked(self):
+        # The form path may echo the identity it observed; when it does, a
+        # divergence must block instead of being ignored.
+        process_id = self.make_process()
+        request_id = self.service.request_fill(process_id)
+        open_command = self.store.claim_extension_command("extension-test")
+
+        self.service.handle_command_result(
+            open_command["id"],
+            {
+                "ok": True,
+                "action": "already_open",
+                "screen": "form",
+                "identity": {"processKey": "999999/2026", "interestedNormalized": "pessoa exemplo"},
+            },
+        )
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "BLOQUEADO")
+        self.assertIn("divergente", request["error"])
 
     def test_a_failed_open_result_moves_the_request_to_erro(self):
         process_id = self.make_process()
@@ -133,11 +222,11 @@ class FillStateMachineTests(FillRequestTestCase):
         process_id = self.make_process()
         request_id = self.service.request_fill(process_id)
         open_command = self.store.claim_extension_command("extension-test")
-        self.service.handle_command_result(open_command["id"], {"ok": True, "identity": IDENTITY})
+        self.service.handle_command_result(open_command["id"], {**OPEN_RESULT, "identity": IDENTITY})
         self.assertEqual(self.store.get_fill_request(request_id)["state"], "READING")
 
         # Replaying the OPEN_ACT result must not create a second READ_FORM.
-        self.service.handle_command_result(open_command["id"], {"ok": True, "identity": IDENTITY})
+        self.service.handle_command_result(open_command["id"], {**OPEN_RESULT, "identity": IDENTITY})
 
         self.assertEqual(self.store.get_fill_request(request_id)["state"], "READING")
         self.store.claim_extension_command("extension-test")
@@ -274,7 +363,7 @@ class ManualFallbackTests(FillRequestTestCase):
 
         automatic_request = service.request_fill(process_id)
         open_command = self.store.claim_extension_command("extension-test")
-        service.handle_command_result(open_command["id"], {"ok": True, "identity": IDENTITY})
+        service.handle_command_result(open_command["id"], {**OPEN_RESULT, "identity": IDENTITY})
         read_command = self.store.claim_extension_command("extension-test")
         # The extension always answers a command with an explicit ``ok``.
         service.handle_command_result(read_command["id"], {**self.snapshot(), "ok": True})
@@ -599,10 +688,57 @@ class FillServicePreflightTests(FillRequestTestCase):
         service = FillService(self.store, preflight=stub)
         request_id = service.request_fill(process_id)
         open_command = self.store.claim_extension_command("extension-test")
-        service.handle_command_result(open_command["id"], {"ok": True, "identity": IDENTITY})
+        service.handle_command_result(
+            open_command["id"], {"ok": True, "action": "open_act", "screen": "list"}
+        )
         read_command = self.store.claim_extension_command("extension-test")
         service.handle_command_result(read_command["id"], {"ok": True, "identity": IDENTITY, "generation": 4})
         return service, request_id
+
+    def test_a_read_form_with_a_wrong_identity_blocks_before_the_preflight(self):
+        stub = StubPreflight(error=AssertionError("o preflight não pode rodar com identidade errada"))
+        process_id = self.make_process()
+        service = FillService(self.store, preflight=stub)
+        request_id = service.request_fill(process_id)
+        open_command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(
+            open_command["id"], {"ok": True, "action": "open_act", "screen": "list"}
+        )
+        read_command = self.store.claim_extension_command("extension-test")
+
+        service.handle_command_result(
+            read_command["id"],
+            {
+                "ok": True,
+                "identity": {"processKey": "999999/2026", "interestedNormalized": "pessoa exemplo"},
+                "generation": 4,
+            },
+        )
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "BLOQUEADO")
+        self.assertIn("divergente", request["error"])
+        self.assertEqual(stub.calls, [])
+        self.assertIsNone(self.store.claim_extension_command("extension-test"))
+
+    def test_no_write_is_authorized_before_a_validated_read_form(self):
+        # CR-01: between OPEN_ACT and a validated READ_FORM the only queued
+        # command may be the read itself.
+        stub = StubPreflight(
+            plan=FillPlan(identity=dict(IDENTITY), generation=4, fields={"cargo": "Professor"})
+        )
+        process_id = self.make_process()
+        service = FillService(self.store, preflight=stub)
+        service.request_fill(process_id)
+        open_command = self.store.claim_extension_command("extension-test")
+
+        service.handle_command_result(
+            open_command["id"], {"ok": True, "action": "open_act", "screen": "list"}
+        )
+
+        queued = self.store.claim_extension_command("extension-test")
+        self.assertEqual(queued["type"], "READ_FORM")
+        self.assertIsNone(self.store.claim_extension_command("extension-test"))
 
     def test_a_successful_read_runs_the_preflight_and_queues_fill_form(self):
         plan = FillPlan(
