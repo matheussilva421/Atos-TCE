@@ -67,6 +67,26 @@ diferente do revisado.
 
 ## O que continua bloqueado no humano
 
+## Gates offline executados no fechamento (2026-09-18)
+
+| Gate | Comando | Resultado |
+|---|---|---|
+| Suíte Python da raiz | `python -m unittest discover -s tests -p 'test_*.py' -q` | 552 testes, 552 aprovados, 0 falhas |
+| Suíte da extensão | `cd extension && npm test` | 107 testes, 107 aprovados |
+| Suíte web da Mesa | `node --test app/web/tests/*.test.mjs` | 15 testes, 15 aprovados |
+| Contrato do pacote | `python -m unittest tests.test_packaging_contract -v` | 82 executados, 80 aprovados, 2 pulados |
+| Gate do projeto (legado) | `work/tce-extractor/verify-project.ps1` | 7 estágios verdes, 1254 executados, 1252 aprovados, 0 falhas, 2 pulados |
+| Higiene | `git diff --check` | limpo |
+
+Pacote reconstruído e promovido: `dist/Atos-TCE-portable.zip`, 96.112.921 bytes,
+SHA-256 `b8bab47451b53cf7f318cc7689b850439bb6385acf7da846665a06d29089fbb1`,
+509 entradas, 430 arquivos de runtime conferidos, sem acervo. O smoke de
+extração limpa passou; o `verify-package.ps1` só falhou em seguida, ao tentar
+remover a pasta de extração, porque o processo Python do smoke continuou vivo
+segurando `libcrypto-3.dll` (artefato do terminal desta sessão). Rodado de novo
+com `-SkipSmoke`, o verificador fecha com código 0 e o mesmo hash. A rotação
+deixou o build novo como atual e o anterior como `.previous.zip`.
+
 | Gate | Por quê |
 |---|---|
 | M2 real (varredura extensão × CDP) | exige login humano na Área Restrita |
@@ -74,4 +94,3 @@ diferente do revisado.
 | M5 real (preenchimento supervisionado) | exige portal aberto e conferência humana; o clique final é do operador |
 | Retirada do legado (M6 4, 5 e 7) | exige os três gates acima, tag `pre-legacy-retirement` com backup remoto e autorização explícita |
 | Limpeza por recibo | exige auditoria verificada por hash e autorização explícita |
-

@@ -1035,3 +1035,32 @@ esta refatoração; fora do allowlist, não é artefato desta entrega).
 Com os dois gates verdes, o que resta é exatamente o que depende do operador
 humano: os três gates supervisionados (M2, M3, M5) e, depois deles, a retirada do
 legado e a limpeza por recibo — as duas últimas só com autorização explícita.
+
+#### Remediação da revisão de código (CR-01 → CR-26)
+
+A revisão independente de 2026-09-18 pediu 26 correções; todas foram fechadas e
+estão registradas com commit e testes em
+`docs/notes/2026-09-18-code-review-remediation.md`. Os commits são
+`1f02f5e`, `a732548`, `605af03`, `79b1290`, `0efde07`, `a4f2dac`,
+`eb41b16`, `dda0bcc` e `36bd510`.
+
+Dois achados fora do plano original apareceram no caminho e foram corrigidos
+junto:
+
+1. o runtime promovido do e-Contas (`app/econtas/runtime/`) era ignorado por
+   `**/runtime/` no `.gitignore` — um clone rodaria um coletor diferente do
+   revisado. O `.gitignore` ganhou uma exceção explícita e os quatro arquivos
+   passaram a ser versionados (`0efde07`);
+2. o `.github/` também estava fora do allowlist; agora só os workflows são
+   versionados (`36bd510`).
+
+Gates offline no fechamento: 552 testes Python, 107 da extensão, 15 da web da
+Mesa, 82 do contrato do pacote (2 pulados) e 7 estágios do gate legado com 1254
+executados e 0 falhas. Pacote reconstruído e promovido em
+`dist/Atos-TCE-portable.zip` (SHA-256
+`b8bab47451b53cf7f318cc7689b850439bb6385acf7da846665a06d29089fbb1`).
+
+O schema passou de 5 para 6 (lease dos comandos) e a extensão ganhou a permissão
+`webNavigation`, necessária para endereçar as molduras do portal. O gate real de
+M2 continua sendo o primeiro passo humano, e o roteiro segue em
+`docs/notes/2026-09-18-roteiro-gates-supervisionados.md`.
