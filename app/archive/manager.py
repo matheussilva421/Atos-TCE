@@ -10,8 +10,10 @@ this module must never produce.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -21,6 +23,11 @@ from .legacy_import import BLOB_TREE, blob_path, sha256_file
 
 #: Metadata key holding the configured external archive root.
 EXTERNAL_ROOT_KEY = "archive.external_root"
+
+#: Metadata key holding the journal of an archiving commit that is in flight.
+#: While it exists, the process is neither fully HOT nor fully ARCHIVED and the
+#: recovery below is mandatory before any new archive/restore action.
+JOURNAL_KEY = "archive.journal"
 
 
 class ArchiveError(RuntimeError):
@@ -105,6 +112,12 @@ class ArchiveManager:
         except OSError:  # pragma: no cover - best effort
             pass
 
+    def _unlink_view(self, view: Path) -> None:
+        """Remove one process view; the canonical blob is never touched here."""
+
+        if view.is_file():
+            view.unlink()
+
     @staticmethod
     def _copy_verified(source: Path, target: Path, digest: str) -> None:
         """Publish ``source`` at ``target`` only after its hash matches."""
@@ -161,6 +174,10 @@ class ArchiveManager:
         external_root = self.external_root
         if external_root is None:
             raise ArchiveError("nenhum local externo de arquivo está configurado")
+        if self._store.get_metadata(JOURNAL_KEY):
+            raise ArchiveError(
+                "há um arquivamento inacabado; rode recover_archive_journal antes de arquivar de novo"
+            )
         documents = self._store.list_documents(process_id)
         result = ArchiveResult(ok=True, documents=len(documents))
         if not documents:
@@ -195,10 +212,60 @@ class ArchiveManager:
             return result
 
         # ----------------------------------------------------- phase 2: commit
-        for digest, staged in prepared.items():
-            target = self.external_blob(digest)
-            assert target is not None  # the external root is configured here
-            if staged != target:
+        journal = {
+            "process_id": int(process_id),
+            "started_at": utc_now(),
+            "blobs": [
+                {
+                    "sha256": digest,
+                    "staged": str(staged),
+                    "target": str(self.external_blob(digest)),
+                }
+                for digest, staged in sorted(prepared.items())
+            ],
+            "documents": [
+                {
+                    "id": int(document["id"]),
+                    "sha256": str(document["sha256"]),
+                    "view": str(document["relative_path"]),
+                }
+                for document in documents
+                if str(document["sha256"]) in prepared
+            ],
+        }
+        self._store.set_metadata(
+            JOURNAL_KEY, json.dumps(journal, ensure_ascii=False, sort_keys=True)
+        )
+        try:
+            self._commit_archive(journal, result)
+        except Exception as error:  # any failure keeps the journal for recovery
+            # The journal stays behind on purpose: recovery finishes or rolls
+            # back the operation before any new archive/restore action.
+            result.errors.append(f"{type(error).__name__}: {error}")
+            result.ok = False
+            result.archived = []
+            return result
+        self._store.set_metadata(JOURNAL_KEY, None)
+        return result
+
+    def _commit_archive(self, journal: Mapping[str, Any], result: ArchiveResult) -> None:
+        """Publish, mark and free one journaled archiving; idempotent by design.
+
+        Every step can be repeated: a target that already verifies is not
+        copied again, a document already ARCHIVED is simply marked again, and a
+        view that is already gone is not an error.
+        """
+
+        blobs = [entry for entry in journal.get("blobs") or [] if isinstance(entry, Mapping)]
+        for entry in blobs:
+            digest = str(entry.get("sha256") or "")
+            target = Path(str(entry.get("target") or ""))
+            staged = Path(str(entry.get("staged") or "")) if entry.get("staged") else None
+            if not (target.is_file() and self.verified(target, digest)):
+                if staged is None or not (staged.is_file() and self.verified(staged, digest)):
+                    raise ArchiveError(
+                        f"{digest[:12]}…: cópia externa ausente durante o commit do arquivamento"
+                    )
                 target.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(staged, target)
             self._store.set_blob_presence(
@@ -209,32 +276,109 @@ class ArchiveManager:
                 external_present=True,
                 verified_at=utc_now(),
             )
-        self._discard_staging(staging)
-
-        archived_shas = sorted(prepared)
-        for document in documents:
-            if str(document["sha256"]) not in archived_shas:
+        for entry in journal.get("documents") or []:
+            if not isinstance(entry, Mapping):
                 continue
-            view = self._data_root / str(document["relative_path"])
-            if view.is_file():
-                view.unlink()
-            self._store.mark_document_storage_state(int(document["id"]), "ARCHIVED")
-            result.archived.append(str(document["sha256"]))
-
-        for digest in archived_shas:
+            view = self._data_root / str(entry.get("view") or "")
+            self._unlink_view(view)
+            self._store.mark_document_storage_state(int(entry["id"]), "ARCHIVED")
+            result.archived.append(str(entry.get("sha256") or ""))
+        for entry in blobs:
+            digest = str(entry.get("sha256") or "")
             if self._store.count_hot_documents(digest):
                 continue
-            blob = self.local_blob(digest)
-            if blob.is_file():
-                blob.unlink()
+            local = self.local_blob(digest)
+            if local.is_file():
+                local.unlink()
             self._store.set_blob_presence(digest, local_present=False, external_present=True)
-        return result
+        staging = self.external_root / f".staging-{int(journal.get('process_id') or 0)}"
+        self._discard_staging(staging)
+
+    def _rollback_archive(self, journal: Mapping[str, Any]) -> None:
+        """Leave every document of an unfinished archiving HOT again."""
+
+        for entry in journal.get("blobs") or []:
+            if not isinstance(entry, Mapping):
+                continue
+            staged = str(entry.get("staged") or "")
+            if not staged:
+                continue
+            try:
+                Path(staged).unlink(missing_ok=True)
+            except OSError:  # pragma: no cover - best effort
+                pass
+        for entry in journal.get("documents") or []:
+            if not isinstance(entry, Mapping):
+                continue
+            try:
+                self._store.mark_document_storage_state(int(entry["id"]), "HOT")
+            except (ValueError, TypeError):  # pragma: no cover - defensive
+                pass
+        self._discard_staging(
+            self.external_root / f".staging-{int(journal.get('process_id') or 0)}"
+        )
+
+    def recover_archive_journal(self) -> dict[str, Any]:
+        """Finish or roll back an archiving that stopped halfway.
+
+        The journal is the only evidence that a commit started. Every external
+        copy is verified: when all of them are there the operation completes
+        (roll forward), otherwise nothing changes and every document goes back
+        to HOT (roll back). Either way the process ends all ARCHIVED or all HOT,
+        never in between, and the journal is cleared only at the end.
+        """
+
+        raw = self._store.get_metadata(JOURNAL_KEY)
+        if not raw:
+            return {"state": "clean", "completed": 0, "rolled_back": 0}
+        try:
+            journal = json.loads(raw)
+        except ValueError:
+            self._store.set_metadata(JOURNAL_KEY, None)
+            return {"state": "unreadable", "completed": 0, "rolled_back": 0}
+        if not isinstance(journal, Mapping):
+            self._store.set_metadata(JOURNAL_KEY, None)
+            return {"state": "unreadable", "completed": 0, "rolled_back": 0}
+
+        ready = True
+        for entry in journal.get("blobs") or []:
+            if not isinstance(entry, Mapping):
+                ready = False
+                break
+            digest = str(entry.get("sha256") or "")
+            target = Path(str(entry.get("target") or ""))
+            if target.is_file() and self.verified(target, digest):
+                continue
+            staged = Path(str(entry.get("staged") or "")) if entry.get("staged") else None
+            if staged is None or not (staged.is_file() and self.verified(staged, digest)):
+                ready = False
+                break
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(staged, target)
+            except OSError:
+                ready = False
+                break
+
+        if not ready:
+            self._rollback_archive(journal)
+            self._store.set_metadata(JOURNAL_KEY, None)
+            return {"state": "rolled_back", "completed": 0, "rolled_back": 1}
+
+        result = ArchiveResult(ok=True, documents=len(journal.get("documents") or []))
+        self._commit_archive(journal, result)
+        self._store.set_metadata(JOURNAL_KEY, None)
+        return {"state": "completed", "completed": 1, "rolled_back": 0}
 
     # --------------------------------------------------------------- restore
 
     def restore_process(self, process_id: int) -> ArchiveResult:
         """Bring one process's archived documents back to HOT."""
 
+        if self._store.get_metadata(JOURNAL_KEY):
+            raise ArchiveError(
+                "há um arquivamento inacabado; rode recover_archive_journal antes de restaurar"
+            )
         documents = self._store.list_documents(process_id)
         result = ArchiveResult(ok=True, documents=len(documents))
         for document in documents:

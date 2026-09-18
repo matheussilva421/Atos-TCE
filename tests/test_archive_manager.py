@@ -3,9 +3,15 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 
 from app.archive.legacy_import import blob_path, sha256_file
-from app.archive.manager import EXTERNAL_ROOT_KEY, ArchiveError, ArchiveManager
+from app.archive.manager import (
+    EXTERNAL_ROOT_KEY,
+    JOURNAL_KEY,
+    ArchiveError,
+    ArchiveManager,
+)
 from app.core.models import DocumentRecord, ProcessRecord
 from app.core.store import SCHEMA_VERSION, Store
 
@@ -63,6 +69,47 @@ class ArchiveTestCase(unittest.TestCase):
             ],
         )
         return process_id, digest, blob, view
+
+    def add_second_document(self, process_id, name="102391/2026"):
+        """One more canonical blob plus its view, as a re-download would add."""
+
+        body = PDF + name.encode()
+        digest = sha256_from(body)
+        blob = blob_path(self.data_root, digest)
+        blob.parent.mkdir(parents=True, exist_ok=True)
+        blob.write_bytes(body)
+        view_rel = f"archive/processos/{name.replace('/', '-')}/Ato.pdf"
+        view = self.data_root / view_rel
+        view.parent.mkdir(parents=True, exist_ok=True)
+        view.write_bytes(body)
+        existing = self.store.list_documents(process_id)
+        self.store.replace_documents(
+            process_id,
+            [
+                *[
+                    DocumentRecord(
+                        source_id=str(row["source_id"]),
+                        title=str(row["title"]),
+                        relative_path=str(row["relative_path"]),
+                        sha256=str(row["sha256"]),
+                        page_count=int(row["page_count"]),
+                        event=str(row["event"] or ""),
+                        storage_state=str(row["storage_state"]),
+                    )
+                    for row in existing
+                ],
+                DocumentRecord(
+                    source_id=f"{name}|1|Ato",
+                    title="Ato.pdf",
+                    relative_path=view_rel,
+                    sha256=digest,
+                    page_count=1,
+                    event="1",
+                    storage_state="HOT",
+                ),
+            ],
+        )
+        return digest, blob, view
 
 
 def sha256_from(payload: bytes) -> str:
@@ -214,45 +261,6 @@ class RestoreAndReconcileTests(ArchiveTestCase):
 class ArchiveAllOrNothingTests(ArchiveTestCase):
     """CR-20: a process is archived completely or not at all."""
 
-    def add_second_document(self, process_id, name="102391/2026"):
-        body = PDF + name.encode()
-        digest = sha256_from(body)
-        blob = blob_path(self.data_root, digest)
-        blob.parent.mkdir(parents=True, exist_ok=True)
-        blob.write_bytes(body)
-        view_rel = f"archive/processos/{name.replace('/', '-')}/Ato.pdf"
-        view = self.data_root / view_rel
-        view.parent.mkdir(parents=True, exist_ok=True)
-        view.write_bytes(body)
-        existing = self.store.list_documents(process_id)
-        self.store.replace_documents(
-            process_id,
-            [
-                *[
-                    DocumentRecord(
-                        source_id=str(row["source_id"]),
-                        title=str(row["title"]),
-                        relative_path=str(row["relative_path"]),
-                        sha256=str(row["sha256"]),
-                        page_count=int(row["page_count"]),
-                        event=str(row["event"] or ""),
-                        storage_state=str(row["storage_state"]),
-                    )
-                    for row in existing
-                ],
-                DocumentRecord(
-                    source_id=f"{name}|1|Ato",
-                    title="Ato.pdf",
-                    relative_path=view_rel,
-                    sha256=digest,
-                    page_count=1,
-                    event="1",
-                    storage_state="HOT",
-                ),
-            ],
-        )
-        return digest, blob, view
-
     def test_a_failure_on_the_second_blob_leaves_everything_hot(self):
         process_id, first_digest, first_blob, first_view = self.make_process()
         second_digest, second_blob, second_view = self.add_second_document(process_id)
@@ -284,6 +292,129 @@ class ArchiveAllOrNothingTests(ArchiveTestCase):
 
         self.assertTrue(result.ok, result.errors)
         self.assertEqual(list(self.external_root.glob(".staging-*")), [])
+
+
+class ArchiveCommitRecoveryTests(ArchiveTestCase):
+    """F5: the commit phase is journaled, so it finishes or rolls back."""
+
+    def failing_on(self, name, *, when=2, error=None):
+        """Patch one manager step so it fails exactly once, on the nth call."""
+
+        calls = {"count": 0}
+        original = getattr(self.manager, name)
+        failure = error if error is not None else OSError("falha injetada")
+
+        def flaky(*args, **kwargs):
+            calls["count"] += 1
+            if calls["count"] == when:
+                raise failure
+            return original(*args, **kwargs)
+
+        return mock.patch.object(self.manager, name, side_effect=flaky)
+
+    def assert_recovery_completes(self, process_id):
+        self.assertIsNotNone(
+            self.store.get_metadata(JOURNAL_KEY), "o journal precisa sobreviver à falha"
+        )
+        with self.assertRaises(ArchiveError):
+            self.manager.archive_process(process_id)
+        with self.assertRaises(ArchiveError):
+            self.manager.restore_process(process_id)
+
+        summary = self.manager.recover_archive_journal()
+
+        self.assertEqual(summary["state"], "completed")
+        self.assertIsNone(self.store.get_metadata(JOURNAL_KEY))
+        states = {
+            str(row["storage_state"]) for row in self.store.list_documents(process_id)
+        }
+        self.assertEqual(states, {"ARCHIVED"}, "sucesso = todos ARCHIVED")
+
+    def test_a_failure_while_removing_the_second_view_is_recovered(self):
+        process_id, _digest, _blob, _view = self.make_process()
+        self.add_second_document(process_id)
+
+        with self.failing_on("_unlink_view", when=2):
+            result = self.manager.archive_process(process_id)
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.archived, [], "uma falha não pode reportar sucesso parcial")
+        self.assert_recovery_completes(process_id)
+
+    def test_a_failure_while_marking_the_second_document_is_recovered(self):
+        process_id, _digest, _blob, _view = self.make_process()
+        self.add_second_document(process_id)
+        original = self.store.mark_document_storage_state
+        calls = {"count": 0}
+
+        def flaky(document_id, state):
+            calls["count"] += 1
+            if calls["count"] == 2:
+                raise RuntimeError("falha injetada")
+            return original(document_id, state)
+
+        with mock.patch.object(self.store, "mark_document_storage_state", side_effect=flaky):
+            result = self.manager.archive_process(process_id)
+
+        self.assertFalse(result.ok)
+        self.assert_recovery_completes(process_id)
+
+    def test_a_failure_while_recording_the_second_blob_is_recovered(self):
+        process_id, _digest, _blob, _view = self.make_process()
+        self.add_second_document(process_id)
+
+        with mock.patch.object(
+            self.store, "set_blob_presence", side_effect=OSError("falha injetada")
+        ):
+            result = self.manager.archive_process(process_id)
+
+        self.assertFalse(result.ok)
+        self.assert_recovery_completes(process_id)
+
+    def test_a_restart_finishes_what_the_previous_process_started(self):
+        process_id, _digest, _blob, _view = self.make_process()
+        self.add_second_document(process_id)
+
+        with self.failing_on("_unlink_view", when=2):
+            self.manager.archive_process(process_id)
+
+        # A new process means a new manager over the same store.
+        restarted = ArchiveManager(
+            self.store, self.data_root, external_root=self.external_root
+        )
+
+        summary = restarted.recover_archive_journal()
+
+        self.assertEqual(summary["state"], "completed")
+        states = {
+            str(row["storage_state"]) for row in self.store.list_documents(process_id)
+        }
+        self.assertEqual(states, {"ARCHIVED"})
+
+    def test_recovery_rolls_back_when_the_copy_never_arrived(self):
+        process_id, _digest, _blob, _view = self.make_process()
+
+        with self.failing_on("_commit_archive", when=1, error=ArchiveError("falha injetada")):
+            result = self.manager.archive_process(process_id)
+
+        self.assertFalse(result.ok)
+        self.assertIsNotNone(self.store.get_metadata(JOURNAL_KEY))
+        for staged in self.external_root.rglob("*.pdf"):
+            staged.unlink()
+
+        summary = self.manager.recover_archive_journal()
+
+        self.assertEqual(summary["state"], "rolled_back")
+        self.assertIsNone(self.store.get_metadata(JOURNAL_KEY))
+        documents = self.store.list_documents(process_id)
+        self.assertEqual(
+            {str(row["storage_state"]) for row in documents},
+            {"HOT"},
+            "falha = todos HOT",
+        )
+        # And the process can be archived again after the recovery.
+        again = self.manager.archive_process(process_id)
+        self.assertTrue(again.ok, again.errors)
 
 
 class ReconcileIntegrityTests(ArchiveTestCase):
