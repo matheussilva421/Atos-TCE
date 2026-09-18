@@ -11,7 +11,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from app.core.jobs import ACQUISITION_STATES, JOB_STATUSES, JobManager
-from app.core.store import SCHEMA_V1, SCHEMA_V2, Store
+from app.core.store import SCHEMA_V1, SCHEMA_V2, SCHEMA_VERSION, Store
 from app.econtas.legacy_queue import (
     FrozenQueueError,
     read_frozen_queue,
@@ -760,7 +760,9 @@ class SchemaV3MigrationTests(unittest.TestCase):
 
             store = Store.open(database)
             try:
-                self.assertEqual(store.schema_version, 3)
+                # The v2 database must migrate forward; the current version is
+                # pinned once, in tests/test_fill_service.py.
+                self.assertEqual(store.schema_version, SCHEMA_VERSION)
                 processes = store.list_processes()
                 self.assertEqual(len(processes), 1)
                 self.assertEqual(processes[0]["acquisition_state"], "NOT_DOWNLOADED")

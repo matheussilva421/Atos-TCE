@@ -199,10 +199,52 @@ processos pendentes; nesse momento os passos 3 a 5 da tarefa 6 se aplicam.
 |---|---|---|
 | 1. Normalizar análise incremental em SQLite | concluída | `2299c4b` |
 | 2. Serviço de análise e encadeamento automático | concluída | `92fcf2a` |
-| 3. Portar regras de fundamento legal para Python | pendente | — |
-| 4. Serviço de evidência e Range de PDF | pendente | — |
-| 5. UI de revisão com PDF viewer integrado | pendente | — |
+| 3. Portar regras de fundamento legal para Python | concluída | `cf8f0b3` |
+| 4. Serviço de evidência e Range de PDF | concluída | `2fee207` |
+| 5. UI de revisão com PDF viewer integrado | concluída | `83f6e4c` |
 | 6. Gate real de equivalência da análise | BLOCKED (supervisionado) | — |
+
+#### Tarefa 3: porte do fundamento legal com oráculo JS
+
+`app/analysis/legal.py` é um porte comportamental de toda a cadeia comprovada:
+`normalizer.js`, `legal-reference-parser-v2.js`, as partes de parser e decisão de
+`legal-foundation.js`, `catalog-option-signature.js`,
+`retirement-legal-profile.js` e `portal-legal-crosswalk.js`.
+
+A paridade não é argumentada, é medida: `tests/legal_parity_harness.mjs` roda o
+JavaScript original sobre `tests/fixtures/legal-cases.json` e o teste compara
+**todo campo** (normalização, os dois parsers, o perfil, as assinaturas de
+catálogo e a decisão final) contra o resultado Python. Foram necessárias três
+correções para convergir, todas encontradas pelo próprio teste:
+
+1. `String(true)` do JS versus `True` do Python em `transition:` do perfil;
+2. `` `${1.0}` `` do JS rende `1` e o Python rendia `1.0`;
+3. `.map(optionParts)` do JS passa o índice como segundo argumento, então
+   `option.index` existe em `selectableOptions` — o porte inicial passava `None`.
+
+#### Tarefa 5: visualizador e evidência
+
+- `app/web/pdf-viewer.js` preserva o contrato comprovado: retângulos
+  normalizados validados, zoom limitado a 75%–300%, rotação em quartos de volta;
+- o bundle PDF.js comprovado foi copiado para `app/web/vendor/pdfjs/`;
+- a URL é sempre `/api/v1/documents/<id>/pdf` — nunca um caminho de arquivo;
+- `GET /api/v1/documents/<id>/pdf` responde 206 com `Content-Range`, aceita
+  apenas um intervalo e devolve 416 para intervalo múltiplo, malformado ou fora
+  do tamanho;
+- a aba **Documentos** e cada campo abrem o documento na página da evidência e
+  pintam os retângulos registrados.
+
+#### M4 Exit Gate
+
+| Critério | Evidência | Classificação |
+|---|---|---|
+| Download concluído agenda análise automaticamente | `test_a_successful_download_schedules_exactly_one_analysis_per_process` | PASS_FIXTURE |
+| Estado vira PRONTO, REVISAR ou ERRO pela análise do backend | testes de `AnalysisService.analyze_one` | PASS_FIXTURE |
+| Regras de campo obrigatório validadas no centro | `tests/test_analysis_service.py` (seis obrigatórios, `genero` opcional) | PASS_FIXTURE |
+| Fundamento legal é do backend com testes de paridade | 23 testes, incluindo comparação campo a campo com o JS | PASS_FIXTURE + PASS_PARITY |
+| Mesa mostra fonte/evidência e PDF integrado | rotas de evidência e Range + viewer com testes Node | PASS_FIXTURE |
+| Análise legada continua disponível como rollback | `LegacyAnalysisAdapter` sem caminho de UI; suíte legada intacta | PASS_PACKAGE |
+| Equivalência real em 10 processos | Requer acervo real e runtime Tesseract | **BLOCKED (supervisionado)** |
 
 #### Decisões de M4 (tarefas 1 e 2)
 
@@ -222,16 +264,50 @@ PRONTO exige os seis campos obrigatórios marcados como found. Os testes cobrem
 os dois lados, inclusive o caso em que falta apenas genero e o status segue
 PRONTO.
 
-### M5 a M6
+### M5 — Thin Extension and Mesa-Driven Form Filling
 
-Não iniciados. Não avançar sem o Exit Gate do marco anterior verde; os gates que
-exigem portal real ficam registrados como supervisionados.
+| Tarefa | Estado | Commit |
+|---|---|---|
+| 1. Máquina de estados do pedido de preenchimento (schema v4) | concluída | `da14094` |
+| 2. Preflight de formulário e plano no backend | concluída | `4c3873f` |
+| 3. Extrair navegação e leitor de formulário para a extensão fina | pendente | — |
+| 4. Implementação única de preenchimento sem submit | pendente | — |
+| 5. Orquestração completa OPEN -> READ -> PREFLIGHT -> FILL | pendente | — |
+| 6. Fallback manual do formulário atual | pendente | — |
+| 7. Gate real supervisionado de preenchimento | BLOCKED (supervisionado) | — |
+
+#### Decisões de M5 (tarefas 1 e 2)
+
+| Decisão | Motivo |
+|---|---|
+| O resultado de um comando só move o pedido se o comando for o esperado para o estado atual | Resultado repetido, atrasado ou de outro pedido nunca cria um segundo FILL_FORM |
+| Identidade divergente bloqueia em vez de seguir | Preencher o ato da pessoa errada é pior do que não preencher |
+| `build_fill_plan` decide **antes** de qualquer escrita e bloqueia tudo se um obrigatório falhar | Preenchimento parcial é pior que ato intocado |
+| Valor já existente igual é `preserved`; divergente bloqueia com `EXISTING_VALUE_DIVERGENCE` | Não sobrescrever o que o portal já registra |
+| Select só aceita proposta que casa por valor ou por rótulo exato; senão `OPTION_NOT_AVAILABLE` | Não inventar opção: o catálogo do portal é a fonte |
+| `fundamento_legal` usa `resolve_legal_foundation` com as opções **atuais** do formulário | Decisão jurídica é do backend e depende do catálogo real da tela |
+| Decisão jurídica não automática mantém o texto localizado e emite aviso | O operador confirma o ato; o backend não decide silenciosamente |
+| Falha do motor jurídico degrada para aviso, não derruba o preenchimento | Um motor indisponível não deve tornar o ato inoperável |
+
+#### Estado da versão do schema
+
+O schema está em **4** e há um único ponto que fixa esse número para a suíte:
+`tests/test_fill_service.py::SchemaV4Tests::test_the_store_reports_schema_four`.
+M6 sobe para 5 e deve atualizar essa asserção; todos os outros testes de
+migração comparam com `SCHEMA_VERSION` e continuam válidos.
+
+### M6 — Packaging, Hybrid Archive, Storage Cleanup and Legacy Retirement
+
+Não iniciado. O gate destrutivo de M6 (limpeza de `Versions/`, staging e ZIPs
+antigos) exige: acervo canônico com cada SHA único, `safe_to_delete=true` da
+auditoria, recibo de migração de M1, suíte completa verde e tag
+`pre-legacy-retirement` — e a autorização explícita do usuário antes de apagar.
 
 ## 9. Estado verificado nesta sessão (2026-09-18)
 
 | Camada | Resultado |
 |---|---|
-| Python (raiz `tests/`) | 208 testes, 208 aprovados |
+| Python (raiz `tests/`) | 291 testes, 291 aprovados |
 | Extensão (`extension/`, `node --test`) | 42 testes, 42 aprovados |
 | Suíte legada PowerShell (`Test-TcePortable.ps1`) | 140 passaram, 0 falharam |
 | `verify-project.ps1` (7 estágios) | verde |
