@@ -427,12 +427,76 @@ O que falta na tarefa 2 (próximo passo):
    `Restaurar documentos` para ARCHIVED, e MISSING exibido como erro, nunca como
    arquivamento bem-sucedido;
 3. testes de rota e de contrato da UI.
-| 3. Inventário de armazenamento e verificador de cópia canônica | pendente | — |
-| 4. Backup completo explícito e manifesto de restauração | pendente | — |
+| 3. Inventário de armazenamento e verificador de cópia canônica | **concluída** | `585f6ad` |
+| 4. Backup completo explícito e manifesto de restauração | **concluída** | `db6be11` |
 | 5. Builder do ZIP portátil sem acervo | pendente | — |
 | 6. Smoke de extração limpa e retenção de dois builds | pendente | — |
 | 7. Limpeza por recibo (destrutiva, exige autorização) | pendente | — |
 | 8. Tornar app/extensão/pacote o padrão e retirar o legado | pendente | — |
+
+#### Tarefa 3 — auditor de armazenamento (somente leitura)
+
+`scripts/storage-audit.py` mede o repositório por categoria (`canonical_data`,
+`dist`, `outputs`, `versions`, `staging`, `temp`, `legacy_archive`, `source`,
+`unknown`) e, para cada árvore candidata a remoção, prova se o acervo canônico
+ainda guarda cada PDF exclusivo dela. A preservação é provada por bytes: blob
+canônico é o arquivo `data/archive/blobs/AA/<sha256>.pdf` cujo nome é o próprio
+hash, e uma linha de `archive_blobs` só conta quando o arquivo apontado existe e
+o tamanho bate (cópia externa incluída). ZIPs são abertos e cada membro PDF é
+hasheado; ZIP ilegível, corrompido ou com arquivo aninhado bloqueia a remoção em
+vez de ser ignorado. Junction/reparse point não é seguido e também bloqueia.
+
+Ensaio real no checkout (21 min de I/O, recibo em `data/logs/storage-audit.json`):
+
+| Categoria | Arquivos | Bytes |
+|---|---|---|
+| canonical_data | 28.361 | 16,97 GB |
+| outputs | 99.854 | 38,06 GB |
+| versions | 33.060 | 10,10 GB |
+| legacy_archive | 32.547 | 9,05 GB |
+| source | 3.534 | 356,9 MB |
+| unknown | 1.103 | 139,0 MB |
+| temp | 87 | 0,2 MB |
+
+| Candidato | PDFs soltos | PDFs em ZIP | Exclusivos | Recuperáveis | safe_to_delete |
+|---|---|---|---|---|---|
+| `Versions` | 14.179 | 3.273 | **3.273** | 14.179 | não |
+| `outputs` | 42.537 | 28.358 | 0 | 14.179 | não |
+| `tmp` | 1 | 0 | 1 | 0 | não |
+| `work/tce-extractor/acervo-tce` | 14.179 | 0 | 0 | 14.179 | **sim** |
+| `work/tce-extractor/outputs` | 0 | 0 | 0 | 0 | sim |
+| `work/outputs` | 0 | 0 | 0 | 0 | sim |
+| `work/tmp` | 0 | 0 | 0 | 0 | sim |
+| `work/tce-extractor/Versions` | ausente | — | — | — | não |
+
+Achados que a tarefa 7/8 precisa respeitar:
+
+1. o acervo canônico está íntegro: 14.179 blobs, 8.892.090.055 bytes,
+   `referenced_without_blob=0`, `malformed_entries=0`, nenhuma cópia externa;
+2. `work/tce-extractor/acervo-tce` (origem, 9,05 GB) tem **todos** os seus PDFs
+   no acervo canônico — é a evidência que faltava para a tarefa 8;
+3. `outputs` (38 GB) não guarda nenhum PDF exclusivo, mas fica bloqueado por dois
+   ZIPs de pacote que contêm `runtime/python/python314.zip` (aninhado) e por 10
+   `trace.zip` **corrompidos** de execuções reais do portal;
+4. `Versions/TCE-Meus-Processos-165-e-Setor-156-Extensao-Reorganizada-2026-09-14.zip`
+   (1,2 GB) guarda um `acervo-tce` antigo com **3.273 PDFs que não existem no
+   acervo canônico**: nada pode remover essa árvore antes de importar os PDFs ou
+   de haver autorização explícita para descartá-los;
+5. `tmp/m1-fixture/processos/102390-2026/evento-0001-7047389/documento-001-Ato.pdf`
+   (22 bytes) é fixture do ensaio de M1, não dado real, e também bloqueia `tmp`.
+
+#### Tarefa 4 — backup explícito com manifesto
+
+`scripts/backup.py` grava um ZIP com o snapshot do SQLite, todos os blobs
+canônicos e `manifest.json` (`schema_version`, `created_at`, `db_sha256`,
+`db_bytes`, `file_count`, `blob_bytes`, `total_bytes`, caminho e SHA-256 de cada
+blob). O banco é copiado pela API de backup do SQLite — o store roda em WAL, e
+uma cópia crua do arquivo perderia as linhas que ainda estão no `-wal`; há teste
+que falha exatamente nesse caso. A escrita vai para `<output>.tmp` e só é
+publicada com `os.replace` depois que o ZIP passa por `testzip()` e o manifesto
+confere com o conteúdo gravado; qualquer falha remove o temporário. Destino
+dentro de `data/archive` é recusado. Backup é ação explícita: `--output` é
+obrigatório e nada agenda a execução.
 
 #### Tarefa 1 — o que já foi promovido (e-Contas)
 
@@ -508,7 +572,7 @@ explícita do usuário. Nada foi removido até agora.
 
 | Camada | Resultado |
 |---|---|
-| Python (raiz `tests/`) | 308 testes, 308 aprovados |
+| Python (raiz `tests/`) | 365 testes, 365 aprovados (inclui `test_storage_audit` e `test_backup`) |
 | Extensão (`extension/`, `node --test`) | 86 testes, 86 aprovados |
 | Suíte legada PowerShell (`Test-TcePortable.ps1`) | 140 passaram, 0 falharam |
 | `verify-project.ps1` (7 estágios) | verde |
