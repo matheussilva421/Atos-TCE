@@ -272,9 +272,37 @@ PRONTO.
 | 2. Preflight de formulário e plano no backend | concluída | `4c3873f` |
 | 3. Extrair navegação e leitor de formulário para a extensão fina | concluída | `a764167` |
 | 4. Implementação única de preenchimento sem submit | concluída | `67a24f7` |
-| 5. Orquestração completa OPEN -> READ -> PREFLIGHT -> FILL | pendente | — |
+| 5. Orquestração completa OPEN -> READ -> PREFLIGHT -> FILL | concluída | `c43fd1c` |
 | 6. Fallback manual do formulário atual | pendente | — |
 | 7. Gate real supervisionado de preenchimento | BLOCKED (supervisionado) | — |
+
+#### Tarefa 5: o que a Mesa comanda hoje
+
+`POST /api/v1/processes/<id>/fill` inicia o fluxo (somente processo `PRONTO`),
+`GET /api/v1/fill-requests/<id>` acompanha o estado, e o resultado de cada
+comando da extensão entra pelo mesmo caminho autenticado já existente. Ao
+receber a releitura do formulário, o backend roda o preflight e ou enfileira
+`FILL_FORM` com o plano, ou bloqueia sem escrever nada. Só uma releitura em que
+**todos** os campos escritos confirmam o proposto marca `PREENCHIDO` e grava o
+evento `form_filled`; qualquer divergência vira `BLOQUEADO`, e uma falha do
+portal vira `ERRO`.
+
+Testes que provam a cadeia inteira pelas rotas reais (não por atalhos):
+abrir -> ler -> preflight -> preencher -> `PREENCHIDO`; valor já existente
+divergente bloqueia e não enfileira `FILL_FORM`; releitura diferente bloqueia;
+falha de verificação nunca marca preenchido; só `PRONTO` pode ser preenchido;
+as rotas exigem sessão da Mesa.
+
+#### M5 Exit Gate (parcial)
+
+| Critério | Evidência | Classificação |
+|---|---|---|
+| Mesa é dona do fluxo de preenchimento | rotas + máquina de estados + testes da cadeia completa | PASS_FIXTURE |
+| A extensão só varre, navega, lê e preenche | 82 testes da extensão; fonte sem superfície de submit | PASS_FIXTURE |
+| O protocolo não consegue enviar um ato | `FORBIDDEN_COMMAND_TYPES` + teste que falha se aparecer | PASS_FIXTURE |
+| Caminho automático e manual usam o mesmo preenchimento | pendente (tarefa 6) | pendente |
+| Preflight do backend é autoritativo | bloqueios por identidade, geração, valor divergente e catálogo | PASS_FIXTURE |
+| Preenchimentos reais releem exatamente o proposto | Requer portal | **BLOCKED (supervisionado)** |
 
 #### Tarefa 3: o que a extensão fina sabe fazer do portal
 
