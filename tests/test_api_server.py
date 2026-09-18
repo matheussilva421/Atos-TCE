@@ -1055,6 +1055,17 @@ class FillOrchestrationTests(ApiTestCase):
         self.assertEqual(status, 200, payload)
         return payload
 
+    def open_result(self):
+        """A realistic OPEN_ACT outcome: the navigation, plus the echoed identity."""
+
+        return {
+            "ok": True,
+            "action": "open_act",
+            "screen": "list",
+            "waitingForFrame": True,
+            "identity": dict(FILL_IDENTITY),
+        }
+
     def read_form_result(self, **overrides):
         fields = {
             name: {"value": "", "disabled": False, "readOnly": False, "options": []}
@@ -1095,7 +1106,7 @@ class FillOrchestrationTests(ApiTestCase):
         open_command = self.claim()
         self.assertEqual(open_command["type"], "OPEN_ACT")
         self.assertEqual(open_command["payload"]["identity"]["processKey"], "102390/2026")
-        self.report(open_command["id"], {"ok": True, "identity": dict(FILL_IDENTITY)})
+        self.report(open_command["id"], self.open_result())
 
         read_command = self.claim()
         self.assertEqual(read_command["type"], "READ_FORM")
@@ -1125,7 +1136,7 @@ class FillOrchestrationTests(ApiTestCase):
     def test_an_existing_divergent_value_blocks_without_queuing_a_fill(self):
         request_id = self.start_fill()
         open_command = self.claim()
-        self.report(open_command["id"], {"ok": True, "identity": dict(FILL_IDENTITY)})
+        self.report(open_command["id"], self.open_result())
         read_command = self.claim()
 
         self.report(
@@ -1144,7 +1155,7 @@ class FillOrchestrationTests(ApiTestCase):
     def test_a_verification_failure_never_marks_the_act_as_filled(self):
         request_id = self.start_fill()
         open_command = self.claim()
-        self.report(open_command["id"], {"ok": True, "identity": dict(FILL_IDENTITY)})
+        self.report(open_command["id"], self.open_result())
         read_command = self.claim()
         self.report(read_command["id"], self.read_form_result())
         fill_command = self.claim()
@@ -1168,7 +1179,7 @@ class FillOrchestrationTests(ApiTestCase):
     def test_a_field_that_rereads_differently_blocks_the_request(self):
         request_id = self.start_fill()
         open_command = self.claim()
-        self.report(open_command["id"], {"ok": True, "identity": dict(FILL_IDENTITY)})
+        self.report(open_command["id"], self.open_result())
         read_command = self.claim()
         self.report(read_command["id"], self.read_form_result())
         fill_command = self.claim()

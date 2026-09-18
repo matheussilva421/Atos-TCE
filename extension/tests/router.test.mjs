@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import { executeCommand, installRouter, scanAreaPages } from "../background/router.js";
 import { fakeChrome } from "./helpers.mjs";
 
+const PORTAL = "https://novaarearestrita.tce.rn.gov.br";
+
 function page(rows, { page: number = 1, total_pages = 1 } = {}) {
   return { role: "list", source_scope: "sector_finalistic", marker: null, page: number, total_pages, rows };
 }
@@ -73,13 +75,24 @@ test("a navigation refusal keeps its code", async () => {
 test("a READ_FORM command returns the sanitized form", async () => {
   const result = await executeCommand(
     { id: 23, type: "READ_FORM", payload: {} },
-    { readForm: async () => ({ identity: IDENTITY, generation: 3, fields: {}, options: {} }) }
+    { readForm: async () => ({ ok: true, form: { identity: IDENTITY, generation: 3, fields: {}, options: {} } }) }
   );
 
   assert.equal(result.command_id, 23);
   assert.equal(result.ok, true);
   assert.equal(result.generation, 3);
   assert.equal(result.identity.processKey, "102390/2026");
+});
+
+test("a refused READ_FORM keeps the code the router reported", async () => {
+  const result = await executeCommand(
+    { id: 27, type: "READ_FORM", payload: {} },
+    { readForm: async () => ({ ok: false, code: "FORM_AMBIGUOUS", error: "mais de uma moldura" }) }
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "FORM_AMBIGUOUS");
+  assert.match(result.error, /moldura/u);
 });
 
 test("a form that never appears fails instead of inventing a snapshot", async () => {
@@ -162,19 +175,23 @@ test("scanAreaPages walks every page and de-duplicates rows", async () => {
   assert.equal(snapshot.source_scope, "sector_finalistic");
 });
 
-test("scanAreaPages stops when the portal stops changing", async () => {
+test("scanAreaPages aborts when the portal keeps reporting the same page", async () => {
   let advances = 0;
 
-  const snapshot = await scanAreaPages({
-    scanPage: async () => page([{ process_key: "102390/2026", interested_normalized: "p" }], { page: 1, total_pages: 9 }),
-    advancePage: async () => {
-      advances += 1;
-      return true;
-    },
-  });
+  await assert.rejects(
+    () =>
+      scanAreaPages({
+        scanPage: async () =>
+          page([{ process_key: "102390/2026", interested_normalized: "p" }], { page: 1, total_pages: 9 }),
+        advancePage: async () => {
+          advances += 1;
+          return true;
+        },
+      }),
+    /paginação incoerente/u
+  );
 
-  assert.equal(snapshot.rows.length, 1);
-  assert.ok(advances <= 2, `expected an early stop, advanced ${advances} times`);
+  assert.equal(advances, 1, "a mixed snapshot must never be persisted");
 });
 
 test("scanAreaPages honours the page cap", async () => {
@@ -276,7 +293,7 @@ test("the router answers the content-script heartbeat", async () => {
 
 test("the sidepanel can read the form the operator opened by hand", async () => {
   const chromeApi = fakeChrome({
-    tabs: [{ id: 7 }],
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
     onMessage: (message) =>
       message.type === "READ_FORM"
         ? { ok: true, form: { identity: { processKey: "102390/2026" }, generation: 4 } }
@@ -296,7 +313,7 @@ test("the sidepanel can read the form the operator opened by hand", async () => 
 
 test("the sidepanel is told when no form is open", async () => {
   const chromeApi = fakeChrome({
-    tabs: [{ id: 7 }],
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/ProcessonoSetor.asp` }],
     onMessage: () => ({ ok: false, error: "o formulário do ato ainda não está disponível" }),
   });
   const router = installRouter({
@@ -312,7 +329,7 @@ test("the sidepanel is told when no form is open", async () => {
 
 test("the router answers the sidepanel READ_CURRENT_FORM message", async () => {
   const chromeApi = fakeChrome({
-    tabs: [{ id: 3 }],
+    tabs: [{ id: 3, active: true, url: `${PORTAL}/complementarato.asp` }],
     onMessage: (message) =>
       message.type === "READ_FORM"
         ? { ok: true, form: { identity: { processKey: "102391/2026" } } }
@@ -344,4 +361,346 @@ test("the router registers a slow recovery alarm", () => {
   assert.equal(chromeApi.alarms.created.length, 1);
   assert.ok(chromeApi.alarms.created[0].info.periodInMinutes >= 1);
   assert.equal(chromeApi.alarmListeners.length, 1);
+});
+
+// ------------------------------------------------------------- CR-02/03/04
+
+/** A router whose retries and waits are instantaneous. */
+const FAST = { retryAttempts: 2, retryDelayMs: 1, formReadAttempts: 1, formReadDelayMs: 1, pageDelayMs: 1 };
+
+function idleApi() {
+  return { nextCommand: async () => ({ ok: true, command: null }), reportResult: async () => {} };
+}
+
+function portalTab(id, { active = false } = {}) {
+  return { id, active, url: `${PORTAL}/ProcessonoSetor.asp` };
+}
+
+test("the scan is addressed to the list frame, not to the top frame", async () => {
+  let pageAdvances = 0;
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1)],
+    frames: {
+      1: [
+        { frameId: 0, url: `${PORTAL}/telaPrincipalMenu.asp` },
+        { frameId: 4, url: `${PORTAL}/ProcessonoSetor.asp` },
+      ],
+    },
+    onMessage: (message, tabId, frameId) => {
+      if (message.type === "SCAN_PAGE") {
+        if (frameId !== 4) {
+          return { ok: true, snapshot: { role: "unknown", rows: [], page: 1, total_pages: 1 } };
+        }
+        const listPageNumber = Math.min(1 + pageAdvances, 2);
+        return {
+          ok: true,
+          snapshot: page(
+            [{ process_key: `10239${listPageNumber}/2026`, interested_normalized: "pessoa exemplo" }],
+            { page: listPageNumber, total_pages: 2 }
+          ),
+        };
+      }
+      if (message.type === "LIST_PAGE") {
+        pageAdvances += 1;
+        return { ok: true, changed: true };
+      }
+      return { ok: false };
+    },
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const snapshot = await router.scanPortal({});
+
+  assert.equal(snapshot.rows.length, 2);
+  const advances = chromeApi.sent.filter((entry) => entry.message.type === "LIST_PAGE");
+  assert.equal(advances.length, 1);
+  assert.equal(advances[0].frameId, 4);
+});
+
+test("two frames claiming to be the list are refused", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1)],
+    frames: { 1: [{ frameId: 0 }, { frameId: 4 }] },
+    onMessage: () => ({ ok: true, snapshot: page([]) }),
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  await assert.rejects(() => router.scanPortal({}), /mais de uma moldura/u);
+});
+
+test("a portal without a list frame is refused", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1)],
+    onMessage: () => ({ ok: true, snapshot: { role: "unknown", rows: [] } }),
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  await assert.rejects(() => router.scanPortal({}), /lista de processos/u);
+});
+
+test("READ_FORM ignores a frame whose form is another act", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1)],
+    frames: { 1: [{ frameId: 0 }, { frameId: 2 }] },
+    onMessage: (message, tabId, frameId) => {
+      if (message.type !== "READ_FORM") return { ok: false };
+      return frameId === 2
+        ? { ok: true, form: { identity: IDENTITY, generation: 4 } }
+        : {
+            ok: true,
+            form: {
+              identity: { processKey: "999999/2026", interestedNormalized: "outra pessoa" },
+              generation: 1,
+            },
+          };
+    },
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const outcome = await router.readForm({ identity: IDENTITY });
+
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.form.generation, 4);
+});
+
+test("two frames with the same act block instead of picking one", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1)],
+    frames: { 1: [{ frameId: 0 }, { frameId: 2 }] },
+    onMessage: () => ({ ok: true, form: { identity: IDENTITY, generation: 4 } }),
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const outcome = await router.readForm({ identity: IDENTITY });
+
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.code, "FORM_AMBIGUOUS");
+});
+
+test("a form that never appears is reported after the bounded wait", async () => {
+  let attempts = 0;
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1)],
+    onMessage: () => {
+      attempts += 1;
+      return { ok: false, error: "ainda não" };
+    },
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const outcome = await router.readForm({ identity: IDENTITY });
+
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.code, "FORM_NOT_AVAILABLE");
+  assert.ok(attempts >= 1);
+});
+
+test("FILL_FORM is written in exactly one confirmed frame", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1)],
+    frames: { 1: [{ frameId: 0 }, { frameId: 2 }, { frameId: 5 }] },
+    onMessage: (message, tabId, frameId) => {
+      if (message.type === "READ_FORM") {
+        if (frameId === 2) return { ok: true, form: { identity: IDENTITY, generation: 4 } };
+        if (frameId === 5) {
+          return {
+            ok: true,
+            form: {
+              identity: { processKey: "999999/2026", interestedNormalized: "outra pessoa" },
+              generation: 1,
+            },
+          };
+        }
+        return { ok: false, error: "sem formulário" };
+      }
+      if (message.type === "FILL_FORM") {
+        return { ok: true, field_results: { cargo: { status: "changed", proposed: "Professor", after: "Professor" } } };
+      }
+      return { ok: false };
+    },
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const outcome = await router.fillForm({ identity: IDENTITY, generation: 4, fields: { cargo: "Professor" } });
+
+  assert.equal(outcome.ok, true);
+  const writes = chromeApi.sent.filter((entry) => entry.message.type === "FILL_FORM");
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].frameId, 2);
+});
+
+test("a fill without a confirmed frame writes nowhere", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1)],
+    onMessage: () => ({ ok: false, error: "sem formulário" }),
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const outcome = await router.fillForm({ identity: IDENTITY, fields: { cargo: "Professor" } });
+
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.code, "FORM_NOT_AVAILABLE");
+  assert.equal(chromeApi.sent.filter((entry) => entry.message.type === "FILL_FORM").length, 0);
+});
+
+test("a frame that disappears is retried and then reported", async () => {
+  let attempts = 0;
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1)],
+    frames: { 1: [{ frameId: 0 }, { frameId: 9 }] },
+    onMessage: (message, tabId, frameId) => {
+      if (frameId === 9) {
+        attempts += 1;
+        throw new Error("frame removed");
+      }
+      return { ok: false, error: "sem formulário" };
+    },
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const outcome = await router.readForm({ identity: IDENTITY });
+
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.code, "FORM_NOT_AVAILABLE");
+  assert.equal(attempts, 2, "the bounded retry must be visible in the count");
+});
+
+test("the manual fallback never reads another tab", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1, { active: true }), portalTab(2)],
+    onMessage: (message, tabId) =>
+      message.type === "READ_FORM" && tabId === 2
+        ? { ok: true, form: { identity: IDENTITY } }
+        : { ok: false, error: "sem formulário" },
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const outcome = await router.readCurrentForm();
+
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.code, "FORM_NOT_AVAILABLE");
+});
+
+test("the manual fallback reads the form of the active tab", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1, { active: true }), portalTab(2)],
+    onMessage: (message, tabId) =>
+      message.type === "READ_FORM" && tabId === 1
+        ? { ok: true, form: { identity: IDENTITY, generation: 7 } }
+        : { ok: false, error: "sem formulário" },
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const outcome = await router.readCurrentForm();
+
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.form.generation, 7);
+});
+
+test("two forms in the active tab block the manual fallback", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1, { active: true })],
+    frames: { 1: [{ frameId: 0 }, { frameId: 3 }] },
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: { identity: IDENTITY } } : { ok: false },
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const outcome = await router.readCurrentForm();
+
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.code, "FORM_AMBIGUOUS");
+});
+
+test("an active tab outside the portal blocks the manual fallback", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 1, active: true, url: "https://example.com/" }],
+    onMessage: () => ({ ok: true, form: { identity: IDENTITY } }),
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const outcome = await router.readCurrentForm();
+
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.code, "PORTAL_TAB_NOT_ACTIVE");
+});
+
+// ------------------------------------------------------------------- CR-14
+
+function listPage({ page: number = 1, total_pages = 2, scope = "sector_finalistic", marker = null, role = "list" } = {}) {
+  return { role, source_scope: scope, marker, page: number, total_pages, rows: [] };
+}
+
+test("scanAreaPages aborts when the sector changes between pages", async () => {
+  const pages = [listPage({ page: 1 }), listPage({ page: 2, scope: "sector_other" })];
+  let index = 0;
+
+  await assert.rejects(
+    () =>
+      scanAreaPages({
+        scanPage: async () => pages[Math.min(index, pages.length - 1)],
+        advancePage: async () => {
+          index += 1;
+          return true;
+        },
+      }),
+    /escopo/u
+  );
+});
+
+test("scanAreaPages aborts when the marker changes between pages", async () => {
+  const pages = [
+    listPage({ page: 1, marker: { label: "A", value: "1" } }),
+    listPage({ page: 2, marker: { label: "B", value: "2" } }),
+  ];
+  let index = 0;
+
+  await assert.rejects(
+    () =>
+      scanAreaPages({
+        scanPage: async () => pages[Math.min(index, pages.length - 1)],
+        advancePage: async () => {
+          index += 1;
+          return true;
+        },
+      }),
+    /marcador/u
+  );
+});
+
+test("scanAreaPages aborts when the role changes between pages", async () => {
+  const pages = [listPage({ page: 1 }), listPage({ page: 2, role: "form" })];
+  let index = 0;
+
+  await assert.rejects(
+    () =>
+      scanAreaPages({
+        scanPage: async () => pages[Math.min(index, pages.length - 1)],
+        advancePage: async () => {
+          index += 1;
+          return true;
+        },
+      }),
+    /papel/u
+  );
+});
+
+test("scanAreaPages freezes the scope and the marker of the first page", async () => {
+  const pages = [
+    listPage({ page: 1, marker: { label: "M", value: "6189" } }),
+    listPage({ page: 2, marker: { label: "M", value: "6189" } }),
+  ];
+  let index = 0;
+
+  const snapshot = await scanAreaPages({
+    scanPage: async () => pages[Math.min(index, pages.length - 1)],
+    advancePage: async () => {
+      index += 1;
+      return true;
+    },
+  });
+
+  assert.equal(snapshot.role, "list");
+  assert.equal(snapshot.source_scope, "sector_finalistic");
+  assert.deepEqual(snapshot.marker, { label: "M", value: "6189" });
 });

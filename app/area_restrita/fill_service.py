@@ -44,6 +44,11 @@ EXPECTED_COMMAND: dict[str, str] = {
 OPEN_ACT_ACTIONS: frozenset[str] = frozenset({"open_act", "select_interested", "already_open"})
 OPEN_ACT_SCREENS: frozenset[str] = frozenset({"list", "interested", "form", "buttons"})
 
+#: Refusals the extension reports when the page itself was ambiguous. They are
+#: not portal failures: the workflow stops for a human instead of looking like
+#: a transient error the operator could retry blindly.
+EXTENSION_BLOCK_CODES: frozenset[str] = frozenset({"FORM_AMBIGUOUS", "IDENTITY_AMBIGUOUS"})
+
 
 class FillError(RuntimeError):
     """Raised when a fill request cannot be created or advanced."""
@@ -69,7 +74,7 @@ def _verified_fields(result: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(entry, Mapping):
             return {"ok": False, "reason": f"resultado inválido para o campo {name}"}
         status = entry.get("status")
-        if status in {"failed", "disabled", "not_found", "missing"}:
+        if status in {"failed", "disabled", "not_found", "missing", "skipped"}:
             return {"ok": False, "reason": f"o campo {name} não foi confirmado ({status})"}
         if status == "changed" and entry.get("after") != entry.get("proposed"):
             return {"ok": False, "reason": f"o campo {name} releu diferente do proposto"}
@@ -183,7 +188,7 @@ class FillService:
             self._block(request, "processo desapareceu durante o preenchimento")
             return
         if result.get("ok") is not True:
-            self._fail(request, str(result.get("error") or "não foi possível abrir o ato"))
+            self._refuse(request, result, "não foi possível abrir o ato")
             return
         action = str(result.get("action") or "").strip().lower()
         screen = str(result.get("screen") or "").strip().lower()
@@ -215,7 +220,7 @@ class FillService:
             self._block(request, "processo desapareceu durante o preenchimento")
             return
         if result.get("ok") is not True:
-            self._fail(request, str(result.get("error") or "não foi possível ler o formulário"))
+            self._refuse(request, result, "não foi possível ler o formulário")
             return
         mismatch = self._identity_mismatch(process, result.get("identity"))
         if mismatch:
@@ -271,7 +276,7 @@ class FillService:
 
         process_id = int(request["process_id"])
         if result.get("ok") is not True:
-            self._fail(request, str(result.get("error") or result.get("code") or "preenchimento recusado pelo portal"))
+            self._refuse(request, result, "preenchimento recusado pelo portal")
             return
         verification = _verified_fields(result)
         if not verification["ok"]:
@@ -328,6 +333,18 @@ class FillService:
         self._set_process_state(
             int(request["process_id"]), "BLOQUEADO", "fill_blocked", {"reason": reason}
         )
+
+    def _refuse(
+        self, request: Mapping[str, Any], result: Mapping[str, Any], fallback: str
+    ) -> None:
+        """A refusal from the extension is a block when the page was ambiguous."""
+
+        code = str(result.get("code") or "").strip().upper()
+        reason = str(result.get("error") or code or fallback)
+        if code in EXTENSION_BLOCK_CODES:
+            self._block(request, reason)
+            return
+        self._fail(request, reason)
 
     def _fail(self, request: Mapping[str, Any], reason: str) -> None:
         self._store.update_fill_request(

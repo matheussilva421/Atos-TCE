@@ -110,7 +110,17 @@ test("the manifest requests no e-Contas access and no scripting permission", () 
   const manifest = JSON.parse(readFileSync(join(extensionRoot, "manifest.json"), "utf8"));
 
   assert.equal(manifest.manifest_version, 3);
-  assert.deepEqual([...manifest.permissions].sort(), ["alarms", "sidePanel", "storage"]);
+  // webNavigation is the frame enumeration the router needs to address the
+  // Área Restrita frames explicitly (CR-02); nothing else may be requested.
+  assert.deepEqual([...manifest.permissions].sort(), [
+    "alarms",
+    "sidePanel",
+    "storage",
+    "webNavigation",
+  ]);
+  for (const forbidden of ["scripting", "tabs", "cookies", "debugger", "webRequest"]) {
+    assert.equal(manifest.permissions.includes(forbidden), false, `the manifest requests ${forbidden}`);
+  }
   assert.equal(JSON.stringify(manifest).includes("econtas"), false);
   assert.equal(JSON.stringify(manifest).includes("<all_urls>"), false);
   assert.deepEqual(manifest.host_permissions, [

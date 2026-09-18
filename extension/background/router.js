@@ -4,6 +4,13 @@
  * It polls the Mesa, executes the specific command it received and reports one
  * sanitized result. It never chooses a process, never writes a form and never
  * finishes an act; an unknown command type is refused instead of guessed.
+ *
+ * Every portal action is addressed to one explicit frame. The Área Restrita
+ * renders its list, its interested step and its act form inside nested frames,
+ * so "send to the tab" can reach the wrong document: the router enumerates the
+ * frames of the portal tabs, asks each one, and only acts on the frame whose
+ * answer carries the exact requested identity. Two matching frames are an
+ * ambiguity and block instead of being resolved by frame order.
  */
 
 import { createApi } from "../lib/api.js";
@@ -12,6 +19,7 @@ import {
   MAX_SCAN_PAGES,
   MESSAGE_TYPES,
   PORTAL_ORIGIN,
+  isPortalUrl,
   isSupportedCommand,
 } from "../lib/protocol.js";
 
@@ -19,9 +27,67 @@ const RETRY_ATTEMPTS = 4;
 const RETRY_DELAY_MS = 300;
 const FORM_READ_ATTEMPTS = 10;
 const FORM_READ_DELAY_MS = 800;
+const FRAME_LIST_ATTEMPTS = 3;
+const FRAME_LIST_DELAY_MS = 250;
 
 function delay(milliseconds) {
   return new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds));
+}
+
+/** Mirrors app/core/identity.py: NFKD, drop marks, casefold, collapse, trim. */
+function canonical(value) {
+  return typeof value === "string"
+    ? value
+        .normalize("NFKD")
+        .replace(/\p{M}+/gu, "")
+        .toLowerCase()
+        .replace(/\s+/gu, " ")
+        .trim()
+    : "";
+}
+
+function identityParts(identity) {
+  return {
+    processKey: String(identity?.processKey ?? identity?.process_key ?? "").trim(),
+    interested: canonical(identity?.interestedNormalized ?? identity?.interested_normalized),
+  };
+}
+
+function hasIdentity(identity) {
+  const parts = identityParts(identity);
+  return Boolean(parts.processKey && parts.interested);
+}
+
+function sameIdentity(left, right) {
+  if (!hasIdentity(left) || !hasIdentity(right)) return false;
+  const wanted = identityParts(left);
+  const observed = identityParts(right);
+  return wanted.processKey === observed.processKey && wanted.interested === observed.interested;
+}
+
+function markerKey(marker) {
+  if (!marker) return "";
+  return `${canonical(marker.label)}\u0000${String(marker.value ?? "")}`;
+}
+
+/** Pagination/context drift between the frozen first page and a later one. */
+function contextDrift(frozen, observed) {
+  if (observed.role !== frozen.role) {
+    return `o papel da página mudou durante a varredura: ${frozen.role} -> ${observed.role}`;
+  }
+  if (observed.source_scope !== frozen.source_scope) {
+    return "o escopo da Área Restrita mudou durante a varredura";
+  }
+  if (markerKey(observed.marker) !== markerKey(frozen.marker)) {
+    return "o marcador da Área Restrita mudou durante a varredura";
+  }
+  if (observed.total_pages !== frozen.total_pages) {
+    return `a paginação da Área Restrita mudou durante a varredura: ${frozen.total_pages} -> ${observed.total_pages}`;
+  }
+  if (!(observed.page > frozen.page)) {
+    return `paginação incoerente: página ${observed.page} depois de ${frozen.page}`;
+  }
+  return null;
 }
 
 /**
@@ -46,15 +112,16 @@ export async function executeCommand(command, dependencies = {}) {
     return { ...outcome, command_id: commandId };
   }
   if (type === COMMAND_TYPES.READ_FORM) {
-    const form = await dependencies.readForm(command.payload ?? {});
-    if (!form) {
+    const outcome = (await dependencies.readForm(command.payload ?? {})) ?? null;
+    if (!outcome || outcome.ok !== true || !outcome.form) {
       return {
         command_id: commandId,
         ok: false,
-        error: "o formulário do ato não apareceu a tempo na Área Restrita",
+        code: outcome?.code ?? "FORM_NOT_AVAILABLE",
+        error: outcome?.error ?? "o formulário do ato não apareceu a tempo na Área Restrita",
       };
     }
-    return { ...form, command_id: commandId, ok: true };
+    return { ...outcome.form, command_id: commandId, ok: true };
   }
   if (type === COMMAND_TYPES.FILL_FORM) {
     const outcome = (await dependencies.fillForm(command.payload ?? {})) ?? {};
@@ -66,164 +133,294 @@ export async function executeCommand(command, dependencies = {}) {
 
 /**
  * Walk the list pages through content-script messages, collecting one sanitized
- * row set. Stops at the reported last page, at the page cap, when the portal
- * cannot advance, or when two consecutive pages look identical (a stalled
- * click must never become an infinite loop).
+ * row set. The context of the first page (role, scope, marker and expected
+ * pagination) is frozen: a later page that changes it, or that reports a page
+ * which did not advance, aborts the scan instead of persisting a mixed partial
+ * snapshot. The scan also stops at the reported last page, at the page cap or
+ * when the portal cannot advance.
  */
 export async function scanAreaPages({ scanPage, advancePage, maxPages = MAX_SCAN_PAGES }) {
   const rows = [];
   const seen = new Set();
-  let sourceScope = null;
-  let marker = null;
-  let role = "unknown";
-  let previousSignature = null;
-  let stagnant = 0;
+  let frozen = null;
 
-  for (let page = 1; page <= maxPages; page += 1) {
-    const snapshot = await scanPage();
-    role = snapshot?.role ?? "unknown";
-    if (snapshot?.source_scope) sourceScope = snapshot.source_scope;
-    if (snapshot?.marker) marker = snapshot.marker;
-    for (const row of snapshot?.rows ?? []) {
+  for (let index = 1; index <= maxPages; index += 1) {
+    const snapshot = (await scanPage()) ?? {};
+    const observed = {
+      role: String(snapshot.role ?? "unknown"),
+      source_scope: snapshot.source_scope ?? null,
+      marker: snapshot.marker ?? null,
+      page: Number(snapshot.page ?? index),
+      total_pages: Number(snapshot.total_pages ?? snapshot.page ?? index),
+    };
+    if (frozen === null) {
+      frozen = observed;
+    } else {
+      const drift = contextDrift(frozen, observed);
+      if (drift) throw new Error(drift);
+      frozen = { ...frozen, page: observed.page };
+    }
+    for (const row of snapshot.rows ?? []) {
       const key = `${row.process_key}\u0000${row.interested_normalized}`;
       if (seen.has(key)) continue;
       seen.add(key);
       rows.push(row);
     }
-
-    const signature = `${snapshot?.page ?? page}:${(snapshot?.rows ?? []).length}`;
-    if (signature === previousSignature) {
-      stagnant += 1;
-    } else {
-      stagnant = 0;
-      previousSignature = signature;
-    }
-    if (stagnant >= 2) break;
-
-    const currentPage = Number(snapshot?.page ?? page);
-    const totalPages = Number(snapshot?.total_pages ?? currentPage);
-    if (!(currentPage < totalPages)) break;
-    if (page >= maxPages) break;
+    if (!(frozen.page < frozen.total_pages)) break;
+    if (index >= maxPages) break;
     const advanced = await advancePage();
     if (!advanced) break;
   }
 
-  return { role, source_scope: sourceScope, marker, rows };
+  return { role: frozen.role, source_scope: frozen.source_scope, marker: frozen.marker, rows };
 }
 
 export function installRouter({
   api = createApi({ storage: globalThis.chrome?.storage?.local }),
   chromeApi = globalThis.chrome,
   verbose = false,
+  timing = {},
 } = {}) {
   let running = false;
-
-  async function findPortalTab() {
-    const tabs = await chromeApi.tabs.query({ url: [`${PORTAL_ORIGIN}/*`] });
-    return tabs?.[0] ?? null;
-  }
-
-  async function sendToTab(tabId, message) {
-    let lastError = null;
-    for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt += 1) {
-      try {
-        return await chromeApi.tabs.sendMessage(tabId, message);
-      } catch (error) {
-        // The tab is often mid-navigation; the content script comes back.
-        lastError = error;
-        await delay(RETRY_DELAY_MS);
-      }
-    }
-    throw lastError ?? new Error("a aba da Área Restrita não respondeu");
-  }
-
-  async function scanPortal() {
-    const tab = await findPortalTab();
-    if (!tab) throw new Error("Nenhuma aba autenticada da Área Restrita está aberta.");
-    return scanAreaPages({
-      scanPage: async () => {
-        const response = await sendToTab(tab.id, { type: MESSAGE_TYPES.SCAN_PAGE });
-        if (response?.ok !== true) throw new Error(response?.error ?? "Falha ao ler a página do portal.");
-        return response.snapshot;
-      },
-      advancePage: async () => {
-        const response = await sendToTab(tab.id, {
-          type: MESSAGE_TYPES.LIST_PAGE,
-          payload: { action: "next" },
-        });
-        if (response?.ok !== true) return false;
-        await delay(400);
-        return true;
-      },
-    });
-  }
+  const retryAttempts = timing.retryAttempts ?? RETRY_ATTEMPTS;
+  const retryDelayMs = timing.retryDelayMs ?? RETRY_DELAY_MS;
+  const formReadAttempts = timing.formReadAttempts ?? FORM_READ_ATTEMPTS;
+  const formReadDelayMs = timing.formReadDelayMs ?? FORM_READ_DELAY_MS;
+  const pageDelayMs = timing.pageDelayMs ?? 400;
 
   async function portalTabs() {
     return (await chromeApi.tabs.query({ url: [`${PORTAL_ORIGIN}/*`] })) ?? [];
   }
 
+  /** Every frame of one portal tab, addressed as (tabId, frameId). */
+  async function framesOfTab(tabId) {
+    let listed = null;
+    for (let attempt = 0; attempt < FRAME_LIST_ATTEMPTS && listed === null; attempt += 1) {
+      try {
+        listed = (await chromeApi.webNavigation?.getAllFrames?.({ tabId })) ?? null;
+      } catch {
+        await delay(FRAME_LIST_DELAY_MS);
+      }
+    }
+    const frames = [];
+    for (const frame of Array.isArray(listed) ? listed : []) {
+      if (!Number.isInteger(frame?.frameId)) continue;
+      if (frame.url !== undefined && !isPortalUrl(frame.url)) continue;
+      frames.push({ tabId, frameId: frame.frameId });
+    }
+    if (frames.length === 0) frames.push({ tabId, frameId: 0 });
+    return frames;
+  }
+
+  /** Every frame of every portal tab, addressed explicitly. */
+  async function portalFrames() {
+    const frames = [];
+    for (const tab of await portalTabs()) {
+      if (tab?.id === undefined || tab?.id === null) continue;
+      frames.push(...(await framesOfTab(tab.id)));
+    }
+    return frames;
+  }
+
+  async function sendToFrame(tabId, frameId, message) {
+    let lastError = null;
+    for (let attempt = 0; attempt < retryAttempts; attempt += 1) {
+      try {
+        return await chromeApi.tabs.sendMessage(tabId, message, { frameId });
+      } catch (error) {
+        // The frame is often mid-navigation; the content script comes back.
+        lastError = error;
+        await delay(retryDelayMs);
+      }
+    }
+    throw lastError ?? new Error("a moldura da Área Restrita não respondeu");
+  }
+
+  /** Ask every portal frame and keep all the answers, never a single first one. */
+  async function askFrames(message) {
+    const answers = [];
+    for (const frame of await portalFrames()) {
+      try {
+        answers.push({ ...frame, response: await sendToFrame(frame.tabId, frame.frameId, message) });
+      } catch (error) {
+        answers.push({ ...frame, error: String(error?.message ?? error) });
+      }
+    }
+    return answers;
+  }
+
+  /** The single frame that really is the act list; zero or several refuse. */
+  async function findListFrame() {
+    const answers = await askFrames({ type: MESSAGE_TYPES.SCAN_PAGE });
+    if (answers.length === 0) {
+      throw new Error("Nenhuma aba autenticada da Área Restrita está aberta.");
+    }
+    const listFrames = answers.filter(
+      (answer) => answer.response?.ok === true && answer.response.snapshot?.role === "list"
+    );
+    if (listFrames.length === 1) return listFrames[0];
+    if (listFrames.length === 0) {
+      throw new Error("nenhuma moldura da Área Restrita responde como lista de processos");
+    }
+    throw new Error(`mais de uma moldura (${listFrames.length}) responde como lista de processos`);
+  }
+
+  async function scanPortal() {
+    const frame = await findListFrame();
+    return scanAreaPages({
+      scanPage: async () => {
+        const response = await sendToFrame(frame.tabId, frame.frameId, {
+          type: MESSAGE_TYPES.SCAN_PAGE,
+        });
+        if (response?.ok !== true) throw new Error(response?.error ?? "Falha ao ler a página do portal.");
+        return response.snapshot;
+      },
+      advancePage: async () => {
+        const response = await sendToFrame(frame.tabId, frame.frameId, {
+          type: MESSAGE_TYPES.LIST_PAGE,
+          payload: { action: "next" },
+        });
+        if (response?.ok !== true) return false;
+        await delay(pageDelayMs);
+        return true;
+      },
+    });
+  }
+
   /**
-   * Ask every Área Restrita tab to open the act. The legacy portal opens the
-   * form in a sibling tab, so the loop is over tabs, not over one document.
+   * Ask every frame to open the act. The portal opens the form in a sibling
+   * tab/frame, so the loop is over frames, not over one document; each content
+   * script only clicks the row or the radio of the exact requested identity.
    */
   async function openAct(payload) {
-    const tabs = await portalTabs();
-    if (tabs.length === 0) {
+    const frames = await portalFrames();
+    if (frames.length === 0) {
       throw new Error("Nenhuma aba autenticada da Área Restrita está aberta.");
     }
     let lastRefusal = { ok: false, code: "SCREEN_NOT_NAVIGABLE" };
-    for (const tab of tabs) {
+    for (const frame of frames) {
       try {
-        const response = await sendToTab(tab.id, { type: MESSAGE_TYPES.OPEN_ACT, payload });
+        const response = await sendToFrame(frame.tabId, frame.frameId, {
+          type: MESSAGE_TYPES.OPEN_ACT,
+          payload,
+        });
         if (response?.ok === true) return response;
         if (response?.ok === false) lastRefusal = response;
       } catch (error) {
-        lastRefusal = { ok: false, code: "TAB_UNREACHABLE", error: String(error?.message ?? error) };
+        lastRefusal = {
+          ok: false,
+          code: "FRAME_UNREACHABLE",
+          error: String(error?.message ?? error),
+        };
       }
     }
     return lastRefusal;
   }
 
-  /** Wait for the act form to appear, then return its sanitized state. */
+  /**
+   * The single frame whose form reports exactly the requested identity.
+   * No match means "not there yet"; more than one is an ambiguity that must
+   * never be resolved by frame order.
+   */
+  async function locateFormFrame(identity) {
+    const answers = await askFrames({ type: MESSAGE_TYPES.READ_FORM, payload: { identity } });
+    const matches = answers.filter(
+      (answer) =>
+        answer.response?.ok === true &&
+        answer.response.form &&
+        sameIdentity(answer.response.form.identity, identity)
+    );
+    if (matches.length === 1) return matches[0];
+    if (matches.length === 0) return null;
+    return { ambiguous: matches.length };
+  }
+
+  /** Wait for the exact act form to appear, then return its sanitized state. */
   async function readForm(payload) {
-    for (let attempt = 0; attempt < FORM_READ_ATTEMPTS; attempt += 1) {
-      for (const tab of await portalTabs()) {
-        try {
-          const response = await sendToTab(tab.id, { type: MESSAGE_TYPES.READ_FORM, payload });
-          if (response?.ok === true && response.form) return response.form;
-        } catch {
-          // The sibling tab is usually still loading on the first attempts.
-        }
+    const identity = payload?.identity ?? {};
+    for (let attempt = 0; attempt < formReadAttempts; attempt += 1) {
+      const located = await locateFormFrame(identity);
+      if (located?.ambiguous) {
+        return {
+          ok: false,
+          code: "FORM_AMBIGUOUS",
+          error: `mais de uma moldura (${located.ambiguous}) tem o formulário do ato`,
+        };
       }
-      await delay(FORM_READ_DELAY_MS);
+      if (located) return { ok: true, form: located.response.form };
+      await delay(formReadDelayMs);
     }
-    return null;
+    return {
+      ok: false,
+      code: "FORM_NOT_AVAILABLE",
+      error: "o formulário do ato não apareceu a tempo na Área Restrita",
+    };
   }
 
-  /** Send the authorized plan to the tab that actually has the form open. */
+  /** Write only into the one frame whose identity was confirmed by reading. */
   async function fillForm(payload) {
-    for (const tab of await portalTabs()) {
-      try {
-        const response = await sendToTab(tab.id, { type: MESSAGE_TYPES.FILL_FORM, payload });
-        if (response && typeof response.ok === "boolean") return response;
-      } catch {
-        // Another frame or a tab without the form; keep looking.
-      }
+    const located = await locateFormFrame(payload?.identity ?? {});
+    if (located?.ambiguous) {
+      return {
+        ok: false,
+        code: "FORM_AMBIGUOUS",
+        error: `mais de uma moldura (${located.ambiguous}) tem o formulário do ato`,
+      };
     }
-    return { ok: false, code: "FORM_NOT_AVAILABLE" };
+    if (!located) {
+      return {
+        ok: false,
+        code: "FORM_NOT_AVAILABLE",
+        error: "nenhuma moldura tem o formulário do ato com a identidade pedida",
+      };
+    }
+    try {
+      return await sendToFrame(located.tabId, located.frameId, {
+        type: MESSAGE_TYPES.FILL_FORM,
+        payload,
+      });
+    } catch (error) {
+      return { ok: false, code: "FORM_UNREACHABLE", error: String(error?.message ?? error) };
+    }
   }
 
-  /** Read the form the operator opened by hand, for the sidepanel fallback. */
+  /**
+   * Read the form the operator opened by hand, for the sidepanel fallback.
+   * The fallback is bound to the *active* tab: falling back to another portal
+   * tab would offer to fill an act the operator is not looking at.
+   */
   async function readCurrentForm() {
-    for (const tab of await portalTabs()) {
+    const tabs = (await chromeApi.tabs.query({ active: true, lastFocusedWindow: true })) ?? [];
+    const tab = tabs[0] ?? null;
+    if (!tab || !isPortalUrl(tab.url)) {
+      return {
+        ok: false,
+        code: "PORTAL_TAB_NOT_ACTIVE",
+        error: "a aba ativa não é uma página autenticada da Área Restrita",
+      };
+    }
+    const matches = [];
+    for (const frame of await framesOfTab(tab.id)) {
       try {
-        const response = await sendToTab(tab.id, { type: MESSAGE_TYPES.READ_FORM });
-        if (response?.ok === true && response.form) return { ok: true, form: response.form };
+        const response = await sendToFrame(tab.id, frame.frameId, { type: MESSAGE_TYPES.READ_FORM });
+        if (response?.ok === true && response.form) matches.push(response.form);
       } catch {
-        // Keep looking: the form may live in another portal tab.
+        // A frame that is navigating is simply not a candidate.
       }
     }
-    return { ok: false, error: "nenhum formulário de ato está aberto na Área Restrita" };
+    if (matches.length === 1) return { ok: true, form: matches[0] };
+    if (matches.length === 0) {
+      return {
+        ok: false,
+        code: "FORM_NOT_AVAILABLE",
+        error: "nenhum formulário de ato está aberto na aba ativa da Área Restrita",
+      };
+    }
+    return {
+      ok: false,
+      code: "FORM_AMBIGUOUS",
+      error: `mais de um formulário (${matches.length}) está aberto na aba ativa`,
+    };
   }
 
   async function poll() {

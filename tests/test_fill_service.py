@@ -218,6 +218,25 @@ class FillStateMachineTests(FillRequestTestCase):
         self.assertIn("lista", request["error"])
         self.assertEqual(self.store.get_process(process_id)["status"], "ERRO")
 
+    def test_an_ambiguous_page_blocks_instead_of_looking_like_a_portal_error(self):
+        # CR-02: the extension refuses to pick between two matching frames.
+        # That is a safety stop, not a transient portal failure.
+        process_id = self.make_process()
+        request_id = self.service.request_fill(process_id)
+        open_command = self.store.claim_extension_command("extension-test")
+
+        self.service.handle_command_result(
+            open_command["id"],
+            {"ok": False, "code": "FORM_AMBIGUOUS", "error": "mais de uma moldura tem o formulário"},
+        )
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "BLOQUEADO")
+        self.assertIn("moldura", request["error"])
+        self.assertEqual(self.store.get_process(process_id)["status"], "BLOQUEADO")
+        events = [event["event_type"] for event in self.store.get_process(process_id)["events"]]
+        self.assertIn("fill_blocked", events)
+
     def test_a_stale_command_result_never_moves_the_request(self):
         process_id = self.make_process()
         request_id = self.service.request_fill(process_id)

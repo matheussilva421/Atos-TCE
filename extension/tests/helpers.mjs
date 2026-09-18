@@ -45,8 +45,28 @@ export function fakeFetch(routes) {
   return fetchImpl;
 }
 
-/** Minimal `chrome` double with tabs, runtime and alarms. */
-export function fakeChrome({ tabs = [], onMessage = null } = {}) {
+function matchesTabQuery(tab, info) {
+  if (info?.active === true && tab.active !== true) return false;
+  if (info?.lastFocusedWindow === true && tab.lastFocusedWindow === false) return false;
+  if (!info?.url) return true;
+  // A tab that does not declare a url stands for "the portal tab" in the
+  // tests that do not care about the URL filter; a tab that declares one must
+  // match the requested pattern.
+  if (typeof tab.url !== "string") return true;
+  const patterns = [].concat(info.url);
+  return patterns.some((pattern) =>
+    pattern.endsWith("*") ? tab.url.startsWith(pattern.slice(0, -1)) : tab.url === pattern
+  );
+}
+
+/**
+ * Minimal `chrome` double with tabs, frames, runtime and alarms.
+ *
+ * `frames` maps a tab id to the frame list that `webNavigation.getAllFrames`
+ * reports. A tab without an entry is its own single top frame; a tab mapped to
+ * `null` models a frame enumeration that fails.
+ */
+export function fakeChrome({ tabs = [], frames = {}, onMessage = null } = {}) {
   const listeners = [];
   const alarmListeners = [];
   const sent = [];
@@ -64,12 +84,22 @@ export function fakeChrome({ tabs = [], onMessage = null } = {}) {
       },
     },
     tabs: {
-      async query() {
-        return tabs;
+      async query(info = {}) {
+        return tabs.filter((tab) => matchesTabQuery(tab, info));
       },
-      async sendMessage(tabId, message) {
-        sent.push({ tabId, message });
-        return onMessage ? onMessage(message, tabId) : { ok: true };
+      async sendMessage(tabId, message, options = {}) {
+        const frameId = options.frameId ?? 0;
+        sent.push({ tabId, frameId, message });
+        return onMessage ? onMessage(message, tabId, frameId) : { ok: true };
+      },
+    },
+    webNavigation: {
+      async getAllFrames({ tabId }) {
+        const declared = frames[tabId];
+        if (declared === null) throw new Error(`tab ${tabId} has no frames`);
+        if (Array.isArray(declared)) return declared;
+        const tab = tabs.find((candidate) => candidate.id === tabId);
+        return [{ frameId: 0, url: tab?.url }];
       },
     },
     alarms: {

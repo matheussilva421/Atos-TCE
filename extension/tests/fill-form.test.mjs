@@ -192,6 +192,62 @@ test("a missing proposal is reported, not invented", () => {
   assert.equal(documentRef.getElementById("txtCargo").writeCount, 0);
 });
 
+test("a later invalid field writes nothing at all", () => {
+  // CR-05: the whole plan is validated before the first control is touched, so
+  // a valid first field can never be written when a later one is refused.
+  const { documentRef } = preparedForm();
+  documentRef.getElementById("txtMatricula").disabled = true;
+  const form = reader.readForm(documentRef);
+
+  const result = filler.applyFill({
+    documentRef,
+    identity: form.identity,
+    generation: form.generation,
+    fields: { cargo: "Professor", matricula: "78.710-8/2" },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "FILL_PRECHECK_FAILED");
+  assert.equal(result.field_results.matricula.status, "disabled");
+  assert.equal(result.field_results.cargo.status, "skipped");
+  assert.equal(documentRef.getElementById("txtCargo").writeCount, 0);
+  assert.equal(documentRef.getElementById("txtMatricula").writeCount, 0);
+});
+
+test("an option that is no longer available holds the whole fill back", () => {
+  const selects = { fundamento_legal: [{ value: "41", label: "Emenda 41/2003" }] };
+  const { documentRef, form } = preparedForm({ selects });
+
+  const result = filler.applyFill({
+    documentRef,
+    identity: form.identity,
+    generation: form.generation,
+    fields: { cargo: "Professor", fundamento_legal: "99" },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.field_results.fundamento_legal.status, "failed");
+  assert.equal(result.field_results.cargo.status, "skipped");
+  assert.equal(documentRef.getElementById("txtCargo").writeCount, 0);
+  assert.equal(documentRef.getElementById("txtFundamentoLegal").writeCount, 0);
+});
+
+test("a control the plan asks for but the form does not have holds everything back", () => {
+  const { documentRef, form } = preparedForm();
+
+  const result = filler.applyFill({
+    documentRef,
+    identity: form.identity,
+    generation: form.generation,
+    fields: { cargo: "Professor", campo_inexistente: "x" },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.field_results.campo_inexistente.status, "not_found");
+  assert.equal(result.field_results.cargo.status, "skipped");
+  assert.equal(documentRef.getElementById("txtCargo").writeCount, 0);
+});
+
 test("the filler cannot submit anything", () => {
   for (const forbidden of FORBIDDEN_COMMAND_TYPES) {
     assert.equal(Object.values(COMMAND_TYPES).includes(forbidden), false, `${forbidden} must not exist`);

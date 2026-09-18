@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Adaptador fino entre a Mesa Local e a Área Restrita do TCE/RN: observa, lê páginas e executa instruções específicas da Mesa. Nunca conclui um ato.",
   "minimum_chrome_version": "116",
-  "permissions": ["alarms", "sidePanel", "storage"],
+  "permissions": ["alarms", "sidePanel", "storage", "webNavigation"],
   "host_permissions": [
     "https://novaarearestrita.tce.rn.gov.br/*",
     "http://127.0.0.1/*"

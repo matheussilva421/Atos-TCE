@@ -22,6 +22,9 @@
     DISABLED: "disabled",
     NOT_FOUND: "not_found",
     FAILED: "failed",
+    //: A field that would have been written, but was held back because another
+    //: field failed the local check. It proves that nothing was written.
+    SKIPPED: "skipped",
   });
 
   function normalize(value) {
@@ -84,6 +87,11 @@
    * Returns ``{ok, identity, generation_after, field_results, code}``. Nothing
    * is written unless the identity, the generation and every planned control
    * agree beforehand; every written or preserved field is reread afterwards.
+   *
+   * The fill runs in two phases. Phase A validates every field without
+   * touching a control; a single invalid field ends the whole fill with zero
+   * writes, because a partially written act is worse than an untouched one.
+   * Phase B writes only after phase A passed completely.
    */
   function applyFill({ documentRef = globalThis.document, identity, generation, fields = {}, deps = {} } = {}) {
     const reader = deps.reader ?? globalThis.TCEFormReader;
@@ -100,65 +108,90 @@
       return { ok: false, code: "STALE_GENERATION", generation_after: before.generation, field_results: {} };
     }
 
+    // ------------------------------------------------- phase A: no writes
     const fieldResults = {};
-    const intended = {};
+    const plans = [];
     for (const [field, proposedValue] of Object.entries(fields)) {
       const proposal = proposedValue === null || proposedValue === undefined ? "" : String(proposedValue);
       const control = controlOf(documentRef, field);
       const current = before.fields?.[field]?.value ?? "";
+      const entry = { before: current, proposed: proposal, after: current, status: FIELD_STATUS.MISSING };
+      const plan = { field, entry, control, proposal, writable: false };
+      fieldResults[field] = entry;
+      plans.push(plan);
       if (proposal === "") {
-        fieldResults[field] = { before: current, proposed: proposal, after: current, status: FIELD_STATUS.MISSING };
         continue;
       }
       if (!control) {
-        fieldResults[field] = { before: current, proposed: proposal, after: current, status: FIELD_STATUS.NOT_FOUND };
+        entry.status = FIELD_STATUS.NOT_FOUND;
         continue;
       }
       if (control.disabled === true || control.readOnly === true) {
-        fieldResults[field] = { before: current, proposed: proposal, after: current, status: FIELD_STATUS.DISABLED };
+        entry.status = FIELD_STATUS.DISABLED;
         continue;
       }
       if (current === proposal) {
-        fieldResults[field] = { before: current, proposed: proposal, after: current, status: FIELD_STATUS.PRESERVED };
-        intended[field] = proposal;
+        entry.status = FIELD_STATUS.PRESERVED;
         continue;
       }
       if (String(control.tagName ?? "").toUpperCase() === "SELECT" && !optionValueExists(control, proposal)) {
-        fieldResults[field] = { before: current, proposed: proposal, after: current, status: FIELD_STATUS.FAILED };
+        entry.status = FIELD_STATUS.FAILED;
         continue;
       }
+      entry.status = FIELD_STATUS.CHANGED;
+      plan.writable = true;
+    }
+
+    const refused = plans.some(
+      (plan) => plan.entry.status !== FIELD_STATUS.PRESERVED && plan.writable !== true
+    );
+    if (refused) {
+      for (const plan of plans) {
+        if (plan.writable) plan.entry.status = FIELD_STATUS.SKIPPED;
+      }
+      return {
+        ok: false,
+        code: "FILL_PRECHECK_FAILED",
+        identity: before.identity,
+        generation_after: before.generation,
+        field_results: fieldResults,
+      };
+    }
+
+    // ------------------------------------------- phase B: write and reread
+    for (const plan of plans) {
+      if (!plan.writable) continue;
       try {
-        writeControl(documentRef, control, proposal);
+        writeControl(documentRef, plan.control, plan.proposal);
+        plan.entry.after = String(plan.control.value ?? "");
       } catch (error) {
-        fieldResults[field] = {
-          before: current,
-          proposed: proposal,
-          after: String(control.value ?? ""),
-          status: FIELD_STATUS.FAILED,
-          error: String(error?.message ?? error),
-        };
-        continue;
+        plan.entry.status = FIELD_STATUS.FAILED;
+        plan.entry.after = String(plan.control.value ?? "");
+        plan.entry.error = String(error?.message ?? error);
       }
-      fieldResults[field] = { before: current, proposed: proposal, after: String(control.value ?? ""), status: FIELD_STATUS.CHANGED };
-      intended[field] = proposal;
     }
 
     // Reread the form: only what the DOM really reports counts as filled.
     const after = reader.readForm(documentRef);
     let verified = true;
-    for (const [field, proposal] of Object.entries(intended)) {
-      const reported = after?.fields?.[field]?.value ?? "";
-      fieldResults[field].after = reported;
-      if (reported !== proposal) {
-        fieldResults[field].status = FIELD_STATUS.FAILED;
+    for (const plan of plans) {
+      if (plan.entry.status !== FIELD_STATUS.CHANGED) continue;
+      const reported = after?.fields?.[plan.field]?.value ?? "";
+      plan.entry.after = reported;
+      if (reported !== plan.proposal) {
+        plan.entry.status = FIELD_STATUS.FAILED;
         verified = false;
       }
     }
     for (const entry of Object.values(fieldResults)) {
       if (
-        [FIELD_STATUS.FAILED, FIELD_STATUS.DISABLED, FIELD_STATUS.NOT_FOUND, FIELD_STATUS.MISSING].includes(
-          entry.status
-        )
+        [
+          FIELD_STATUS.FAILED,
+          FIELD_STATUS.DISABLED,
+          FIELD_STATUS.NOT_FOUND,
+          FIELD_STATUS.MISSING,
+          FIELD_STATUS.SKIPPED,
+        ].includes(entry.status)
       ) {
         verified = false;
       }
