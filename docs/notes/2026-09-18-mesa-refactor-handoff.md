@@ -389,17 +389,81 @@ migração comparam com `SCHEMA_VERSION` e continuam válidos.
 
 ### M6 — Packaging, Hybrid Archive, Storage Cleanup and Legacy Retirement
 
-Não iniciado. O gate destrutivo de M6 (limpeza de `Versions/`, staging e ZIPs
-antigos) exige: acervo canônico com cada SHA único, `safe_to_delete=true` da
-auditoria, recibo de migração de M1, suíte completa verde e tag
-`pre-legacy-retirement` — e a autorização explícita do usuário antes de apagar.
+| Tarefa | Estado | Commit |
+|---|---|---|
+| 1. Remover dependência operacional de `work/tce-extractor/portable` | **parcial** (e-Contas promovido; análise pendente) | `ec2234d` |
+| 2. Arquivo híbrido HOT/ARCHIVED/MISSING (schema v5) | pendente | — |
+| 3. Inventário de armazenamento e verificador de cópia canônica | pendente | — |
+| 4. Backup completo explícito e manifesto de restauração | pendente | — |
+| 5. Builder do ZIP portátil sem acervo | pendente | — |
+| 6. Smoke de extração limpa e retenção de dois builds | pendente | — |
+| 7. Limpeza por recibo (destrutiva, exige autorização) | pendente | — |
+| 8. Tornar app/extensão/pacote o padrão e retirar o legado | pendente | — |
+
+#### Tarefa 1 — o que já foi promovido (e-Contas)
+
+`app/econtas/runtime/` agora contém os quatro arquivos comprovados
+(`Coletar-Processos-TCE.ps1`, `TcePortable.Core.psm1`, `TceFrozenQueue.psm1`,
+`TcePortal.Driver.js`) e `app/econtas/collector.py` aponta para lá. Duas
+decisões ficaram registradas:
+
+* a cópia promovida ganhou `-RaizEstado` para que perfil de navegador e bridge
+  fiquem sob a raiz de dados (`data/dados-locais/...`) e nunca dentro de `app/`.
+  Sem isso, promover o script moveria silenciosamente o perfil autenticado do
+  operador — uma regressão operacional real. O script legado continua intacto;
+* a preparação incremental (`-ModoPreparacao progressivo|completo`) continua
+  exigindo a árvore legada e está documentada no cabeçalho da cópia promovida. A
+  Mesa roda sempre com `nenhum` (M4), e há teste que exige isso.
+
+#### Tarefa 1 — o que falta (análise)
+
+Medição feita com um script de fechamento transitivo de imports
+(`tmp/closure.py`, descartável):
+
+```
+42.1KB  analysis_pipeline.py     (portable/app)
+29.9KB  legal_context.py         (portable/app)
+24.0KB  extension_exporter.py    (portable/app)  <- proibido pelo plano
+12.2KB  archive_index.py         (portable/app)
+11.3KB  evidence_geometry.py     (portable/app)
+11.1KB  incremental_pipeline.py  (portable/app)
+19.7KB  batch_runner.py          (RAIZ do extrator)
+28.9KB  tce_extractor.py         (RAIZ do extrator)
+80.9KB  html_generator.py        (RAIZ do extrator) <- proibido pelo plano
+```
+
+Ou seja: o motor de análise atravessa **duas** pastas e o `run_manifest` de
+`batch_runner` puxa `html_generator`. O plano proíbe carregar HTML/exportador,
+então a promoção exige uma cópia de `batch_runner` com o passo de apresentação
+removido (o dado que a Mesa consome é `processes[].result`, não o relatório) e uma
+cópia de `publish_results` sem `dataset.json`/HTML. Copiar os seis módulos de
+`portable/app` é direto; o trabalho real está em `batch_runner`/`tce_extractor`.
+
+Passos que faltam para fechar a tarefa 1:
+
+1. criar `app/analysis/engine/` com os seis módulos (imports relativos, sem `sys.path`);
+2. adaptar `run_manifest` sem HTML e `publish_results` sem exportador/HTML;
+3. trocar o `sys.path` de `app/analysis/legacy_adapter.py` por import normal;
+4. criar `tests/test_no_legacy_paths.py` com a asserção do plano (nenhum arquivo
+   `.py/.ps1/.psm1/.js` em `app/` pode citar `work/tce-extractor`) — ela só passa
+   depois dos passos 1 a 3;
+5. rodar a suíte Python, os testes PowerShell do coletor contra os módulos
+   promovidos e os testes de análise cujo comportamento foi promovido.
+
+#### Gate destrutivo de M6
+
+As tarefas 7 e 8 (limpeza de `Versions/`, staging e ZIPs antigos; retirada do
+legado) exigem, antes de qualquer remoção: acervo canônico contendo **todo** SHA
+único da árvore candidata, `safe_to_delete=true` da auditoria, recibo de migração
+de M1, suíte completa verde e tag `pre-legacy-retirement` — e a autorização
+explícita do usuário. Nada foi removido até agora.
 
 ## 9. Estado verificado nesta sessão (2026-09-18)
 
 | Camada | Resultado |
 |---|---|
-| Python (raiz `tests/`) | 291 testes, 291 aprovados |
-| Extensão (`extension/`, `node --test`) | 42 testes, 42 aprovados |
+| Python (raiz `tests/`) | 308 testes, 308 aprovados |
+| Extensão (`extension/`, `node --test`) | 86 testes, 86 aprovados |
 | Suíte legada PowerShell (`Test-TcePortable.ps1`) | 140 passaram, 0 falharam |
 | `verify-project.ps1` (7 estágios) | verde |
 | Banco real `data/atos-tce.db` | schema 3, 739 processos, 14.483 documentos e 14.179 blobs |
