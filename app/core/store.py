@@ -29,7 +29,7 @@ from .models import (
     status_rank,
 )
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class StoreError(RuntimeError):
@@ -203,6 +203,28 @@ SCHEMA_V3: tuple[str, ...] = (
     "WHERE EXISTS (SELECT 1 FROM documents WHERE documents.process_id = processes.id)",
 )
 
+SCHEMA_V4: tuple[str, ...] = (
+    """
+    CREATE TABLE portal_fill_requests (
+      id INTEGER PRIMARY KEY,
+      process_id INTEGER NOT NULL REFERENCES processes(id) ON DELETE CASCADE,
+      state TEXT NOT NULL,
+      mode TEXT NOT NULL,
+      current_command_id INTEGER,
+      form_snapshot TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+    """,
+    "ALTER TABLE extension_commands ADD COLUMN fill_request_id INTEGER",
+    "CREATE INDEX idx_fill_requests_process ON portal_fill_requests(process_id, state)",
+    "CREATE INDEX idx_commands_fill_request ON extension_commands(fill_request_id)",
+)
+
+#: Sentinel that distinguishes "leave this column alone" from "set it to NULL".
+_UNSET: Any = object()
+
 
 class Store:
     """Owns one SQLite database and every workflow decision persisted in it."""
@@ -283,6 +305,10 @@ class Store:
             return
         if target == 3:
             for statement in SCHEMA_V3:
+                connection.execute(statement)
+            return
+        if target == 4:
+            for statement in SCHEMA_V4:
                 connection.execute(statement)
             return
         raise StoreError(f"no migration is defined for schema_version {target}")
@@ -536,6 +562,128 @@ class Store:
                 ),
             )
             return int(cursor.lastrowid)
+
+    def queue_fill_command(
+        self, command_type: str, payload: dict[str, Any] | None, fill_request_id: int
+    ) -> int:
+        """Queue a command that belongs to one fill request (M5)."""
+
+        with self._transaction() as connection:
+            cursor = connection.execute(
+                "INSERT INTO extension_commands (command_type, payload, state, created_at, fill_request_id) "
+                "VALUES (?, ?, 'QUEUED', ?, ?)",
+                (
+                    command_type,
+                    json.dumps(payload or {}, ensure_ascii=False, sort_keys=True),
+                    utc_now(),
+                    int(fill_request_id),
+                ),
+            )
+            return int(cursor.lastrowid)
+
+    # ----------------------------------------------------------- fill requests
+
+    def create_fill_request(
+        self,
+        process_id: int,
+        *,
+        state: str = "OPENING",
+        mode: str = "automatic",
+        form_snapshot: dict[str, Any] | None = None,
+    ) -> int:
+        now = utc_now()
+        with self._transaction() as connection:
+            if connection.execute(
+                "SELECT 1 FROM processes WHERE id = ?", (process_id,)
+            ).fetchone() is None:
+                raise ValueError(f"unknown process: {process_id}")
+            cursor = connection.execute(
+                "INSERT INTO portal_fill_requests "
+                "(process_id, state, mode, form_snapshot, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    process_id,
+                    state,
+                    mode,
+                    json.dumps(form_snapshot, ensure_ascii=False, sort_keys=True)
+                    if form_snapshot is not None
+                    else None,
+                    now,
+                    now,
+                ),
+            )
+            return int(cursor.lastrowid)
+
+    def update_fill_request(
+        self,
+        request_id: int,
+        *,
+        state: str | None = None,
+        current_command_id: Any = _UNSET,
+        error: Any = _UNSET,
+        form_snapshot: Any = _UNSET,
+    ) -> None:
+        assignments = ["updated_at = ?"]
+        parameters: list[Any] = [utc_now()]
+        if state is not None:
+            assignments.append("state = ?")
+            parameters.append(state)
+        if current_command_id is not _UNSET:
+            assignments.append("current_command_id = ?")
+            parameters.append(None if current_command_id is None else int(current_command_id))
+        if error is not _UNSET:
+            assignments.append("error = ?")
+            parameters.append(error)
+        if form_snapshot is not _UNSET:
+            assignments.append("form_snapshot = ?")
+            parameters.append(
+                json.dumps(form_snapshot, ensure_ascii=False, sort_keys=True)
+                if form_snapshot is not None
+                else None
+            )
+        parameters.append(request_id)
+        with self._transaction() as connection:
+            updated = connection.execute(
+                f"UPDATE portal_fill_requests SET {', '.join(assignments)} WHERE id = ?",
+                tuple(parameters),
+            ).rowcount
+            if not updated:
+                raise ValueError(f"unknown fill request: {request_id}")
+
+    def get_fill_request(self, request_id: int) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM portal_fill_requests WHERE id = ?", (request_id,)
+            ).fetchone()
+        return self._decode_fill_request(row) if row is not None else None
+
+    def list_fill_requests(
+        self, *, process_id: int | None = None, state: str | None = None
+    ) -> list[dict[str, Any]]:
+        query = "SELECT * FROM portal_fill_requests"
+        clauses: list[str] = []
+        parameters: list[Any] = []
+        if process_id is not None:
+            clauses.append("process_id = ?")
+            parameters.append(process_id)
+        if state is not None:
+            clauses.append("state = ?")
+            parameters.append(state)
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY id"
+        with self._lock:
+            return [
+                self._decode_fill_request(row)
+                for row in self._connection.execute(query, tuple(parameters))
+            ]
+
+    @staticmethod
+    def _decode_fill_request(row: sqlite3.Row) -> dict[str, Any]:
+        request = dict(row)
+        raw = request.get("form_snapshot")
+        request["form_snapshot"] = json.loads(raw) if raw else None
+        return request
 
     def claim_extension_command(self, client_id: str) -> dict[str, Any] | None:
         """Atomically claim the oldest queued command for ``client_id``.
