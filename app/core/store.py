@@ -333,6 +333,17 @@ class Store:
                 for row in self._connection.execute("SELECT * FROM documents ORDER BY id")
             ]
 
+    def document_counts(self) -> dict[int, int]:
+        """Return ``{process_id: document_count}`` for the process list."""
+
+        with self._lock:
+            return {
+                int(row["process_id"]): int(row["n"])
+                for row in self._connection.execute(
+                    "SELECT process_id, COUNT(*) AS n FROM documents GROUP BY process_id"
+                )
+            }
+
     def get_document(self, document_id: int) -> dict[str, Any] | None:
         with self._lock:
             row = self._connection.execute(
