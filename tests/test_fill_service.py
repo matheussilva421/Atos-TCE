@@ -313,11 +313,11 @@ class ManualFallbackTests(FillRequestTestCase):
 
 
 class SchemaV4Tests(FillRequestTestCase):
-    def test_the_store_reports_schema_four(self):
+    def test_the_store_reports_the_current_schema_version(self):
         # The single place that pins the current schema version for the whole
         # suite; a milestone that bumps it must update this assertion.
         self.assertEqual(self.store.schema_version, SCHEMA_VERSION)
-        self.assertEqual(SCHEMA_VERSION, 4)
+        self.assertEqual(SCHEMA_VERSION, 5)
 
     def test_a_fill_request_round_trips_its_json_snapshot(self):
         process_id = self.make_process()

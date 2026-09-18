@@ -392,7 +392,35 @@ migração comparam com `SCHEMA_VERSION` e continuam válidos.
 | Tarefa | Estado | Commit |
 |---|---|---|
 | 1. Remover dependência operacional de `work/tce-extractor/portable` | **concluída** | `ec2234d`, `ae80073` |
-| 2. Arquivo híbrido HOT/ARCHIVED/MISSING (schema v5) | pendente | — |
+| 2. Arquivo híbrido HOT/ARCHIVED/MISSING (schema v5) | **parcial** (núcleo pronto; rotas e UI pendentes) | — |
+
+#### Tarefa 2 — núcleo do arquivo híbrido
+
+Schema **v5** com `archive_blobs` (sha256 como chave, tamanho, caminho local,
+caminho externo, presença local/externa e `verified_at`) e a migração 4 → 5, que
+registra os SHAs já referenciados pelos documentos. Presença **não** é presumida
+pela migração: o reconciliador verifica o filesystem e só então vira a flag.
+
+`app/archive/manager.py` implementa `archive_process`, `restore_process` e
+`reconcile_locations` com a regra que dá nome à tarefa: **nunca perder a última
+cópia verificada**. Arquivar copia o blob para o destino externo, confere o hash
+da cópia, e só então remove o link da visão de processo; o blob canônico local só
+sai quando nenhum documento HOT ainda precisa dele. Qualquer falha deixa o SHA
+inteiro como estava.
+
+Um defeito real apareceu no teste do reconciliador: a varredura cobria apenas os
+SHAs registrados na migração, então um documento criado depois nunca teria sua
+presença conferida. Agora ela percorre a união entre blobs registrados e SHAs
+referenciados pelos documentos (`Store.list_document_shas`).
+
+O que falta na tarefa 2 (próximo passo):
+
+1. `POST /api/v1/processes/ID/archive` (sessão da Mesa; exige `external_root`
+   configurado em `metadata`) e `POST /api/v1/processes/ID/restore`;
+2. controles na Mesa: `Arquivar processo` só para processo concluído/inativo,
+   `Restaurar documentos` para ARCHIVED, e MISSING exibido como erro, nunca como
+   arquivamento bem-sucedido;
+3. testes de rota e de contrato da UI.
 | 3. Inventário de armazenamento e verificador de cópia canônica | pendente | — |
 | 4. Backup completo explícito e manifesto de restauração | pendente | — |
 | 5. Builder do ZIP portátil sem acervo | pendente | — |

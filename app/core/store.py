@@ -29,7 +29,7 @@ from .models import (
     status_rank,
 )
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 class StoreError(RuntimeError):
@@ -222,6 +222,26 @@ SCHEMA_V4: tuple[str, ...] = (
     "CREATE INDEX idx_commands_fill_request ON extension_commands(fill_request_id)",
 )
 
+SCHEMA_V5: tuple[str, ...] = (
+    """
+    CREATE TABLE archive_blobs (
+      sha256 TEXT PRIMARY KEY,
+      size_bytes INTEGER NOT NULL DEFAULT 0,
+      local_relative_path TEXT,
+      external_path TEXT,
+      local_present INTEGER NOT NULL DEFAULT 0,
+      external_present INTEGER NOT NULL DEFAULT 0,
+      verified_at TEXT
+    )
+    """,
+    # Presence is not assumed from the documents table: the reconciler verifies
+    # the canonical path and only then flips the flag.
+    "INSERT INTO archive_blobs (sha256, local_relative_path) "
+    "SELECT DISTINCT sha256, 'archive/blobs/' || substr(sha256, 1, 2) || '/' || sha256 || '.pdf' "
+    "FROM documents WHERE sha256 NOT IN (SELECT sha256 FROM archive_blobs)",
+    "CREATE INDEX idx_archive_blobs_presence ON archive_blobs(local_present, external_present)",
+)
+
 #: Sentinel that distinguishes "leave this column alone" from "set it to NULL".
 _UNSET: Any = object()
 
@@ -309,6 +329,10 @@ class Store:
             return
         if target == 4:
             for statement in SCHEMA_V4:
+                connection.execute(statement)
+            return
+        if target == 5:
+            for statement in SCHEMA_V5:
                 connection.execute(statement)
             return
         raise StoreError(f"no migration is defined for schema_version {target}")
@@ -1172,6 +1196,135 @@ class Store:
             ]
 
     # ----------------------------------------------------------------- summary
+
+    # --------------------------------------------------------------- metadata
+
+    def get_metadata(self, key: str, default: str | None = None) -> str | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT value FROM metadata WHERE key = ?", (key,)
+            ).fetchone()
+        return str(row["value"]) if row is not None else default
+
+    def set_metadata(self, key: str, value: str | None) -> None:
+        with self._transaction() as connection:
+            if value is None:
+                connection.execute("DELETE FROM metadata WHERE key = ?", (key,))
+                return
+            connection.execute(
+                "INSERT INTO metadata (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, str(value)),
+            )
+
+    # ----------------------------------------------------------- archive blobs
+
+    def upsert_archive_blob(
+        self,
+        sha256: str,
+        *,
+        size_bytes: int | None = None,
+        local_relative_path: str | None = None,
+        external_path: str | None = None,
+        local_present: bool | None = None,
+        external_present: bool | None = None,
+        verified_at: str | None = None,
+    ) -> None:
+        """Record where one canonical byte sequence lives right now."""
+
+        now = utc_now()
+        with self._transaction() as connection:
+            connection.execute(
+                "INSERT INTO archive_blobs (sha256, size_bytes, local_relative_path, external_path, "
+                "local_present, external_present, verified_at) VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(sha256) DO UPDATE SET "
+                "size_bytes = CASE WHEN excluded.size_bytes > 0 THEN excluded.size_bytes ELSE archive_blobs.size_bytes END, "
+                "local_relative_path = COALESCE(excluded.local_relative_path, archive_blobs.local_relative_path), "
+                "external_path = COALESCE(excluded.external_path, archive_blobs.external_path), "
+                "local_present = COALESCE(excluded.local_present, archive_blobs.local_present), "
+                "external_present = COALESCE(excluded.external_present, archive_blobs.external_present), "
+                "verified_at = COALESCE(excluded.verified_at, archive_blobs.verified_at)",
+                (
+                    sha256,
+                    int(size_bytes or 0),
+                    local_relative_path,
+                    external_path,
+                    0 if local_present is None else int(bool(local_present)),
+                    0 if external_present is None else int(bool(external_present)),
+                    verified_at or now,
+                ),
+            )
+
+    def get_archive_blob(self, sha256: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM archive_blobs WHERE sha256 = ?", (sha256,)
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def list_archive_blobs(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return [
+                dict(row)
+                for row in self._connection.execute("SELECT * FROM archive_blobs ORDER BY sha256")
+            ]
+
+    def set_blob_presence(
+        self,
+        sha256: str,
+        *,
+        local_present: bool | None = None,
+        external_present: bool | None = None,
+        external_path: str | None = None,
+        size_bytes: int | None = None,
+        verified_at: str | None = None,
+    ) -> None:
+        self.upsert_archive_blob(
+            sha256,
+            size_bytes=size_bytes,
+            external_path=external_path,
+            local_present=local_present,
+            external_present=external_present,
+            verified_at=verified_at,
+        )
+
+    def mark_document_storage_state(self, document_id: int, state: str) -> None:
+        with self._transaction() as connection:
+            updated = connection.execute(
+                "UPDATE documents SET storage_state = ? WHERE id = ?", (state, document_id)
+            ).rowcount
+            if not updated:
+                raise ValueError(f"unknown document: {document_id}")
+
+    def documents_for_sha(self, sha256: str) -> list[dict[str, Any]]:
+        with self._lock:
+            return [
+                dict(row)
+                for row in self._connection.execute(
+                    "SELECT * FROM documents WHERE sha256 = ? ORDER BY id", (sha256,)
+                )
+            ]
+
+    def count_hot_documents(self, sha256: str) -> int:
+        """How many HOT documents still need these bytes on this machine."""
+
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT COUNT(*) AS n FROM documents WHERE sha256 = ? AND storage_state = 'HOT'",
+                (sha256,),
+            ).fetchone()
+        return int(row["n"])
+
+    def list_document_shas(self) -> list[str]:
+        """Every SHA the documents reference, registered or not."""
+
+        with self._lock:
+            return [
+                str(row["sha256"])
+                for row in self._connection.execute(
+                    "SELECT DISTINCT sha256 FROM documents ORDER BY sha256"
+                )
+            ]
 
     def storage_summary(self) -> dict[str, Any]:
         """Database-side totals for the Mesa storage panel."""
