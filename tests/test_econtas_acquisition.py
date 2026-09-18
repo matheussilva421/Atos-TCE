@@ -43,9 +43,13 @@ def legacy_load_frozen_queue(path, lot_number=None):
     return module.load_frozen_queue(Path(path), lot_number=lot_number)
 
 
-def powershell_read_frozen_queue(path):
+LEGACY_QUEUE_MODULE = ".\\work\\tce-extractor\\portable\\TceFrozenQueue.psm1"
+PROMOTED_QUEUE_MODULE = ".\\app\\econtas\\runtime\\TceFrozenQueue.psm1"
+
+
+def powershell_read_frozen_queue(path, module=LEGACY_QUEUE_MODULE):
     script = (
-        "Import-Module '.\\work\\tce-extractor\\portable\\TceFrozenQueue.psm1'; "
+        f"Import-Module '{module}'; "
         f"Read-TceFrozenQueue -Path '{path}' | ConvertTo-Json -Depth 10 -Compress"
     )
     return subprocess.run(
@@ -362,6 +366,17 @@ class FrozenQueueWriterTests(AcquisitionTestCase):
         self.assertEqual(payload["queue_size"], 2)
         self.assertEqual(payload["source_scope"], "sector_finalistic")
 
+    def test_the_promoted_powershell_validator_reads_the_same_queue(self):
+        self.write(["102390/2026", "102391/2026"], lot_size=1)
+
+        result = powershell_read_frozen_queue(self.queue_path, PROMOTED_QUEUE_MODULE)
+
+        # The promoted module must stand on its own, next to the adapter.
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout.strip().splitlines()[-1])
+        self.assertEqual(payload["queue_size"], 2)
+        self.assertEqual(payload["source_scope"], "sector_finalistic")
+
     def test_reading_back_detects_tampering(self):
         info = self.write(["102390/2026"])
         self.assertEqual(read_frozen_queue(self.queue_path)["analysis_id"], info.analysis_id)
@@ -402,6 +417,43 @@ class CollectorCommandTests(unittest.TestCase):
 
         self.assertNotIn("-Selecao", command)
         self.assertNotIn("-ServiceChild", command)
+
+    def test_the_command_runs_the_promoted_engine_inside_app(self):
+        command = build_collector_command(self.request(), REPO_ROOT)
+        script = command[command.index("-File") + 1].replace("\\", "/")
+
+        # M6 Task 1: the proven engine was promoted next to this adapter, so no
+        # runtime path may point back at the legacy portable tree.
+        self.assertTrue(script.endswith("Coletar-Processos-TCE.ps1"))
+        self.assertIn("app/econtas/runtime/", script)
+        self.assertNotIn("work/tce-extractor", script)
+
+    def test_the_command_keeps_runtime_state_out_of_the_source_tree(self):
+        command = build_collector_command(self.request(), REPO_ROOT)
+        state_root = Path(command[command.index("-RaizEstado") + 1]).as_posix()
+
+        self.assertTrue(state_root.endswith("data"), state_root)
+        self.assertNotIn("app/", state_root)
+
+    def test_the_promoted_engine_ships_next_to_the_adapter(self):
+        runtime = REPO_ROOT / "app" / "econtas" / "runtime"
+
+        for name in (
+            "Coletar-Processos-TCE.ps1",
+            "TcePortable.Core.psm1",
+            "TceFrozenQueue.psm1",
+            "TcePortal.Driver.js",
+        ):
+            with self.subTest(name=name):
+                self.assertTrue((runtime / name).is_file())
+
+    def test_the_promoted_engine_separates_state_from_code(self):
+        source = (
+            REPO_ROOT / "app" / "econtas" / "runtime" / "Coletar-Processos-TCE.ps1"
+        ).read_text(encoding="utf-8-sig")
+
+        self.assertIn("[string]$RaizEstado", source)
+        self.assertEqual(source.count("Join-Path $RaizEstado 'dados-locais"), 3)
 
     def test_the_command_carries_the_mesa_queue_and_lot(self):
         command = build_collector_command(

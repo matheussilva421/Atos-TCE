@@ -21,7 +21,9 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-COLLECTOR_SCRIPT = Path("work") / "tce-extractor" / "portable" / "Coletar-Processos-TCE.ps1"
+#: The proven collector, promoted next to this adapter (M6 Task 1). The root
+#: application must never depend on the legacy portable tree at runtime.
+COLLECTOR_SCRIPT = Path(__file__).resolve().parent / "runtime" / "Coletar-Processos-TCE.ps1"
 DEFAULT_TIMEOUT_SECONDS = 3600
 DEFAULT_MAX_DOWNLOADS = 2
 OUTPUT_TAIL_LIMIT = 25
@@ -100,7 +102,7 @@ def build_collector_command(request: CollectorRequest, repo_root: str | Path) ->
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        str(Path(repo_root) / COLLECTOR_SCRIPT),
+        str(COLLECTOR_SCRIPT),
         "-Destino",
         str(Path(request.destination)),
         "-FilaCongelada",
@@ -113,6 +115,9 @@ def build_collector_command(request: CollectorRequest, repo_root: str | Path) ->
         str(request.preparation_mode),
         "-MaxDownloads",
         str(int(request.max_downloads)),
+        # Browser profile and bridge live under the data root, never in app/.
+        "-RaizEstado",
+        str(Path(request.destination).resolve().parent),
         "-NaoInterativo",
     ]
     if request.keep_browser_open:
