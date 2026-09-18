@@ -24,6 +24,17 @@ THIRD_PDF = b"%PDF-1.4\nthird fixture\n%%EOF\n"
 _MODULE = None
 
 
+def canonical_path(value) -> str:
+    r"""A Windows-safe comparison form for a path that may use short names.
+
+    A GitHub runner reports %TEMP% as C:\Users\RUNNER~1\... while Python
+    resolves the same folder as C:\Users\runneradmin\...: the strings differ
+    for one single folder.
+    """
+
+    return os.path.normcase(os.path.realpath(str(value)))
+
+
 def audit_module():
     """Load the hyphenated CLI script so the audit can be driven in-process."""
 
@@ -520,7 +531,9 @@ class CliTests(unittest.TestCase):
             self.assertFalse(report["candidates"][0]["safe_to_delete"])
             self.assertEqual(report["candidates"][0]["missing_from_canonical_sha256"], [digest(PDF)])
             self.assertIn("canonical", report)
-            self.assertEqual(json.loads(result.stdout)["repo_root"], str(repo))
+            self.assertEqual(
+                canonical_path(json.loads(result.stdout)["repo_root"]), canonical_path(repo)
+            )
 
     def test_cli_defaults_to_the_repository_root(self):
         result = subprocess.run(

@@ -15,6 +15,18 @@ VERIFIER = REPO_ROOT / "packaging" / "verify-package.ps1"
 BUILDER = REPO_ROOT / "packaging" / "build-portable.ps1"
 DIST_ZIP = REPO_ROOT / "dist" / "Atos-TCE-portable.zip"
 
+
+def canonical_path(value) -> str:
+    r"""A Windows-safe comparison form for a path that may use short names.
+
+    A GitHub runner reports %TEMP% as C:\Users\RUNNER~1\... while Python
+    resolves the same folder as C:\Users\runneradmin\...: the strings differ
+    for one single file.
+    """
+
+    return os.path.normcase(os.path.realpath(str(value)))
+
+
 # The plan's allowlist for the standard portable ZIP.
 FORBIDDEN_PREFIXES = (
     "data/",
@@ -142,7 +154,7 @@ class VerifierContractTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
-        self.assertEqual(report["zip"], str(archive.resolve()))
+        self.assertEqual(canonical_path(report["zip"]), canonical_path(archive.resolve()))
         self.assertFalse(report["runtime_included"])
         self.assertEqual(report["zip_sha256"], hashlib.sha256(archive.read_bytes()).hexdigest())
 

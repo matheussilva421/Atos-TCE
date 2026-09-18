@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Read-only comparison between two Área Restrita scans (M2 real gate).
+r"""Read-only comparison between two Área Restrita scans (M2 real gate).
 
 The supervised M2 gate compares the CDP fallback scan with the scan produced by
 the thin extension on the same marker. This tool loads both sides — the CDP
