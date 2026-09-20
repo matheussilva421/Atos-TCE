@@ -72,3 +72,38 @@ nas imagens é compatível com a implementação suportada na raiz (`app/` e
   mesma extensão/perfil. Não reutilizar código antigo.
 - Se o problema persistir após o reset, coletar somente status HTTP, origem da
   extensão e `client_id` redigidos; não coletar token, cookies ou credenciais.
+
+## Atualização — evidência da tentativa reportada (20/09/2026)
+
+A evidência visual e o banco atual confirmam o estado intermediário descrito
+acima:
+
+- a Mesa estava em `127.0.0.1:18743` e mostrava `Mesa conectada`, mas não
+  mostrava código porque o contrato oculta o código quando existe qualquer
+  cliente persistido;
+- o painel mostrava `Mesa indisponível ou token recusado`, com o campo de
+  pareamento vazio;
+- `data/atos-tce.db` contém uma única linha em `bridge_clients`, com
+  `token_hash` de 64 caracteres, origem e ID de extensão coerentes entre si;
+- a linha foi criada em `2026-09-20T13:32:55Z` e o `last_seen_at` permaneceu
+  nesse mesmo instante. Assim, uma tentativa gravou um token, mas a instância
+  atualmente aberta não conseguiu autenticar depois com o mesmo token/origem.
+
+Essa combinação explica por que não apareceu um código novo: a Mesa considerou
+que já havia uma extensão pareada, enquanto o painel atual não conseguiu provar
+a posse do token. A correção operacional é usar **Reparear extensão** na seção
+Área Restrita da Mesa, confirmar, aguardar o código novo e digitá-lo no painel
+da mesma extensão/perfil; não reutilizar o código antigo.
+
+Validação adicional, sem portal e sem credenciais:
+
+- `py -3 -m unittest tests.test_bridge -q`: 30/30 aprovados;
+- `py -3 -m unittest tests.test_bridge.ExtensionPairingTests.test_mesa_pairing_payload_hides_the_code_once_paired -v`: 1/1 aprovado;
+- `py -3 -m unittest tests.test_bridge.ExtensionPairingTests.test_reset_revokes_the_old_client_and_offers_a_new_code -v`: 1/1 aprovado;
+- `npm test --prefix extension`: 112/112 aprovados;
+- `node --test app/web/tests/*.test.mjs`: 15/15 aprovados;
+- `git diff --check`: verde.
+
+No reset real foi executado nesta análise, porque a porta `18743` não estava
+escutando no momento da verificação e a evidência disponível era uma captura
+anterior. Não houve alteração de código, credenciais, portal ou dados privados.
