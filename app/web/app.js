@@ -324,9 +324,16 @@ async function loadPdfjs() {
       state_.textContent = payload.code
         ? "Extensão não pareada. Código de pareamento:"
         : "Extensão não pareada. O código expirou — renove para parear.";
-    } catch {
-      // Without a session yet, the pairing panel simply stays hidden.
-      section.hidden = true;
+    } catch (error) {
+      // Keep the recovery area visible when the bootstrap session expired. A
+      // healthy Mesa API is not enough to authorize pairing or reset.
+      section.hidden = false;
+      code.hidden = true;
+      renew.hidden = true;
+      reset.hidden = true;
+      state_.textContent = String(error?.message || "").startsWith("401")
+        ? "Sessão da Mesa expirada. Reabra a Mesa pelo START.cmd para gerar uma nova sessão."
+        : "Não foi possível consultar o pareamento da extensão.";
     }
   }
 

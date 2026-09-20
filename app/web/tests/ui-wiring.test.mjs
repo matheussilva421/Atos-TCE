@@ -33,6 +33,12 @@ test("the Mesa offers to re-pair an extension that lost its storage", () => {
   assert.match(source, /addEventListener\("click", resetPairing\)/u);
 });
 
+test("the pairing area explains when the Mesa session is unavailable", () => {
+  assert.match(source, /Sessão da Mesa expirada/u);
+  assert.match(source, /Reabra a Mesa pelo START\.cmd/u);
+  assert.match(source, /section\.hidden = false;/u);
+});
+
 test("a paused acquisition is resumed instead of restarted", () => {
   assert.match(page, /id="resume-acquisition"/u);
   assert.ok(source.includes("/resume"));

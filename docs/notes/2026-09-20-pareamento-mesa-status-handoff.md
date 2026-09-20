@@ -107,3 +107,33 @@ Validação adicional, sem portal e sem credenciais:
 No reset real foi executado nesta análise, porque a porta `18743` não estava
 escutando no momento da verificação e a evidência disponível era uma captura
 anterior. Não houve alteração de código, credenciais, portal ou dados privados.
+
+## Atualização — recuperação da sessão visível na Mesa (20/09/2026)
+
+A imagem seguinte mostrou que o bloco de pareamento inteiro não aparecia, e não
+apenas o botão de reset. A causa está em `app/web/app.js`: qualquer erro ao
+consultar `/api/v1/bridge/pairing` escondia o bloco. Como essa rota exige a
+sessão bootstrap da Mesa, uma sessão ausente/expirada produzia exatamente a
+tela mostrada, enquanto as rotas públicas de saúde e resumo continuavam
+funcionando.
+
+Correção aplicada:
+
+- `refreshPairing()` mantém o bloco visível quando a consulta falha;
+- em 401, informa `Sessão da Mesa expirada. Reabra a Mesa pelo START.cmd para
+  gerar uma nova sessão.`;
+- esconde código, renovar e resetar enquanto não houver sessão autorizada;
+- outros erros exibem uma mensagem de consulta, sem sugerir que existe um
+  código utilizável.
+
+TDD e validação:
+
+- RED: o novo teste de `app/web/tests/ui-wiring.test.mjs` falhou porque o
+  bloco era escondido e não havia mensagem de sessão;
+- GREEN: `node --test app/web/tests/*.test.mjs` — 16/16 aprovados;
+- `git diff --check` — verde.
+
+O operador deve reiniciar a Mesa pelo `START.cmd`, abrir a nova sessão que ela
+lançar e então usar o bloco visível para resetar o pareamento e gerar o código.
+O teste manual dessa sequência ainda depende da porta local estar ativa; nenhum
+reset real, login, envio ou finalização foi executado nesta etapa.
