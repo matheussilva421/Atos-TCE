@@ -78,7 +78,9 @@ ato foi enviado ou finalizado.
 ## GitHub e retomada
 
 - Branch: `codex/mesa-local-refactor`.
-- Estado antes do commit deste bloco: alterações locais da correção e o
-  handoff; o arquivo `.codex-live-pilot.py` continua fora do commit.
-- Próximo passo: revisar `git diff`, criar o commit da correção, fazer `git
-  push` e atualizar este handoff com o SHA.
+- Commit da correção: `4987cac` (`fix: transfer Mesa session between Chrome profiles`).
+- O handoff foi incluído no commit da correção; a atualização deste bloco
+  registra o SHA antes do push.
+- O arquivo `.codex-live-pilot.py` continua fora do commit.
+- Próximo passo: criar o commit desta atualização documental, fazer `git push`
+  e confirmar o SHA remoto.
