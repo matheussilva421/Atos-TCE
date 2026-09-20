@@ -62,6 +62,7 @@ nas imagens é compatível com a implementação suportada na raiz (`app/` e
 
 - Branch: `codex/mesa-local-refactor`, alinhada com `origin/codex/mesa-local-refactor`.
 - Alteração desta análise: somente este handoff.
+- Commit publicado: `6673a37` (`docs: record pairing status diagnosis`).
 - Arquivo não rastreado preexistente preservado:
   `work/tce-extractor/.codex-live-pilot.py`.
 - Para confirmar o caso real, iniciar a mesma Mesa, usar a extensão carregada
