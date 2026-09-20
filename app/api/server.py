@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from ..core.store import Store
 from ..area_restrita import AREA_CLASSIFICATIONS, PORTAL_ROLES
@@ -201,6 +201,7 @@ ROUTES: tuple[Route, ...] = (
 
 POST_ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/session/bootstrap"), "post_session_bootstrap", "public"),
+    Route(re.compile(r"/api/v1/session/handoff"), "post_session_handoff", "mesa"),
     Route(re.compile(r"/api/v1/bridge/pair"), "post_bridge_pair", "public"),
     Route(re.compile(r"/api/v1/bridge/pairing/renew"), "post_pairing_renew", "mesa"),
     Route(re.compile(r"/api/v1/bridge/pairing/reset"), "post_pairing_reset", "mesa"),
@@ -748,7 +749,11 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
 
     def post_session_bootstrap(self) -> None:
         payload = self._read_json_body()
-        if not self.mesa.bridge.consume_bootstrap(str(payload.get("token") or "")):
+        candidate = str(payload.get("token") or "")
+        accepted = self.mesa.bridge.consume_bootstrap(candidate) or self.mesa.bridge.consume_session_handoff(
+            candidate
+        )
+        if not accepted:
             self._send_json({"error": "bootstrap_rejected"}, status=401)
             return
         session_id = self.mesa.bridge.open_session()
@@ -758,6 +763,18 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
                 ("Set-Cookie", f"{SESSION_COOKIE}={session_id}; Path=/; HttpOnly; SameSite=Strict")
             ],
         )
+
+    def post_session_handoff(self) -> None:
+        session_id = self._cookie(SESSION_COOKIE)
+        if not self._require_session():
+            return
+        token = self.mesa.bridge.issue_session_handoff(session_id)
+        if token is None:
+            self._send_json({"error": "session_required"}, status=401)
+            return
+        port = self.mesa.server_address[1]
+        url = f"http://127.0.0.1:{port}/bootstrap#token={quote(token, safe='')}"
+        self._send_json({"url": url, "expires_in": self.mesa.bridge.handoff_ttl})
 
     def post_bridge_pair(self) -> None:
         origin = str(self.headers.get("Origin") or "").strip()

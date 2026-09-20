@@ -435,6 +435,40 @@ class MesaSessionTests(BridgeTestCase):
         self.assertIn("SameSite=Strict", cookie)
         self.assertIn("mesa_session=", cookie)
 
+    def test_authenticated_mesa_can_issue_a_one_time_session_handoff_url(self):
+        opener = self.mesa_opener()
+
+        status, _headers, payload = self.call_json(
+            "/api/v1/session/handoff",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={},
+            opener=opener,
+        )
+
+        self.assertEqual(status, 200, payload)
+        handoff_url = payload["url"]
+        self.assertTrue(handoff_url.startswith(f"{self.base}/bootstrap#token="))
+        token = handoff_url.split("#token=", 1)[1]
+
+        other_profile = build_opener(HTTPCookieProcessor(CookieJar()))
+        status, _headers, _payload = self.call_json(
+            "/api/v1/session/bootstrap",
+            method="POST",
+            headers={"Origin": self.base},
+            body={"token": token},
+            opener=other_profile,
+        )
+        self.assertEqual(status, 200)
+
+        status, _headers, _payload = self.call_json(
+            "/api/v1/session/bootstrap",
+            method="POST",
+            headers={"Origin": self.base},
+            body={"token": token},
+        )
+        self.assertEqual(status, 401)
+
     def test_state_changing_route_without_a_session_is_rejected(self):
         status, _headers, payload = self.call_json(
             "/api/v1/extension/commands",

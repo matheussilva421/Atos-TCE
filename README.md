@@ -19,6 +19,14 @@ mesmo comando direto é:
 python -m app.main --data-root data --port 18743
 ```
 
+O launcher imprime a **URL inicial de sessão**, com `/bootstrap#token=...`. Esse
+token é de uso único e é consumido pelo primeiro perfil que abrir a URL. Para
+transferir uma Mesa já aberta para outro perfil, como o Chrome QA, clique em
+**Copiar sessão para outro Chrome** na seção Área Restrita e cole a URL gerada
+no outro perfil em até cinco minutos. Copiar somente
+`http://127.0.0.1:18743/` não transfere a sessão, porque o cookie fica preso ao
+perfil do navegador.
+
 O servidor só aceita loopback. `data/` guarda `atos-tce.db` (SQLite, schema 5),
 `archive/blobs` com os PDFs canônicos nomeados pelo SHA-256, `archive/processos`
 com a visão por processo (hardlinks para os blobs) e `logs/` com os recibos de

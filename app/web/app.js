@@ -309,9 +309,12 @@ async function loadPdfjs() {
     const code = document.getElementById("pairing-code");
     const renew = document.getElementById("renew-pairing");
     const reset = document.getElementById("reset-pairing");
+    const handoff = document.getElementById("handoff-session");
+    const handoffStatus = document.getElementById("handoff-status");
     try {
       const payload = await getJson("/api/v1/bridge/pairing");
       section.hidden = false;
+      handoff.hidden = false;
       reset.hidden = !payload.paired;
       renew.hidden = Boolean(payload.paired);
       code.hidden = Boolean(payload.paired) || !payload.code;
@@ -331,6 +334,8 @@ async function loadPdfjs() {
       code.hidden = true;
       renew.hidden = true;
       reset.hidden = true;
+      handoff.hidden = true;
+      handoffStatus.textContent = "";
       state_.textContent = String(error?.message || "").startsWith("401")
         ? "Sessão da Mesa expirada. Reabra a Mesa pelo START.cmd para gerar uma nova sessão."
         : "Não foi possível consultar o pareamento da extensão.";
@@ -355,6 +360,29 @@ async function loadPdfjs() {
       await postJson("/api/v1/bridge/pairing/reset", {});
     } finally {
       await refreshPairing();
+    }
+  }
+
+  async function handoffSession() {
+    const button = document.getElementById("handoff-session");
+    const status = document.getElementById("handoff-status");
+    button.disabled = true;
+    status.textContent = "Gerando URL de sessão…";
+    try {
+      const payload = await postJson("/api/v1/session/handoff", {});
+      const url = String(payload.url || "");
+      if (!url) throw new Error("a Mesa não devolveu uma URL de sessão");
+      try {
+        await navigator.clipboard.writeText(url);
+        status.textContent = "URL copiada. Cole no Chrome QA em até 5 minutos.";
+      } catch {
+        window.prompt("Copie esta URL para o Chrome QA:", url);
+        status.textContent = "URL exibida para cópia manual.";
+      }
+    } catch (error) {
+      status.textContent = `Não foi possível gerar a URL: ${error.message}`;
+    } finally {
+      button.disabled = false;
     }
   }
 
@@ -866,6 +894,7 @@ async function loadPdfjs() {
     });
     document.getElementById("renew-pairing").addEventListener("click", renewPairing);
     document.getElementById("reset-pairing").addEventListener("click", resetPairing);
+    document.getElementById("handoff-session").addEventListener("click", handoffSession);
     document.getElementById("resume-acquisition").addEventListener("click", resumeAcquisition);
 
     refreshHealth();

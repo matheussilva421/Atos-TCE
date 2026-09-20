@@ -18,6 +18,15 @@ from .api.server import DEFAULT_HOST, DEFAULT_PORT, serve
 from .core.store import Store
 
 
+def bootstrap_handoff_message(url: str) -> str:
+    """Explain the one-time bootstrap and the authenticated session handoff."""
+
+    return (
+        f"URL de sessão da Mesa (uso único): {url}\n"
+        "Para outro Chrome, abra a Mesa primeiro e use 'Copiar sessão para outro Chrome'."
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m app.main", description=__doc__)
     parser.add_argument("--data-root", type=Path, default=Path("data"), help="folder with atos-tce.db and archive/")
@@ -66,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     thread.start()
     print(f"Mesa Local em {address}")
     print(f"Banco de dados: {store.path}")
+    print(bootstrap_handoff_message(bootstrap_url))
     if not store.list_bridge_clients():
         print(
             f"Código de pareamento da extensão: {bridge.pairing_code} "

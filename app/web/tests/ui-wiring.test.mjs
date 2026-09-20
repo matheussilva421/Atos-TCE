@@ -39,6 +39,12 @@ test("the pairing area explains when the Mesa session is unavailable", () => {
   assert.match(source, /section\.hidden = false;/u);
 });
 
+test("the Mesa offers a one-time session URL for another Chrome profile", () => {
+  assert.match(page, /id="handoff-session"/u);
+  assert.match(page, /Copiar sessão para outro Chrome/u);
+  assert.match(source, /\/api\/v1\/session\/handoff/u);
+});
+
 test("a paused acquisition is resumed instead of restarted", () => {
   assert.match(page, /id="resume-acquisition"/u);
   assert.ok(source.includes("/resume"));

@@ -30,6 +30,7 @@ PAIRING_CODE_LENGTH = 6
 PAIRING_TTL_SECONDS = 120.0
 PAIRING_MAX_ATTEMPTS = 5
 BOOTSTRAP_TTL_SECONDS = 300.0
+SESSION_HANDOFF_TTL_SECONDS = 300.0
 SESSION_TTL_SECONDS = 24 * 3600.0
 TOKEN_BYTES = 32
 
@@ -88,11 +89,13 @@ class Bridge:
     clock: Callable[[], float] = time.monotonic
     pairing_ttl: float = PAIRING_TTL_SECONDS
     bootstrap_ttl: float = BOOTSTRAP_TTL_SECONDS
+    handoff_ttl: float = SESSION_HANDOFF_TTL_SECONDS
     session_ttl: float = SESSION_TTL_SECONDS
     max_attempts: int = PAIRING_MAX_ATTEMPTS
     _pairing: _ExpiringSecret | None = field(default=None, repr=False)
     _bootstrap: _ExpiringSecret | None = field(default=None, repr=False)
     _sessions: dict[str, float] = field(default_factory=dict, repr=False)
+    _handoffs: dict[str, float] = field(default_factory=dict, repr=False)
     _lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
     def __post_init__(self) -> None:
@@ -190,6 +193,32 @@ class Bridge:
                 return False
             state.consumed = True
             return True
+
+    def issue_session_handoff(self, session_id: str | None) -> str | None:
+        """Issue a short-lived one-time URL token from an authenticated session."""
+
+        with self._lock:
+            if not session_id:
+                return None
+            expires_at = self._sessions.get(session_id)
+            if expires_at is None or self.clock() > expires_at:
+                self._sessions.pop(session_id, None)
+                return None
+            now = self.clock()
+            self._handoffs = {
+                token: expiry for token, expiry in self._handoffs.items() if expiry >= now
+            }
+            token = new_token()
+            self._handoffs[token] = now + self.handoff_ttl
+            return token
+
+    def consume_session_handoff(self, candidate: str) -> bool:
+        """Consume a session transfer token exactly once."""
+
+        with self._lock:
+            token = str(candidate or "")
+            expires_at = self._handoffs.pop(token, None)
+            return expires_at is not None and self.clock() <= expires_at
 
     # ------------------------------------------------------------------ sessions
 
