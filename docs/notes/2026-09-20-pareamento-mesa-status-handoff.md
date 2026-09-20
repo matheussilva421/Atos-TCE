@@ -137,3 +137,15 @@ O operador deve reiniciar a Mesa pelo `START.cmd`, abrir a nova sessão que ela
 lançar e então usar o bloco visível para resetar o pareamento e gerar o código.
 O teste manual dessa sequência ainda depende da porta local estar ativa; nenhum
 reset real, login, envio ou finalização foi executado nesta etapa.
+
+## Atualização — confirmação ao vivo após reinício (20/09/2026)
+
+Após o reinício mostrado no terminal, a aba `ATOS TCE · Mesa Local` em
+`127.0.0.1:18743` foi conferida ao vivo. O estado exibido foi `Mesa conectada ·
+API v1 · Banco schema v7 · 739 processos`, seguido de `Extensão pareada` e do
+botão visível **Reparear extensão** dentro do cartão Área Restrita.
+
+O código não apareceu no terminal nessa segunda execução porque o banco ainda
+contém um cliente persistido; o launcher só imprime o código no terminal quando
+não há cliente. Nenhum clique de reset foi executado automaticamente: a ação
+revoga o token atual e exige confirmação do operador.
