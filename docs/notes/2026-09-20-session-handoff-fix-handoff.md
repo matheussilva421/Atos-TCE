@@ -79,8 +79,10 @@ ato foi enviado ou finalizado.
 
 - Branch: `codex/mesa-local-refactor`.
 - Commit da correção: `4987cac` (`fix: transfer Mesa session between Chrome profiles`).
-- O handoff foi incluído no commit da correção; a atualização deste bloco
-  registra o SHA antes do push.
+- O handoff foi incluído no commit da correção; a atualização documental foi
+  publicada em `bfaad90` (`docs: record session handoff fix`).
+- Push confirmado: `origin/codex/mesa-local-refactor` aponta para
+  `bfaad901b318420e64d89950443b655120dc8c91`.
 - O arquivo `.codex-live-pilot.py` continua fora do commit.
-- Próximo passo: criar o commit desta atualização documental, fazer `git push`
-  e confirmar o SHA remoto.
+- O checkout está sem alterações rastreadas; somente o arquivo não rastreado
+  `.codex-live-pilot.py` permanece preservado.
