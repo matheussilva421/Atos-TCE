@@ -441,6 +441,17 @@ test("the router registers a slow recovery alarm", () => {
   assert.equal(chromeApi.alarmListeners.length, 1);
 });
 
+test("the extension action opens the operational side panel", () => {
+  const chromeApi = fakeChrome();
+
+  installRouter({
+    api: { nextCommand: async () => ({ ok: true, command: null }), reportResult: async () => {} },
+    chromeApi,
+  });
+
+  assert.deepEqual(chromeApi.sidePanelBehaviors, [{ openPanelOnActionClick: true }]);
+});
+
 // ------------------------------------------------------------- CR-02/03/04
 
 /** A router whose retries and waits are instantaneous. */

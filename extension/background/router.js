@@ -196,6 +196,11 @@ export function installRouter({
   const formReadDelayMs = timing.formReadDelayMs ?? FORM_READ_DELAY_MS;
   const pageDelayMs = timing.pageDelayMs ?? 400;
 
+  const sidePanelBehavior = chromeApi.sidePanel?.setPanelBehavior?.({
+    openPanelOnActionClick: true,
+  });
+  sidePanelBehavior?.catch?.(() => {});
+
   async function portalTabs() {
     return (await chromeApi.tabs.query({ url: [`${PORTAL_ORIGIN}/*`] })) ?? [];
   }

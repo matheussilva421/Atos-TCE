@@ -70,11 +70,13 @@ export function fakeChrome({ tabs = [], frames = {}, onMessage = null } = {}) {
   const listeners = [];
   const alarmListeners = [];
   const sent = [];
+  const sidePanelBehaviors = [];
   if (onMessage) onMessage.sent = sent;
   return {
     sent,
     listeners,
     alarmListeners,
+    sidePanelBehaviors,
     runtime: {
       id: "abcdefghijklmnopabcdefghijklmnop",
       onMessage: { addListener: (listener) => listeners.push(listener) },
@@ -108,6 +110,11 @@ export function fakeChrome({ tabs = [], frames = {}, onMessage = null } = {}) {
         this.created.push({ name, info });
       },
       onAlarm: { addListener: (listener) => alarmListeners.push(listener) },
+    },
+    sidePanel: {
+      async setPanelBehavior(behavior) {
+        sidePanelBehaviors.push(behavior);
+      },
     },
   };
 }
