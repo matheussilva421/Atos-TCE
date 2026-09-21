@@ -51,11 +51,16 @@
           });
           return true;
         }
-        sendResponse({ ok: true, changed: true, page_before: before });
+        sendResponse({
+          ok: true,
+          changed: true,
+          page_before: before,
+          page_after: Number(legacyPlan.spec.page),
+        });
         return true;
       }
       control.click();
-      sendResponse({ ok: true, changed: true, page_before: before });
+      sendResponse({ ok: true, changed: true, page_before: before, page_after: before + 1 });
     } catch (error) {
       sendResponse({ ok: false, changed: false, error: String(error?.message ?? error) });
     }

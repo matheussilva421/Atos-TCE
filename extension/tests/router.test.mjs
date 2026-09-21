@@ -558,6 +558,44 @@ test("the scan is addressed to the list frame, not to the top frame", async () =
   assert.equal(advances[0].frameId, 4);
 });
 
+test("the scan waits for a reloaded page instead of reading the stale frame", async () => {
+  let pageAdvances = 0;
+  let listScans = 0;
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1)],
+    frames: { 1: [{ frameId: 4, url: `${PORTAL}/ProcessonoSetor.asp` }] },
+    onMessage: (message, _tabId, frameId) => {
+      if (frameId !== 4) return { ok: true, snapshot: { role: "unknown", rows: [], page: 1, total_pages: 1 } };
+      if (message.type === "SCAN_PAGE") {
+        listScans += 1;
+        const pageNumber = pageAdvances === 0 || listScans <= 3 ? 1 : 2;
+        return {
+          ok: true,
+          snapshot: page(
+            [{ process_key: `10239${pageNumber}/2026`, interested_normalized: "pessoa exemplo" }],
+            { page: pageNumber, total_pages: 2 }
+          ),
+        };
+      }
+      if (message.type === "LIST_PAGE") {
+        pageAdvances += 1;
+        return { ok: true, changed: true, page_before: 1, page_after: 2 };
+      }
+      return { ok: false };
+    },
+  });
+  const router = installRouter({
+    api: idleApi(),
+    chromeApi,
+    timing: { ...FAST, pageReadyAttempts: 5, pageReadyDelayMs: 1 },
+  });
+
+  const snapshot = await router.scanPortal({});
+
+  assert.equal(snapshot.rows.length, 2);
+  assert.ok(listScans >= 5);
+});
+
 test("two frames claiming to be the list are refused", async () => {
   const chromeApi = fakeChrome({
     tabs: [portalTab(1)],

@@ -19,7 +19,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 const extensionRoot = join(here, "..");
 
 await import("../lib/area-snapshot.js");
-const { scan, legacyPaginationPlan, submitLegacyPagination } = globalThis.TCEAreaSnapshot;
+const {
+  scan,
+  findNextPageControl,
+  legacyPaginationPlan,
+  submitLegacyPagination,
+} = globalThis.TCEAreaSnapshot;
 
 test("a list page exposes scope, marker, page and rows", () => {
   const documentRef = buildListDocument({
@@ -154,6 +159,40 @@ test("legacy pagination reads the current page from NumeroPagina", () => {
   assert.equal(scan(documentRef).page, 1);
   currentPage.value = "2";
   assert.equal(scan(documentRef).page, 2);
+});
+
+test("legacy next label keeps the last page total at the known numeric page", () => {
+  const documentRef = buildListDocument({ page: "40", paginationLabels: [40], rows: [], hasNext: true });
+  documentRef.body.append(new FakeElement("select", { id: "NumeroPagina", value: "40" }));
+
+  assert.equal(scan(documentRef).page, 40);
+  assert.equal(scan(documentRef).total_pages, 40);
+});
+
+test("legacy next control prefers Próxima over Última", () => {
+  const documentRef = buildListDocument({ page: "2", rows: [], hasNext: false });
+  const form = new FakeElement("form", { id: "form1" });
+  form.append(
+    new FakeElement("input", { id: "NumeroPagina", value: "2", attrs: { type: "hidden" } }),
+    new FakeElement("input", { id: "Paginacao", value: "", attrs: { type: "hidden" } }),
+    new FakeElement("input", { id: "GrupoProcesso", value: "", attrs: { type: "hidden" } }),
+  );
+  const next = new FakeElement("a", {
+    text: "Próxima >",
+    attrs: {
+      href: "javascript: form1.NumeroPagina.value=3; document.form1.Paginacao.value='S'; document.form1.GrupoProcesso.value='NS'; form1.submit();",
+    },
+  });
+  const last = new FakeElement("a", {
+    text: "Última >>",
+    attrs: {
+      href: "javascript: form1.NumeroPagina.value=40; document.form1.Paginacao.value='S'; document.form1.GrupoProcesso.value='NS'; form1.submit();",
+    },
+  });
+  form.append(next, last);
+  documentRef.body.append(form);
+
+  assert.equal(findNextPageControl(documentRef), next);
 });
 
 test("legacy pagination submits only the allowlisted form command", () => {

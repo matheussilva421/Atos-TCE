@@ -47,6 +47,10 @@
 
   const NEXT_LABELS = Object.freeze(["proxima", "next", "seguinte"]);
 
+  function normalizedNextLabel(control) {
+    return normalizeInterested(textOf(control)).replace(/[>»›→]+$/gu, "").trim();
+  }
+
   // ------------------------------------------------------------- primitives
 
   function textOf(value) {
@@ -471,7 +475,7 @@
     const action = getAttribute(control, "data-action");
     if (action === "next-page" || action === "next_page") return true;
     if (getAttribute(control, "rel") === "next") return true;
-    return NEXT_LABELS.includes(normalizeInterested(textOf(control)));
+    return NEXT_LABELS.includes(normalizedNextLabel(control));
   }
 
   /**
@@ -488,8 +492,8 @@
     const currentNumber = Number.parseInt(textOf(queryOne(documentRef, "[aria-current='page']")), 10);
     const labeled = queryAll(documentRef, "nav a, nav button, a, button").find((control) => {
       if (getAttribute(control, "aria-current") === "page") return false;
-      if (NEXT_LABELS.includes(normalizeInterested(textOf(control)))) return true;
-      const number = Number.parseInt(normalizeInterested(textOf(control)), 10);
+      if (NEXT_LABELS.includes(normalizedNextLabel(control))) return true;
+      const number = Number.parseInt(normalizedNextLabel(control), 10);
       return Number.isInteger(number) && Number.isInteger(currentNumber) && number > currentNumber;
     });
     if (labeled) return labeled;
@@ -631,7 +635,19 @@
       .map((control) => Number.parseInt(textOf(control), 10))
       .filter((value) => Number.isInteger(value) && value > 0);
     let total = labels.length > 0 ? Math.max(...labels) : page;
-    if (controls.some((control) => isNextControl(control))) total = Math.max(total, page + 1);
+    const legacyTargetPages = queryAll(documentRef, "a")
+      .map((control) => getAttribute(control, "href").match(/NumeroPagina\.value\s*=\s*['"]?(\d+)/iu)?.[1])
+      .map((value) => Number.parseInt(value, 10))
+      .filter((value) => Number.isInteger(value) && value > 0);
+    if (legacyTargetPages.length > 0) total = Math.max(total, ...legacyTargetPages);
+    if (
+      total <= page &&
+      !legacyPageControl &&
+      legacyTargetPages.length === 0 &&
+      controls.some((control) => isNextControl(control))
+    ) {
+      total = page + 1;
+    }
     return { page, total_pages: Math.max(total, page) };
   }
 

@@ -71,6 +71,37 @@ incoerente. A Mesa só deve persistir o retrato depois da varredura coerente.
 M3, M5 e M6 continuam bloqueados pela validação humana correspondente no
 portal.
 
+## Follow-up — aguardar a recarga completa (2026-09-21)
+
+O teste real avançou até a página 40, mas ainda acusou "página 40 depois de
+2" e, numa nova tentativa, "página 40 depois de 40". Isso confirmou uma
+segunda corrida: o submit atualizava NumeroPagina antes de o frame terminar
+de trocar linhas e controles. Na última página, o botão Próxima também não
+podia aumentar o total conhecido de 40 para 41.
+
+Correção aplicada:
+
+- extension/background/router.js agora aguarda a página esperada aparecer e
+  exige duas leituras consecutivas estáveis de página, total e linhas antes de
+  continuar; a espera é limitada e configurável por tentativa/intervalo.
+- extension/content/paging.js informa page_after para que o roteador aguarde
+  o destino correto.
+- extension/lib/area-snapshot.js reconhece rótulos como "Próxima >", usa os
+  destinos NumeroPagina para calcular o total e não inventa a página 41 no
+  fim da lista.
+- Os testes cobrem frame stale, seleção de Próxima contra Última e o limite
+  final da página 40.
+
+Validação desta etapa:
+
+- RED: o teste de frame stale falhou com "página 1 depois de 1" e o teste do
+  fim da lista observou 41 em vez de 40.
+- GREEN: area-snapshot, paging e router — 68/68.
+- Suíte completa da extensão: npm test --prefix extension — 131 testes,
+  131 aprovados e 0 falhas.
+- Gate oficial: verify-project.ps1 — 1.254 verificações, 1.252 aprovadas,
+  0 falhas e 2 skips ambientais.
+
 ## GitHub
 
 - Branch: codex/mesa-local-refactor.

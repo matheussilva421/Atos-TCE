@@ -29,9 +29,21 @@ const FORM_READ_ATTEMPTS = 10;
 const FORM_READ_DELAY_MS = 800;
 const FRAME_LIST_ATTEMPTS = 3;
 const FRAME_LIST_DELAY_MS = 250;
+const PAGE_READY_ATTEMPTS = 20;
+const PAGE_READY_DELAY_MS = 300;
 
 function delay(milliseconds) {
   return new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds));
+}
+
+function pageSnapshotSignature(snapshot) {
+  return JSON.stringify({
+    page: Number(snapshot?.page ?? 0),
+    total_pages: Number(snapshot?.total_pages ?? 0),
+    rows: (snapshot?.rows ?? [])
+      .map((row) => [row.process_key, row.interested_normalized, row.classification])
+      .sort(([left], [right]) => String(left).localeCompare(String(right))),
+  });
 }
 
 /** Mirrors app/core/identity.py: NFKD, drop marks, casefold, collapse, trim. */
@@ -195,6 +207,8 @@ export function installRouter({
   const formReadAttempts = timing.formReadAttempts ?? FORM_READ_ATTEMPTS;
   const formReadDelayMs = timing.formReadDelayMs ?? FORM_READ_DELAY_MS;
   const pageDelayMs = timing.pageDelayMs ?? 400;
+  const pageReadyAttempts = timing.pageReadyAttempts ?? PAGE_READY_ATTEMPTS;
+  const pageReadyDelayMs = timing.pageReadyDelayMs ?? PAGE_READY_DELAY_MS;
 
   const sidePanelBehavior = chromeApi.sidePanel?.setPanelBehavior?.({
     openPanelOnActionClick: true,
@@ -278,6 +292,32 @@ export function installRouter({
     throw new Error(`mais de uma moldura (${listFrames.length}) responde como lista de processos`);
   }
 
+  async function waitForPageReady(frame, expectedPage) {
+    let previousSignature = null;
+    let stableSamples = 0;
+    for (let attempt = 0; attempt < pageReadyAttempts; attempt += 1) {
+      await delay(attempt === 0 ? pageDelayMs : pageReadyDelayMs);
+      let response;
+      try {
+        response = await sendToFrame(frame.tabId, frame.frameId, { type: MESSAGE_TYPES.SCAN_PAGE });
+      } catch {
+        continue;
+      }
+      if (response?.ok !== true) continue;
+      const snapshot = response.snapshot ?? {};
+      if (Number(snapshot.page) !== expectedPage) continue;
+      const signature = pageSnapshotSignature(snapshot);
+      if (signature === previousSignature) {
+        stableSamples += 1;
+      } else {
+        previousSignature = signature;
+        stableSamples = 1;
+      }
+      if (stableSamples >= 2) return true;
+    }
+    return false;
+  }
+
   async function scanPortal() {
     const frame = await findListFrame();
     return scanAreaPages({
@@ -294,8 +334,18 @@ export function installRouter({
           payload: { action: "next" },
         });
         if (response?.ok !== true) return false;
-        await delay(pageDelayMs);
-        return true;
+        const before = Number(response.page_before);
+        const after = Number(response.page_after);
+        const expectedPage = Number.isInteger(after)
+          ? after
+          : Number.isInteger(before)
+            ? before + 1
+            : null;
+        if (!Number.isInteger(expectedPage)) {
+          await delay(pageDelayMs);
+          return true;
+        }
+        return waitForPageReady(frame, expectedPage);
       },
     });
   }

@@ -34,7 +34,7 @@ test("LIST_PAGE uses the safe legacy form path instead of clicking javascript li
       listeners[0]({ type: "LIST_PAGE", payload: { action: "next" } }, {}, resolve);
     });
 
-    assert.deepEqual(response, { ok: true, changed: true, page_before: 1 });
+    assert.deepEqual(response, { ok: true, changed: true, page_before: 1, page_after: 2 });
     assert.equal(submitted, 1);
   } finally {
     delete globalThis.chrome;
