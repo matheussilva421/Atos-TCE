@@ -369,3 +369,27 @@ local foi renovada pelo bootstrap e a tela mostra `Baixar 2 processos`. O
 servidor permanece ativo em `http://127.0.0.1:18743/`. O branch está sincronizado
 com `origin/codex/mesa-local-refactor`; o único arquivo não rastreado preservado
 é `work/tce-extractor/.codex-live-pilot.py`.
+
+## Diagnóstico dos dois processos restantes (2026-09-21)
+
+Foi feita uma comparação somente leitura na aba autenticada do e-Contas,
+repetindo a chamada que o driver usa para obter a URL temporária do PDF:
+`GET /api/informacao/{id}/pdf`, com a autorização da sessão atual.
+
+Resultado atual:
+
+- `100437/2025`, informação `2962234`: HTTP 200, `pdfExiste=true` e URL
+  temporária presente;
+- `004731/2024`, informação `2899503`: HTTP 200, `pdfExiste=true` e URL
+  temporária presente;
+- controle `100274/2025`, informação `2956387`: HTTP 200, `pdfExiste=true` e
+  URL temporária presente.
+
+Conclusão: os dois PDFs existem e a sessão atual consegue resolvê-los. A
+falha do job 2 foi transitória no serviço remoto de PDF durante aquela janela;
+o erro persistido foi `Impossível conectar-se ao servidor remoto`. Não há
+evidência de falta de login, marcador incorreto, paginação ou mapeamento local.
+O próximo teste é clicar em `Baixar 2 processos`, deixando o e-Contas aberto e
+autenticado; o resultado esperado é `2 de 2 baixados`. Se falhar novamente,
+registrar o horário e o status da chamada para diferenciar nova indisponibilidade
+remota de uma falha no download da URL temporária.
