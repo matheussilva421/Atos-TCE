@@ -840,7 +840,11 @@ class AcquisitionServiceTests(AcquisitionTestCase):
         items = {
             int(item["process_id"]): item["state"] for item in self.store.list_job_items(job_id)
         }
-        self.assertEqual(items[rows[0]["id"]], "FAILED")
+        self.assertEqual(
+            items[rows[0]["id"]],
+            "QUEUED",
+            "a login pause must leave the interrupted lot resumable",
+        )
         self.assertEqual(items[rows[2]["id"]], "QUEUED", "untouched items stay queued")
 
     def test_a_second_active_job_is_refused(self):

@@ -224,14 +224,20 @@ class AcquisitionService:
                 runner=self._runner,
             )
             canonicalize_process_tree(self._data_root, self._store)
+            if result.auth_required:
+                # Authentication is a pause, not an item failure. The
+                # collector may have stopped before producing a trustworthy
+                # receipt, so keep the whole interrupted lot queued for the
+                # operator's explicit resume.
+                for process_id in lot_ids:
+                    self._jobs.mark_item(job_id, process_id, "QUEUED")
+                self._jobs.wait_for_login(job_id, "o e-Contas pediu login")
+                paused = True
+                break
             keys_by_id = dict(zip(plan.process_ids, plan.process_keys, strict=False))
             self._register_lot(
                 job_id, lot_ids, [keys_by_id[process_id] for process_id in lot_ids], result
             )
-            if result.auth_required:
-                self._jobs.wait_for_login(job_id, "o e-Contas pediu login")
-                paused = True
-                break
         if not paused:
             self._jobs.finish(job_id)
 

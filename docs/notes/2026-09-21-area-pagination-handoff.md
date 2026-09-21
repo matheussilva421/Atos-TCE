@@ -285,3 +285,27 @@ login no e-Contas, deixar a tela de processos aberta com o marcador correto e
 clicar em `Retomar após login`. O primeiro indicador esperado é
 `WAITING_FOR_LOGIN`/a mensagem de preparação; nenhum download deve ocorrer
 antes da retomada.
+
+## Follow-up — pausa de login não deve contar falhas (2026-09-21)
+
+No teste manual do job 2, a aba existente do e-Contas foi encontrada pela porta
+DevTools 9222. A página atual tinha usuário autenticado, setor CBP e o marcador
+`PROFESSOR - IPERN`; a inspeção foi somente leitura. Durante a primeira tentativa
+o coletor detectou a sessão como não pronta e o job chegou a
+`WAITING_FOR_LOGIN`, mas a Mesa mostrou `0 de 17 baixados · 17 com falha`.
+
+A causa foi a ordem das transições em `app/econtas/service.py`: o lote era
+registrado antes de tratar `auth_required`, então a ausência de recibo era
+classificada como falha item a item. A correção agora trata a autenticação antes
+do registro do lote e devolve todos os itens interrompidos para `QUEUED`; a
+retomada continua usando a mesma fila congelada.
+
+Validação desta correção:
+
+- RED: o teste atualizado falhou com `FAILED` em vez de `QUEUED`;
+- GREEN focado: 15 testes de aquisição, 15 aprovados e 0 falhas.
+
+Pendência: reiniciar a Mesa para carregar a correção, observar o job pausado e
+clicar em `Retomar após login` somente depois de confirmar login, tela de
+processos e marcador no e-Contas. O contador esperado durante a pausa é `0 de
+17 baixados`, sem falhas.
