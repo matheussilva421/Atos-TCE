@@ -1,5 +1,5 @@
 """Loopback HTTP server that exposes the Mesa to its own web UI and to the
-paired Chrome/Edge extension.
+trusted thin Chrome/Edge extension.
 
 Three route families exist and never share credentials:
 
@@ -10,7 +10,7 @@ Three route families exist and never share credentials:
     state-changing routes; they require the HttpOnly Mesa session cookie and a
     same-origin request;
 ``extension``
-    routes used by the paired adapter; they require the bearer token plus
+    routes used by the registered adapter; they require the bearer token plus
     ``X-TCE-Client`` and only answer Chrome/Edge extension origins.
 
 There is deliberately no generic file route: PDFs are reachable solely through
@@ -191,7 +191,6 @@ ROUTES: tuple[Route, ...] = (
         "mesa",
     ),
     Route(re.compile(r"/api/v1/documents/(?P<document_id>\d+)/pdf"), "handle_document_pdf", "public"),
-    Route(re.compile(r"/api/v1/bridge/pairing"), "handle_bridge_pairing", "mesa"),
     Route(re.compile(r"/api/v1/area/latest"), "handle_area_latest", "public"),
     Route(re.compile(r"/api/v1/acquisition/plan"), "handle_acquisition_plan", "public"),
     Route(re.compile(r"/api/v1/jobs/(?P<job_id>\d+)"), "handle_job_status", "public"),
@@ -203,10 +202,7 @@ ROUTES: tuple[Route, ...] = (
 POST_ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/session/bootstrap"), "post_session_bootstrap", "public"),
     Route(re.compile(r"/api/v1/session/handoff"), "post_session_handoff", "mesa"),
-    Route(re.compile(r"/api/v1/bridge/pair"), "post_bridge_pair", "public"),
     Route(re.compile(r"/api/v1/bridge/register"), "post_bridge_register", "public"),
-    Route(re.compile(r"/api/v1/bridge/pairing/renew"), "post_pairing_renew", "mesa"),
-    Route(re.compile(r"/api/v1/bridge/pairing/reset"), "post_pairing_reset", "mesa"),
     Route(re.compile(r"/api/v1/extension/commands"), "post_extension_command", "mesa"),
     Route(re.compile(r"/api/v1/extension/commands/(?P<command_id>\d+)/result"), "post_command_result", "extension"),
     Route(re.compile(r"/api/v1/area/scans"), "post_area_scan", "mesa"),
@@ -596,11 +592,6 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self._send_length_and_body(body)
 
-    def handle_bridge_pairing(self, query: dict[str, list[str]]) -> None:
-        if not self._require_session():
-            return
-        self._send_json(self._pairing_payload())
-
     def handle_area_latest(self, query: dict[str, list[str]]) -> None:
         self._send_json(views.area_summary_payload(self.mesa.store))
 
@@ -778,25 +769,6 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         url = f"http://127.0.0.1:{port}/bootstrap#token={quote(token, safe='')}"
         self._send_json({"url": url, "expires_in": self.mesa.bridge.handoff_ttl})
 
-    def post_bridge_pair(self) -> None:
-        origin = str(self.headers.get("Origin") or "").strip()
-        if not is_extension_origin(origin):
-            self._send_json({"error": "extension_origin_required"}, status=403)
-            return
-        self.cors_origin = origin
-        payload = self._read_json_body()
-        token = self.mesa.bridge.pair(
-            self.mesa.store,
-            str(payload.get("client_id") or ""),
-            str(payload.get("code") or ""),
-            origin,
-            str(payload.get("extension_id") or "") or None,
-        )
-        if token is None:
-            self._send_json({"error": "pairing_rejected"}, status=401)
-            return
-        self._send_json({"token": token, "token_type": "Bearer"})
-
     def post_bridge_register(self) -> None:
         origin = str(self.headers.get("Origin") or "").strip()
         if not is_trusted_extension_origin(origin):
@@ -812,26 +784,6 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         self._send_json(
             {"token": token, "token_type": "Bearer", "client_id": client_id}
         )
-
-    def post_pairing_renew(self) -> None:
-        if not self._require_session():
-            return
-        self.mesa.bridge.renew_pairing_code()
-        self._send_json(self._pairing_payload())
-
-    def post_pairing_reset(self) -> None:
-        """Revoke every paired client and issue a fresh pairing code.
-
-        Reinstalling the extension or losing its storage would otherwise leave
-        the Mesa believing it is paired with a client that no longer holds a
-        token, and no new pairing would ever be offered (CR-09).
-        """
-
-        if not self._require_session():
-            return
-        revoked = self.mesa.store.revoke_bridge_clients()
-        self.mesa.bridge.renew_pairing_code()
-        self._send_json({**self._pairing_payload(), "revoked": revoked})
 
     def post_extension_command(self) -> None:
         if not self._require_session():
@@ -1002,26 +954,6 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             raw_sha256=str(payload.get("raw_sha256") or "") or None,
         )
         self._send_json({"scan_id": scan_id}, status=201)
-
-    def _pairing_payload(self) -> dict[str, Any]:
-        clients = [
-            {
-                "client_id": row["client_id"],
-                "origin": row["origin"],
-                "extension_id": row["extension_id"],
-                "last_seen_at": row["last_seen_at"],
-            }
-            for row in self.mesa.store.list_bridge_clients()
-        ]
-        active = self.mesa.bridge.pairing_is_active()
-        return {
-            "paired": bool(clients),
-            "clients": clients,
-            # The code is only meaningful (and only shown) while nothing is paired.
-            "code": self.mesa.bridge.pairing_code if (active and not clients) else None,
-            "active": active,
-            "expires_in": self.mesa.bridge.pairing_expires_in if active else None,
-        }
 
     # --------------------------------------------------------------- static
 

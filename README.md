@@ -50,11 +50,13 @@ está aberto usando o mesmo plano e o mesmo preflight.
 
 ## Extensão
 
-A extensão suportada é a da raiz, `extension/` (Manifest V3 fina): ela observa,
-navega, lê e preenche — nunca envia o ato. Instalação: em `chrome://extensions`
-(ou o equivalente no Edge) ative o modo de desenvolvedor, escolha
-*Carregar sem compactação* e aponte para `extension/`. O pareamento é feito com
-o código que a Mesa imprime ao iniciar (ou `Renovar código` na Mesa).
+A extensão suportada é a da raiz, `extension/` (Manifest V3 fina). Depois de
+carregada no Chrome/Edge, ela reconhece a Mesa local automaticamente; não há
+senha, código de pareamento ou etapa de reparo. Se a credencial local ficar
+ausente ou inválida, o service worker registra novamente a extensão confiável e
+refaz a chamada uma única vez. Instalação: em `chrome://extensions` (ou o
+equivalente no Edge) ative o modo de desenvolvedor, escolha *Carregar sem
+compactação* e aponte para `extension/`.
 
 `extension/lib/protocol.js` mantém `FORBIDDEN_COMMAND_TYPES` justamente para que
 um teste possa provar que não existe comando de SUBMIT, SEND, AUTO_SUBMIT,

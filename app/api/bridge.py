@@ -1,11 +1,11 @@
-"""Pairing, bootstrap and session authority for the Mesa bridge.
+"""Trusted extension registration, bootstrap and session authority for the Mesa bridge.
 
 Three separate credentials exist and never substitute for one another:
 
-* a **pairing code** (six digits, 120 s, at most five failures) that is shown
-  in the Mesa only while no extension is paired;
+* a **trusted extension registration** tied to the shipped Manifest V3 public
+  key and its stable Chrome extension origin;
 * a **bearer token** for the extension, of which only the SHA-256 hash is
-  persisted, so restarts do not need a new code;
+  persisted, so restarts do not need a new registration;
 * a **Mesa session** created by a one-time bootstrap token and carried in an
   HttpOnly ``SameSite=Strict`` cookie.
 
@@ -26,9 +26,6 @@ from urllib.parse import urlsplit
 
 from ..core.store import Store
 
-PAIRING_CODE_LENGTH = 6
-PAIRING_TTL_SECONDS = 120.0
-PAIRING_MAX_ATTEMPTS = 5
 TRUSTED_EXTENSION_ID = "nhpklhieopdbomkojifcengjaklabjng"
 BOOTSTRAP_TTL_SECONDS = 300.0
 SESSION_HANDOFF_TTL_SECONDS = 300.0
@@ -46,10 +43,6 @@ def hash_token(token: str) -> str:
 
 def new_token() -> str:
     return secrets.token_urlsafe(TOKEN_BYTES)
-
-
-def new_pairing_code() -> str:
-    return f"{secrets.randbelow(10 ** PAIRING_CODE_LENGTH):0{PAIRING_CODE_LENGTH}d}"
 
 
 def is_extension_origin(origin: str | None) -> bool:
@@ -89,15 +82,11 @@ class _ExpiringSecret:
 class Bridge:
     """In-memory credential authority for one running Mesa server."""
 
-    code: str | None = None
     bootstrap_token: str | None = None
     clock: Callable[[], float] = time.monotonic
-    pairing_ttl: float = PAIRING_TTL_SECONDS
     bootstrap_ttl: float = BOOTSTRAP_TTL_SECONDS
     handoff_ttl: float = SESSION_HANDOFF_TTL_SECONDS
     session_ttl: float = SESSION_TTL_SECONDS
-    max_attempts: int = PAIRING_MAX_ATTEMPTS
-    _pairing: _ExpiringSecret | None = field(default=None, repr=False)
     _bootstrap: _ExpiringSecret | None = field(default=None, repr=False)
     _sessions: dict[str, float] = field(default_factory=dict, repr=False)
     _handoffs: dict[str, float] = field(default_factory=dict, repr=False)
@@ -105,79 +94,7 @@ class Bridge:
 
     def __post_init__(self) -> None:
         now = self.clock()
-        self._pairing = _ExpiringSecret(self.code or new_pairing_code(), now + self.pairing_ttl)
         self._bootstrap = _ExpiringSecret(self.bootstrap_token or new_token(), now + self.bootstrap_ttl)
-
-    # ------------------------------------------------------------------ pairing
-
-    @property
-    def pairing_code(self) -> str:
-        assert self._pairing is not None
-        return self._pairing.value
-
-    def pairing_is_active(self) -> bool:
-        assert self._pairing is not None
-        state = self._pairing
-        return (
-            not state.consumed
-            and state.attempts < self.max_attempts
-            and self.clock() < state.expires_at
-        )
-
-    @property
-    def pairing_expires_in(self) -> float:
-        """Seconds left before the current pairing code stops being accepted."""
-
-        assert self._pairing is not None
-        return max(0.0, self._pairing.expires_at - self.clock())
-
-    def renew_pairing_code(self) -> str:
-        """Issue a fresh code and reset the attempt counter."""
-
-        with self._lock:
-            self._pairing = _ExpiringSecret(new_pairing_code(), self.clock() + self.pairing_ttl)
-            return self._pairing.value
-
-    def _accept_code(self, candidate: str) -> bool:
-        with self._lock:
-            if not self.pairing_is_active():
-                return False
-            assert self._pairing is not None
-            if not hmac.compare_digest(self._pairing.value, candidate):
-                self._pairing.attempts += 1
-                return False
-            return True
-
-    def pair(
-        self,
-        store: Store,
-        client_id: str,
-        code: str,
-        origin: str,
-        extension_id: str | None = None,
-    ) -> str | None:
-        """Validate the pairing code and return a fresh bearer token once."""
-
-        if not client_id.strip() or not is_extension_origin(origin):
-            return None
-        derived = extension_id_from_origin(origin)
-        declared = str(extension_id or "").strip().casefold()
-        if declared and derived and declared != derived:
-            # The body may only agree with the Origin, never replace it.
-            return None
-        if not self._accept_code(code.strip()):
-            return None
-        token = new_token()
-        store.pair_bridge_client(
-            client_id.strip(),
-            hash_token(token),
-            origin=origin.strip(),
-            extension_id=derived or declared or None,
-        )
-        with self._lock:
-            assert self._pairing is not None
-            self._pairing.consumed = True
-        return token
 
     def register(self, store: Store, client_id: str, origin: str) -> str | None:
         """Register the shipped extension and return one fresh bearer token."""

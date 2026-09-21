@@ -1,6 +1,6 @@
-"""Tests for bridge pairing, Mesa sessions and the authenticated command API.
+"""Tests for trusted extension registration, Mesa sessions and the authenticated command API.
 
-Covers M2 Task 2: a short-lived pairing code, a bearer token that survives
+Covers automatic trusted extension registration, bearer tokens that survive
 server restarts, a one-time Mesa bootstrap token and fail-closed same-origin
 validation for every state-changing route.
 """
@@ -30,7 +30,7 @@ class BridgeTestCase(unittest.TestCase):
         self.store = Store.open(self.data_root / "atos-tce.db")
         self.addCleanup(self.store.close)
         self.servers: list = []
-        self.bridge = Bridge(code="618900", bootstrap_token="bootstrap-token")
+        self.bridge = Bridge(bootstrap_token="bootstrap-token")
         self.server = self.start_server(self.bridge)
         self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
 
@@ -75,16 +75,6 @@ class BridgeTestCase(unittest.TestCase):
             "Origin": EXTENSION_ORIGIN,
         }
 
-    def pair(self, client_id="extension-test"):
-        status, _headers, payload = self.call_json(
-            "/api/v1/bridge/pair",
-            method="POST",
-            headers={"Origin": EXTENSION_ORIGIN},
-            body={"client_id": client_id, "code": self.bridge.pairing_code},
-        )
-        self.assertEqual(status, 200, payload)
-        return payload["token"]
-
     def register(self, client_id="extension-test", origin=EXTENSION_ORIGIN):
         return self.call_json(
             "/api/v1/bridge/register",
@@ -92,6 +82,11 @@ class BridgeTestCase(unittest.TestCase):
             headers={"Origin": origin},
             body={"client_id": client_id},
         )
+
+    def registered_token(self, client_id="extension-test"):
+        status, _headers, payload = self.register(client_id=client_id)
+        self.assertEqual(status, 200, payload)
+        return payload["token"]
 
     def mesa_opener(self):
         """Return an opener holding a valid Mesa session cookie."""
@@ -112,7 +107,7 @@ class BridgeTestCase(unittest.TestCase):
         return {"Origin": self.base}
 
 
-class ExtensionPairingTests(BridgeTestCase):
+class ExtensionRegistrationTests(BridgeTestCase):
     def test_trusted_extension_registers_without_a_code(self):
         status, _headers, payload = self.register()
 
@@ -166,6 +161,28 @@ class ExtensionPairingTests(BridgeTestCase):
         )
         self.assertEqual(status, 200, payload)
 
+    def test_manual_pairing_endpoints_are_retired(self):
+        for path in (
+            "/api/v1/bridge/pair",
+            "/api/v1/bridge/pairing/renew",
+            "/api/v1/bridge/pairing/reset",
+        ):
+            status, _headers, _payload = self.call_json(
+                path,
+                method="POST",
+                headers={"Origin": self.base},
+                body={},
+            )
+            self.assertEqual(status, 404, path)
+
+        opener = self.mesa_opener()
+        status, _headers, _payload = self.call_json(
+            "/api/v1/bridge/pairing",
+            headers=self.mesa_headers(),
+            opener=opener,
+        )
+        self.assertEqual(status, 404)
+
     def test_unpaired_extension_is_rejected(self):
         status, _headers, payload = self.call_json(
             "/api/v1/extension/commands/next",
@@ -175,60 +192,8 @@ class ExtensionPairingTests(BridgeTestCase):
         self.assertEqual(status, 401)
         self.assertEqual(payload["error"], "unauthorized")
 
-    def test_pairing_with_the_mesa_code_returns_one_token(self):
-        token = self.pair()
-
-        self.assertTrue(token)
-        status, _headers, payload = self.call_json(
-            "/api/v1/extension/commands/next", headers=self.extension_headers(token)
-        )
-        self.assertEqual(status, 200)
-        self.assertIsNone(payload["command"])
-
-    def test_pairing_code_cannot_be_reused(self):
-        self.pair()
-
-        status, _headers, payload = self.call_json(
-            "/api/v1/bridge/pair",
-            method="POST",
-            headers={"Origin": EXTENSION_ORIGIN},
-            body={"client_id": "outro", "code": "618900"},
-        )
-
-        self.assertEqual(status, 401)
-        self.assertEqual(payload["error"], "pairing_rejected")
-
-    def test_wrong_code_is_rejected_and_attempts_are_limited(self):
-        for _ in range(5):
-            status, _headers, _payload = self.call_json(
-                "/api/v1/bridge/pair",
-                method="POST",
-                headers={"Origin": EXTENSION_ORIGIN},
-                body={"client_id": "extension-test", "code": "000000"},
-            )
-            self.assertEqual(status, 401)
-
-        status, _headers, _payload = self.call_json(
-            "/api/v1/bridge/pair",
-            method="POST",
-            headers={"Origin": EXTENSION_ORIGIN},
-            body={"client_id": "extension-test", "code": "618900"},
-        )
-        self.assertEqual(status, 401, "the real code must be dead after five failures")
-
-    def test_pairing_without_an_extension_origin_is_refused(self):
-        status, _headers, payload = self.call_json(
-            "/api/v1/bridge/pair",
-            method="POST",
-            headers={"Origin": "https://example.com"},
-            body={"client_id": "extension-test", "code": "618900"},
-        )
-
-        self.assertEqual(status, 403)
-        self.assertEqual(payload["error"], "extension_origin_required")
-
     def test_only_the_token_hash_is_persisted(self):
-        token = self.pair()
+        token = self.registered_token()
 
         row = self.store.list_bridge_clients()[0]
         self.assertEqual(row["token_hash"], hash_token(token))
@@ -238,7 +203,7 @@ class ExtensionPairingTests(BridgeTestCase):
         self.assertNotIn(b"618900", database)
 
     def test_a_token_is_only_valid_from_the_origin_it_was_paired_with(self):
-        token = self.pair()
+        token = self.registered_token()
 
         status, _headers, payload = self.call_json(
             "/api/v1/extension/commands/next",
@@ -253,7 +218,7 @@ class ExtensionPairingTests(BridgeTestCase):
         self.assertEqual(payload["error"], "unauthorized")
 
     def test_a_request_without_an_extension_origin_is_rejected(self):
-        token = self.pair()
+        token = self.registered_token()
 
         status, _headers, _payload = self.call_json(
             "/api/v1/extension/commands/next",
@@ -262,119 +227,9 @@ class ExtensionPairingTests(BridgeTestCase):
 
         self.assertEqual(status, 401)
 
-    def test_the_declared_extension_id_must_match_the_origin(self):
-        status, _headers, payload = self.call_json(
-            "/api/v1/bridge/pair",
-            method="POST",
-            headers={"Origin": EXTENSION_ORIGIN},
-            body={
-                "client_id": "extension-test",
-                "code": "618900",
-                "extension_id": "outraextensaoqualquer",
-            },
-        )
-
-        self.assertEqual(status, 401)
-        self.assertEqual(payload["error"], "pairing_rejected")
-        self.assertEqual(self.store.list_bridge_clients(), [])
-
-    def test_the_paired_extension_id_comes_from_the_origin(self):
-        status, _headers, payload = self.call_json(
-            "/api/v1/bridge/pair",
-            method="POST",
-            headers={"Origin": EXTENSION_ORIGIN},
-            body={
-                "client_id": "extension-test",
-                "code": "618900",
-                "extension_id": TRUSTED_EXTENSION_ID,
-            },
-        )
-
-        self.assertEqual(status, 200, payload)
-        row = self.store.list_bridge_clients()[0]
-        self.assertEqual(row["origin"], EXTENSION_ORIGIN)
-        self.assertEqual(row["extension_id"], TRUSTED_EXTENSION_ID)
-
-    def test_reset_revokes_the_old_client_and_offers_a_new_code(self):
-        old_token = self.pair()
-        opener = self.mesa_opener()
-
-        status, _headers, reset = self.call_json(
-            "/api/v1/bridge/pairing/reset",
-            method="POST",
-            headers=self.mesa_headers(),
-            body={},
-            opener=opener,
-        )
-
-        self.assertEqual(status, 200, reset)
-        self.assertEqual(reset["revoked"], 1)
-        self.assertFalse(reset["paired"])
-        self.assertTrue(reset["code"])
-        self.assertEqual(self.store.list_bridge_clients(), [])
-
-        status, _headers, _payload = self.call_json(
-            "/api/v1/extension/commands/next", headers=self.extension_headers(old_token)
-        )
-        self.assertEqual(status, 401, "o token antigo deixa de funcionar")
-
-        status, _headers, paired = self.call_json(
-            "/api/v1/bridge/pair",
-            method="POST",
-            headers={"Origin": EXTENSION_ORIGIN},
-            body={"client_id": "extension-test", "code": reset["code"]},
-        )
-
-        self.assertEqual(status, 200, paired)
-        new_token = paired["token"]
-        self.assertNotEqual(new_token, old_token)
-        status, _headers, payload = self.call_json(
-            "/api/v1/extension/commands/next", headers=self.extension_headers(new_token)
-        )
-        self.assertEqual(status, 200)
-        self.assertIsNone(payload["command"])
-
-    def test_the_token_issued_after_a_reset_survives_a_restart(self):
-        self.pair()
-        opener = self.mesa_opener()
-        _status, _headers, reset = self.call_json(
-            "/api/v1/bridge/pairing/reset",
-            method="POST",
-            headers=self.mesa_headers(),
-            body={},
-            opener=opener,
-        )
-        _status, _headers, paired = self.call_json(
-            "/api/v1/bridge/pair",
-            method="POST",
-            headers={"Origin": EXTENSION_ORIGIN},
-            body={"client_id": "extension-test", "code": reset["code"]},
-        )
-        token = paired["token"]
-        restarted = self.start_server(Bridge(code="999999"))
-        self.base = f"http://127.0.0.1:{restarted.server_address[1]}"
-
-        status, _headers, payload = self.call_json(
-            "/api/v1/extension/commands/next", headers=self.extension_headers(token)
-        )
-
-        self.assertEqual(status, 200)
-        self.assertIsNone(payload["command"])
-
-    def test_reset_requires_the_mesa_session(self):
-        status, _headers, payload = self.call_json(
-            "/api/v1/bridge/pairing/reset",
-            method="POST",
-            headers=self.mesa_headers(),
-            body={},
-        )
-
-        self.assertEqual(status, 401)
-        self.assertEqual(payload["error"], "session_required")
-
     def test_token_survives_a_new_server_instance(self):
-        token = self.pair()
-        restarted = self.start_server(Bridge(code="999999"))
+        token = self.registered_token()
+        restarted = self.start_server(Bridge())
         self.base = f"http://127.0.0.1:{restarted.server_address[1]}"
 
         status, _headers, payload = self.call_json(
@@ -385,7 +240,7 @@ class ExtensionPairingTests(BridgeTestCase):
         self.assertIsNone(payload["command"])
 
     def test_invalid_token_is_rejected(self):
-        self.pair()
+        self.registered_token()
 
         status, _headers, _payload = self.call_json(
             "/api/v1/extension/commands/next", headers=self.extension_headers("token-errado")
@@ -401,7 +256,7 @@ class ExtensionPairingTests(BridgeTestCase):
     def test_bridge_status_requires_a_token(self):
         self.assertEqual(self.call("/api/v1/bridge/status")[0], 401)
 
-        token = self.pair()
+        token = self.registered_token()
         status, _headers, payload = self.call_json(
             "/api/v1/bridge/status", headers=self.extension_headers(token)
         )
@@ -425,7 +280,7 @@ class ExtensionPairingTests(BridgeTestCase):
         self.assertEqual(status, 403)
 
     def test_extension_responses_carry_cors_headers(self):
-        token = self.pair()
+        token = self.registered_token()
 
         status, headers, _payload = self.call_json(
             "/api/v1/extension/commands/next", headers=self.extension_headers(token)
@@ -433,39 +288,6 @@ class ExtensionPairingTests(BridgeTestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(headers["Access-Control-Allow-Origin"], EXTENSION_ORIGIN)
-
-    def test_mesa_pairing_payload_hides_the_code_once_paired(self):
-        opener = self.mesa_opener()
-        status, _headers, payload = self.call_json(
-            "/api/v1/bridge/pairing", headers=self.mesa_headers(), opener=opener
-        )
-        self.assertEqual(status, 200)
-        self.assertEqual(payload["code"], "618900")
-        self.assertFalse(payload["paired"])
-
-        self.pair()
-        status, _headers, payload = self.call_json(
-            "/api/v1/bridge/pairing", headers=self.mesa_headers(), opener=opener
-        )
-        self.assertEqual(status, 200)
-        self.assertIsNone(payload["code"])
-        self.assertTrue(payload["paired"])
-
-    def test_renew_pairing_code_issues_a_new_one(self):
-        opener = self.mesa_opener()
-
-        status, _headers, payload = self.call_json(
-            "/api/v1/bridge/pairing/renew",
-            method="POST",
-            headers=self.mesa_headers(),
-            body={},
-            opener=opener,
-        )
-
-        self.assertEqual(status, 200)
-        self.assertRegex(payload["code"], r"^\d{6}$")
-        self.assertNotEqual(payload["code"], "618900")
-
 
 class MesaSessionTests(BridgeTestCase):
     def test_bootstrap_token_is_single_use(self):
@@ -608,7 +430,7 @@ class ExtensionCommandApiTests(BridgeTestCase):
         self.assertGreater(created["command_id"], 0)
         self.assertEqual(created["state"], "QUEUED")
 
-        token = self.pair()
+        token = self.registered_token()
         status, _headers, payload = self.call_json(
             "/api/v1/extension/commands/next", headers=self.extension_headers(token)
         )
@@ -632,7 +454,7 @@ class ExtensionCommandApiTests(BridgeTestCase):
             opener=opener,
         )
         command_id = created["command_id"]
-        token = self.pair()
+        token = self.registered_token()
         _status, _headers, claimed = self.call_json(
             "/api/v1/extension/commands/next", headers=self.extension_headers(token)
         )
