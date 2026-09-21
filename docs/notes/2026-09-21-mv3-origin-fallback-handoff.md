@@ -78,6 +78,12 @@ ela emitirá um token local novo automaticamente.
 M2, M3, M5 e M6 continuam dependendo da execução humana no portal e não são
 fechados por estes testes automatizados.
 
+Validação manual concluída em 2026-09-21: após reiniciar a Mesa, recarregar a
+extensão pela pasta raiz e reabrir o painel lateral, o Chrome QA exibiu
+`Mesa conectada` e a Mesa exibiu `paired: true` no diagnóstico do service
+worker. A Área Restrita ainda não estava aberta nessa captura; os gates do
+portal continuam pendentes.
+
 ## GitHub e retomada
 
 - Branch: codex/mesa-local-refactor.
