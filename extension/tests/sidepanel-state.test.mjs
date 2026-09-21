@@ -3,20 +3,23 @@ import assert from "node:assert/strict";
 
 import { describeMesaStatus } from "../sidepanel/state.js";
 
-test("an unauthorized Mesa status requests a fresh pairing in this profile", () => {
-  const state = describeMesaStatus({ ok: false, status: 401, error: "unauthorized" });
-
-  assert.equal(state.paired, false);
-  assert.equal(state.stale, true);
-  assert.equal(state.tone, "error");
-  assert.equal(state.label, "Mesa: pareamento deste perfil recusado");
-  assert.match(state.diagnostic, /Reparear extensão/);
-});
-
-test("a connected Mesa status keeps the panel ready", () => {
+test("connected status is simple", () => {
   const state = describeMesaStatus({ ok: true, status: 200, paired: true });
 
-  assert.equal(state.paired, true);
-  assert.equal(state.stale, false);
   assert.equal(state.label, "Mesa conectada");
+  assert.equal(state.tone, "ok");
+});
+
+test("startup or recovery status says connecting", () => {
+  const state = describeMesaStatus({ ok: false, status: 401, recovering: true });
+
+  assert.equal(state.label, "Conectando à Mesa…");
+  assert.equal(state.tone, "warn");
+});
+
+test("network failure says Mesa not found", () => {
+  const state = describeMesaStatus({ ok: false, status: 0, error: "fetch_failed" });
+
+  assert.equal(state.label, "Mesa não encontrada");
+  assert.equal(state.tone, "error");
 });

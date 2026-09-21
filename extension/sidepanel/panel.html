@@ -21,8 +21,7 @@
       .dot.warn { background: #8a5200; }
       .dot.error { background: #8f1d1d; }
       section { margin-bottom: 12px; }
-      label { display: block; font-size: 12px; color: #5b6879; margin-bottom: 4px; }
-      input, button {
+      button {
         font: inherit;
         width: 100%;
         padding: 8px 10px;
@@ -40,20 +39,15 @@
   <body>
     <h1>ATOS TCE</h1>
     <ul>
-      <li><span id="mesa-dot" class="dot"></span><span id="mesa-status">Mesa: verificando…</span></li>
+      <li><span id="mesa-dot" class="dot"></span><span id="mesa-status">Conectando à Mesa…</span></li>
       <li><span id="portal-dot" class="dot"></span><span id="portal-status">Área Restrita: verificando…</span></li>
     </ul>
-    <section id="pair-section" hidden>
-      <label for="pair-code">Código exibido na Mesa</label>
-      <input id="pair-code" inputmode="numeric" maxlength="6" autocomplete="off" />
-      <button id="pair-action" type="button">Parear</button>
-    </section>
     <section id="current-form-section">
       <p id="form-info" class="muted">Verificando formulário aberto…</p>
       <button id="fill-current" type="button" disabled>Preencher formulário atual</button>
     </section>
     <button id="open-mesa" class="secondary" type="button">Abrir Mesa</button>
-    <p>Para outro perfil do Chrome, use a URL de sessão completa impressa pelo <code>START.cmd</code>; a raiz da Mesa não carrega a sessão.</p>
+    <p>A sessão da Mesa é restaurada automaticamente neste perfil.</p>
     <p id="diagnostic"></p>
     <script type="module" src="panel.js"></script>
   </body>

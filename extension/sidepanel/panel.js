@@ -1,6 +1,6 @@
 /**
- * Operational side panel: connection state, portal state, pairing when needed
- * and a shortcut to the Mesa. It is intentionally not a dashboard — the Mesa
+ * Operational side panel: connection state, portal state and a shortcut to
+ * the Mesa. It is intentionally not a dashboard — the Mesa
  * owns the workflow.
  */
 
@@ -32,15 +32,13 @@ async function refreshPortal() {
 }
 
 async function refresh() {
-  const pairSection = document.getElementById("pair-section");
   const diagnostic = document.getElementById("diagnostic");
   try {
     const mesa = await refreshMesa();
     await refreshPortal();
     await refreshCurrentForm();
-    pairSection.hidden = mesa.paired;
     diagnostic.className = "";
-    diagnostic.textContent = mesa.diagnostic ?? "Pareie com o código de seis dígitos exibido na Mesa.";
+    diagnostic.textContent = mesa.diagnostic ?? "A conexão automática está sendo estabelecida.";
   } catch (error) {
     diagnostic.className = "error";
     diagnostic.textContent = `Falha ao consultar o estado: ${error?.message ?? error}`;
