@@ -227,6 +227,37 @@ class ExtensionRegistrationTests(BridgeTestCase):
 
         self.assertEqual(status, 401)
 
+    def test_a_mv3_service_worker_request_without_origin_uses_the_trusted_extension_id(self):
+        token = self.registered_token()
+
+        status, headers, payload = self.call_json(
+            "/api/v1/bridge/status",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-TCE-Client": "extension-test",
+                "X-TCE-Extension-ID": TRUSTED_EXTENSION_ID,
+            },
+        )
+
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(payload["paired"])
+        self.assertEqual(headers["Access-Control-Allow-Origin"], EXTENSION_ORIGIN)
+
+    def test_a_service_worker_request_with_an_untrusted_extension_id_is_rejected(self):
+        token = self.registered_token()
+
+        status, _headers, payload = self.call_json(
+            "/api/v1/bridge/status",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-TCE-Client": "extension-test",
+                "X-TCE-Extension-ID": "outraextensaoqualquer",
+            },
+        )
+
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "unauthorized")
+
     def test_token_survives_a_new_server_instance(self):
         token = self.registered_token()
         restarted = self.start_server(Bridge())
@@ -273,6 +304,7 @@ class ExtensionRegistrationTests(BridgeTestCase):
         self.assertEqual(status, 204)
         self.assertEqual(headers["Access-Control-Allow-Origin"], EXTENSION_ORIGIN)
         self.assertIn("Authorization", headers["Access-Control-Allow-Headers"])
+        self.assertIn("X-TCE-Extension-ID", headers["Access-Control-Allow-Headers"])
 
         status, _headers, _payload = self.call(
             "/api/v1/extension/commands/next", method="OPTIONS", headers={"Origin": "https://example.com"}

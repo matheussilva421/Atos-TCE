@@ -48,11 +48,14 @@ from . import views
 from .bridge import (
     SESSION_COOKIE,
     Bridge,
+    TRUSTED_EXTENSION_ID,
     extension_id_from_origin,
     hash_token,
     is_extension_origin,
     is_trusted_extension_origin,
 )
+
+EXTENSION_ID_HEADER = "X-TCE-Extension-ID"
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 18743
@@ -338,7 +341,10 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         self.cors_origin = origin
         self.send_response(204)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Authorization, X-TCE-Client, Content-Type")
+        self.send_header(
+            "Access-Control-Allow-Headers",
+            f"Authorization, X-TCE-Client, {EXTENSION_ID_HEADER}, Content-Type",
+        )
         self.send_header("Access-Control-Max-Age", "600")
         self._apply_cors_headers()
         self.send_header("Content-Length", "0")
@@ -394,6 +400,11 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             origin = str(self.headers.get("Origin") or "").strip()
             if is_extension_origin(origin):
                 self.cors_origin = origin
+            elif not origin and self._claimed_extension_id() == TRUSTED_EXTENSION_ID:
+                # Chromium service-worker fetches can omit Origin on the actual
+                # loopback request. The preflight still proves the extension
+                # origin; keep the response readable for that same trusted id.
+                self.cors_origin = f"chrome-extension://{TRUSTED_EXTENSION_ID}"
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - stdlib signature
         if getattr(self.mesa, "verbose", False):
@@ -401,8 +412,17 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------------ auth
 
+    def _claimed_extension_id(self) -> str:
+        return str(self.headers.get(EXTENSION_ID_HEADER) or "").strip().casefold()
+
     def _extension_client(self) -> str | None:
-        """Return the authenticated client id, or ``None``."""
+        """Return the authenticated client id, or ``None``.
+
+        Chrome may omit ``Origin`` on an authenticated MV3 service-worker
+        request. In that one case the extension must present its stable runtime
+        id; the bearer token and client id remain mandatory and the stored
+        origin is reconstructed only for the shipped trusted extension.
+        """
 
         header = str(self.headers.get("Authorization") or "")
         if not header.casefold().startswith("bearer "):
@@ -411,6 +431,17 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         client_id = str(self.headers.get("X-TCE-Client") or "").strip()
         origin = str(self.headers.get("Origin") or "").strip()
         extension_id = extension_id_from_origin(origin)
+        claimed_extension_id = self._claimed_extension_id()
+        if origin:
+            if extension_id is None:
+                return None
+            if claimed_extension_id and claimed_extension_id != extension_id:
+                return None
+        else:
+            if claimed_extension_id != TRUSTED_EXTENSION_ID:
+                return None
+            extension_id = TRUSTED_EXTENSION_ID
+            origin = f"chrome-extension://{TRUSTED_EXTENSION_ID}"
         if not token or not client_id or extension_id is None:
             return None
         if not self.mesa.store.authenticate_bridge_client(

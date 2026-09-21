@@ -10,6 +10,12 @@ use a extensão antiga de `work/tce-extractor`. A extensão suportada é a pasta
 `extension/`, cujo ID esperado é
 `nhpklhieopdbomkojifcengjaklabjng`.
 
+O Chrome pode omitir `Origin` na requisição GET real do service worker. A
+extensão atual envia `X-TCE-Extension-ID` automaticamente; não é necessário
+adicionar cabeçalhos manualmente no DevTools. O preflight continua sendo feito
+com a origem da extensão e a Mesa exige o ID confiável, o bearer e o cliente
+registrado para aceitar o fallback.
+
 ## 1. Preparar a branch
 
 Abra uma janela PowerShell para os comandos do repositório:

@@ -5,6 +5,7 @@ import { createApi, STORAGE_KEYS } from "../lib/api.js";
 import { fakeFetch, fakeStorage } from "./helpers.mjs";
 
 const CLIENT_ID = "extension-test-client";
+const EXTENSION_ID = "nhpklhieopdbomkojifcengjaklabjng";
 
 function build({ routes = [], data = new Map(), storage = fakeStorage() } = {}) {
   for (const [key, value] of data) storage.data.set(key, value);
@@ -14,6 +15,7 @@ function build({ routes = [], data = new Map(), storage = fakeStorage() } = {}) 
     fetchImpl,
     clientIdFactory: () => CLIENT_ID,
     baseUrl: "http://127.0.0.1:18743",
+    extensionId: EXTENSION_ID,
   });
   return { api, storage, fetchImpl };
 }
@@ -63,6 +65,17 @@ test("a valid stored credential is used without registration", async () => {
   assert.equal(fetchImpl.calls.length, 1);
   assert.equal(fetchImpl.calls[0].headers.Authorization, "Bearer token-123");
   assert.equal(fetchImpl.calls[0].headers["X-TCE-Client"], CLIENT_ID);
+});
+
+test("authenticated requests identify the MV3 extension for service-worker fetches", async () => {
+  const { api, fetchImpl } = build({
+    data: pairedData(),
+    routes: [{ path: "/api/v1/bridge/status", body: { paired: true } }],
+  });
+
+  await api.status();
+
+  assert.equal(fetchImpl.calls[0].headers["X-TCE-Extension-ID"], EXTENSION_ID);
 });
 
 test("401 automatically registers and retries exactly once", async () => {

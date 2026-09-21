@@ -58,6 +58,12 @@ refaz a chamada uma única vez. Instalação: em `chrome://extensions` (ou o
 equivalente no Edge) ative o modo de desenvolvedor, escolha *Carregar sem
 compactação* e aponte para `extension/`.
 
+Em chamadas autenticadas feitas pelo service worker, o Chromium pode omitir o
+cabeçalho `Origin` na requisição real para o loopback. A extensão envia também
+`X-TCE-Extension-ID`; a Mesa só aceita esse fallback para o ID estável da
+extensão publicada, junto com o bearer e `X-TCE-Client` já registrados. O
+preflight CORS continua exigindo a origem da extensão.
+
 `extension/lib/protocol.js` mantém `FORBIDDEN_COMMAND_TYPES` justamente para que
 um teste possa provar que não existe comando de SUBMIT, SEND, AUTO_SUBMIT,
 COMPLEMENT_ACT ou FINALIZE.

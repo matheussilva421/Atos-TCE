@@ -29,7 +29,7 @@ a escolha do disco externo de arquivamento e o merge para `main`.
 | CR-07 | Resultado só conclui com o claim correto: ownership e token conferidos na mesma transação | `605af03` | `tests/test_area_scan.py`, `tests/test_api_server.py` (token velho → 409; outro cliente → 403; replay → 200 `replayed` sem segundo scan) |
 | CR-08 | Payload malformado não vira sucesso: contrato por tipo de comando | `605af03` | `tests/test_api_server.py` (`{}`, `ok:"true"`, `ok:1`, role inválida, FILL_FORM sem `field_results` → 400 e workflow parado) |
 | CR-09 | Ação da Mesa para reparear a extensão (revoga clientes e emite novo código) | `605af03` | `tests/test_bridge.py` (reset revoga, token antigo deixa de funcionar, novo token pareia e sobrevive a restart) |
-| CR-10 | Token só vale na origem pareada; extension id derivado do `Origin` | `605af03` | `tests/test_bridge.py` (origem diferente → 401; sem origem → 401; id divergente no corpo → recusa; id pareado vem do `Origin`) |
+| CR-10 | Token só vale na origem pareada; GET de service worker sem `Origin` usa o ID confiável declarado no cabeçalho | este bloco | `tests/test_bridge.py` (origem diferente → 401; sem origem e sem ID confiável → 401; ID confiável sem origem → 200; ID não confiável → 401) |
 
 ## Fase C — jobs e e-Contas
 

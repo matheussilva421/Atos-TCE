@@ -8,6 +8,8 @@
 
 import { MESA_ORIGIN } from "./protocol.js";
 
+export const EXTENSION_ID_HEADER = "X-TCE-Extension-ID";
+
 export const STORAGE_KEYS = Object.freeze({
   clientId: "tce.bridge.clientId",
   token: "tce.bridge.token",
@@ -28,12 +30,14 @@ export function createClientId() {
  * @param {Function} [options.fetchImpl] Injectable for tests.
  * @param {string} [options.baseUrl] Loopback Mesa origin.
  * @param {Function} [options.clientIdFactory]
+ * @param {string} [options.extensionId] Stable MV3 runtime id.
  */
 export function createApi({
   storage,
   fetchImpl = globalThis.fetch,
   baseUrl = MESA_ORIGIN,
   clientIdFactory = createClientId,
+  extensionId = globalThis.chrome?.runtime?.id ?? null,
 } = {}) {
   let registrationInFlight = null;
 
@@ -68,6 +72,7 @@ export function createApi({
     if (body !== undefined) headers["Content-Type"] = "application/json";
     if (token) headers.Authorization = `Bearer ${token}`;
     if (clientId) headers["X-TCE-Client"] = clientId;
+    if (extensionId) headers[EXTENSION_ID_HEADER] = extensionId;
 
     let response;
     try {
