@@ -280,17 +280,21 @@ async function loadPdfjs() {
     return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
   }
 
-  function renderArea(payload) {
+  function renderArea(payload, { placeholder = false } = {}) {
     const host = document.getElementById("area-counters");
-    const counters = payload.counters || {};
+    const counters = payload?.counters || {};
     host.replaceChildren(
       ...Object.entries(AREA_COUNTER_LABELS).map(([key, label]) =>
         element("div", {}, [
           element("dt", { text: label }),
-          element("dd", { text: numberFormat.format(counters[key] ?? 0) }),
+          element("dd", { text: placeholder ? "—" : numberFormat.format(counters[key] ?? 0) }),
         ])
       )
     );
+  }
+
+  function clearAreaCounters() {
+    renderArea(null, { placeholder: true });
   }
 
   async function refreshArea() {
@@ -330,6 +334,7 @@ async function loadPdfjs() {
     const button = document.getElementById("analyze-area");
     const status = document.getElementById("analyze-status");
     button.disabled = true;
+    clearAreaCounters();
     status.textContent = "Solicitando a leitura do portal…";
     try {
       const created = await postJson("/api/v1/area/analyze", {});
@@ -360,6 +365,7 @@ async function loadPdfjs() {
       await refreshProcesses();
     } catch (error) {
       status.textContent = `Não foi possível analisar: ${error.message}`;
+      await refreshArea();
     } finally {
       button.disabled = false;
     }
@@ -369,6 +375,7 @@ async function loadPdfjs() {
     const button = document.getElementById("analyze-area-cdp");
     const status = document.getElementById("analyze-status");
     button.disabled = true;
+    clearAreaCounters();
     status.textContent = "Lendo o portal pelo modo de compatibilidade…";
     try {
       const result = await postJson("/api/v1/area/analyze-cdp", {});
@@ -377,6 +384,7 @@ async function loadPdfjs() {
       await refreshProcesses();
     } catch (error) {
       status.textContent = `Modo de compatibilidade indisponível: ${error.message}`;
+      await refreshArea();
     } finally {
       button.disabled = false;
     }

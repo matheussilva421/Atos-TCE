@@ -163,3 +163,33 @@ Validação final e GitHub:
 - Branch de trabalho: `codex/mesa-local-refactor`; o commit/push deste bloco
   foi publicado em `2d4d9c6` (`fix: stabilize legacy area pagination
   snapshots`) no remoto `origin/codex/mesa-local-refactor`.
+
+## Follow-up — contadores durante nova análise (2026-09-21)
+
+O diagnóstico da tela confirmou que `GET /api/v1/area/latest` sempre retorna a
+última análise persistida. Ao iniciar uma nova leitura, `app/web/app.js` apenas
+alterava o status para aguardando a extensão e deixava os contadores antigos
+visíveis. Por isso os números 1.198, 483 e 715 apareceram durante a espera; a
+análise seguinte terminou com os mesmos valores, mas a tela não permitia
+separar visualmente retrato anterior de resultado em andamento.
+
+Correção aplicada:
+
+- `app/web/app.js` agora substitui os contadores por `—` ao iniciar tanto a
+  análise principal quanto o modo de compatibilidade.
+- A última análise continua preservada no banco e é recarregada ao concluir ou
+  quando a tentativa falha; nenhum dado histórico é apagado.
+- `app/web/tests/ui-wiring.test.mjs` cobre a limpeza visual durante a execução.
+
+Validação desta etapa:
+
+- RED: o novo teste falhou porque a tela ainda não tinha `clearAreaCounters`.
+- GREEN focado: `node --test app/web/tests/ui-wiring.test.mjs` — 8 testes, 8
+  aprovados, 0 falhas.
+- Gate oficial: `verify-project.ps1` — 1.254 verificações, 1.252 aprovadas,
+  0 falhas e 2 skips ambientais.
+- O servidor local respondeu `app.js` contendo a nova limpeza visual.
+
+Retomada manual: recarregar a aba `http://127.0.0.1:18743/` antes da próxima
+análise. Durante a execução, os seis contadores devem mostrar `—`; somente ao
+final devem voltar a exibir o novo retrato.

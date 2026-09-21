@@ -53,3 +53,9 @@ test("the storage panel says whether an external archive is configured", () => {
   assert.ok(source.includes("Arquivo externo"));
   assert.ok(source.includes("archive.external_root"));
 });
+
+test("area counters are cleared while a new analysis is in progress", () => {
+  assert.match(source, /function clearAreaCounters\(\)/u);
+  assert.match(source, /clearAreaCounters\(\);[\s\S]*postJson\("\/api\/v1\/area\/analyze"/u);
+  assert.match(source, /placeholder \? "—"/u);
+});
