@@ -15,11 +15,11 @@ from tempfile import TemporaryDirectory
 from urllib.error import HTTPError
 from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
-from app.api.bridge import Bridge, hash_token
+from app.api.bridge import Bridge, TRUSTED_EXTENSION_ID, hash_token
 from app.api.server import serve
 from app.core.store import Store
 
-EXTENSION_ORIGIN = "chrome-extension://abcdefghijklmnopabcdefghijklmnop"
+EXTENSION_ORIGIN = f"chrome-extension://{TRUSTED_EXTENSION_ID}"
 
 
 class BridgeTestCase(unittest.TestCase):
@@ -85,6 +85,14 @@ class BridgeTestCase(unittest.TestCase):
         self.assertEqual(status, 200, payload)
         return payload["token"]
 
+    def register(self, client_id="extension-test", origin=EXTENSION_ORIGIN):
+        return self.call_json(
+            "/api/v1/bridge/register",
+            method="POST",
+            headers={"Origin": origin},
+            body={"client_id": client_id},
+        )
+
     def mesa_opener(self):
         """Return an opener holding a valid Mesa session cookie."""
 
@@ -105,6 +113,59 @@ class BridgeTestCase(unittest.TestCase):
 
 
 class ExtensionPairingTests(BridgeTestCase):
+    def test_trusted_extension_registers_without_a_code(self):
+        status, _headers, payload = self.register()
+
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(payload["token"])
+        self.assertEqual(payload["client_id"], "extension-test")
+
+    def test_registration_token_authenticates_immediately(self):
+        _status, _headers, registered = self.register()
+
+        status, _headers, payload = self.call_json(
+            "/api/v1/bridge/status",
+            headers=self.extension_headers(registered["token"]),
+        )
+
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(payload["paired"])
+
+    def test_registration_rejects_an_untrusted_extension_origin(self):
+        status, _headers, payload = self.register(
+            origin="chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        )
+
+        self.assertEqual(status, 403)
+        self.assertEqual(payload["error"], "extension_not_trusted")
+        self.assertEqual(self.store.list_bridge_clients(), [])
+
+    def test_registration_persists_only_the_token_hash(self):
+        _status, _headers, payload = self.register()
+        token = payload["token"]
+
+        row = self.store.list_bridge_clients()[0]
+        self.assertEqual(row["token_hash"], hash_token(token))
+        self.assertNotIn(token.encode("utf-8"), (self.data_root / "atos-tce.db").read_bytes())
+
+    def test_re_registration_rotates_a_rejected_credential(self):
+        _status, _headers, first = self.register()
+        _status, _headers, second = self.register()
+
+        self.assertNotEqual(first["token"], second["token"])
+
+        status, _headers, _payload = self.call_json(
+            "/api/v1/bridge/status",
+            headers=self.extension_headers(first["token"]),
+        )
+        self.assertEqual(status, 401)
+
+        status, _headers, payload = self.call_json(
+            "/api/v1/bridge/status",
+            headers=self.extension_headers(second["token"]),
+        )
+        self.assertEqual(status, 200, payload)
+
     def test_unpaired_extension_is_rejected(self):
         status, _headers, payload = self.call_json(
             "/api/v1/extension/commands/next",
@@ -225,14 +286,14 @@ class ExtensionPairingTests(BridgeTestCase):
             body={
                 "client_id": "extension-test",
                 "code": "618900",
-                "extension_id": "abcdefghijklmnopabcdefghijklmnop",
+                "extension_id": TRUSTED_EXTENSION_ID,
             },
         )
 
         self.assertEqual(status, 200, payload)
         row = self.store.list_bridge_clients()[0]
         self.assertEqual(row["origin"], EXTENSION_ORIGIN)
-        self.assertEqual(row["extension_id"], "abcdefghijklmnopabcdefghijklmnop")
+        self.assertEqual(row["extension_id"], TRUSTED_EXTENSION_ID)
 
     def test_reset_revokes_the_old_client_and_offers_a_new_code(self):
         old_token = self.pair()

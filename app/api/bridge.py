@@ -179,6 +179,22 @@ class Bridge:
             self._pairing.consumed = True
         return token
 
+    def register(self, store: Store, client_id: str, origin: str) -> str | None:
+        """Register the shipped extension and return one fresh bearer token."""
+
+        client_id = str(client_id or "").strip()
+        origin = str(origin or "").strip()
+        if not client_id or not is_trusted_extension_origin(origin):
+            return None
+        token = new_token()
+        store.pair_bridge_client(
+            client_id,
+            hash_token(token),
+            origin=origin,
+            extension_id=extension_id_from_origin(origin),
+        )
+        return token
+
     # ----------------------------------------------------------------- bootstrap
 
     @property

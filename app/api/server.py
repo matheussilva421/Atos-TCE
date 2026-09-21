@@ -51,6 +51,7 @@ from .bridge import (
     extension_id_from_origin,
     hash_token,
     is_extension_origin,
+    is_trusted_extension_origin,
 )
 
 DEFAULT_HOST = "127.0.0.1"
@@ -203,6 +204,7 @@ POST_ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/session/bootstrap"), "post_session_bootstrap", "public"),
     Route(re.compile(r"/api/v1/session/handoff"), "post_session_handoff", "mesa"),
     Route(re.compile(r"/api/v1/bridge/pair"), "post_bridge_pair", "public"),
+    Route(re.compile(r"/api/v1/bridge/register"), "post_bridge_register", "public"),
     Route(re.compile(r"/api/v1/bridge/pairing/renew"), "post_pairing_renew", "mesa"),
     Route(re.compile(r"/api/v1/bridge/pairing/reset"), "post_pairing_reset", "mesa"),
     Route(re.compile(r"/api/v1/extension/commands"), "post_extension_command", "mesa"),
@@ -794,6 +796,22 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "pairing_rejected"}, status=401)
             return
         self._send_json({"token": token, "token_type": "Bearer"})
+
+    def post_bridge_register(self) -> None:
+        origin = str(self.headers.get("Origin") or "").strip()
+        if not is_trusted_extension_origin(origin):
+            self._send_json({"error": "extension_not_trusted"}, status=403)
+            return
+        self.cors_origin = origin
+        payload = self._read_json_body()
+        client_id = str(payload.get("client_id") or "").strip()
+        token = self.mesa.bridge.register(self.mesa.store, client_id, origin)
+        if token is None:
+            self._send_json({"error": "registration_rejected"}, status=400)
+            return
+        self._send_json(
+            {"token": token, "token_type": "Bearer", "client_id": client_id}
+        )
 
     def post_pairing_renew(self) -> None:
         if not self._require_session():
