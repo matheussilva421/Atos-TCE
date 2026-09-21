@@ -29,6 +29,7 @@ from ..core.store import Store
 PAIRING_CODE_LENGTH = 6
 PAIRING_TTL_SECONDS = 120.0
 PAIRING_MAX_ATTEMPTS = 5
+TRUSTED_EXTENSION_ID = "nhpklhieopdbomkojifcengjaklabjng"
 BOOTSTRAP_TTL_SECONDS = 300.0
 SESSION_HANDOFF_TTL_SECONDS = 300.0
 SESSION_TTL_SECONDS = 24 * 3600.0
@@ -70,6 +71,10 @@ def extension_id_from_origin(origin: str | None) -> str | None:
     parts = urlsplit(str(origin).strip())
     identifier = (parts.netloc or "").strip()
     return identifier.casefold() or None
+
+
+def is_trusted_extension_origin(origin: str | None) -> bool:
+    return extension_id_from_origin(origin) == TRUSTED_EXTENSION_ID
 
 
 @dataclass

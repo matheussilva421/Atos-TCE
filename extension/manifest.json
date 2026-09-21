@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "ATOS TCE — Ponte da Mesa",
   "version": "0.1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxnww2cI97CqnnyOy6kUt5XlHO4QGdudo6Jxo0OSvwg/O8GnfN/IKi+TboVMS/2IzsdGVIXAkmDBiY3ASZjvIw70EWMqwzSPPm/hcoyGpgVG6raKdrCcbWJmfPKbXGo/w7kj1J3XGiw02tJLuDXIStLk/7IktnP8juapBnoSfInq9j6Hvc8Wib1EjRj2XiFWkdL0pGNkecfv7zKTaIKWkFM9fGVlfzOs5IwmlZ6tOBIvYI00wSluDZYlLRz8/9w8MejsEe2Q2inej+fTeuRITgDYSaDH+x7om5SraFiEGx6XTZaFjgsGxW8Oqwa/4mWIBZHQO3Os6g2hAI81pFwFhNQIDAQAB",
   "description": "Adaptador fino entre a Mesa Local e a Área Restrita do TCE/RN: observa, lê páginas e executa instruções específicas da Mesa. Nunca conclui um ato.",
   "minimum_chrome_version": "116",
   "permissions": ["alarms", "sidePanel", "storage", "webNavigation"],
