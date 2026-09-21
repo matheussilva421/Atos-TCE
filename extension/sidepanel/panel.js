@@ -6,9 +6,11 @@
 
 import { createApi } from "../lib/api.js";
 import { MESA_ORIGIN, PORTAL_ORIGIN } from "../lib/protocol.js";
+import { createSerialQueue } from "./operation-queue.js";
 import { describeMesaStatus } from "./state.js";
 
 const api = createApi({ storage: globalThis.chrome?.storage?.local });
+const mesaOperations = createSerialQueue();
 let needsFreshPairing = false;
 
 function setState(elementId, dotId, text, tone) {
@@ -19,23 +21,25 @@ function setState(elementId, dotId, text, tone) {
 }
 
 async function refreshMesa() {
-  const credentials = await api.credentials();
-  if (!credentials.paired) {
-    const state = needsFreshPairing
-      ? describeMesaStatus({ status: 401 })
-      : { paired: false, stale: false, tone: "warn", label: "Mesa: extensão não pareada" };
+  return mesaOperations.run(async () => {
+    const credentials = await api.credentials();
+    if (!credentials.paired) {
+      const state = needsFreshPairing
+        ? describeMesaStatus({ status: 401 })
+        : { paired: false, stale: false, tone: "warn", label: "Mesa: extensão não pareada" };
+      setState("mesa-status", "mesa-dot", state.label, state.tone);
+      return state;
+    }
+    const status = await api.status();
+    const state = describeMesaStatus(status);
+    if (state.stale) {
+      await api.clear();
+      needsFreshPairing = true;
+    }
+    if (state.paired) needsFreshPairing = false;
     setState("mesa-status", "mesa-dot", state.label, state.tone);
     return state;
-  }
-  const status = await api.status();
-  const state = describeMesaStatus(status);
-  if (state.stale) {
-    await api.clear();
-    needsFreshPairing = true;
-  }
-  if (state.paired) needsFreshPairing = false;
-  setState("mesa-status", "mesa-dot", state.label, state.tone);
-  return state;
+  });
 }
 
 async function refreshPortal() {
@@ -119,7 +123,7 @@ document.getElementById("fill-current").addEventListener("click", async () => {
 document.getElementById("pair-action").addEventListener("click", async () => {
   const input = document.getElementById("pair-code");
   const diagnostic = document.getElementById("diagnostic");
-  const outcome = await api.pair(input.value);
+  const outcome = await mesaOperations.run(() => api.pair(input.value));
   if (!outcome.ok) {
     diagnostic.className = "error";
     diagnostic.textContent = `Pareamento recusado (${outcome.error}). Gere um novo código na Mesa.`;

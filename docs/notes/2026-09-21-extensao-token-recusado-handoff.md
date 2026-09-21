@@ -8,6 +8,21 @@ que o registro do cliente existia no banco, com a origem e o ID da extensão
 carregada no Chrome QA, mas `last_seen_at` não avançava após as consultas do
 painel. Isso caracteriza recusa do token salvo neste perfil.
 
+## Causa raiz confirmada
+
+O Chrome QA real usa o perfil
+`C:\\Users\\slvma\\AppData\\Local\\AtosTCE\\perfil-qa-20260921`. O token
+emitido para o último `client_id` foi localizado nesse perfil e seu hash bateu
+com o hash persistido na Mesa. Uma chamada HTTP com o mesmo token, origem e
+`X-TCE-Client` retornou `200` e `paired=true`.
+
+A falha era uma corrida no painel: a atualização automática de cinco segundos
+detectava o token anterior recusado e iniciava `api.clear()` enquanto o usuário
+já estava executando um novo pareamento. A limpeza terminava depois do novo
+`api.pair()` e removia o token recém-salvo. Por isso cada tentativa mostrava
+um novo cliente pareado na Mesa, mas o painel voltava imediatamente para
+token recusado.
+
 ## Correção implementada
 
 - `extension/lib/api.js` agora expõe o erro retornado por
@@ -16,6 +31,11 @@ painel. Isso caracteriza recusa do token salvo neste perfil.
   recuperação quando o token do perfil foi recusado.
 - `extension/sidepanel/panel.js` detecta `401`, remove somente o `clientId` e
   o token locais recusados e mantém o painel em modo de novo pareamento.
+- `extension/sidepanel/operation-queue.js` serializa a limpeza automática, a
+  consulta de estado e o pareamento para impedir que uma operação antiga apague
+  credenciais novas.
+- `extension/tests/operation-queue.test.mjs` trava a ordem de limpeza seguida
+  de pareamento em um teste de regressão.
 - Depois da limpeza, a interface informa: clique em **Reparar extensão** na
   Mesa, confirme e digite o novo código neste painel.
 
@@ -24,8 +44,10 @@ painel. Isso caracteriza recusa do token salvo neste perfil.
 - `extension/lib/api.js`
 - `extension/sidepanel/panel.js`
 - `extension/sidepanel/state.js`
+- `extension/sidepanel/operation-queue.js`
 - `extension/tests/api.test.mjs`
 - `extension/tests/sidepanel-state.test.mjs`
+- `extension/tests/operation-queue.test.mjs`
 
 O arquivo não rastreado `work/tce-extractor/.codex-live-pilot.py` foi
 preservado e não pertence a este bloco.
@@ -33,7 +55,7 @@ preservado e não pertence a este bloco.
 ## TDD e validação
 
 - RED: o teste de status 401 falhou porque `api.status()` não expunha o erro.
-- GREEN: `npm test --prefix extension` — 115 testes, 115 aprovados, 0 falhas.
+- GREEN: `npm test --prefix extension` — 116 testes, 116 aprovados, 0 falhas.
 - `verify-project.ps1` — 1.254 verificações, 1.252 aprovadas, 0 falhas, 2
   skips.
 - O gate também confirmou web 6/6, Python 6/6, PowerShell 599/599,
@@ -65,5 +87,5 @@ finalizado.
 - Branch: `codex/mesa-local-refactor`.
 - Antes do commit desta atualização, a árvore rastreada contém somente este
   bloco de correção; o `.codex-live-pilot.py` permanece não rastreado.
-- Próximo passo: conferir o diff, criar commit da correção e deste handoff,
-  fazer push e depois repetir a validação manual no Chrome QA.
+- Próximo passo: rodar o gate completo, criar commit da correção e deste
+  handoff, fazer push e depois repetir a validação manual no Chrome QA.
