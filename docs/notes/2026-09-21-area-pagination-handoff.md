@@ -74,5 +74,7 @@ portal.
 ## GitHub
 
 - Branch: codex/mesa-local-refactor.
+- Correção publicada no commit 27a5f32 (`fix: submit legacy area pagination safely`).
+- Push confirmado em origin/codex/mesa-local-refactor.
 - O arquivo local não rastreado work/tce-extractor/.codex-live-pilot.py foi
   preservado.
