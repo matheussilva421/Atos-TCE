@@ -173,13 +173,44 @@ async function loadPdfjs() {
 
   async function refreshAcquisition() {
     const button = document.getElementById("download-pending");
+    const status = document.getElementById("acquisition-status");
+    const progress = document.getElementById("acquisition-progress");
     try {
       const plan = await getJson("/api/v1/acquisition/plan");
+      const active_job = plan.active_job;
       button.textContent =
         plan.total > 0
           ? `Baixar ${numberFormat.format(plan.total)} processos`
           : "Nada a baixar";
-      button.disabled = plan.total === 0 || state.acquisitionRunning;
+      button.disabled = plan.total === 0 || state.acquisitionRunning || Boolean(active_job);
+      if (!active_job) {
+        if (!state.acquisitionRunning) setResumableJob(null);
+        return;
+      }
+      progress.textContent =
+        `${numberFormat.format(active_job.completed)} de ${numberFormat.format(active_job.total)} baixados` +
+        (active_job.failed ? ` · ${numberFormat.format(active_job.failed)} com falha` : "");
+      if (active_job.status === "WAITING_FOR_LOGIN") {
+        status.textContent = "Faça login no e-Contas, deixe a tela correta e o marcador selecionado, depois retome o download.";
+        setResumableJob(active_job.id);
+        return;
+      }
+      if (active_job.status === "INTERRUPTED") {
+        status.textContent = "O download foi interrompido; retome para continuar de onde parou.";
+        setResumableJob(active_job.id);
+        return;
+      }
+      if ((active_job.status === "PENDING" || active_job.status === "RUNNING") && !state.acquisitionRunning) {
+        state.acquisitionRunning = true;
+        setResumableJob(null);
+        status.textContent = "Retomando o acompanhamento do download…";
+        try {
+          await followAcquisitionJob(active_job.id);
+        } finally {
+          state.acquisitionRunning = false;
+          await refreshAcquisition();
+        }
+      }
     } catch {
       button.disabled = true;
     }

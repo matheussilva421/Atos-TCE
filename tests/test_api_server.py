@@ -1073,6 +1073,21 @@ class AcquisitionApiTests(ApiTestCase):
         self.assertEqual(payload["lot_size"], 2)
         self.assertEqual(payload["lot_count"], 2)
 
+    def test_the_plan_restores_a_paused_acquisition_after_a_page_reload(self):
+        self.seed_pending(["102391/2026", "102392/2026"])
+        self.auth_lots = {1}
+
+        status, created = self.start_job()
+        self.assertEqual(status, 201, created)
+        paused = self.wait_for_status(created["job_id"], {"WAITING_FOR_LOGIN"})
+
+        payload = self.get_json("/api/v1/acquisition/plan")
+
+        self.assertEqual(payload["active_job"]["id"], paused["id"])
+        self.assertEqual(payload["active_job"]["status"], "WAITING_FOR_LOGIN")
+        self.assertEqual(payload["active_job"]["completed"], 0)
+        self.assertEqual(payload["active_job"]["failed"], 0)
+
     def test_the_plan_is_empty_when_everything_is_already_local(self):
         payload = self.get_json("/api/v1/acquisition/plan")
 

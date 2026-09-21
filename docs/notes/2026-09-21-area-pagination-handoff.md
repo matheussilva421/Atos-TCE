@@ -309,3 +309,30 @@ Pendência: reiniciar a Mesa para carregar a correção, observar o job pausado 
 clicar em `Retomar após login` somente depois de confirmar login, tela de
 processos e marcador no e-Contas. O contador esperado durante a pausa é `0 de
 17 baixados`, sem falhas.
+
+## Follow-up — recuperar job pausado depois de reiniciar a Mesa (2026-09-21)
+
+Após reiniciar o servidor com o commit `2635d4a`, a página da Mesa perdeu o
+botão de retomada porque `acquisitionJob` existia apenas no estado JavaScript da
+página. O job continuava no SQLite e uma nova tentativa pelo botão de download
+seria recusada como aquisição ativa.
+
+Correção aplicada:
+
+- `/api/v1/acquisition/plan` agora inclui o job de aquisição ativo, sem expor
+  itens ou credenciais;
+- `app/web/app.js` recupera `WAITING_FOR_LOGIN` e `INTERRUPTED` após reload,
+  restaura o progresso e exibe `Retomar após login`;
+- jobs `PENDING`/`RUNNING` voltam a ser acompanhados automaticamente depois da
+  recarga, evitando uma segunda aquisição.
+
+Validação:
+
+- RED: o teste de recuperação falhou porque o payload não tinha `active_job`;
+- API focada: passou;
+- UI focada: 11 testes, 11 aprovados e 0 falhas;
+- API completa: 85 testes, 85 aprovados e 0 falhas.
+
+O servidor foi relançado antes desta segunda correção; é necessário reiniciá-lo
+novamente depois do commit seguinte. A aba autenticada do e-Contas deve ser
+reutilizada, sem automação de credenciais.

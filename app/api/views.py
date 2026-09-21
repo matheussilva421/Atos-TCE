@@ -122,14 +122,26 @@ def area_summary_payload(store: Store) -> dict[str, Any]:
     return {"api_version": API_VERSION, "scan": summary, "counters": counters}
 
 
-def acquisition_plan_payload(plan: Any) -> dict[str, Any]:
-    """Report only what the operator needs: how many processes need bytes."""
+def acquisition_plan_payload(plan: Any, active_job: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Report pending bytes and any resumable acquisition after a reload."""
 
     return {
         "api_version": API_VERSION,
         "total": int(plan.total),
         "lot_size": int(plan.lot_size),
         "lot_count": int(plan.lot_count),
+        "active_job": (
+            {
+                "id": int(active_job["id"]),
+                "status": str(active_job["status"]),
+                "total": int(active_job["total"]),
+                "completed": int(active_job["completed"]),
+                "failed": int(active_job["failed"]),
+                "error": active_job.get("error"),
+            }
+            if active_job is not None
+            else None
+        ),
     }
 
 

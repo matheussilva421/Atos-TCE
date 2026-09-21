@@ -49,6 +49,12 @@ test("a paused acquisition is resumed instead of restarted", () => {
   assert.ok(source.includes("setResumableJob(jobId)"), "a pausa mostra o retomar");
 });
 
+test("a reload restores the active acquisition job from the Mesa", () => {
+  assert.match(source, /plan\.active_job/u);
+  assert.match(source, /active_job\.status/u);
+  assert.match(source, /setResumableJob\(active_job\.id\)/u);
+});
+
 test("the storage panel says whether an external archive is configured", () => {
   assert.ok(source.includes("Arquivo externo"));
   assert.ok(source.includes("archive.external_root"));

@@ -627,7 +627,20 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         self._send_json(views.area_summary_payload(self.mesa.store))
 
     def handle_acquisition_plan(self, query: dict[str, list[str]]) -> None:
-        self._send_json(views.acquisition_plan_payload(self.mesa.acquisition.plan_pending()))
+        active_job = next(
+            (
+                job
+                for job in self.mesa.store.list_jobs()
+                if job.get("job_type") == "acquisition"
+                and job.get("status") in {"PENDING", "RUNNING", "WAITING_FOR_LOGIN", "INTERRUPTED"}
+            ),
+            None,
+        )
+        self._send_json(
+            views.acquisition_plan_payload(
+                self.mesa.acquisition.plan_pending(), active_job=active_job
+            )
+        )
 
     def handle_job_status(self, query: dict[str, list[str]], job_id: str) -> None:
         payload = views.job_payload(self.mesa.store, int(job_id))
