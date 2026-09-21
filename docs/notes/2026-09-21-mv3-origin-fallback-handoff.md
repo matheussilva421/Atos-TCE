@@ -81,6 +81,8 @@ fechados por estes testes automatizados.
 ## GitHub e retomada
 
 - Branch: codex/mesa-local-refactor.
-- Gate oficial concluído; o commit/push deste bloco ainda precisa ser concluído.
+- Gate oficial concluído.
+- Commit publicado: e204049 (fix: authenticate MV3 service worker status requests).
+- Remote atualizado: origin/codex/mesa-local-refactor contém e204049.
 - Retomar pelo comando de validação manual acima e pelo guia
   docs/notes/2026-09-21-guia-reexecucao-testes-mesa-local.md.
