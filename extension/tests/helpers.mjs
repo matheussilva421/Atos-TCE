@@ -38,8 +38,18 @@ export function fakeFetch(routes) {
       (candidate) => url.endsWith(candidate.path) && (candidate.method ?? "GET").toUpperCase() === method
     );
     if (!route) return jsonResponse(404, { error: "not_found" });
-    const body = typeof route.body === "function" ? route.body(calls.at(-1)) : route.body ?? {};
-    return jsonResponse(route.status ?? 200, body);
+    let status = route.status ?? 200;
+    let body = typeof route.body === "function" ? await route.body(calls.at(-1)) : route.body ?? {};
+    if (
+      body &&
+      typeof body === "object" &&
+      Object.prototype.hasOwnProperty.call(body, "status") &&
+      Object.prototype.hasOwnProperty.call(body, "body")
+    ) {
+      status = body.status;
+      body = body.body;
+    }
+    return jsonResponse(status, body);
   };
   fetchImpl.calls = calls;
   return fetchImpl;

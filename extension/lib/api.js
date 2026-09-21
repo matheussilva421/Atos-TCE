@@ -1,9 +1,9 @@
 /**
- * Mesa client used by the extension.
+ * Storage-authoritative Mesa client used by the extension service worker.
  *
- * Only two credentials exist: the paired bearer token and the client id, both
- * kept in ``chrome.storage.local``. The token is attached to requests and never
- * logged, returned to a page or written anywhere else.
+ * chrome.storage.local is the only credential source. The token is attached
+ * to authenticated requests, returned only by the registration response and
+ * never logged or persisted by the Mesa in plaintext.
  */
 
 import { MESA_ORIGIN } from "./protocol.js";
@@ -35,7 +35,7 @@ export function createApi({
   baseUrl = MESA_ORIGIN,
   clientIdFactory = createClientId,
 } = {}) {
-  let state = null;
+  let registrationInFlight = null;
 
   async function readStoredState() {
     const stored = (await storage?.get?.(Object.values(STORAGE_KEYS))) ?? {};
@@ -46,72 +46,145 @@ export function createApi({
     };
   }
 
-  async function readState() {
-    if (state) return state;
-    state = await readStoredState();
-    return state;
-  }
-
-  async function save(patch) {
-    state = { ...(await readState()), ...patch };
+  async function saveCredentials({ clientId, token, baseUrl: currentBaseUrl }) {
+    const credentials = {
+      clientId,
+      token,
+      baseUrl: currentBaseUrl,
+    };
     await storage?.set?.({
-      [STORAGE_KEYS.clientId]: state.clientId,
-      [STORAGE_KEYS.token]: state.token,
-      [STORAGE_KEYS.baseUrl]: state.baseUrl,
+      [STORAGE_KEYS.clientId]: credentials.clientId,
+      [STORAGE_KEYS.token]: credentials.token,
+      [STORAGE_KEYS.baseUrl]: credentials.baseUrl,
     });
-    return state;
+    return credentials;
   }
 
-  async function request(path, { method = "GET", body, token, clientId } = {}) {
-    const current = await readState();
+  async function request(
+    path,
+    { method = "GET", body, token, clientId, currentBaseUrl = baseUrl } = {},
+  ) {
     const headers = { Accept: "application/json" };
     if (body !== undefined) headers["Content-Type"] = "application/json";
     if (token) headers.Authorization = `Bearer ${token}`;
     if (clientId) headers["X-TCE-Client"] = clientId;
-    const response = await fetchImpl(`${current.baseUrl}${path}`, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    const text = await response.text();
+
+    let response;
+    try {
+      response = await fetchImpl(`${currentBaseUrl}${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch {
+      return { ok: false, status: 0, payload: null, error: "fetch_failed" };
+    }
+
+    let text;
+    try {
+      text = await response.text();
+    } catch {
+      text = "";
+    }
     let payload = null;
     try {
       payload = text ? JSON.parse(text) : null;
     } catch {
       payload = null;
     }
-    return { ok: response.ok === true, status: response.status, payload };
+    return {
+      ok: response.ok === true,
+      status: response.status,
+      payload,
+      error: response.ok ? null : payload?.error ?? "request_failed",
+    };
   }
 
-  return {
-    async pair(code) {
-      const current = await readState();
-      const clientId = current.clientId || clientIdFactory();
-      const response = await request("/api/v1/bridge/pair", {
+  function sameCredentials(left, right) {
+    return left.clientId === right.clientId && left.token === right.token;
+  }
+
+  async function register() {
+    if (registrationInFlight) return registrationInFlight;
+
+    const operation = (async () => {
+      const before = await readStoredState();
+      const clientId = before.clientId || clientIdFactory();
+      const response = await request("/api/v1/bridge/register", {
         method: "POST",
-        body: {
-          client_id: clientId,
-          code: String(code ?? "").trim(),
-          extension_id: globalThis.chrome?.runtime?.id ?? null,
-        },
+        body: { client_id: clientId },
+        currentBaseUrl: before.baseUrl,
       });
       const token = response.payload?.token;
       if (!response.ok || !token) {
-        return { ok: false, status: response.status, error: response.payload?.error ?? "pairing_failed" };
+        return {
+          ok: false,
+          status: response.status,
+          error: response.error ?? "registration_failed",
+        };
       }
-      await save({ clientId, token });
+
+      const current = await readStoredState();
+      if (current.clientId && current.token && !sameCredentials(current, before)) {
+        return { ok: true, status: response.status, clientId: current.clientId, adopted: true };
+      }
+      await saveCredentials({ clientId, token, baseUrl: before.baseUrl });
       return { ok: true, status: response.status, clientId };
-    },
+    })();
+
+    let shared;
+    shared = operation.finally(() => {
+      if (registrationInFlight === shared) registrationInFlight = null;
+    });
+    registrationInFlight = shared;
+    return shared;
+  }
+
+  async function authenticatedRequest(path, options = {}) {
+    let credentials = await readStoredState();
+    if (!credentials.clientId || !credentials.token) {
+      const registration = await register();
+      if (!registration.ok) return registration;
+      credentials = await readStoredState();
+    }
+
+    let response = await request(path, {
+      ...options,
+      token: credentials.token,
+      clientId: credentials.clientId,
+      currentBaseUrl: credentials.baseUrl,
+    });
+    if (response.status !== 401) return response;
+
+    const current = await readStoredState();
+    if (sameCredentials(credentials, current)) {
+      const registration = await register();
+      if (!registration.ok) return registration;
+    }
+
+    const retryCredentials = await readStoredState();
+    if (!retryCredentials.clientId || !retryCredentials.token) {
+      return { ok: false, status: 0, payload: null, error: "not_paired" };
+    }
+    response = await request(path, {
+      ...options,
+      token: retryCredentials.token,
+      clientId: retryCredentials.clientId,
+      currentBaseUrl: retryCredentials.baseUrl,
+    });
+    return response;
+  }
+
+  return {
+    register,
 
     async nextCommand() {
-      const { clientId, token } = await readState();
-      if (!clientId || !token) return { ok: false, status: 0, error: "not_paired", command: null };
-      const response = await request("/api/v1/extension/commands/next", { token, clientId });
+      const response = await authenticatedRequest("/api/v1/extension/commands/next");
       if (!response.ok) {
         return {
           ok: false,
           status: response.status,
-          error: response.payload?.error ?? "request_failed",
+          error: response.error ?? "request_failed",
           command: null,
         };
       }
@@ -119,73 +192,42 @@ export function createApi({
     },
 
     async reportResult(commandId, result) {
-      const { clientId, token } = await readState();
-      if (!clientId || !token) return { ok: false, status: 0, error: "not_paired" };
-      const response = await request(`/api/v1/extension/commands/${Number(commandId)}/result`, {
+      const response = await authenticatedRequest(`/api/v1/extension/commands/${Number(commandId)}/result`, {
         method: "POST",
         body: result,
-        token,
-        clientId,
       });
       return {
         ok: response.ok,
         status: response.status,
-        error: response.ok ? null : response.payload?.error ?? "request_failed",
+        error: response.ok ? null : response.error ?? "request_failed",
       };
     },
 
     async status() {
-      const { clientId, token } = await readState();
-      if (!clientId || !token) return { ok: false, status: 0, error: "not_paired", paired: false };
-      const response = await request("/api/v1/bridge/status", { token, clientId });
+      const response = await authenticatedRequest("/api/v1/bridge/status");
       return {
         ok: response.ok,
         status: response.status,
-        paired: response.payload?.paired === true,
+        paired: response.ok && response.payload?.paired === true,
         payload: response.payload,
-        error: response.ok ? null : response.payload?.error ?? "request_failed",
+        error: response.ok ? null : response.error ?? "request_failed",
       };
     },
 
     /** Hand the operator-opened form to the Mesa (M5 Task 6, manual fallback). */
     async requestManualFill(snapshot) {
-      const { clientId, token } = await readState();
-      if (!clientId || !token) return { ok: false, status: 0, error: "not_paired" };
-      const response = await request("/api/v1/portal/manual-form", {
+      const response = await authenticatedRequest("/api/v1/portal/manual-form", {
         method: "POST",
         body: snapshot,
-        token,
-        clientId,
       });
       return {
         ok: response.ok,
         status: response.status,
         payload: response.payload,
-        error: response.ok ? null : response.payload?.detail ?? response.payload?.error ?? "request_failed",
+        error: response.ok
+          ? null
+          : response.payload?.detail ?? response.error ?? "request_failed",
       };
-    },
-
-    async clear(expected) {
-      const current = expected ? await readStoredState() : await readState();
-      if (
-        expected &&
-        (expected.clientId !== current.clientId || expected.token !== current.token)
-      ) {
-        return false;
-      }
-      state = { clientId: null, token: null, baseUrl }; 
-      await storage?.remove?.([STORAGE_KEYS.clientId, STORAGE_KEYS.token]);
-      return true;
-    },
-
-    async reload() {
-      state = await readStoredState();
-      return state;
-    },
-
-    async credentials() {
-      const { clientId, token } = await readState();
-      return { clientId, token, paired: Boolean(clientId && token) };
     },
   };
 }

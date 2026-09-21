@@ -6,61 +6,247 @@ import { fakeFetch, fakeStorage } from "./helpers.mjs";
 
 const CLIENT_ID = "extension-test-client";
 
-function build({ routes = [], data = new Map() } = {}) {
-  const storage = fakeStorage();
+function build({ routes = [], data = new Map(), storage = fakeStorage() } = {}) {
   for (const [key, value] of data) storage.data.set(key, value);
   const fetchImpl = fakeFetch(routes);
-  return {
+  const api = createApi({
     storage,
     fetchImpl,
-    api: createApi({
-      storage,
-      fetchImpl,
-      clientIdFactory: () => CLIENT_ID,
-      baseUrl: "http://127.0.0.1:18743",
-    }),
-  };
+    clientIdFactory: () => CLIENT_ID,
+    baseUrl: "http://127.0.0.1:18743",
+  });
+  return { api, storage, fetchImpl };
 }
 
-test("pairing stores the token and the client id in extension storage", async () => {
+function pairedData(token = "token-123") {
+  return new Map([
+    [STORAGE_KEYS.clientId, CLIENT_ID],
+    [STORAGE_KEYS.token, token],
+  ]);
+}
+
+test("empty storage automatically registers before status", async () => {
   const { api, storage, fetchImpl } = build({
-    routes: [{ path: "/api/v1/bridge/pair", method: "POST", body: { token: "token-123" } }],
+    routes: [
+      {
+        path: "/api/v1/bridge/register",
+        method: "POST",
+        body: { token: "fresh-token", client_id: CLIENT_ID },
+      },
+      {
+        path: "/api/v1/bridge/status",
+        body: { paired: true, client_id: CLIENT_ID },
+      },
+    ],
   });
 
-  const outcome = await api.pair("618900");
+  const outcome = await api.status();
 
   assert.equal(outcome.ok, true);
-  assert.equal(outcome.clientId, CLIENT_ID);
-  assert.equal(storage.data.get(STORAGE_KEYS.token), "token-123");
-  assert.equal(storage.data.get(STORAGE_KEYS.clientId), CLIENT_ID);
-  const request = fetchImpl.calls.at(0);
-  assert.equal(request.method, "POST");
-  assert.equal(request.url, "http://127.0.0.1:18743/api/v1/bridge/pair");
-  assert.deepEqual(JSON.parse(request.body), {
-    client_id: CLIENT_ID,
-    code: "618900",
-    extension_id: null,
-  });
+  assert.equal(outcome.paired, true);
+  assert.equal(storage.data.get(STORAGE_KEYS.token), "fresh-token");
+  assert.equal(fetchImpl.calls[0].url.endsWith("/api/v1/bridge/register"), true);
+  assert.deepEqual(JSON.parse(fetchImpl.calls[0].body), { client_id: CLIENT_ID });
+  assert.equal(fetchImpl.calls[0].headers.Authorization, undefined);
+  assert.equal(fetchImpl.calls[1].headers.Authorization, "Bearer fresh-token");
 });
 
-test("a rejected pairing stores nothing", async () => {
-  const { api, storage } = build({
-    routes: [{ path: "/api/v1/bridge/pair", method: "POST", status: 401, body: { error: "pairing_rejected" } }],
+test("a valid stored credential is used without registration", async () => {
+  const { api, fetchImpl } = build({
+    data: pairedData(),
+    routes: [{ path: "/api/v1/bridge/status", body: { paired: true } }],
   });
 
-  const outcome = await api.pair("000000");
+  const outcome = await api.status();
+
+  assert.equal(outcome.ok, true);
+  assert.equal(fetchImpl.calls.length, 1);
+  assert.equal(fetchImpl.calls[0].headers.Authorization, "Bearer token-123");
+  assert.equal(fetchImpl.calls[0].headers["X-TCE-Client"], CLIENT_ID);
+});
+
+test("401 automatically registers and retries exactly once", async () => {
+  let statusCalls = 0;
+  const { api, fetchImpl } = build({
+    data: pairedData("stale-token"),
+    routes: [
+      {
+        path: "/api/v1/bridge/status",
+        body: () => {
+          statusCalls += 1;
+          return statusCalls === 1
+            ? { status: 401, body: { error: "unauthorized" } }
+            : { status: 200, body: { paired: true, client_id: CLIENT_ID } };
+        },
+      },
+      {
+        path: "/api/v1/bridge/register",
+        method: "POST",
+        body: { token: "fresh-token", client_id: CLIENT_ID },
+      },
+    ],
+  });
+
+  const outcome = await api.status();
+
+  assert.equal(outcome.ok, true);
+  assert.equal(statusCalls, 2);
+  assert.equal(
+    fetchImpl.calls.filter((call) => call.url.endsWith("/api/v1/bridge/register")).length,
+    1,
+  );
+  assert.equal(fetchImpl.calls.at(-1).headers.Authorization, "Bearer fresh-token");
+});
+
+test("a second 401 after recovery stops without looping", async () => {
+  let statusCalls = 0;
+  const { api, fetchImpl } = build({
+    data: pairedData("stale-token"),
+    routes: [
+      {
+        path: "/api/v1/bridge/status",
+        body: () => {
+          statusCalls += 1;
+          return { status: 401, body: { error: "unauthorized" } };
+        },
+      },
+      {
+        path: "/api/v1/bridge/register",
+        method: "POST",
+        body: { token: "still-rejected", client_id: CLIENT_ID },
+      },
+    ],
+  });
+
+  const outcome = await api.status();
 
   assert.equal(outcome.ok, false);
-  assert.equal(outcome.error, "pairing_rejected");
-  assert.equal(storage.data.get(STORAGE_KEYS.token), undefined);
+  assert.equal(outcome.status, 401);
+  assert.equal(outcome.error, "unauthorized");
+  assert.equal(statusCalls, 2);
+  assert.equal(
+    fetchImpl.calls.filter((call) => call.url.endsWith("/api/v1/bridge/register")).length,
+    1,
+  );
 });
 
-test("nextCommand sends the bearer token and the client header", async () => {
+test("Mesa offline leaves stored credentials untouched", async () => {
+  const { api, storage } = build({
+    data: pairedData("still-valid-locally"),
+    routes: [
+      {
+        path: "/api/v1/bridge/status",
+        body: () => {
+          throw new Error("connect ECONNREFUSED");
+        },
+      },
+    ],
+  });
+
+  const outcome = await api.status();
+
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.status, 0);
+  assert.equal(outcome.error, "fetch_failed");
+  assert.equal(storage.data.get(STORAGE_KEYS.token), "still-valid-locally");
+  assert.equal(storage.data.get(STORAGE_KEYS.clientId), CLIENT_ID);
+});
+
+test("a token changed after 401 is retried before registration", async () => {
+  const storage = fakeStorage();
+  storage.data.set(STORAGE_KEYS.clientId, CLIENT_ID);
+  storage.data.set(STORAGE_KEYS.token, "token-old");
+  let statusCalls = 0;
   const { api, fetchImpl } = build({
-    data: new Map([
-      [STORAGE_KEYS.clientId, CLIENT_ID],
-      [STORAGE_KEYS.token, "token-123"],
-    ]),
+    storage,
+    routes: [
+      {
+        path: "/api/v1/bridge/status",
+        body: (request) => {
+          statusCalls += 1;
+          if (statusCalls === 1) {
+            storage.data.set(STORAGE_KEYS.token, "token-new");
+            return { status: 401, body: { error: "unauthorized" } };
+          }
+          return {
+            status: request.headers.Authorization === "Bearer token-new" ? 200 : 401,
+            body: { paired: request.headers.Authorization === "Bearer token-new" },
+          };
+        },
+      },
+      {
+        path: "/api/v1/bridge/register",
+        method: "POST",
+        body: { token: "should-not-be-used", client_id: CLIENT_ID },
+      },
+    ],
+  });
+
+  const outcome = await api.status();
+
+  assert.equal(outcome.ok, true);
+  assert.equal(statusCalls, 2);
+  assert.equal(fetchImpl.calls.some((call) => call.url.endsWith("/register")), false);
+  assert.equal(fetchImpl.calls.at(-1).headers.Authorization, "Bearer token-new");
+});
+
+test("separate API instances read the newest shared storage credential", async () => {
+  const storage = fakeStorage();
+  storage.data.set(STORAGE_KEYS.clientId, CLIENT_ID);
+  storage.data.set(STORAGE_KEYS.token, "token-old");
+  const sharedFetch = fakeFetch([{ path: "/api/v1/bridge/status", body: { paired: true } }]);
+  const options = {
+    storage,
+    fetchImpl: sharedFetch,
+    clientIdFactory: () => CLIENT_ID,
+    baseUrl: "http://127.0.0.1:18743",
+  };
+  const firstApi = createApi(options);
+  const secondApi = createApi(options);
+
+  await firstApi.status();
+  storage.data.set(STORAGE_KEYS.token, "token-new");
+  await secondApi.status();
+  await firstApi.status();
+
+  assert.deepEqual(
+    sharedFetch.calls.map((call) => call.headers.Authorization),
+    ["Bearer token-old", "Bearer token-new", "Bearer token-new"],
+  );
+});
+
+test("two simultaneous operations share one registration promise", async () => {
+  let registrations = 0;
+  const { api, fetchImpl } = build({
+    routes: [
+      {
+        path: "/api/v1/bridge/register",
+        method: "POST",
+        body: async () => {
+          registrations += 1;
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          return { token: "shared-token", client_id: CLIENT_ID };
+        },
+      },
+      { path: "/api/v1/bridge/status", body: { paired: true } },
+      { path: "/api/v1/extension/commands/next", body: { command: null } },
+    ],
+  });
+
+  const [status, command] = await Promise.all([api.status(), api.nextCommand()]);
+
+  assert.equal(status.ok, true);
+  assert.equal(command.ok, true);
+  assert.equal(registrations, 1);
+  assert.equal(
+    fetchImpl.calls.filter((call) => call.url.endsWith("/api/v1/bridge/register")).length,
+    1,
+  );
+});
+
+test("nextCommand sends the bearer token and client header", async () => {
+  const { api, fetchImpl } = build({
+    data: pairedData(),
     routes: [
       {
         path: "/api/v1/extension/commands/next",
@@ -73,146 +259,41 @@ test("nextCommand sends the bearer token and the client header", async () => {
 
   assert.equal(outcome.ok, true);
   assert.equal(outcome.command.id, 4);
-  const request = fetchImpl.calls.at(0);
-  assert.equal(request.headers.Authorization, "Bearer token-123");
-  assert.equal(request.headers["X-TCE-Client"], CLIENT_ID);
+  assert.equal(fetchImpl.calls[0].headers.Authorization, "Bearer token-123");
+  assert.equal(fetchImpl.calls[0].headers["X-TCE-Client"], CLIENT_ID);
 });
 
-test("nextCommand reports not_paired without calling the Mesa", async () => {
-  const { api, fetchImpl } = build();
-
-  const outcome = await api.nextCommand();
-
-  assert.equal(outcome.ok, false);
-  assert.equal(outcome.error, "not_paired");
-  assert.equal(outcome.command, null);
-  assert.equal(fetchImpl.calls.length, 0);
-});
-
-test("an expired or invalid token surfaces as unauthorized", async () => {
-  const { api } = build({
-    data: new Map([
-      [STORAGE_KEYS.clientId, CLIENT_ID],
-      [STORAGE_KEYS.token, "velho"],
-    ]),
-    routes: [{ path: "/api/v1/extension/commands/next", status: 401, body: { error: "unauthorized" } }],
-  });
-
-  const outcome = await api.nextCommand();
-
-  assert.equal(outcome.ok, false);
-  assert.equal(outcome.status, 401);
-  assert.equal(outcome.error, "unauthorized");
-});
-
-test("reportResult posts the sanitized result to the command route", async () => {
+test("reportResult posts the result through the authenticated request", async () => {
   const { api, fetchImpl } = build({
-    data: new Map([
-      [STORAGE_KEYS.clientId, CLIENT_ID],
-      [STORAGE_KEYS.token, "token-123"],
-    ]),
+    data: pairedData(),
     routes: [{ path: "/api/v1/extension/commands/9/result", method: "POST", body: { ok: true } }],
   });
 
   const outcome = await api.reportResult(9, { command_id: 9, ok: true, rows: [] });
 
   assert.equal(outcome.ok, true);
-  const request = fetchImpl.calls.at(0);
-  assert.equal(request.url, "http://127.0.0.1:18743/api/v1/extension/commands/9/result");
-  assert.deepEqual(JSON.parse(request.body), { command_id: 9, ok: true, rows: [] });
+  assert.equal(fetchImpl.calls[0].url, "http://127.0.0.1:18743/api/v1/extension/commands/9/result");
+  assert.deepEqual(JSON.parse(fetchImpl.calls[0].body), { command_id: 9, ok: true, rows: [] });
 });
 
-test("status reads the paired client without exposing the token", async () => {
-  const { api } = build({
-    data: new Map([
-      [STORAGE_KEYS.clientId, CLIENT_ID],
-      [STORAGE_KEYS.token, "token-123"],
-    ]),
-    routes: [
-      {
-        path: "/api/v1/bridge/status",
-        body: { paired: true, client_id: CLIENT_ID, origin: "chrome-extension://abc" },
-      },
-    ],
+test("manual fill uses the authenticated request", async () => {
+  const { api, fetchImpl } = build({
+    data: pairedData(),
+    routes: [{ path: "/api/v1/portal/manual-form", method: "POST", body: { state: "READY" } }],
   });
+  const form = { identity: { processKey: "102390/2026" } };
 
-  const outcome = await api.status();
+  const outcome = await api.requestManualFill(form);
 
   assert.equal(outcome.ok, true);
-  assert.equal(outcome.paired, true);
-  assert.equal(outcome.payload.token, undefined);
+  assert.deepEqual(outcome.payload, { state: "READY" });
+  assert.equal(fetchImpl.calls[0].headers.Authorization, "Bearer token-123");
 });
 
-test("status exposes an unauthorized response so the panel can recover the pairing", async () => {
-  const { api } = build({
-    data: new Map([
-      [STORAGE_KEYS.clientId, CLIENT_ID],
-      [STORAGE_KEYS.token, "velho"],
-    ]),
-    routes: [{ path: "/api/v1/bridge/status", status: 401, body: { error: "unauthorized" } }],
-  });
+test("the public API has no manual pairing or credential clearing methods", () => {
+  const { api } = build();
 
-  const outcome = await api.status();
-
-  assert.equal(outcome.ok, false);
-  assert.equal(outcome.status, 401);
-  assert.equal(outcome.paired, false);
-  assert.equal(outcome.error, "unauthorized");
-});
-
-test("a stored pairing can be cleared for a fresh code", async () => {
-  const { api, storage } = build({
-    data: new Map([
-      [STORAGE_KEYS.clientId, CLIENT_ID],
-      [STORAGE_KEYS.token, "token-123"],
-    ]),
-  });
-
-  await api.clear();
-
-  assert.equal(storage.data.get(STORAGE_KEYS.token), undefined);
-  assert.equal(storage.data.get(STORAGE_KEYS.clientId), undefined);
-});
-
-test("stale cleanup does not remove credentials saved by a newer pairing", async () => {
-  const { api, storage } = build({
-    data: new Map([
-      [STORAGE_KEYS.clientId, CLIENT_ID],
-      [STORAGE_KEYS.token, "token-antigo"],
-    ]),
-  });
-  await api.credentials();
-  storage.data.set(STORAGE_KEYS.token, "token-novo");
-
-  const cleared = await api.clear({ clientId: CLIENT_ID, token: "token-antigo" });
-
-  assert.equal(cleared, false);
-  assert.equal(storage.data.get(STORAGE_KEYS.clientId), CLIENT_ID);
-  assert.equal(storage.data.get(STORAGE_KEYS.token), "token-novo");
-});
-
-test("a stale API instance can reload credentials saved by a newer pairing", async () => {
-  const { api, storage, fetchImpl } = build({
-    data: new Map([
-      [STORAGE_KEYS.clientId, CLIENT_ID],
-      [STORAGE_KEYS.token, "token-antigo"],
-    ]),
-    routes: [
-      {
-        path: "/api/v1/bridge/status",
-        status: 200,
-        body: (request) => ({ paired: request.headers.Authorization === "Bearer token-novo" }),
-      },
-    ],
-  });
-
-  await api.credentials();
-  storage.data.set(STORAGE_KEYS.token, "token-novo");
-
-  await api.reload();
-  const outcome = await api.status();
-
-  assert.equal(outcome.ok, true);
-  assert.equal(outcome.paired, true);
-  assert.equal(fetchImpl.calls.at(-1).headers.Authorization, "Bearer token-novo");
+  assert.equal(api.pair, undefined);
+  assert.equal(api.clear, undefined);
+  assert.equal(api.credentials, undefined);
 });
