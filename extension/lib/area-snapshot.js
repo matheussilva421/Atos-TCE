@@ -532,7 +532,15 @@
    */
   function pageInfo(documentRef) {
     const controls = paginationControls(documentRef);
-    const currentNumber = Number.parseInt(textOf(queryOne(documentRef, "[aria-current='page']")), 10);
+    const currentPageLink = queryOne(documentRef, "[aria-current='page']");
+    const legacyPageControl =
+      byId(documentRef, "NumeroPagina") ||
+      queryOne(documentRef, 'input[name="NumeroPagina"]') ||
+      queryOne(documentRef, 'select[name="pagina"]');
+    const currentValue = currentPageLink
+      ? textOf(currentPageLink)
+      : String(legacyPageControl?.value ?? "").trim() || textOf(legacyPageControl);
+    const currentNumber = Number.parseInt(currentValue, 10);
     const page = Number.isInteger(currentNumber) && currentNumber > 0 ? currentNumber : 1;
     const labels = controls
       .map((control) => Number.parseInt(textOf(control), 10))

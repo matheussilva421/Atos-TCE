@@ -144,6 +144,18 @@ test("pagination without numeric labels estimates the total from the next contro
   assert.equal(scan(withoutNext).total_pages, 1);
 });
 
+test("legacy pagination reads the current page from NumeroPagina", () => {
+  const documentRef = buildListDocument({ page: "1", rows: [], hasNext: true });
+  const currentPageLink = documentRef.body.children.at(-1).children[0];
+  delete currentPageLink.attributes["aria-current"];
+  const currentPage = new FakeElement("select", { id: "NumeroPagina", value: "1" });
+  documentRef.body.append(currentPage);
+
+  assert.equal(scan(documentRef).page, 1);
+  currentPage.value = "2";
+  assert.equal(scan(documentRef).page, 2);
+});
+
 test("scanning never clicks, submits or mutates the page", () => {
   const row = listRow({ processKey: "102390/2026", interested: "Pessoa Exemplo" });
   const link = row.children[3];
