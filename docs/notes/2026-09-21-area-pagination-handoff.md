@@ -193,3 +193,10 @@ Validação desta etapa:
 Retomada manual: recarregar a aba `http://127.0.0.1:18743/` antes da próxima
 análise. Durante a execução, os seis contadores devem mostrar `—`; somente ao
 final devem voltar a exibir o novo retrato.
+
+Publicação desta etapa:
+
+- Commit: `1f614c6` (`fix: clear stale area counters during scans`).
+- Push confirmado em `origin/codex/mesa-local-refactor`.
+- O arquivo local não rastreado `work/tce-extractor/.codex-live-pilot.py` foi
+  preservado.
