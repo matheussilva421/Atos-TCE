@@ -420,7 +420,7 @@ class BridgeClientTests(unittest.TestCase):
         self.assertFalse(self.store.verify_bridge_token("extension-test", "b" * 64))
         self.assertFalse(self.store.verify_bridge_token("outro-cliente", "a" * 64))
 
-    def test_repairing_replaces_the_previous_token(self):
+    def test_reregistering_replaces_the_previous_token(self):
         self.store.register_bridge_client("extension-test", "a" * 64)
         self.store.register_bridge_client("extension-test", "c" * 64)
 

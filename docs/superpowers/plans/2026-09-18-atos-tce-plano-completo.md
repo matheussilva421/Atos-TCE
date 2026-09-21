@@ -2,6 +2,19 @@
 
 Este documento consolida o Master Plan e os marcos M1–M6 aprovados em 18/09/2026.
 
+> **Atualização de contrato — 21/09/2026:** a implementação atual substituiu o
+> pareamento manual da extensão por confiança automática na extensão raiz
+> (`extension/`). Os trechos históricos deste plano que mencionam código de seis
+> dígitos, `/api/v1/bridge/pair` ou `pair_bridge_client` descrevem o desenho
+> original e não devem ser usados para executar o teste atual. O contrato
+> vigente é `POST /api/v1/bridge/register`, aceito somente para o ID confiável
+> derivado do `manifest.json`; os testes atuais registram a extensão por esse
+> endpoint e não inserem tokens diretamente no SQLite. Os gates reais M2, M3, M5
+> e M6 continuam os mesmos e ainda exigem validação supervisionada no portal.
+
+O roteiro executável atualizado está em
+`docs/notes/2026-09-21-guia-reexecucao-testes-mesa-local.md`.
+
 
 
 ---
@@ -2645,4 +2658,3 @@ git push origin mesa-migration-complete
 - START.cmd and root Mesa are the normal workflow.
 - Root extension is thin and has no final-submit protocol.
 - Final supervised regression is green before the legacy surface is removed.
-

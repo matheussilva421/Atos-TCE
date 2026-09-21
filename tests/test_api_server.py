@@ -15,7 +15,7 @@ from unittest import mock
 from urllib.error import HTTPError
 from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
-from app.api.bridge import Bridge, hash_token
+from app.api.bridge import Bridge, TRUSTED_EXTENSION_ID
 from app.api.server import serve
 from app.archive.legacy_import import blob_path, sha256_file
 from app.area_restrita import cdp_fallback
@@ -26,6 +26,7 @@ from app.core.store import SCHEMA_VERSION, Store
 
 PDF = b"%PDF-1.4\napi fixture\n%%EOF\n"
 REPO_ROOT = Path(__file__).resolve().parents[1]
+EXTENSION_ORIGIN = f"chrome-extension://{TRUSTED_EXTENSION_ID}"
 
 
 class ApiTestCase(unittest.TestCase):
@@ -161,14 +162,19 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(status, 200, payload)
         return opener
 
-    def pair_extension(self, token="extension-token", client_id="extension-test"):
-        self.store.register_bridge_client(
-            client_id, hash_token(token), origin="chrome-extension://abcdefghijklmnop"
+    def register_extension(self, client_id="extension-test"):
+        status, _headers, payload = self.call_json(
+            "/api/v1/bridge/register",
+            method="POST",
+            headers={"Origin": EXTENSION_ORIGIN},
+            body={"client_id": client_id},
         )
+        self.assertEqual(status, 200, payload)
+        token = payload["token"]
         return {
             "Authorization": f"Bearer {token}",
             "X-TCE-Client": client_id,
-            "Origin": "chrome-extension://abcdefghijklmnop",
+            "Origin": EXTENSION_ORIGIN,
         }
 
     def status_of(self, path):
@@ -541,7 +547,7 @@ class AreaAnalyzeFlowTests(ApiTestCase):
         self.assertEqual(command["state"], "QUEUED")
         self.assertEqual(command["type"], "SCAN_AREA")
 
-        extension_headers = self.pair_extension()
+        extension_headers = self.register_extension()
         status, _headers, claimed = self.call_json(
             "/api/v1/extension/commands/next", headers=extension_headers
         )
@@ -590,7 +596,7 @@ class AreaAnalyzeFlowTests(ApiTestCase):
 
     def test_a_result_without_a_portal_role_is_refused_and_not_recorded(self):
         opener, command_id = self.start_analyze()
-        extension_headers = self.pair_extension()
+        extension_headers = self.register_extension()
         _status, _headers, claimed = self.call_json(
             "/api/v1/extension/commands/next", headers=extension_headers
         )
@@ -618,7 +624,7 @@ class AreaAnalyzeFlowTests(ApiTestCase):
 
     def test_a_failed_extension_report_is_stored_as_an_error(self):
         opener, command_id = self.start_analyze()
-        extension_headers = self.pair_extension()
+        extension_headers = self.register_extension()
         _status, _headers, claimed = self.call_json(
             "/api/v1/extension/commands/next", headers=extension_headers
         )
@@ -643,7 +649,7 @@ class AreaAnalyzeFlowTests(ApiTestCase):
 
     def test_a_stale_claim_token_is_refused_with_conflict(self):
         opener, command_id = self.start_analyze()
-        extension_headers = self.pair_extension()
+        extension_headers = self.register_extension()
         self.call_json("/api/v1/extension/commands/next", headers=extension_headers)
 
         status, _headers, posted = self.call_json(
@@ -663,11 +669,11 @@ class AreaAnalyzeFlowTests(ApiTestCase):
 
     def test_another_client_cannot_finish_a_command_it_does_not_own(self):
         opener, command_id = self.start_analyze()
-        owner = self.pair_extension()
+        owner = self.register_extension()
         _status, _headers, claimed = self.call_json(
             "/api/v1/extension/commands/next", headers=owner
         )
-        intruder = self.pair_extension(token="outro-token", client_id="outro-cliente")
+        intruder = self.register_extension(client_id="outro-cliente")
 
         status, _headers, posted = self.call_json(
             f"/api/v1/extension/commands/{command_id}/result",
@@ -682,7 +688,7 @@ class AreaAnalyzeFlowTests(ApiTestCase):
 
     def test_a_payload_without_a_boolean_ok_is_refused(self):
         opener = self.mesa_opener()
-        extension_headers = self.pair_extension()
+        extension_headers = self.register_extension()
         for body in ({}, {"ok": "true"}, {"ok": 1}, {"ok": None}):
             with self.subTest(body=body):
                 status, _headers, created = self.call_json(
@@ -712,7 +718,7 @@ class AreaAnalyzeFlowTests(ApiTestCase):
 
     def test_a_replayed_result_does_not_create_a_second_scan(self):
         _opener, command_id = self.start_analyze()
-        extension_headers = self.pair_extension()
+        extension_headers = self.register_extension()
         _status, _headers, claimed = self.call_json(
             "/api/v1/extension/commands/next", headers=extension_headers
         )
@@ -745,7 +751,7 @@ class AreaAnalyzeFlowTests(ApiTestCase):
     def test_a_scan_that_cannot_be_persisted_leaves_the_command_open(self):
         # F4: the effect is durable before the command becomes terminal.
         opener, command_id = self.start_analyze()
-        extension_headers = self.pair_extension()
+        extension_headers = self.register_extension()
         _status, _headers, claimed = self.call_json(
             "/api/v1/extension/commands/next", headers=extension_headers
         )
@@ -1324,7 +1330,7 @@ class FillOrchestrationTests(ApiTestCase):
                 for name, value in FILL_FIELDS.items()
             ],
         )
-        self.extension = self.pair_extension()
+        self.extension = self.register_extension()
         self.opener = self.mesa_opener()
         self.claim_tokens: dict[int, str | None] = {}
 
@@ -1594,7 +1600,7 @@ class FillOrchestrationTests(ApiTestCase):
         self.assertEqual(payload["error"], "session_required")
         self.assertEqual(self.status_of("/api/v1/fill-requests/1"), 401)
 
-    def test_the_manual_form_route_accepts_the_paired_extension(self):
+    def test_the_manual_form_route_accepts_the_registered_extension(self):
         status, _headers, payload = self.call_json(
             "/api/v1/portal/manual-form",
             method="POST",

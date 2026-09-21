@@ -108,7 +108,7 @@ class BridgeTestCase(unittest.TestCase):
 
 
 class ExtensionRegistrationTests(BridgeTestCase):
-    def test_trusted_extension_registers_without_a_code(self):
+    def test_trusted_extension_registers_without_user_pairing(self):
         status, _headers, payload = self.register()
 
         self.assertEqual(status, 200, payload)
@@ -183,7 +183,7 @@ class ExtensionRegistrationTests(BridgeTestCase):
         )
         self.assertEqual(status, 404)
 
-    def test_unpaired_extension_is_rejected(self):
+    def test_unregistered_extension_is_rejected(self):
         status, _headers, payload = self.call_json(
             "/api/v1/extension/commands/next",
             headers={"X-TCE-Client": "extension-test", "Origin": EXTENSION_ORIGIN},
@@ -202,7 +202,7 @@ class ExtensionRegistrationTests(BridgeTestCase):
         self.assertNotIn(token.encode("utf-8"), database)
         self.assertNotIn(b"618900", database)
 
-    def test_a_token_is_only_valid_from_the_origin_it_was_paired_with(self):
+    def test_a_token_is_only_valid_from_the_origin_it_was_registered_with(self):
         token = self.registered_token()
 
         status, _headers, payload = self.call_json(

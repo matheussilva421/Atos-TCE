@@ -660,7 +660,7 @@ class Store:
     # ------------------------------------------------------ extension commands
 
     def create_extension_command(self, command_type: str, payload: dict[str, Any] | None = None) -> int:
-        """Queue one command for a paired extension client."""
+        """Queue one command for a registered extension client."""
 
         with self._transaction() as connection:
             cursor = connection.execute(
@@ -1114,12 +1114,12 @@ class Store:
             return False
         if not hmac.compare_digest(str(row["token_hash"]), str(token_hash)):
             return False
-        paired_origin = str(row["origin"] or "").strip().casefold()
+        registered_origin = str(row["origin"] or "").strip().casefold()
         presented_origin = str(origin or "").strip().casefold()
-        if not paired_origin or not presented_origin or paired_origin != presented_origin:
+        if not registered_origin or not presented_origin or registered_origin != presented_origin:
             return False
-        paired_id = str(row["extension_id"] or "").strip().casefold()
-        if paired_id and paired_id != str(extension_id or "").strip().casefold():
+        registered_id = str(row["extension_id"] or "").strip().casefold()
+        if registered_id and registered_id != str(extension_id or "").strip().casefold():
             return False
         return True
 

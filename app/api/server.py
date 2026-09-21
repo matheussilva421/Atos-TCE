@@ -653,7 +653,7 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         """Fill the act the operator opened by hand (M5 Task 6).
 
         Two authenticated local callers exist: the Mesa UI (HttpOnly session
-        plus same-origin) and the paired sidepanel, which has no Mesa session
+        plus same-origin) and the registered sidepanel, which has no Mesa session
         and therefore presents the extension bearer token. Nothing here is
         reachable without one of those two credentials.
         """
