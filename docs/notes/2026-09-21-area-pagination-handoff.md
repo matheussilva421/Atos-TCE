@@ -110,3 +110,55 @@ Validação desta etapa:
 - Push confirmado em origin/codex/mesa-local-refactor.
 - O arquivo local não rastreado work/tce-extractor/.codex-live-pilot.py foi
   preservado.
+
+## Follow-up — diagnóstico direto no Chrome QA e correção final (2026-09-21)
+
+Foi feita inspeção CDP somente leitura na aba QA aberta, sem abrir processo,
+selecionar interessado ou enviar ato. A moldura real da lista foi identificada
+como frame 65. O portal usa `form1`, `NumeroPagina` oculto, `Paginacao`,
+`GrupoProcesso` e `select[name="pagina"]` com 40 opções.
+
+O diagnóstico reproduziu a corrida: depois de `form.submit()`,
+`NumeroPagina` mudava imediatamente para o destino, enquanto as 30 linhas e os
+links ainda pertenciam à página anterior por mais de dois segundos. O scanner
+considerava essa leitura falsa como página pronta e enviava o próximo avanço.
+Também foi observado que o total era calculado a partir dos números dos
+processos, chegando a 104949/105323 em vez de 40.
+
+Correção aplicada:
+
+- `extension/lib/area-snapshot.js` prioriza o `select[name="pagina"]`, que só
+  muda quando a página renderizada chegou, e usa `NumeroPagina` como fallback.
+- Os controles de total ficam restritos à navegação legada/opções da página;
+  links de processos deixam de ser interpretados como números de página.
+- `extension/tests/area-snapshot.test.mjs` adiciona regressões para os dois
+  comportamentos observados ao vivo.
+
+Validação desta etapa:
+
+- RED: 2 testes falharam pelos sintomas reais (`2 !== 1` e `105323 !== 40`).
+- GREEN focado: area-snapshot — 22/22.
+- Suíte completa da extensão: `npm test` — 133 testes, 133 aprovados, 0
+  falhas.
+- A extensão carregada no Chrome QA foi recarregada pelo botão Atualizar do
+  modo desenvolvedor após a alteração.
+
+Validação live final:
+
+- A extensão foi recarregada no Chrome QA e a aba autenticada do portal foi
+  recarregada para reinstalar os content scripts.
+- A análise foi iniciada na Mesa e observada por CDP sem nova interação.
+- Resultado visível: `Análise concluída`; 1.198 processos vistos, 483
+  `PRECISA_COMPLEMENTAR`, 715 `ATO_COMPLEMENTADO`, 0 ambíguos, 0 bloqueados,
+  0 não encontrados e 17 pendentes de download.
+- O erro de corrida `página 2 depois de 2` não reapareceu.
+
+
+Validação final e GitHub:
+
+- `npm test` na extensão: 133 testes, 133 aprovados, 0 falhas.
+- `verify-project.ps1`: 1.254 verificações, 1.252 aprovadas, 0 falhas e 2
+  skips ambientais.
+- `git diff --check`: passou.
+- Branch de trabalho: `codex/mesa-local-refactor`; o commit/push deste bloco
+  deve ser registrado após a revisão final do diff.

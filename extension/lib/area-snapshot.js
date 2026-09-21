@@ -467,8 +467,33 @@
       documentRef,
       "nav a, nav button, [data-action='next-page'], [data-action='next_page'], a[rel='next'], button[rel='next'], [aria-current='page']"
     );
-    if (inNav.length > 0) return inNav;
-    return queryAll(documentRef, "a, button");
+    const scoped = inNav.filter((control) => {
+      const action = getAttribute(control, "data-action");
+      return Boolean(
+        control.closest?.("nav") ||
+          getAttribute(control, "aria-current") === "page" ||
+          getAttribute(control, "rel") === "next" ||
+          action === "next-page" ||
+          action === "next_page"
+      );
+    });
+    if (scoped.length > 0) return scoped;
+    const controls = queryAll(documentRef, "a, button");
+    const legacy = controls.filter((control) => /NumeroPagina\.value\s*=\s*['"]?\d+/iu.test(getAttribute(control, "href")));
+    if (legacy.length === 0) return controls;
+    const semantic = controls.filter((control) => {
+      const action = getAttribute(control, "data-action");
+      const label = normalizedNextLabel(control);
+      return (
+        getAttribute(control, "aria-current") === "page" ||
+        getAttribute(control, "rel") === "next" ||
+        action === "next-page" ||
+        action === "next_page" ||
+        NEXT_LABELS.includes(label) ||
+        /^(primeira|anterior|ultima|first|previous|last)$/iu.test(label)
+      );
+    });
+    return [...new Set([...legacy, ...semantic])];
   }
 
   function isNextControl(control) {
@@ -622,10 +647,11 @@
   function pageInfo(documentRef) {
     const controls = paginationControls(documentRef);
     const currentPageLink = queryOne(documentRef, "[aria-current='page']");
+    const renderedPageControl = queryOne(documentRef, 'select[name="pagina"]');
     const legacyPageControl =
+      renderedPageControl ||
       byId(documentRef, "NumeroPagina") ||
-      queryOne(documentRef, 'input[name="NumeroPagina"]') ||
-      queryOne(documentRef, 'select[name="pagina"]');
+      queryOne(documentRef, 'input[name="NumeroPagina"]');
     const currentValue = currentPageLink
       ? textOf(currentPageLink)
       : String(legacyPageControl?.value ?? "").trim() || textOf(legacyPageControl);
@@ -635,10 +661,14 @@
       .map((control) => Number.parseInt(textOf(control), 10))
       .filter((value) => Number.isInteger(value) && value > 0);
     let total = labels.length > 0 ? Math.max(...labels) : page;
+    const pageOptionPages = queryAll(renderedPageControl, "option")
+      .map((option) => Number.parseInt(String(option.value ?? textOf(option)), 10))
+      .filter((value) => Number.isInteger(value) && value > 0);
     const legacyTargetPages = queryAll(documentRef, "a")
       .map((control) => getAttribute(control, "href").match(/NumeroPagina\.value\s*=\s*['"]?(\d+)/iu)?.[1])
       .map((value) => Number.parseInt(value, 10))
       .filter((value) => Number.isInteger(value) && value > 0);
+    if (pageOptionPages.length > 0) total = Math.max(total, ...pageOptionPages);
     if (legacyTargetPages.length > 0) total = Math.max(total, ...legacyTargetPages);
     if (
       total <= page &&

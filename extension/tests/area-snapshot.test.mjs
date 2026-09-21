@@ -161,6 +161,38 @@ test("legacy pagination reads the current page from NumeroPagina", () => {
   assert.equal(scan(documentRef).page, 2);
 });
 
+test("legacy pagination prefers the rendered page select over the mutable hidden field", () => {
+  const documentRef = buildListDocument({ page: "1", rows: [], hasNext: false });
+  const currentPageLink = documentRef.body.children.at(-1).children[0];
+  delete currentPageLink.attributes["aria-current"];
+  const form = new FakeElement("form", { id: "form1" });
+  const hiddenPage = new FakeElement("input", { id: "NumeroPagina", value: "1", attrs: { type: "hidden" } });
+  const renderedPage = new FakeElement("select", { value: "1", attrs: { name: "pagina" } });
+  form.append(hiddenPage, renderedPage);
+  documentRef.body.append(form);
+
+  hiddenPage.value = "2";
+
+  assert.equal(scan(documentRef).page, 1);
+});
+
+test("legacy pagination total ignores process numbers outside pagination controls", () => {
+  const documentRef = buildListDocument({ page: "2", rows: [], hasNext: false });
+  documentRef.body.children = documentRef.body.children.filter((child) => child.tagName !== "NAV");
+  const processLink = new FakeElement("a", { text: "105323/2025", attrs: { href: "/processo/105323" } });
+  const form = new FakeElement("form", { id: "form1" });
+  form.append(
+    new FakeElement("input", { id: "NumeroPagina", value: "2", attrs: { type: "hidden" } }),
+    new FakeElement("input", { id: "Paginacao", value: "", attrs: { type: "hidden" } }),
+    new FakeElement("input", { id: "GrupoProcesso", value: "", attrs: { type: "hidden" } }),
+    new FakeElement("a", { text: "Próxima >", attrs: { href: "javascript: form1.NumeroPagina.value=3; document.form1.Paginacao.value='S'; document.form1.GrupoProcesso.value='NS'; form1.submit();" } }),
+    new FakeElement("a", { text: "Última >>", attrs: { href: "javascript: form1.NumeroPagina.value=40; document.form1.Paginacao.value='S'; document.form1.GrupoProcesso.value='NS'; form1.submit();" } }),
+  );
+  documentRef.body.append(processLink, form);
+
+  assert.equal(scan(documentRef).total_pages, 40);
+});
+
 test("legacy next label keeps the last page total at the known numeric page", () => {
   const documentRef = buildListDocument({ page: "40", paginationLabels: [40], rows: [], hasNext: true });
   documentRef.body.append(new FakeElement("select", { id: "NumeroPagina", value: "40" }));
