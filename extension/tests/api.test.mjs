@@ -143,6 +143,23 @@ test("status reads the paired client without exposing the token", async () => {
   assert.equal(outcome.payload.token, undefined);
 });
 
+test("status exposes an unauthorized response so the panel can recover the pairing", async () => {
+  const { api } = build({
+    data: new Map([
+      [STORAGE_KEYS.clientId, CLIENT_ID],
+      [STORAGE_KEYS.token, "velho"],
+    ]),
+    routes: [{ path: "/api/v1/bridge/status", status: 401, body: { error: "unauthorized" } }],
+  });
+
+  const outcome = await api.status();
+
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.status, 401);
+  assert.equal(outcome.paired, false);
+  assert.equal(outcome.error, "unauthorized");
+});
+
 test("a stored pairing can be cleared for a fresh code", async () => {
   const { api, storage } = build({
     data: new Map([

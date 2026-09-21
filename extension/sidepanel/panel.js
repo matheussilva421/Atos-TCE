@@ -6,8 +6,10 @@
 
 import { createApi } from "../lib/api.js";
 import { MESA_ORIGIN, PORTAL_ORIGIN } from "../lib/protocol.js";
+import { describeMesaStatus } from "./state.js";
 
 const api = createApi({ storage: globalThis.chrome?.storage?.local });
+let needsFreshPairing = false;
 
 function setState(elementId, dotId, text, tone) {
   const label = document.getElementById(elementId);
@@ -19,16 +21,21 @@ function setState(elementId, dotId, text, tone) {
 async function refreshMesa() {
   const credentials = await api.credentials();
   if (!credentials.paired) {
-    setState("mesa-status", "mesa-dot", "Mesa: extensão não pareada", "warn");
-    return { paired: false };
+    const state = needsFreshPairing
+      ? describeMesaStatus({ status: 401 })
+      : { paired: false, stale: false, tone: "warn", label: "Mesa: extensão não pareada" };
+    setState("mesa-status", "mesa-dot", state.label, state.tone);
+    return state;
   }
   const status = await api.status();
-  if (status.ok && status.paired) {
-    setState("mesa-status", "mesa-dot", "Mesa conectada", "ok");
-    return { paired: true };
+  const state = describeMesaStatus(status);
+  if (state.stale) {
+    await api.clear();
+    needsFreshPairing = true;
   }
-  setState("mesa-status", "mesa-dot", "Mesa indisponível ou token recusado", "error");
-  return { paired: false };
+  if (state.paired) needsFreshPairing = false;
+  setState("mesa-status", "mesa-dot", state.label, state.tone);
+  return state;
 }
 
 async function refreshPortal() {
@@ -50,9 +57,7 @@ async function refresh() {
     await refreshCurrentForm();
     pairSection.hidden = mesa.paired;
     diagnostic.className = "";
-    diagnostic.textContent = mesa.paired
-      ? "Pronto: a Mesa comanda o trabalho e você confirma o ato no portal."
-      : "Pareie com o código de seis dígitos exibido na Mesa.";
+    diagnostic.textContent = mesa.diagnostic ?? "Pareie com o código de seis dígitos exibido na Mesa.";
   } catch (error) {
     diagnostic.className = "error";
     diagnostic.textContent = `Falha ao consultar o estado: ${error?.message ?? error}`;
@@ -121,6 +126,7 @@ document.getElementById("pair-action").addEventListener("click", async () => {
     return;
   }
   input.value = "";
+  needsFreshPairing = false;
   await refresh();
 });
 

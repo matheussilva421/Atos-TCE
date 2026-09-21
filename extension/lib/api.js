@@ -139,6 +139,7 @@ export function createApi({
         status: response.status,
         paired: response.payload?.paired === true,
         payload: response.payload,
+        error: response.ok ? null : response.payload?.error ?? "request_failed",
       };
     },
 
