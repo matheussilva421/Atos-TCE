@@ -3,7 +3,7 @@
 Data: 2026-09-21  
 Branch: `codex/mesa-local-refactor`  
 Base do bloco: `abef057`  
-Commit final: será registrado após o commit deste bloco
+Commit final: `51591eb` (`test: align Mesa tests with automatic extension trust`)
 
 ## Resultado
 
