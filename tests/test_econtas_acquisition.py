@@ -21,6 +21,7 @@ from app.econtas.legacy_queue import (
 from app.econtas.collector import (
     CollectorRequest,
     build_collector_command,
+    is_auth_required,
     parse_summary_line,
     redact,
     run_collector,
@@ -496,6 +497,16 @@ class CollectorCommandTests(unittest.TestCase):
         self.assertIn("[string]$RaizEstado", source)
         self.assertEqual(source.count("Join-Path $RaizEstado 'dados-locais"), 3)
 
+    def test_the_promoted_engine_requires_the_operator_to_prepare_the_econtas_screen(self):
+        source = (REPO_ROOT / "app" / "econtas" / "runtime" / "TcePortal.Driver.js").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("verifyMarkerSelection", source)
+        self.assertIn("Abra a tela de processos do e-Contas", source)
+        self.assertNotIn("applyMarkerFilter", source)
+        self.assertNotIn("Page.navigate", source)
+
     def test_the_command_carries_the_mesa_queue_and_lot(self):
         command = build_collector_command(
             self.request(lot_number=3, queue_path=Path("data/queues/lote.json")), REPO_ROOT
@@ -611,6 +622,9 @@ class CollectorRunTests(unittest.TestCase):
 
         self.assertTrue(result.auth_required)
         self.assertEqual(len(seen), 1)
+
+    def test_a_missing_login_pauses_instead_of_failing_the_job(self):
+        self.assertTrue(is_auth_required("Login não detectado. Entre no e-Contas e execute novamente."))
 
     def test_progress_callback_receives_only_redacted_lines(self):
         seen = []

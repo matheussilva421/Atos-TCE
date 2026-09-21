@@ -251,3 +251,37 @@ Validação live após a correção:
 
 Essa validação confirma o fluxo completo de leitura no portal QA lento. Não
 houve abertura de ato, preenchimento de formulário ou envio real.
+
+## Follow-up — preparação manual do e-Contas antes da aquisição (2026-09-21)
+
+O clique real em `Baixar 17 processos` abriu a aba do e-Contas, mas o coletor
+tentou validar uma sessão inexistente e o job terminou com 17 falhas. O banco
+registrou o job de aquisição como `COMPLETED_WITH_ERRORS`, sem processos
+baixados.
+
+Correção aplicada:
+
+- mensagens como `Login não detectado` agora pausam o job em
+  `WAITING_FOR_LOGIN`, em vez de transformá-lo em falha final;
+- a Mesa informa que está abrindo o e-Contas e exibe a ação `Retomar após
+  login` quando a sessão precisa ser preparada;
+- o coletor mantém a aba aberta para o operador fazer login e exige a tela de
+  processos do e-Contas e o marcador capturado na análise já selecionados;
+- a seleção do marcador não é mais alterada automaticamente e a navegação
+  para outra aba/tela não é feita pelo coletor;
+- depois que o operador prepara a sessão, `Retomar após login` inicia a fila
+  congelada e somente então começam os downloads.
+
+Validação desta etapa:
+
+- aquisição: 80 testes, 80 aprovados e 0 falhas;
+- UI da Mesa: 10 testes, 10 aprovados e 0 falhas;
+- equivalência do runtime promovido: aprovada;
+- gate oficial: 1.254 verificações, 1.252 aprovadas, 0 falhas e 2 skips
+  ambientais.
+
+Próximo teste manual: reiniciar a Mesa, clicar em `Baixar 17 processos`, fazer
+login no e-Contas, deixar a tela de processos aberta com o marcador correto e
+clicar em `Retomar após login`. O primeiro indicador esperado é
+`WAITING_FOR_LOGIN`/a mensagem de preparação; nenhum download deve ocorrer
+antes da retomada.

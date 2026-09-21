@@ -41,7 +41,13 @@ SUMMARY_PATTERN = re.compile(
 AUTH_MARKERS = (
     "faça login",
     "faca login",
+    "login não detectado",
+    "login nao detectado",
+    "sessão sem token",
+    "sessao sem token",
     "login novamente",
+    "abra a tela de processos",
+    "selecione o marcador",
     "sessão expirada",
     "sessao expirada",
     "não autorizada",

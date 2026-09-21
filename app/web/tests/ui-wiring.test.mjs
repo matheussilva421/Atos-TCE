@@ -64,3 +64,8 @@ test("area analysis allows slow legacy page navigation to finish", () => {
   assert.match(source, /const deadline = Date\.now\(\) \+ 900000/u);
   assert.match(source, /A análise não respondeu em 15 minutos/u);
 });
+
+test("acquisition tells the operator to prepare e-Contas before downloading", () => {
+  assert.match(source, /Abrindo o e-Contas para login e preparando o download/u);
+  assert.match(source, /Faça login no e-Contas, deixe a tela correta e o marcador selecionado/u);
+});

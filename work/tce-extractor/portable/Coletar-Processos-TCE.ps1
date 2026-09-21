@@ -462,9 +462,6 @@ try {
         if (-not $allProcesses.Count) { throw 'A ordem persistida do portal não contém processos.' }
         Write-Host "Reutilizando ordem do portal já capturada: $($allProcesses.Count) processo(s)." -ForegroundColor Green
     } else {
-        [void](Send-TceCdp -Method 'Page.navigate' -Params @{ url = $portalUrl })
-        Wait-TcePage
-        Start-Sleep -Seconds 2
         $targetKeys = if ($frozen) { @($frozen.items | ForEach-Object process_key) } else { @() }
         $targetMarker = if ($frozen) { $frozen.marker } else { $null }
         $allProcesses = @(Invoke-TceJavaScript -Payload @{ operation = 'enumerateProcesses'; targetKeys = $targetKeys; marker = $targetMarker })

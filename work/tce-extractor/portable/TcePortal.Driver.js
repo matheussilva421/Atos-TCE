@@ -65,59 +65,27 @@
       .replace(/\s+/g, " ").trim().toUpperCase();
   }
 
-  async function applyMarkerFilter(marker) {
+  function verifyMarkerSelection(marker) {
     if (!marker || !marker.label) return;
     const host = document.querySelector("tce-select-field[formcontrolname=idMarcador]");
-    const input = host?.querySelector("input[role=combobox]");
-    if (!host || !input) throw new Error("Filtro de marcador do e-Contas não foi encontrado.");
+    if (!host) throw new Error("Abra a tela de processos do e-Contas antes de retomar.");
     const rawLabel = String(marker.label).trim();
-    const countMatch = rawLabel.match(/\((\d+)\)\s*$/u);
-    const expectedCount = countMatch ? countMatch[1] : null;
     const label = rawLabel.replace(/\s*\(\d+\)\s*$/u, "").trim();
     const expected = normalizeMarker(label);
-    input.click();
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-    if (!setter) throw new Error("Campo de marcador do e-Contas não é editável.");
-    setter.call(input, label);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    let option = null;
-    for (let attempt = 0; attempt < 30; attempt++) {
-      option = [...document.querySelectorAll(".ng-option")].find(candidate => {
-        const text = normalizeMarker(candidate.textContent);
-        return text === expected || text.startsWith(`${expected} `);
-      }) || null;
-      if (option) break;
-      await sleep(200);
+    const selected = [...host.querySelectorAll(".ng-value")]
+      .map(value => normalizeMarker(value.textContent))
+      .filter(Boolean)
+      .join(" ");
+    if (!selected || !selected.includes(expected)) {
+      throw new Error(`Selecione o marcador ${label} no e-Contas antes de retomar.`);
     }
-    if (!option) throw new Error(`Marcador não encontrado no e-Contas: ${label}`);
-    let selectedValue = false;
-    for (let attempt = 0; attempt < 5 && !selectedValue; attempt++) {
-      await sleep(100);
-      option = [...document.querySelectorAll(".ng-option")].find(candidate => {
-        const text = normalizeMarker(candidate.textContent);
-        return text === expected || text.startsWith(`${expected} `);
-      }) || null;
-      if (!option) continue;
-      for (const type of ["mousedown", "mouseup", "click"]) {
-        option.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
-      }
-      await sleep(250);
-      selectedValue = [...host.querySelectorAll(".ng-value")].some(value =>
-        normalizeMarker(value.textContent).includes(expected),
-      );
+  }
+
+  function verifyProcessScreen(marker) {
+    if (location.hostname !== "processos.tce.rn.gov.br") {
+      throw new Error("Abra a tela de processos do e-Contas antes de retomar.");
     }
-    if (!selectedValue) throw new Error(`O marcador não foi selecionado no e-Contas: ${label}`);
-    const search = [...document.querySelectorAll("button")].find(button =>
-      (button.textContent || "").trim().toUpperCase() === "BUSCAR",
-    );
-    if (!search) throw new Error("Botão BUSCAR do filtro do e-Contas não foi encontrado.");
-    search.click();
-    for (let attempt = 0; attempt < 30; attempt++) {
-      await sleep(200);
-      const text = document.body.innerText || "";
-      if (!expectedCount || text.includes(`de ${expectedCount} no total`)) return;
-    }
-    if (expectedCount) throw new Error(`O e-Contas não confirmou a contagem do marcador ${label}: esperado ${expectedCount}`);
+    verifyMarkerSelection(marker);
   }
 
   async function selectLargestPageSize() {
@@ -197,7 +165,7 @@
 
   async function enumerateProcesses(targetKeys = [], marker = null) {
     const wanted = new Set((Array.isArray(targetKeys) ? targetKeys : []).map(String));
-    await applyMarkerFilter(marker);
+    verifyProcessScreen(marker);
     await selectLargestPageSize();
     if (!await goToFirstPage()) {
       if (currentResultCount() === 0) throw new Error("O e-Contas retornou zero processos após aplicar o marcador.");

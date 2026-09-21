@@ -205,7 +205,7 @@ async function loadPdfjs() {
         `${numberFormat.format(job.completed)} de ${numberFormat.format(job.total)} baixados` +
         (job.failed ? ` · ${numberFormat.format(job.failed)} com falha` : "");
       if (job.status === "WAITING_FOR_LOGIN") {
-        status.textContent = "Faça login no e-Contas e retome o download.";
+        status.textContent = "Faça login no e-Contas, deixe a tela correta e o marcador selecionado, depois retome o download.";
         setResumableJob(jobId);
         break;
       }
@@ -238,7 +238,7 @@ async function loadPdfjs() {
     button.disabled = true;
     renderFailures([]);
     document.getElementById("acquisition-progress").textContent = "";
-    status.textContent = "Iniciando o download dos processos pendentes…";
+    status.textContent = "Abrindo o e-Contas para login e preparando o download…";
     setResumableJob(null);
     try {
       const created = await postJson("/api/v1/acquisition/jobs", {});
