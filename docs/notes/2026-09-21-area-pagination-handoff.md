@@ -106,6 +106,7 @@ Validação desta etapa:
 
 - Branch: codex/mesa-local-refactor.
 - Correção publicada no commit 27a5f32 (`fix: submit legacy area pagination safely`).
+- Correção de espera publicada no commit 4f7b05a (`fix: wait for stable area pagination`).
 - Push confirmado em origin/codex/mesa-local-refactor.
 - O arquivo local não rastreado work/tce-extractor/.codex-live-pilot.py foi
   preservado.
