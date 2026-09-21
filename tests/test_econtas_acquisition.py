@@ -950,6 +950,7 @@ class ResumeTests(AcquisitionServiceTests):
         job = self.store.get_job(job_id)
         self.assertEqual(job["status"], "COMPLETED")
         self.assertEqual(job["completed"], 3)
+        self.assertIsNone(job["error"])
         self.assertEqual(calls, [1, 1, 2], "the paused lot runs again, then the next one")
 
     def test_resume_does_not_repeat_what_was_already_downloaded(self):

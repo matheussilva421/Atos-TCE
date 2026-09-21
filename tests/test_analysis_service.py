@@ -390,6 +390,7 @@ class AnalysisServiceTests(unittest.TestCase):
         self.assertEqual(process["events"][-1]["event_type"], "analysis_failed")
 
     def test_enqueue_runs_the_worker_and_finishes_the_job(self):
+        self.store.set_process_acquisition_state(self.process_id, "DOWNLOADED")
         service = self.build(FakeAdapter())
 
         job_id = service.enqueue(self.process_id)
@@ -399,7 +400,13 @@ class AnalysisServiceTests(unittest.TestCase):
         self.assertEqual(job["job_type"], "analysis")
         self.assertEqual(job["status"], "COMPLETED")
         self.assertEqual(job["completed"], 1)
-        self.assertEqual(self.store.get_process(self.process_id)["status"], "PRONTO")
+        process = self.store.get_process(self.process_id)
+        self.assertEqual(process["status"], "PRONTO")
+        self.assertEqual(
+            process["acquisition_state"],
+            "DOWNLOADED",
+            "analysis progress must not make downloaded bytes look pending",
+        )
 
     def test_a_failed_item_does_not_stop_the_job(self):
         second = self.store.upsert_process(

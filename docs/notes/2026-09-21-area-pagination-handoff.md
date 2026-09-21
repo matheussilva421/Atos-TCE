@@ -336,3 +336,30 @@ Validação:
 O servidor foi relançado antes desta segunda correção; é necessário reiniciá-lo
 novamente depois do commit seguinte. A aba autenticada do e-Contas deve ser
 reutilizada, sem automação de credenciais.
+
+## Follow-up — aquisição real e isolamento do estado de análise (2026-09-21)
+
+Depois da renovação da sessão local e da retomada, a aquisição real reutilizou
+a aba já aberta do e-Contas, confirmou a sessão e manteve o marcador
+`PROFESSOR - IPERN`. O job 2 terminou em aproximadamente 36 minutos com 15 de
+17 processos baixados e 2 falhas. Os dois processos foram
+`100437/2025` e `004731/2024`; os manifestos registram `Impossível conectar-se
+ao servidor remoto` ao consultar PDFs específicos, portanto a ausência de
+arquivos é uma falha de rede/documento e foi mantida como falha explícita.
+
+O teste live também revelou que `JobManager` compartilhava a transição de
+`job_items` entre aquisição e análise. O worker de análise estava escrevendo
+`ANALISADO` ou `FAILED` em `processes.acquisition_state`, fazendo a Mesa voltar a
+oferecer todos os 17 processos. A correção em `app/core/store.py` atualiza
+`acquisition_state` somente para jobs de aquisição; jobs de análise continuam
+isolados. A retomada também limpa o erro antigo de autenticação do job.
+
+Estado local reparado após essa descoberta:
+
+- 15 itens do job 2: `DOWNLOADED`;
+- 2 itens do job 2: `FAILED` com motivo preservado;
+- plano da Mesa: `Baixar 2 processos`.
+
+Próximo passo manual opcional: tentar novamente somente os 2 processos
+pendentes quando o e-Contas estiver respondendo aos endpoints de PDF. Nenhum ato
+foi aberto, preenchido ou enviado.

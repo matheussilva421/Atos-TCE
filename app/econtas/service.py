@@ -161,7 +161,7 @@ class AcquisitionService:
                 raise AcquisitionError(
                     "só um job pausado por login ou interrompido pode ser retomado"
                 )
-            self._store.set_job_status(job_id, "PENDING")
+            self._store.set_job_status(job_id, "PENDING", clear_error=True)
         thread = threading.Thread(
             target=self._run_guarded, args=(job_id,), name=f"acquisition-{job_id}", daemon=True
         )

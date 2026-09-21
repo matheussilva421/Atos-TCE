@@ -1154,16 +1154,22 @@ class Store:
     def add_job_item(self, job_id: int, process_id: int, state: str = "QUEUED") -> None:
         now = utc_now()
         with self._transaction() as connection:
+            job = connection.execute(
+                "SELECT job_type FROM jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+            if job is None:
+                raise ValueError(f"unknown job {job_id}")
             connection.execute(
                 "INSERT INTO job_items (job_id, process_id, state, created_at, updated_at) "
                 "VALUES (?, ?, ?, ?, ?) ON CONFLICT(job_id, process_id) DO UPDATE SET "
                 "state = excluded.state, error = NULL, updated_at = excluded.updated_at",
                 (job_id, process_id, state, now, now),
             )
-            connection.execute(
-                "UPDATE processes SET acquisition_state = ?, updated_at = ? WHERE id = ?",
-                (state, now, process_id),
-            )
+            if str(job["job_type"]) == "acquisition":
+                connection.execute(
+                    "UPDATE processes SET acquisition_state = ?, updated_at = ? WHERE id = ?",
+                    (state, now, process_id),
+                )
 
     def mark_job_item(
         self,
@@ -1178,6 +1184,11 @@ class Store:
 
         now = utc_now()
         with self._transaction() as connection:
+            job = connection.execute(
+                "SELECT job_type FROM jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+            if job is None:
+                raise ValueError(f"unknown job {job_id}")
             if connection.execute(
                 "SELECT 1 FROM processes WHERE id = ?", (process_id,)
             ).fetchone() is None:
@@ -1189,10 +1200,11 @@ class Store:
             ).rowcount
             if not updated:
                 raise ValueError(f"job {job_id} has no item for process {process_id}")
-            connection.execute(
-                "UPDATE processes SET acquisition_state = ?, updated_at = ? WHERE id = ?",
-                (state, now, process_id),
-            )
+            if str(job["job_type"]) == "acquisition":
+                connection.execute(
+                    "UPDATE processes SET acquisition_state = ?, updated_at = ? WHERE id = ?",
+                    (state, now, process_id),
+                )
             self._refresh_job_counters(connection, job_id, done_state)
 
     @staticmethod
@@ -1215,6 +1227,7 @@ class Store:
         started: bool = False,
         finished: bool = False,
         error: str | None = None,
+        clear_error: bool = False,
         done_state: str = "DOWNLOADED",
     ) -> None:
         with self._transaction() as connection:
@@ -1228,6 +1241,8 @@ class Store:
             if finished:
                 assignments.append("finished_at = ?")
                 parameters.append(utc_now())
+            if clear_error:
+                assignments.append("error = NULL")
             if error is not None:
                 assignments.append("error = ?")
                 parameters.append(error)
