@@ -161,4 +161,5 @@ Validação final e GitHub:
   skips ambientais.
 - `git diff --check`: passou.
 - Branch de trabalho: `codex/mesa-local-refactor`; o commit/push deste bloco
-  deve ser registrado após a revisão final do diff.
+  foi publicado em `2d4d9c6` (`fix: stabilize legacy area pagination
+  snapshots`) no remoto `origin/codex/mesa-local-refactor`.
