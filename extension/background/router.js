@@ -29,8 +29,13 @@ const FORM_READ_ATTEMPTS = 10;
 const FORM_READ_DELAY_MS = 800;
 const FRAME_LIST_ATTEMPTS = 3;
 const FRAME_LIST_DELAY_MS = 250;
-const PAGE_READY_ATTEMPTS = 20;
-const PAGE_READY_DELAY_MS = 300;
+// The legacy portal can take several seconds to replace the list after the
+// form submit. Keep polling long enough for a slow page without waiting
+// forever; two identical snapshots are still required before advancing.
+const PAGE_READY_ATTEMPTS = 40;
+const PAGE_READY_DELAY_MS = 500;
+const PAGE_ADVANCE_ATTEMPTS = 3;
+const PAGE_ADVANCE_RETRY_DELAY_MS = 750;
 
 function delay(milliseconds) {
   return new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds));
@@ -209,6 +214,8 @@ export function installRouter({
   const pageDelayMs = timing.pageDelayMs ?? 400;
   const pageReadyAttempts = timing.pageReadyAttempts ?? PAGE_READY_ATTEMPTS;
   const pageReadyDelayMs = timing.pageReadyDelayMs ?? PAGE_READY_DELAY_MS;
+  const pageAdvanceAttempts = timing.pageAdvanceAttempts ?? PAGE_ADVANCE_ATTEMPTS;
+  const pageAdvanceRetryDelayMs = timing.pageAdvanceRetryDelayMs ?? PAGE_ADVANCE_RETRY_DELAY_MS;
 
   const sidePanelBehavior = chromeApi.sidePanel?.setPanelBehavior?.({
     openPanelOnActionClick: true,
@@ -329,23 +336,29 @@ export function installRouter({
         return response.snapshot;
       },
       advancePage: async () => {
-        const response = await sendToFrame(frame.tabId, frame.frameId, {
-          type: MESSAGE_TYPES.LIST_PAGE,
-          payload: { action: "next" },
-        });
-        if (response?.ok !== true) return false;
-        const before = Number(response.page_before);
-        const after = Number(response.page_after);
-        const expectedPage = Number.isInteger(after)
-          ? after
-          : Number.isInteger(before)
-            ? before + 1
-            : null;
-        if (!Number.isInteger(expectedPage)) {
-          await delay(pageDelayMs);
-          return true;
+        for (let attempt = 0; attempt < pageAdvanceAttempts; attempt += 1) {
+          const response = await sendToFrame(frame.tabId, frame.frameId, {
+            type: MESSAGE_TYPES.LIST_PAGE,
+            payload: { action: "next" },
+          });
+          if (response?.ok !== true) return false;
+          const before = Number(response.page_before);
+          const after = Number(response.page_after);
+          const expectedPage = Number.isInteger(after)
+            ? after
+            : Number.isInteger(before)
+              ? before + 1
+              : null;
+          if (!Number.isInteger(expectedPage)) {
+            await delay(pageDelayMs);
+            return true;
+          }
+          if (await waitForPageReady(frame, expectedPage)) return true;
+          if (attempt + 1 < pageAdvanceAttempts) {
+            await delay(pageAdvanceRetryDelayMs);
+          }
         }
-        return waitForPageReady(frame, expectedPage);
+        return false;
       },
     });
   }

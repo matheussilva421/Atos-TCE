@@ -59,3 +59,8 @@ test("area counters are cleared while a new analysis is in progress", () => {
   assert.match(source, /clearAreaCounters\(\);[\s\S]*postJson\("\/api\/v1\/area\/analyze"/u);
   assert.match(source, /placeholder \? "—"/u);
 });
+
+test("area analysis allows slow legacy page navigation to finish", () => {
+  assert.match(source, /const deadline = Date\.now\(\) \+ 900000/u);
+  assert.match(source, /A análise não respondeu em 15 minutos/u);
+});

@@ -339,7 +339,7 @@ async function loadPdfjs() {
     try {
       const created = await postJson("/api/v1/area/analyze", {});
       status.textContent = "Analisando a Área Restrita…";
-      const deadline = Date.now() + 180000;
+      const deadline = Date.now() + 900000;
       let ticks = 0;
       for (;;) {
         await sleep(1000);
@@ -357,7 +357,7 @@ async function loadPdfjs() {
           status.textContent = "Aguardando a extensão (Área Restrita aberta e conectada)…";
         }
         if (Date.now() > deadline) {
-          status.textContent = "A análise não respondeu a tempo. Verifique a extensão.";
+          status.textContent = "A análise não respondeu em 15 minutos. Verifique a extensão.";
           break;
         }
       }

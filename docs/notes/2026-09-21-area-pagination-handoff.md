@@ -200,3 +200,54 @@ Publicação desta etapa:
 - Push confirmado em `origin/codex/mesa-local-refactor`.
 - O arquivo local não rastreado `work/tce-extractor/.codex-live-pilot.py` foi
   preservado.
+
+## Follow-up — atraso além do prazo e avanço de página ignorado (2026-09-21)
+
+O último teste live terminou com a mensagem `A análise não respondeu a tempo`.
+A inspeção somente leitura do banco separou os dois eventos: a Mesa desistiu
+de esperar após 180 segundos, mas o comando 17 continuou até 4min41s e então
+falhou com `PAGINATION_STALLED` na página 37 de 40. Nenhum resultado parcial
+foi persistido; os números 1.198 vistos, 482 pendentes e 716 complementados
+continuam sendo o último snapshot bem-sucedido do comando 16.
+
+A causa é compatível com o comportamento observado no portal legado: uma
+submissão de troca de página pode retornar sucesso sem que a lista seja
+substituída. O roteador aguardava uma janela de aproximadamente 20 segundos e
+tentava o avanço uma única vez. A interface também tinha um limite fixo de
+três minutos, menor que uma análise completa real.
+
+Correção aplicada na fonte da extensão e da Mesa:
+
+- `extension/background/router.js` mantém a leitura estável por até 40
+  amostras de 500 ms e repete o mesmo avanço até três vezes, com 750 ms entre
+  tentativas; a página só é aceita após duas amostras idênticas da página
+  esperada.
+- `app/web/app.js` aguarda até 15 minutos pela conclusão do comando e informa
+  explicitamente esse limite ao usuário.
+- `app/web/tests/ui-wiring.test.mjs` verifica o novo prazo e
+  `extension/tests/router.test.mjs` cobre tanto uma renderização lenta quanto
+  uma primeira submissão que não altera a página.
+
+Validação local desta etapa:
+
+- Roteador focado: 49 testes, 49 aprovados e 0 falhas.
+- UI focada: 9 testes, 9 aprovados e 0 falhas.
+- Suíte completa da extensão: 135 testes, 135 aprovados e 0 falhas.
+- Gate oficial: 1.254 verificações, 1.252 aprovadas, 0 falhas e 2 skips
+  ambientais.
+
+Pendência desta etapa: recarregar a extensão e repetir a análise no Chrome QA
+autenticado, aguardando a conclusão sem `PAGINATION_STALLED`.
+
+Validação live após a correção:
+
+- A extensão foi recarregada no Chrome QA e a aba autenticada do portal foi
+  recarregada antes do teste.
+- O comando 18 terminou como `SUCCEEDED` em 3min09s, sem erro; o banco criou o
+  snapshot 4 com 1.198 processos, 482 pendentes, 716 complementados e zero
+  ambíguos, bloqueados ou não encontrados.
+- A Mesa mostrou `Análise concluída` e `Baixar 17 processos`. O limite de 15
+  minutos não foi atingido.
+
+Essa validação confirma o fluxo completo de leitura no portal QA lento. Não
+houve abertura de ato, preenchimento de formulário ou envio real.
