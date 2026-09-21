@@ -363,3 +363,9 @@ Estado local reparado após essa descoberta:
 Próximo passo manual opcional: tentar novamente somente os 2 processos
 pendentes quando o e-Contas estiver respondendo aos endpoints de PDF. Nenhum ato
 foi aberto, preenchido ou enviado.
+
+Estado final desta sessão: a Mesa foi reiniciada no commit `3b96ed3`, a sessão
+local foi renovada pelo bootstrap e a tela mostra `Baixar 2 processos`. O
+servidor permanece ativo em `http://127.0.0.1:18743/`. O branch está sincronizado
+com `origin/codex/mesa-local-refactor`; o único arquivo não rastreado preservado
+é `work/tce-extractor/.codex-live-pilot.py`.
