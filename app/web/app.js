@@ -303,66 +303,6 @@ async function loadPdfjs() {
     }
   }
 
-  async function refreshPairing() {
-    const section = document.getElementById("pairing");
-    const state_ = document.getElementById("pairing-state");
-    const code = document.getElementById("pairing-code");
-    const renew = document.getElementById("renew-pairing");
-    const reset = document.getElementById("reset-pairing");
-    const handoff = document.getElementById("handoff-session");
-    const handoffStatus = document.getElementById("handoff-status");
-    try {
-      const payload = await getJson("/api/v1/bridge/pairing");
-      section.hidden = false;
-      handoff.hidden = false;
-      reset.hidden = !payload.paired;
-      renew.hidden = Boolean(payload.paired);
-      code.hidden = Boolean(payload.paired) || !payload.code;
-      code.textContent = payload.code || "";
-      if (payload.paired) {
-        const client = (payload.clients || [])[0] || {};
-        state_.textContent = `Extensão pareada (${client.client_id || "cliente"}).`;
-        return;
-      }
-      state_.textContent = payload.code
-        ? "Extensão não pareada. Código de pareamento:"
-        : "Extensão não pareada. O código expirou — renove para parear.";
-    } catch (error) {
-      // Keep the recovery area visible when the bootstrap session expired. A
-      // healthy Mesa API is not enough to authorize pairing or reset.
-      section.hidden = false;
-      code.hidden = true;
-      renew.hidden = true;
-      reset.hidden = true;
-      handoff.hidden = true;
-      handoffStatus.textContent = "";
-      state_.textContent = String(error?.message || "").startsWith("401")
-        ? "Sessão da Mesa expirada. Reabra a Mesa pelo START.cmd para gerar uma nova sessão."
-        : "Não foi possível consultar o pareamento da extensão.";
-    }
-  }
-
-  async function renewPairing() {
-    try {
-      await postJson("/api/v1/bridge/pairing/renew", {});
-    } finally {
-      await refreshPairing();
-    }
-  }
-
-  /**
-   * Forget the paired client and show a fresh code. The old token stops
-   * working, which is the only way out when the extension lost its storage.
-   */
-  async function resetPairing() {
-    if (!window.confirm("Reparear a extensão? O token atual deixa de funcionar.")) return;
-    try {
-      await postJson("/api/v1/bridge/pairing/reset", {});
-    } finally {
-      await refreshPairing();
-    }
-  }
-
   async function handoffSession() {
     const button = document.getElementById("handoff-session");
     const status = document.getElementById("handoff-status");
@@ -892,8 +832,6 @@ async function loadPdfjs() {
       state.viewer.documentId = null;
       document.getElementById("pdf-viewer").hidden = true;
     });
-    document.getElementById("renew-pairing").addEventListener("click", renewPairing);
-    document.getElementById("reset-pairing").addEventListener("click", resetPairing);
     document.getElementById("handoff-session").addEventListener("click", handoffSession);
     document.getElementById("resume-acquisition").addEventListener("click", resumeAcquisition);
 
@@ -901,11 +839,9 @@ async function loadPdfjs() {
     refreshStorage();
     refreshProcesses();
     refreshArea();
-    refreshPairing();
     refreshAcquisition();
     window.setInterval(() => {
       refreshHealth();
-      refreshPairing();
       if (!state.acquisitionRunning) refreshAcquisition();
     }, 5000);
   }

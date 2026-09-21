@@ -41,14 +41,8 @@
         </div>
         <p id="acquisition-progress" class="muted"></p>
         <ul id="acquisition-failures" class="failures"></ul>
-        <div id="pairing" class="pairing">
-          <p class="muted">
-            <span id="pairing-state">Verificando a extensão…</span>
-            <strong id="pairing-code" class="mono" hidden></strong>
-          </p>
-          <button id="renew-pairing" class="ghost" type="button" hidden>Renovar código</button>
-          <button id="reset-pairing" class="ghost" type="button" hidden>Reparear extensão</button>
-          <button id="handoff-session" class="ghost" type="button" hidden>
+        <div class="area-actions session-tools">
+          <button id="handoff-session" class="ghost" type="button">
             Copiar sessão para outro Chrome
           </button>
           <span id="handoff-status" class="muted" aria-live="polite"></span>

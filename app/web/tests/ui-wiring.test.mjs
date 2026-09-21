@@ -27,19 +27,16 @@ test("the documents tab is where the viewer is opened from", () => {
   assert.match(source, /openDocument\(document\.id/u);
 });
 
-test("the Mesa offers to re-pair an extension that lost its storage", () => {
-  assert.match(page, /id="reset-pairing"/u);
-  assert.match(source, /\/api\/v1\/bridge\/pairing\/reset/u);
-  assert.match(source, /addEventListener\("click", resetPairing\)/u);
+test("the Mesa web UI has no manual extension pairing controls", () => {
+  assert.doesNotMatch(page, /reset-pairing/u);
+  assert.doesNotMatch(page, /renew-pairing/u);
+  assert.doesNotMatch(page, /pairing-code/u);
+  assert.doesNotMatch(page, /Reparear extensão/u);
+  assert.doesNotMatch(source, /bridge\/pairing\/reset/u);
+  assert.doesNotMatch(source, /bridge\/pairing\/renew/u);
 });
 
-test("the pairing area explains when the Mesa session is unavailable", () => {
-  assert.match(source, /Sessão da Mesa expirada/u);
-  assert.match(source, /Reabra a Mesa pelo START\.cmd/u);
-  assert.match(source, /section\.hidden = false;/u);
-});
-
-test("the Mesa offers a one-time session URL for another Chrome profile", () => {
+test("session handoff remains independent from extension authentication", () => {
   assert.match(page, /id="handoff-session"/u);
   assert.match(page, /Copiar sessão para outro Chrome/u);
   assert.match(source, /\/api\/v1\/session\/handoff/u);

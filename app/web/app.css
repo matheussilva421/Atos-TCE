@@ -387,8 +387,7 @@ button.primary,
   cursor: default;
 }
 
-button.ghost,
-#renew-pairing {
+button.ghost {
   font: inherit;
   padding: 6px 12px;
   border: 1px solid var(--line);
@@ -396,12 +395,6 @@ button.ghost,
   background: #fff;
   color: var(--accent);
   cursor: pointer;
-}
-
-.pairing {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px dashed var(--line);
 }
 
 .tabs {
