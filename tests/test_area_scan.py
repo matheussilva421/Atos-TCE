@@ -414,15 +414,15 @@ class BridgeClientTests(unittest.TestCase):
         self.addCleanup(self.store.close)
 
     def test_token_hash_round_trip(self):
-        self.store.pair_bridge_client("extension-test", "a" * 64, origin="chrome-extension://abc")
+        self.store.register_bridge_client("extension-test", "a" * 64, origin="chrome-extension://abc")
 
         self.assertTrue(self.store.verify_bridge_token("extension-test", "a" * 64))
         self.assertFalse(self.store.verify_bridge_token("extension-test", "b" * 64))
         self.assertFalse(self.store.verify_bridge_token("outro-cliente", "a" * 64))
 
     def test_repairing_replaces_the_previous_token(self):
-        self.store.pair_bridge_client("extension-test", "a" * 64)
-        self.store.pair_bridge_client("extension-test", "c" * 64)
+        self.store.register_bridge_client("extension-test", "a" * 64)
+        self.store.register_bridge_client("extension-test", "c" * 64)
 
         self.assertFalse(self.store.verify_bridge_token("extension-test", "a" * 64))
         self.assertTrue(self.store.verify_bridge_token("extension-test", "c" * 64))
@@ -432,7 +432,7 @@ class BridgeClientTests(unittest.TestCase):
         self.assertFalse(self.store.verify_bridge_token("nao-existe", "a" * 64))
 
     def test_plaintext_token_is_never_stored(self):
-        self.store.pair_bridge_client("extension-test", "a" * 64)
+        self.store.register_bridge_client("extension-test", "a" * 64)
 
         row = self.store.list_bridge_clients()[0]
         self.assertEqual(row["token_hash"], "a" * 64)

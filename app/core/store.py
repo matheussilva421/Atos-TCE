@@ -1061,14 +1061,14 @@ class Store:
 
     # ----------------------------------------------------------- bridge clients
 
-    def pair_bridge_client(
+    def register_bridge_client(
         self,
         client_id: str,
         token_hash: str,
         origin: str | None = None,
         extension_id: str | None = None,
     ) -> None:
-        """Persist the hash of a freshly paired extension token."""
+        """Persist the hash of a freshly registered extension token."""
 
         now = utc_now()
         with self._transaction() as connection:
@@ -1081,7 +1081,7 @@ class Store:
             )
 
     def verify_bridge_token(self, client_id: str, token_hash: str) -> bool:
-        """Constant-time check of a paired client's token hash."""
+        """Constant-time check of a registered client's token hash."""
 
         with self._lock:
             row = self._connection.execute(
@@ -1100,7 +1100,7 @@ class Store:
     ) -> bool:
         """Check the token *and* the origin that owns it.
 
-        A paired token is only valid from the extension origin it was paired
+        A registered token is only valid from the extension origin it was registered
         with: a token that leaks to another page cannot be replayed from there,
         and an extension id that does not match the Origin is refused.
         """
@@ -1123,13 +1123,6 @@ class Store:
             return False
         return True
 
-    def revoke_bridge_clients(self) -> int:
-        """Forget every paired client, so the next pairing starts from zero."""
-
-        with self._transaction() as connection:
-            removed = connection.execute("DELETE FROM bridge_clients").rowcount
-        return int(removed)
-
     def list_bridge_clients(self) -> list[dict[str, Any]]:
         with self._lock:
             return [
@@ -1140,7 +1133,7 @@ class Store:
             ]
 
     def touch_bridge_client(self, client_id: str) -> None:
-        """Record that a paired client just authenticated successfully."""
+        """Record that a registered client just authenticated successfully."""
 
         with self._transaction() as connection:
             connection.execute(

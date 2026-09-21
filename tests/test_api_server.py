@@ -37,7 +37,7 @@ class ApiTestCase(unittest.TestCase):
         self.store = Store.open(self.data_root / "atos-tce.db")
         self.addCleanup(self.store.close)
         self.seed()
-        self.bridge = Bridge(code="618900", bootstrap_token="bootstrap-token")
+        self.bridge = Bridge(bootstrap_token="bootstrap-token")
         self.server = serve(
             self.store, self.data_root, port=0, bridge=self.bridge, **self.serve_kwargs()
         )
@@ -162,7 +162,7 @@ class ApiTestCase(unittest.TestCase):
         return opener
 
     def pair_extension(self, token="extension-token", client_id="extension-test"):
-        self.store.pair_bridge_client(
+        self.store.register_bridge_client(
             client_id, hash_token(token), origin="chrome-extension://abcdefghijklmnop"
         )
         return {
@@ -447,8 +447,9 @@ class MesaUiTests(ApiTestCase):
         self.assertIn("Analisar Área Restrita", shell)
         self.assertIn('id="analyze-status"', shell)
         self.assertIn('id="area-counters"', shell)
-        self.assertIn('id="pairing-code"', shell)
-        self.assertIn('id="renew-pairing"', shell)
+        self.assertNotIn('id="pairing-code"', shell)
+        self.assertNotIn('id="renew-pairing"', shell)
+        self.assertIn('id="handoff-session"', shell)
         self.assertIn('id="download-pending"', shell)
         self.assertIn('id="acquisition-progress"', shell)
         self.assertIn('id="acquisition-failures"', shell)

@@ -13,7 +13,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from .api.bridge import PAIRING_TTL_SECONDS, Bridge
+from .api.bridge import Bridge
 from .api.server import DEFAULT_HOST, DEFAULT_PORT, serve
 from .core.store import Store
 
@@ -76,11 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Mesa Local em {address}")
     print(f"Banco de dados: {store.path}")
     print(bootstrap_handoff_message(bootstrap_url))
-    if not store.list_bridge_clients():
-        print(
-            f"Código de pareamento da extensão: {bridge.pairing_code} "
-            f"(válido por {int(PAIRING_TTL_SECONDS)}s; use 'Renovar código' na Mesa se expirar)"
-        )
+    print("Extensão confiável: registro automático ativo.")
     print("Pressione Ctrl+C para encerrar.")
     if not args.no_browser:
         webbrowser.open(bootstrap_url)

@@ -2,6 +2,7 @@
 
 import json
 import hashlib
+import base64
 import os
 import subprocess
 import sys
@@ -10,10 +11,29 @@ import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from app.api.bridge import TRUSTED_EXTENSION_ID
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 VERIFIER = REPO_ROOT / "packaging" / "verify-package.ps1"
 BUILDER = REPO_ROOT / "packaging" / "build-portable.ps1"
 DIST_ZIP = REPO_ROOT / "dist" / "Atos-TCE-portable.zip"
+SOURCE_MANIFEST = REPO_ROOT / "extension" / "manifest.json"
+IDENTITY_ALPHABET = "abcdefghijklmnop"
+
+
+def chromium_extension_id(public_key_der: bytes) -> str:
+    digest = hashlib.sha256(public_key_der).digest()[:16]
+    return "".join(IDENTITY_ALPHABET[b >> 4] + IDENTITY_ALPHABET[b & 0x0F] for b in digest)
+
+
+def trusted_manifest() -> dict:
+    return json.loads(SOURCE_MANIFEST.read_text(encoding="utf-8"))
+
+
+def assert_trusted_extension_manifest(test_case: unittest.TestCase, manifest: dict) -> None:
+    test_case.assertEqual(
+        chromium_extension_id(base64.b64decode(manifest["key"])), TRUSTED_EXTENSION_ID
+    )
 
 
 def canonical_path(value) -> str:
@@ -263,6 +283,18 @@ class BuilderContractTests(unittest.TestCase):
         verification = powershell(VERIFIER, "-ZipPath", destination, "-SkipSmoke")
         self.assertNotEqual(verification.returncode, 0)
 
+    def test_built_package_preserves_the_trusted_extension_identity(self):
+        destination = self.tmp / "identity.zip"
+
+        result = self.build("-OutputPath", destination, "-StagingRoot", "staging-package-identity")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with zipfile.ZipFile(destination) as handle:
+            packaged = json.loads(handle.read("extension/manifest.json").decode("utf-8"))
+        source = trusted_manifest()
+        self.assertEqual(packaged["key"], source["key"])
+        assert_trusted_extension_manifest(self, packaged)
+
     def test_refuses_an_output_path_inside_the_data_root(self):
         result = self.build("-OutputPath", REPO_ROOT / "data" / "pacote.zip")
 
@@ -296,6 +328,9 @@ class RealPackageContractTests(unittest.TestCase):
             self.assertFalse(any(name.lower().endswith(".pdf") for name in names))
             for prefix in FORBIDDEN_PREFIXES:
                 self.assertFalse(any(name.startswith(prefix) for name in names), prefix)
+            packaged = json.loads(handle.read("extension/manifest.json").decode("utf-8"))
+        self.assertEqual(packaged["key"], trusted_manifest()["key"])
+        assert_trusted_extension_manifest(self, packaged)
 
         result = powershell(VERIFIER, "-ZipPath", DIST_ZIP, "-SkipSmoke")
 

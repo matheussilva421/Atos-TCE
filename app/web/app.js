@@ -349,7 +349,7 @@ async function loadPdfjs() {
         }
         ticks += 1;
         if (ticks === 4) {
-          status.textContent = "Aguardando a extensão (Área Restrita aberta e pareada)…";
+          status.textContent = "Aguardando a extensão (Área Restrita aberta e conectada)…";
         }
         if (Date.now() > deadline) {
           status.textContent = "A análise não respondeu a tempo. Verifique a extensão.";

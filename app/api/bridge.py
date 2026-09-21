@@ -104,7 +104,7 @@ class Bridge:
         if not client_id or not is_trusted_extension_origin(origin):
             return None
         token = new_token()
-        store.pair_bridge_client(
+        store.register_bridge_client(
             client_id,
             hash_token(token),
             origin=origin,
