@@ -10,6 +10,15 @@ function page(rows, { page: number = 1, total_pages = 1 } = {}) {
   return { role: "list", source_scope: "sector_finalistic", marker: null, page: number, total_pages, rows };
 }
 
+function sendRuntime(chromeApi, message) {
+  return new Promise((resolve) => {
+    for (const listener of chromeApi.listeners) {
+      const result = listener(message, {}, resolve);
+      if (result === undefined) resolve({ ok: false, error: "message_not_handled" });
+    }
+  });
+}
+
 test("a SCAN_AREA command returns the sanitized snapshot", async () => {
   const command = { id: 7, type: "SCAN_AREA", payload: {} };
 
@@ -426,6 +435,49 @@ test("the router answers the sidepanel READ_CURRENT_FORM message", async () => {
 
   assert.equal(response.ok, true);
   assert.equal(response.form.identity.processKey, "102391/2026");
+});
+
+test("the router answers MESA_STATUS through the Mesa API", async () => {
+  const chromeApi = fakeChrome();
+  installRouter({
+    api: {
+      status: async () => ({ ok: true, status: 200, paired: true }),
+      nextCommand: async () => ({ ok: true, command: null }),
+      reportResult: async () => {},
+    },
+    chromeApi,
+  });
+
+  const response = await sendRuntime(chromeApi, { type: "MESA_STATUS" });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.paired, true);
+});
+
+test("the router sends manual fill through its Mesa API", async () => {
+  const chromeApi = fakeChrome();
+  let received = null;
+  installRouter({
+    api: {
+      status: async () => ({ ok: true, paired: true }),
+      requestManualFill: async (form) => {
+        received = form;
+        return { ok: true, status: 201, payload: { state: "READY" } };
+      },
+      nextCommand: async () => ({ ok: true, command: null }),
+      reportResult: async () => {},
+    },
+    chromeApi,
+  });
+
+  const form = { identity: { processKey: "102390/2026" } };
+  const response = await sendRuntime(chromeApi, {
+    type: "REQUEST_MANUAL_FILL",
+    payload: form,
+  });
+
+  assert.equal(response.ok, true);
+  assert.deepEqual(received, form);
 });
 
 test("the router registers a slow recovery alarm", () => {

@@ -4,14 +4,8 @@
  * owns the workflow.
  */
 
-import { createApi } from "../lib/api.js";
-import { MESA_ORIGIN, PORTAL_ORIGIN } from "../lib/protocol.js";
-import { createSerialQueue } from "./operation-queue.js";
+import { MESA_ORIGIN, MESSAGE_TYPES, PORTAL_ORIGIN } from "../lib/protocol.js";
 import { describeMesaStatus } from "./state.js";
-
-const api = createApi({ storage: globalThis.chrome?.storage?.local });
-const mesaOperations = createSerialQueue();
-let needsFreshPairing = false;
 
 function setState(elementId, dotId, text, tone) {
   const label = document.getElementById(elementId);
@@ -21,34 +15,10 @@ function setState(elementId, dotId, text, tone) {
 }
 
 async function refreshMesa() {
-  return mesaOperations.run(async () => {
-    const credentials = await api.credentials();
-    if (!credentials.paired) {
-      const state = needsFreshPairing
-        ? describeMesaStatus({ status: 401 })
-        : { paired: false, stale: false, tone: "warn", label: "Mesa: extensão não pareada" };
-      setState("mesa-status", "mesa-dot", state.label, state.tone);
-      return state;
-    }
-    const status = await api.status();
-    const state = describeMesaStatus(status);
-    if (state.stale) {
-      const cleared = await api.clear(credentials);
-      if (!cleared) {
-        await api.reload();
-        const recovered = describeMesaStatus(await api.status());
-        if (recovered.paired) {
-          needsFreshPairing = false;
-          setState("mesa-status", "mesa-dot", recovered.label, recovered.tone);
-          return recovered;
-        }
-      }
-      needsFreshPairing = true;
-    }
-    if (state.paired) needsFreshPairing = false;
-    setState("mesa-status", "mesa-dot", state.label, state.tone);
-    return state;
-  });
+  const status = await globalThis.chrome.runtime.sendMessage({ type: MESSAGE_TYPES.MESA_STATUS });
+  const state = describeMesaStatus(status);
+  setState("mesa-status", "mesa-dot", state.label, state.tone);
+  return state;
 }
 
 async function refreshPortal() {
@@ -113,7 +83,10 @@ document.getElementById("fill-current").addEventListener("click", async () => {
       diagnostic.textContent = "Abra o formulário do ato antes de preencher.";
       return;
     }
-    const outcome = await api.requestManualFill(form);
+    const outcome = await globalThis.chrome.runtime.sendMessage({
+      type: MESSAGE_TYPES.REQUEST_MANUAL_FILL,
+      payload: form,
+    });
     if (!outcome.ok) {
       diagnostic.className = "error";
       diagnostic.textContent = `A Mesa recusou o preenchimento: ${outcome.error}`;
@@ -127,20 +100,6 @@ document.getElementById("fill-current").addEventListener("click", async () => {
   } finally {
     await refreshCurrentForm();
   }
-});
-
-document.getElementById("pair-action").addEventListener("click", async () => {
-  const input = document.getElementById("pair-code");
-  const diagnostic = document.getElementById("diagnostic");
-  const outcome = await mesaOperations.run(() => api.pair(input.value));
-  if (!outcome.ok) {
-    diagnostic.className = "error";
-    diagnostic.textContent = `Pareamento recusado (${outcome.error}). Gere um novo código na Mesa.`;
-    return;
-  }
-  input.value = "";
-  needsFreshPairing = false;
-  await refresh();
 });
 
 document.getElementById("open-mesa").addEventListener("click", () => {

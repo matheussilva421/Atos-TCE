@@ -15,6 +15,8 @@ export const MESSAGE_TYPES = Object.freeze({
   READ_FORM: "READ_FORM",
   FILL_FORM: "FILL_FORM",
   READ_CURRENT_FORM: "READ_CURRENT_FORM",
+  MESA_STATUS: "MESA_STATUS",
+  REQUEST_MANUAL_FILL: "REQUEST_MANUAL_FILL",
 });
 
 /** Command types the Mesa may queue. There is still no submit type. */

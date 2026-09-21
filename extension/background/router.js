@@ -468,6 +468,20 @@ export function installRouter({
   }
 
   chromeApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === MESSAGE_TYPES.MESA_STATUS) {
+      api
+        .status()
+        .then((outcome) => sendResponse(outcome))
+        .catch((error) => sendResponse({ ok: false, status: 0, error: String(error?.message ?? error) }));
+      return true;
+    }
+    if (message?.type === MESSAGE_TYPES.REQUEST_MANUAL_FILL) {
+      api
+        .requestManualFill(message.payload)
+        .then((outcome) => sendResponse(outcome))
+        .catch((error) => sendResponse({ ok: false, status: 0, error: String(error?.message ?? error) }));
+      return true;
+    }
     if (message?.type === MESSAGE_TYPES.READ_CURRENT_FORM) {
       readCurrentForm()
         .then((outcome) => sendResponse(outcome))
