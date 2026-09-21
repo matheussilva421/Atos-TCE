@@ -89,7 +89,11 @@ finalizado.
 ## GitHub e retomada
 
 - Branch: `codex/mesa-local-refactor`.
-- Antes do commit desta atualização, a árvore rastreada contém somente este
-  bloco de correção; o `.codex-live-pilot.py` permanece não rastreado.
-- Próximo passo: rodar o gate completo, criar commit da correção e deste
-  handoff, fazer push e depois repetir a validação manual no Chrome QA.
+- Correção final publicada no commit `2d85c48`
+  (`fix: guard pairing cleanup against newer tokens`).
+- Push confirmado no remoto com o SHA
+  `2d85c482e21432eed828d89e95156ca2749e251b`.
+- O checkout está limpo em arquivos rastreados; o
+  `work/tce-extractor/.codex-live-pilot.py` permanece não rastreado e
+  preservado.
+- Pendência: recarregar a extensão no Chrome QA e confirmar `Mesa conectada`.
