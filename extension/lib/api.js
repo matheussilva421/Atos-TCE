@@ -178,6 +178,11 @@ export function createApi({
       return true;
     },
 
+    async reload() {
+      state = await readStoredState();
+      return state;
+    },
+
     async credentials() {
       const { clientId, token } = await readState();
       return { clientId, token, paired: Boolean(clientId && token) };

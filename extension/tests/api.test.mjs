@@ -190,3 +190,29 @@ test("stale cleanup does not remove credentials saved by a newer pairing", async
   assert.equal(storage.data.get(STORAGE_KEYS.clientId), CLIENT_ID);
   assert.equal(storage.data.get(STORAGE_KEYS.token), "token-novo");
 });
+
+test("a stale API instance can reload credentials saved by a newer pairing", async () => {
+  const { api, storage, fetchImpl } = build({
+    data: new Map([
+      [STORAGE_KEYS.clientId, CLIENT_ID],
+      [STORAGE_KEYS.token, "token-antigo"],
+    ]),
+    routes: [
+      {
+        path: "/api/v1/bridge/status",
+        status: 200,
+        body: (request) => ({ paired: request.headers.Authorization === "Bearer token-novo" }),
+      },
+    ],
+  });
+
+  await api.credentials();
+  storage.data.set(STORAGE_KEYS.token, "token-novo");
+
+  await api.reload();
+  const outcome = await api.status();
+
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.paired, true);
+  assert.equal(fetchImpl.calls.at(-1).headers.Authorization, "Bearer token-novo");
+});
