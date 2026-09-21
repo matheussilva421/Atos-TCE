@@ -10,7 +10,14 @@
 
   async function requestJson(path) {
     for (let attempt = 0; attempt < 4; attempt++) {
-      const response = await fetch(path, { credentials: 'include', headers: { Accept: 'application/json', ...authHeaders } });
+      let response;
+      try {
+        response = await fetch(path, { credentials: 'include', headers: { Accept: 'application/json', ...authHeaders } });
+      } catch (error) {
+        if (attempt === 3) throw error;
+        await sleep([1000, 3000, 8000][attempt]);
+        continue;
+      }
       if (response.ok) return response.json();
       const transient = response.status === 502 || response.status === 503;
       if (!transient || attempt === 3) {

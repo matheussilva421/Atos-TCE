@@ -393,3 +393,44 @@ O próximo teste é clicar em `Baixar 2 processos`, deixando o e-Contas aberto e
 autenticado; o resultado esperado é `2 de 2 baixados`. Se falhar novamente,
 registrar o horário e o status da chamada para diferenciar nova indisponibilidade
 remota de uma falha no download da URL temporária.
+
+## Diagnóstico final do download e correção de retry (2026-09-21)
+
+Os jobs 19, 20, 21 e 22 repetiram a falha nos dois processos, sempre com
+`downloaded: 0` e o erro seguro `Impossível conectar-se ao servidor remoto`.
+Uma chamada direta autenticada ao endpoint de metadados retornou `200`, e a
+URL temporária resultante abriu como `application/pdf` com `200` no Chrome e
+com `Invoke-WebRequest`; portanto os PDFs e a sessão existem.
+
+O problema reproduzido no código era a ausência de retry para exceções de rede
+no downloader PowerShell. `TcePortable.Core.psm1` só repetia HTTP 429; uma
+falha transitória do `Invoke-WebRequest` encerrava cada documento na primeira
+tentativa. Também foi adicionado retry para exceções de rede no
+`TcePortal.Driver.js`, que consulta os metadados.
+
+Alterações:
+
+- `work/tce-extractor/portable/TcePortal.Driver.js`: retry com backoff para
+  falhas de rede do `fetch`;
+- `work/tce-extractor/portable/TcePortable.Core.psm1`: retry com backoff para
+  `System.Net.WebException`, preservando 400, 401 e 403 sem retry;
+- cópias promovidas atualizadas em `app/econtas/runtime/`;
+- testes RED/GREEN adicionados em
+  `portable/extensao-complementar-ato/tests/portal-driver.test.mjs` e
+  `tests/Test-TcePortable.ps1`.
+
+Validação da correção:
+
+- driver: 7 testes, 7 aprovados;
+- coletor PowerShell: 143 testes, 143 aprovados;
+- aquisição/análise/API Python: 189 testes, 189 aprovados;
+- gate oficial: 1.258 verificações, 1.256 aprovadas, 0 falhas e 2 skips
+  ambientais;
+- `git diff --check`: aprovado.
+
+O job 22 foi iniciado antes da correção do downloader e terminou com as duas
+falhas. O job 23 ainda não foi criado porque a porta DevTools 9222 da aba
+autenticada foi fechada; o plano atual continua com 2 processos pendentes.
+Para a retomada, abrir o e-Contas autenticado na tela correta, deixar o
+marcador selecionado e iniciar uma única aquisição. Nenhum ato foi aberto,
+preenchido ou enviado.

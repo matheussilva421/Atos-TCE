@@ -471,6 +471,16 @@ function Invoke-TceDownloadBatch {
             return $null
         }
 
+        function Test-WorkerTransientNetworkError {
+            param([AllowNull()][object]$Exception)
+            $currentException = $Exception
+            while ($null -ne $currentException) {
+                if ($currentException -is [Net.WebException]) { return $true }
+                $currentException = $currentException.InnerException
+            }
+            return $false
+        }
+
         function ConvertTo-WorkerSafeText {
             param([AllowNull()][object]$Value)
             if ($null -eq $Value) { return '' }
@@ -528,6 +538,10 @@ function Invoke-TceDownloadBatch {
                         retry_after_seconds = $lastRetryAfterSeconds; http_status = $httpStatus; auth_required = $false
                         suspended = $false; rate_limited = $true; reduce_concurrency = $true
                     }
+                }
+                if ($null -eq $httpStatus -and (Test-WorkerTransientNetworkError -Exception $exception) -and $attempt -lt 3) {
+                    Start-Sleep -Seconds @(1, 3)[$attempt - 1]
+                    continue
                 }
                 if ($httpStatus -eq 401) {
                     return [pscustomobject]@{

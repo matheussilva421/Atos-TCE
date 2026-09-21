@@ -429,6 +429,20 @@ try {
     Assert-Equal $transientResult.status 'complete' 'sucesso após HTTP 429 mantém estado completo'
     Assert-True $transientResult.reduce_concurrency 'sucesso após HTTP 429 mantém sinal para reduzir concorrência'
 
+    $networkAttempts = 0
+    $networkDownloader = {
+        param($Document, $Destination)
+        $script:networkAttempts++
+        if ($script:networkAttempts -eq 1) {
+            throw [Net.WebException]::new('Impossível conectar-se ao servidor remoto.', [Net.WebExceptionStatus]::ConnectFailure)
+        }
+        [IO.File]::WriteAllText($Destination, '%PDF-network-success')
+    }
+    $networkResult = Sync-TceProcessManifest -Manifest (New-RetryContractManifest -ProcessKey '103498/2026') -ArchiveRoot (Join-Path $retryContractRoot 'network-success') -MaxDownloads 2 -Downloader $networkDownloader
+    Assert-Equal $script:networkAttempts 2 'erro transitório de conexão tenta novamente antes do sucesso'
+    Assert-Equal $networkResult.downloaded 1 'sucesso após erro de conexão é persistido'
+    Assert-Equal $networkResult.status 'complete' 'sucesso após erro de conexão mantém estado completo'
+
     foreach ($authCase in @(
         [pscustomobject]@{ statusCode = 401; expectedStatus = 'auth_required'; expectedAuth = $true; expectedSuspended = $false; name = 'HTTP 401 exige login' },
         [pscustomobject]@{ statusCode = 403; expectedStatus = 'suspended'; expectedAuth = $false; expectedSuspended = $true; name = 'HTTP 403 sinaliza suspensão' }

@@ -126,3 +126,35 @@ test("builds the manifest from the exact process result", async () => {
     "/api/Processo/exact-process-id/eventos?sortDesc=false&trazerInativas=true",
   ]);
 });
+
+test("retries a transient network failure while requesting JSON", async () => {
+  const driver = await readFile(DRIVER_PATH, "utf8");
+  let processAttempts = 0;
+  const result = await vm.runInNewContext(`(${driver})(${JSON.stringify({
+    operation: "manifest",
+    number: PROCESS_NUMBER,
+    year: PROCESS_YEAR,
+  })})`, {
+    localStorage: { getItem() { return null; } },
+    setTimeout(callback) { callback(); },
+    fetch: async (path) => {
+      if (String(path).startsWith("/api/Processo?")) {
+        processAttempts += 1;
+        if (processAttempts === 1) throw new Error("Impossível conectar-se ao servidor remoto");
+        return {
+          ok: true,
+          async json() {
+            return [{ numeroProcesso: PROCESS_NUMBER, anoProcesso: PROCESS_YEAR, idProcesso: "retry-process-id" }];
+          },
+        };
+      }
+      if (String(path).includes("/eventos?")) {
+        return { ok: true, async json() { return []; } };
+      }
+      throw new Error(`endpoint inesperado: ${path}`);
+    },
+  });
+
+  assert.equal(processAttempts, 2);
+  assert.equal(result.process.id, "retry-process-id");
+});
