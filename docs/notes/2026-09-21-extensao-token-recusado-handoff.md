@@ -16,7 +16,7 @@ emitido para o último `client_id` foi localizado nesse perfil e seu hash bateu
 com o hash persistido na Mesa. Uma chamada HTTP com o mesmo token, origem e
 `X-TCE-Client` retornou `200` e `paired=true`.
 
-A falha era uma corrida no painel: a atualização automática de cinco segundos
+A falha era uma corrida entre instâncias do painel: uma atualização automática
 detectava o token anterior recusado e iniciava `api.clear()` enquanto o usuário
 já estava executando um novo pareamento. A limpeza terminava depois do novo
 `api.pair()` e removia o token recém-salvo. Por isso cada tentativa mostrava
@@ -34,8 +34,12 @@ token recusado.
 - `extension/sidepanel/operation-queue.js` serializa a limpeza automática, a
   consulta de estado e o pareamento para impedir que uma operação antiga apague
   credenciais novas.
+- `extension/lib/api.js` faz a limpeza condicional consultando o armazenamento
+  atual; um painel antigo não pode remover credenciais gravadas por outro
+  painel depois da resposta 401.
 - `extension/tests/operation-queue.test.mjs` trava a ordem de limpeza seguida
   de pareamento em um teste de regressão.
+- `extension/tests/api.test.mjs` cobre a troca de credenciais entre instâncias.
 - Depois da limpeza, a interface informa: clique em **Reparar extensão** na
   Mesa, confirme e digite o novo código neste painel.
 
@@ -55,7 +59,7 @@ preservado e não pertence a este bloco.
 ## TDD e validação
 
 - RED: o teste de status 401 falhou porque `api.status()` não expunha o erro.
-- GREEN: `npm test --prefix extension` — 116 testes, 116 aprovados, 0 falhas.
+- GREEN: `npm test --prefix extension` — 117 testes, 117 aprovados, 0 falhas.
 - `verify-project.ps1` — 1.254 verificações, 1.252 aprovadas, 0 falhas, 2
   skips.
 - O gate também confirmou web 6/6, Python 6/6, PowerShell 599/599,

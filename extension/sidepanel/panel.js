@@ -33,7 +33,7 @@ async function refreshMesa() {
     const status = await api.status();
     const state = describeMesaStatus(status);
     if (state.stale) {
-      await api.clear();
+      await api.clear(credentials);
       needsFreshPairing = true;
     }
     if (state.paired) needsFreshPairing = false;

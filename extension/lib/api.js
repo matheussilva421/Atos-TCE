@@ -37,14 +37,18 @@ export function createApi({
 } = {}) {
   let state = null;
 
-  async function readState() {
-    if (state) return state;
+  async function readStoredState() {
     const stored = (await storage?.get?.(Object.values(STORAGE_KEYS))) ?? {};
-    state = {
+    return {
       clientId: stored[STORAGE_KEYS.clientId] ?? null,
       token: stored[STORAGE_KEYS.token] ?? null,
       baseUrl: stored[STORAGE_KEYS.baseUrl] ?? baseUrl,
     };
+  }
+
+  async function readState() {
+    if (state) return state;
+    state = await readStoredState();
     return state;
   }
 
@@ -161,7 +165,14 @@ export function createApi({
       };
     },
 
-    async clear() {
+    async clear(expected) {
+      const current = expected ? await readStoredState() : await readState();
+      if (
+        expected &&
+        (expected.clientId !== current.clientId || expected.token !== current.token)
+      ) {
+        return false;
+      }
       state = { clientId: null, token: null, baseUrl }; 
       await storage?.remove?.([STORAGE_KEYS.clientId, STORAGE_KEYS.token]);
       return true;

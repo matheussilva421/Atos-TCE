@@ -173,3 +173,20 @@ test("a stored pairing can be cleared for a fresh code", async () => {
   assert.equal(storage.data.get(STORAGE_KEYS.token), undefined);
   assert.equal(storage.data.get(STORAGE_KEYS.clientId), undefined);
 });
+
+test("stale cleanup does not remove credentials saved by a newer pairing", async () => {
+  const { api, storage } = build({
+    data: new Map([
+      [STORAGE_KEYS.clientId, CLIENT_ID],
+      [STORAGE_KEYS.token, "token-antigo"],
+    ]),
+  });
+  await api.credentials();
+  storage.data.set(STORAGE_KEYS.token, "token-novo");
+
+  const cleared = await api.clear({ clientId: CLIENT_ID, token: "token-antigo" });
+
+  assert.equal(cleared, false);
+  assert.equal(storage.data.get(STORAGE_KEYS.clientId), CLIENT_ID);
+  assert.equal(storage.data.get(STORAGE_KEYS.token), "token-novo");
+});
