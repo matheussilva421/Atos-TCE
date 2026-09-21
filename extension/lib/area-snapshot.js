@@ -8,10 +8,11 @@
  * icon means PRECISA_COMPLEMENTAR, an "Ato Complementado" label means
  * ATO_COMPLEMENTADO and anything else is AMBIGUO).
  *
- * What changed is ownership and blast radius. This file only *reads* the page
- * and returns a sanitized snapshot: it never navigates, writes, clicks or
- * submits, and it never touches cookies, storage or credentials. The Mesa
- * decides what a snapshot means.
+ * What changed is ownership and blast radius. Snapshot scanning only *reads*
+ * the page and returns sanitized data: it never clicks and never touches
+ * cookies, storage or credentials. The small legacy-pagination planner below
+ * parses one allowlisted form command so the pagination content script can
+ * submit the portal's form without executing a javascript: URL.
  */
 
 (() => {
@@ -525,6 +526,90 @@
     );
   }
 
+  function formField(form, name) {
+    return queryOne(form, `[name="${name}"]`) || queryOne(form, `[id="${name}"]`);
+  }
+
+  function legacyPaginationSpec(control) {
+    const href = getAttribute(control, "href");
+    const page = href.match(/NumeroPagina\.value\s*=\s*['"]?(\d+)/iu);
+    if (!page) return null;
+    const pagination = href.match(/Paginacao\.value\s*=\s*['"]([^'"]+)['"]/iu);
+    const group = href.match(/GrupoProcesso\.value\s*=\s*['"]([^'"]+)['"]/iu);
+    return {
+      page: page[1],
+      pagination: pagination?.[1] ?? null,
+      group: group?.[1] ?? null,
+      allowed: pagination?.[1] === "S" && group?.[1] === "NS",
+    };
+  }
+
+  /**
+   * Parse only the old portal's known pagination command. The href is never
+   * evaluated: its page and two fixed routing values are copied to the form
+   * only after the command passes the allowlist.
+   */
+  function legacyPaginationPlan(documentRef, control) {
+    const spec = legacyPaginationSpec(control);
+    if (!spec) return null;
+    if (!spec.allowed) {
+      return {
+        error: {
+          code: "ACTION_NOT_ALLOWED",
+          message: "the legacy pagination command is outside the navigation allowlist",
+        },
+      };
+    }
+
+    const forms = queryAll(documentRef, "form");
+    const form =
+      control?.form ||
+      control?.closest?.("form") ||
+      byId(documentRef, "form1") ||
+      forms.find((candidate) => getAttribute(candidate, "name") === "form1") ||
+      forms.find((candidate) => formField(candidate, "NumeroPagina"));
+    const page = formField(form, "NumeroPagina");
+    const pagination = formField(form, "Paginacao");
+    const group = formField(form, "GrupoProcesso");
+    if (!form || !page || !pagination || !group) {
+      return {
+        error: {
+          code: "PAGINATION_FORM_NOT_FOUND",
+          message: "the legacy pagination form is unavailable",
+        },
+      };
+    }
+    return { form, page, pagination, group, spec };
+  }
+
+  function submitLegacyPagination(documentRef, plan) {
+    if (!plan || plan.error) return false;
+    plan.page.value = plan.spec.page;
+    plan.pagination.value = plan.spec.pagination;
+    plan.group.value = plan.spec.group;
+
+    const nativeSubmit =
+      documentRef?.defaultView?.HTMLFormElement?.prototype?.submit ||
+      globalThis.HTMLFormElement?.prototype?.submit;
+    if (typeof nativeSubmit === "function") {
+      try {
+        nativeSubmit.call(plan.form);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    if (typeof plan.form.submit === "function") {
+      try {
+        plan.form.submit();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
   /**
    * Page numbers come from the same controls the legacy driver paginated with.
    * Numeric labels are authoritative; when the portal only renders a "Próxima"
@@ -642,6 +727,8 @@
     pageInfo,
     findNextPageControl,
     findFirstPageControl,
+    legacyPaginationPlan,
+    submitLegacyPagination,
     findActControl,
     findInterestedRadio,
     dom: Object.freeze({ queryAll, queryOne, byId, getAttribute, textOf, hasCanonicalIdentity }),

@@ -31,6 +31,29 @@
         return true;
       }
       const before = scanner.pageInfo(globalThis.document).page;
+      const legacyPlan = scanner.legacyPaginationPlan?.(globalThis.document, control);
+      if (legacyPlan?.error) {
+        sendResponse({
+          ok: false,
+          changed: false,
+          code: legacyPlan.error.code,
+          error: legacyPlan.error.message,
+        });
+        return true;
+      }
+      if (legacyPlan) {
+        if (!scanner.submitLegacyPagination?.(globalThis.document, legacyPlan)) {
+          sendResponse({
+            ok: false,
+            changed: false,
+            code: "PAGINATION_SUBMIT_FAILED",
+            error: "the legacy pagination form could not be submitted",
+          });
+          return true;
+        }
+        sendResponse({ ok: true, changed: true, page_before: before });
+        return true;
+      }
       control.click();
       sendResponse({ ok: true, changed: true, page_before: before });
     } catch (error) {

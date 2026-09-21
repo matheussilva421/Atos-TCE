@@ -19,7 +19,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const extensionRoot = join(here, "..");
 
 await import("../lib/area-snapshot.js");
-const { scan } = globalThis.TCEAreaSnapshot;
+const { scan, legacyPaginationPlan, submitLegacyPagination } = globalThis.TCEAreaSnapshot;
 
 test("a list page exposes scope, marker, page and rows", () => {
   const documentRef = buildListDocument({
@@ -154,6 +154,57 @@ test("legacy pagination reads the current page from NumeroPagina", () => {
   assert.equal(scan(documentRef).page, 1);
   currentPage.value = "2";
   assert.equal(scan(documentRef).page, 2);
+});
+
+test("legacy pagination submits only the allowlisted form command", () => {
+  const documentRef = buildListDocument({ page: "1", rows: [], hasNext: false });
+  const form = new FakeElement("form", { id: "form1" });
+  const page = new FakeElement("input", { id: "NumeroPagina", value: "1", attrs: { type: "hidden" } });
+  const pagination = new FakeElement("input", { id: "Paginacao", value: "", attrs: { type: "hidden" } });
+  const group = new FakeElement("input", { id: "GrupoProcesso", value: "", attrs: { type: "hidden" } });
+  let submitted = 0;
+  form.submit = () => { submitted += 1; };
+  form.append(page, pagination, group);
+  const next = new FakeElement("a", {
+    text: "Próxima >",
+    attrs: {
+      href: "javascript: form1.NumeroPagina.value=2; document.form1.Paginacao.value='S'; document.form1.GrupoProcesso.value='NS'; form1.submit();",
+    },
+  });
+  form.append(next);
+  documentRef.body.append(form);
+
+  const plan = legacyPaginationPlan(documentRef, next);
+
+  assert.equal(plan.error, undefined);
+  assert.equal(submitLegacyPagination(documentRef, plan), true);
+  assert.equal(page.value, "2");
+  assert.equal(pagination.value, "S");
+  assert.equal(group.value, "NS");
+  assert.equal(submitted, 1);
+});
+
+test("legacy pagination rejects commands outside the navigation allowlist", () => {
+  const documentRef = buildListDocument({ page: "1", rows: [], hasNext: false });
+  const form = new FakeElement("form", { id: "form1" });
+  form.append(
+    new FakeElement("input", { id: "NumeroPagina", value: "1", attrs: { type: "hidden" } }),
+    new FakeElement("input", { id: "Paginacao", value: "", attrs: { type: "hidden" } }),
+    new FakeElement("input", { id: "GrupoProcesso", value: "", attrs: { type: "hidden" } }),
+  );
+  const next = new FakeElement("a", {
+    text: "Próxima >",
+    attrs: {
+      href: "javascript: form1.NumeroPagina.value=2; document.form1.Paginacao.value='N'; document.form1.GrupoProcesso.value='OTHER'; form1.submit();",
+    },
+  });
+  form.append(next);
+  documentRef.body.append(form);
+
+  const plan = legacyPaginationPlan(documentRef, next);
+
+  assert.equal(plan.error.code, "ACTION_NOT_ALLOWED");
+  assert.equal(submitLegacyPagination(documentRef, plan), false);
 });
 
 test("scanning never clicks, submits or mutates the page", () => {
