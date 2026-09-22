@@ -41,6 +41,34 @@ class AnalysisService:
 
     # ------------------------------------------------------------------ queue
 
+    def backfill_candidates(self) -> list[int]:
+        """Return local process rows that can be analysed without downloading."""
+
+        candidates: list[int] = []
+        eligible = {"PENDENTE", "BAIXADO", "REVISAR", "ERRO", "CONCLUÍDO", "PREENCHIDO"}
+        for process in self._store.list_processes():
+            if str(process.get("status") or "") not in eligible:
+                continue
+            if str(process.get("acquisition_state") or "") != "DOWNLOADED":
+                continue
+            if not self._store.list_documents(int(process["id"])):
+                continue
+            candidates.append(int(process["id"]))
+        return candidates
+
+    def enqueue_backfill(self) -> tuple[int, int]:
+        """Queue one resumable analysis job for every eligible local process."""
+
+        if self._store.count_active_jobs("analysis"):
+            raise AnalysisError("já existe uma análise em andamento")
+        process_ids = self.backfill_candidates()
+        if not process_ids:
+            raise AnalysisError("nenhum processo com PDF local aguarda análise")
+        job_id = self._jobs.create("analysis", process_ids)
+        self._ensure_worker()
+        self._queue.put(job_id)
+        return job_id, len(process_ids)
+
     def enqueue(self, process_id: int) -> int:
         """Create one analysis job for a process and hand it to the worker."""
 
@@ -102,7 +130,12 @@ class AnalysisService:
         if process is None:
             raise AnalysisError(f"unknown process: {process_id}")
         process_key = str(process["process_key"])
-        self._store.set_process_status(process_id, "ANALISANDO", event_type="analysis_started")
+        original_status = str(process.get("status") or "")
+        preserve_terminal = original_status in {"CONCLUÍDO", "PREENCHIDO"}
+        if preserve_terminal:
+            self._store.add_workflow_event(process_id, "analysis_started")
+        else:
+            self._store.set_process_status(process_id, "ANALISANDO", event_type="analysis_started")
         try:
             documents = self._store.list_documents(process_id)
             payload = self._adapter.analyze(process_key, process=process, documents=documents)
@@ -113,27 +146,37 @@ class AnalysisService:
                 interested=str(process.get("interested_normalized") or process.get("interested") or ""),
             )
         except Exception as error:
-            self._store.set_process_status(
-                process_id,
-                "ERRO",
-                event_type="analysis_failed",
-                payload={"error": _safe_message(error)},
-            )
+            payload = {"error": _safe_message(error)}
+            if preserve_terminal:
+                self._store.add_workflow_event(process_id, "analysis_failed", payload)
+            else:
+                self._store.set_process_status(
+                    process_id,
+                    "ERRO",
+                    event_type="analysis_failed",
+                    payload=payload,
+                )
             raise
 
         self._store.replace_fields(process_id, analysis.fields)
-        self._store.set_process_status(
-            process_id,
-            analysis.process_status,
-            event_type="analysis_finished",
-            payload={
-                "status": analysis.process_status,
-                "pending": analysis.pending_fields,
-                "legacy_status": analysis.legacy_status,
-                "field_count": len(analysis.fields),
-            },
-        )
-        return analysis.process_status
+        final_status = original_status if preserve_terminal else analysis.process_status
+        payload = {
+            "status": final_status,
+            "analysis_status": analysis.process_status,
+            "pending": analysis.pending_fields,
+            "legacy_status": analysis.legacy_status,
+            "field_count": len(analysis.fields),
+        }
+        if preserve_terminal:
+            self._store.add_workflow_event(process_id, "analysis_finished", payload)
+        else:
+            self._store.set_process_status(
+                process_id,
+                final_status,
+                event_type="analysis_finished",
+                payload=payload,
+            )
+        return final_status
 
 
 def _safe_message(error: BaseException, limit: int = 300) -> str:

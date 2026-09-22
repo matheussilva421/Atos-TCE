@@ -139,7 +139,7 @@ def classify_document(title: str, text: str) -> str | None:
         rf"\s*{resolution_pattern}", folded_text[:500]
     ) is not None
     text_is_resolution = (
-        re.search(resolution_pattern, folded_text[:1500]) is not None
+        re.search(resolution_pattern, folded_text) is not None
         and re.search(r"\bresolve\b", folded_text) is not None
     )
     if title_is_resolution or text_starts_as_resolution or text_is_resolution:
@@ -572,7 +572,23 @@ def extract_fields(
     fields = {key: _empty_field(key) for key in FIELD_ORDER}
     full_text = "\n".join(pages)
     interested = _find_interested(full_text)
-    for page_number, page_text in enumerate(pages, start=1):
+    ordered_pages = list(enumerate(pages, start=1))
+    if kind == "resolucao_administrativa":
+        resolution_pages = [
+            item
+            for item in ordered_pages
+            if re.search(
+                r"\bresolu(?:cao|\W{1,3}o)\s+administrativa\b",
+                _fold(item[1]),
+                re.IGNORECASE,
+            )
+        ]
+        if resolution_pages:
+            resolution_numbers = {number for number, _ in resolution_pages}
+            ordered_pages = resolution_pages + [
+                item for item in ordered_pages if item[0] not in resolution_numbers
+            ]
+    for page_number, page_text in ordered_pages:
         for line in page_text.splitlines():
             for key in FIELD_ORDER:
                 # Matrículas can be split around '-' and '/' by PDF column layout.

@@ -607,12 +607,12 @@ def classify_document_record(
     geometry_cache: MutableMapping[str, object] | None = None,
     geometry_capable: bool = False,
 ) -> dict[str, object]:
-    """Classify one document, with Event 0/1 excluded before reading it."""
+    """Classify one document, with Event 0 excluded before reading it."""
     result = dict(document)
     result["event"] = event
     result["page_count"] = 0
     event_number = _event_number(event)
-    if event_number is None or event_number <= 1:
+    if event_number is None or event_number <= 0:
         return {**result, "classification": "outro_documento", "automatic_source": False}
 
     path = _document_path(document)
@@ -1001,7 +1001,7 @@ def build_target_manifest(
                 if not isinstance(event, Mapping):
                     continue
                 event_number = _event_number(event.get("event"))
-                if event_number is None or event_number <= 1:
+                if event_number is None or event_number <= 0:
                     continue
                 for document in event.get("documents", []):
                     if not isinstance(document, Mapping):
@@ -1027,7 +1027,7 @@ def build_target_manifest(
             event_number = _event_number(event)
             if (
                 event_number is not None
-                and event_number > 1
+                and event_number > 0
                 and document.get("automatic_source") is True
                 and document.get("classification") in TARGET_CLASSIFICATIONS
             ):
