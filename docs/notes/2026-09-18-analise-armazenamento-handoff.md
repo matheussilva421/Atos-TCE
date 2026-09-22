@@ -296,3 +296,40 @@ documentação, `data/`, banco, filas, logs e runtime da Mesa foram preservados.
 - Esta atualização documental foi publicada em
   `origin/codex/mesa-local-refactor`; nenhum dado privado ou recibo de `data/`
   foi incluído no Git.
+
+## Correção da suíte de classificação — 2026-09-22
+
+### Diagnóstico
+
+- A falha reproduzida em
+  `work/tce-extractor/test_analysis_pipeline.py:828` era uma asserção obsoleta,
+  não uma regressão no classificador. O commit `a66cd6a` alterou o contrato da
+  análise local para manter o evento 1 elegível à extração; o teste ainda
+  esperava a regra antiga, que descartava eventos 0 e 1.
+- A regra de coleta portal permanece separada e continua rejeitando evento 1 em
+  `work/tce-extractor/targeted_collection.py`; a proteção do evento 0 na
+  análise local também permaneceu coberta.
+
+### Alteração
+
+- Renomeado o teste para
+  `test_classifies_title_content_and_keeps_event_one_for_local_analysis`.
+- O fixture agora fornece texto nativo suficiente no evento 1 e verifica a
+  classificação automática `resolucao_administrativa`, preservando as
+  expectativas dos demais documentos.
+- Arquivo alterado:
+  `work/tce-extractor/test_analysis_pipeline.py`.
+
+### Validação
+
+- RED reproduzido antes da alteração: 1 teste executado, 1 falha (`pendente_ocr`
+  observado contra `outro_documento` esperado).
+- Testes focados: 4 executados, 4 aprovados, 0 falhas; incluíram evento 1 na
+  análise local, evento 0/entrada inválida, coleta portal e backfill da Mesa.
+- `python -m unittest discover -s . -p 'test_*.py' -q`, em
+  `work/tce-extractor`: 528 executados, 528 aprovados, 9 pulados, 0 falhas.
+- `verify-project.ps1`: 1.258 executados, 1.256 aprovados, 2 pulados, 0
+  falhas; extensão, web, Python portátil, PowerShell, pacote, automação e
+  `git diff --check` passaram.
+- O commit/push desta correção ainda deve ser registrado abaixo após a revisão
+  final do diff.

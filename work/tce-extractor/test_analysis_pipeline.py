@@ -806,9 +806,13 @@ class AnalysisPipelineTests(unittest.TestCase):
             self.assertIn("badge-conflict", html)
             self.assertIn("badge-pending", html)
 
-    def test_classifies_title_content_and_never_targets_event_one(self):
+    def test_classifies_title_content_and_keeps_event_one_for_local_analysis(self):
         documents = [
-            doc(event=1, title="RESOLUÇÃO ADMINISTRATIVA", text="RESOLUÇÃO"),
+            doc(
+                event=1,
+                title="RESOLUÇÃO ADMINISTRATIVA",
+                text="RESOLUÇÃO ADMINISTRATIVA Nº 10",
+            ),
             doc(event=9, title="Documento", text="RESOLUÇÃO ADMINISTRATIVA Nº 156"),
             doc(event=12, title="Guia Financeira", text="GUIA FINANCEIRA - TAXAÇÃO"),
             doc(event=13, title="Ofício", text="Encaminhamento"),
@@ -828,13 +832,13 @@ class AnalysisPipelineTests(unittest.TestCase):
         self.assertEqual(
             [item["classification"] for item in classified["documents"]],
             [
-                "outro_documento",
+                "resolucao_administrativa",
                 "resolucao_administrativa",
                 "guia_financeira_taxacao",
                 "outro_documento",
             ],
         )
-        self.assertFalse(classified["documents"][0]["automatic_source"])
+        self.assertTrue(classified["documents"][0]["automatic_source"])
 
     def test_conflicting_title_metadata_and_content_signals_never_target(self):
         documents = [
