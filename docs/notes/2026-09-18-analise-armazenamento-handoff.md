@@ -331,5 +331,11 @@ documentação, `data/`, banco, filas, logs e runtime da Mesa foram preservados.
 - `verify-project.ps1`: 1.258 executados, 1.256 aprovados, 2 pulados, 0
   falhas; extensão, web, Python portátil, PowerShell, pacote, automação e
   `git diff --check` passaram.
-- O commit/push desta correção ainda deve ser registrado abaixo após a revisão
-  final do diff.
+- Commit `7fb1212` (`test: align event one analysis contract`) criado com o
+  teste e este handoff; push concluído para
+  `origin/codex/mesa-local-refactor`.
+- O arquivo preexistente `work/tce-extractor/.codex-live-pilot.py` permanece
+  não rastreado, fora do commit e sem alteração.
+- Para retomar: preservar a distinção entre análise local (evento 1 elegível)
+  e coleta portal (evento 1 rejeitado), e repetir o gate oficial após qualquer
+  alteração nessa fronteira.
