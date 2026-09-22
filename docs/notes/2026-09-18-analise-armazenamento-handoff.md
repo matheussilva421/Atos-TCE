@@ -225,3 +225,6 @@ de 10,89 GiB.
   somente documental e o pedido foi diagnóstico de armazenamento. Ela deve ser
   reproduzida e investigada separadamente antes de declarar a suíte raiz
   totalmente verde.
+- A atualização desta terceira medição foi publicada em
+  `origin/codex/mesa-local-refactor`; somente este handoff foi versionado e o
+  arquivo local `.codex-live-pilot.py` permaneceu fora do índice.
