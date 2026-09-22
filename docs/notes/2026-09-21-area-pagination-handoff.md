@@ -509,3 +509,18 @@ extração geral concluída, é analisar os processos com PDFs locais e medir os
 casos de volume digitalizado separadamente. Essa execução ainda não foi
 iniciada para evitar alterar centenas de status sem um teste de aceitação para
 o vínculo entre interessado, campo, documento e página.
+
+## Confirmação do disparo automático da análise (2026-09-22)
+
+O fluxo atual confirma a intenção original: depois que o coletor declara um
+processo como concluído, a Mesa registra os documentos, marca o item como
+`DOWNLOADED` e chama `AnalysisService.enqueue(process_id)`. A análise dos dois
+processos baixados no job 23 foi portanto criada automaticamente; ela falhou
+inicialmente em todos os itens por falta do Tesseract no runtime, e depois foi
+reexecutada localmente após a correção reversível.
+
+Os 499 processos `PENDENTE` e os 716 `CONCLUÍDO` vieram da importação/estado
+anterior do acervo. Não há, no código atual, uma rotina de inicialização que
+varra retroativamente todos os PDFs existentes e crie jobs de análise. Por
+isso eles podem ter documentos locais e continuar sem linhas em `fields` até
+serem colocados explicitamente na fila.
