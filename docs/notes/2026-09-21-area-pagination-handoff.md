@@ -524,3 +524,24 @@ anterior do acervo. Não há, no código atual, uma rotina de inicialização qu
 varra retroativamente todos os PDFs existentes e crie jobs de análise. Por
 isso eles podem ter documentos locais e continuar sem linhas em `fields` até
 serem colocados explicitamente na fila.
+
+## Retomada do backfill global (2026-09-22)
+
+O backfill global foi iniciado no job 43 com 755 processos locais elegíveis.
+Antes do encerramento inesperado do worker, 237 itens foram analisados sem
+falha. A recuperação interna do `Store` marcou o job 43 como `INTERRUPTED`,
+preservou esses 237 resultados e recolocou 518 itens na fila. Nenhum processo
+ficou em `ANALISANDO`.
+
+O job 44 foi criado com os 518 itens restantes e está sendo executado por um
+worker desacoplado do terminal, com log local em
+`data/runtime/resume_analysis_backfill.log`. No último checkpoint, 8 itens
+foram concluídos e 0 falharam. O terminal pode ser fechado sem interromper o
+worker. Ainda não houve ação no portal, preenchimento de ato ou envio real.
+
+Pendências para a próxima retomada:
+
+- aguardar o job 44 terminar e conferir `COMPLETED`/`COMPLETED_WITH_ERRORS`;
+- consultar os campos de `004731/2024` e `100437/2025`;
+- executar a suíte ampla e o gate oficial após a conclusão;
+- atualizar este handoff com os contadores finais e o status do GitHub.
