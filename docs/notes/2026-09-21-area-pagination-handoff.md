@@ -488,3 +488,24 @@ Próxima retomada: atualizar a Mesa com `Ctrl+R`, filtrar `REVISAR`/`ERRO` e
 usar `004731/2024` como caso de aceitação para a futura melhoria de volumes
 digitalizados. Não clicar em `Preencher ato` enquanto os campos não tiverem
 fonte e interessado confirmados manualmente.
+
+## Auditoria global dos campos (2026-09-22)
+
+Uma consulta no banco confirmou que a extração ainda não foi executada para o
+acervo inteiro: existem somente 7 linhas na tabela `fields`, todas do processo
+`100437/2025`. A distribuição atual é:
+
+- 716 processos `CONCLUÍDO`, sem campos; 240 têm documentos locais e 476 não
+  têm documentos;
+- 499 processos `PENDENTE`, com 9.932 documentos locais e sem campos;
+- 1 processo `PRONTO`, com 7 campos;
+- 16 processos `REVISAR`, com 231 documentos e sem campos.
+
+Assim, o campo vazio nos processos legados não é falha de renderização da Mesa.
+`CONCLUÍDO` representa o resultado anterior da Área Restrita; `PENDENTE`
+representa a fila que ainda precisa de análise; e `REVISAR` representa análise
+executada sem evidência segura. O próximo lote técnico, antes de declarar a
+extração geral concluída, é analisar os processos com PDFs locais e medir os
+casos de volume digitalizado separadamente. Essa execução ainda não foi
+iniciada para evitar alterar centenas de status sem um teste de aceitação para
+o vínculo entre interessado, campo, documento e página.
