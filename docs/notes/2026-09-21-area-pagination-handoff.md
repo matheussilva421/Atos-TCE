@@ -545,3 +545,29 @@ Pendências para a próxima retomada:
 - consultar os campos de `004731/2024` e `100437/2025`;
 - executar a suíte ampla e o gate oficial após a conclusão;
 - atualizar este handoff com os contadores finais e o status do GitHub.
+
+## Conclusão do backfill após reinicialização (2026-09-22)
+
+O computador foi reiniciado enquanto o job 44 estava ativo. A retomada foi
+feita de forma segura: o job 44 foi marcado como `INTERRUPTED`, preservou 455
+resultados sem falha e devolveu 63 itens à fila. O job 45 foi então executado
+em segundo plano e terminou como `COMPLETED` às 22:46:33Z, com 63 de 63 itens
+em `ANALISADO` e zero falhas. O worker encerrou normalmente e não restou
+nenhum processo em `ANALISANDO`.
+
+Validação final do banco:
+
+- distribuição global: 716 `CONCLUÍDO`, 444 `PRONTO`, 70 `REVISAR` e 2
+  `ERRO`;
+- `100437/2025`: 22 documentos e 7 campos extraídos;
+- `004731/2024`: 4 documentos e 7 campos extraídos;
+- nos dois processos, `genero` permaneceu `missing`; os demais campos
+  esperados foram encontrados com evidência de documento/evento/página;
+- os 2 `ERRO` atuais não são falhas do job 45: ambos têm evento
+  `analysis_finished` com `status=PRONTO`, mas conservam `ERRO` por uma
+  tentativa anterior de preenchimento que terminou em `SCREEN_NOT_NAVIGABLE`.
+
+Nenhum login, marcador, ato ou envio real foi automatizado durante a
+retomada. Próxima validação manual: atualizar a Mesa com `Ctrl+R`, filtrar os
+dois processos e conferir a aba Dados/Histórico; não clicar em `Preencher ato`
+até confirmar manualmente os campos e a navegação do portal.
