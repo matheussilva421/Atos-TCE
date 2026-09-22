@@ -146,3 +146,82 @@ qualificação válida sem confirmar o serviço atual e a fronteira
 O Git avançou para `fe35a0c` (`origin/main`) e o worktree agora só mostra o
 arquivo não rastreado `work/tce-extractor/.codex-live-pilot.py`. Nenhum arquivo
 foi modificado por esta segunda auditoria.
+
+## Terceira medição — 2026-09-22
+
+Nova auditoria somente leitura executada após o Explorer informar 73,6 GB. A
+varredura terminou sem erros, com 204.531 arquivos e 79.040.865.327 bytes
+lógicos (**73,61 GiB**). O volume C: tinha **43,89 GiB livres**.
+
+| Área | Bytes lógicos | GiB | Participação |
+|---|---:|---:|---:|
+| `outputs/` | 39.909.298.301 | 37,17 | 50,5% |
+| `data/` | 17.859.792.897 | 16,63 | 22,6% |
+| `Versions/` | 10.585.452.797 | 9,86 | 13,4% |
+| `work/` | 9.472.346.061 | 8,82 | 12,0% |
+| demais áreas | 1.213.975.271 | 1,13 | 1,5% |
+
+Nota: os quatro grupos principais somam 77.826.890.056 bytes. O restante é
+formado principalmente por `tmp/` (598.425.400 bytes), `staging-runtime/`
+(258.566.158), `dist/` (192.231.504) e `.worktrees/` (105.099.422).
+
+Por extensão, os PDFs dominam: 99.756 arquivos e 62.409.323.788 bytes
+(**58,12 GiB; 79,0%**). Os 37 ZIPs somam 13.288.583.388 bytes (**12,38
+GiB; 16,8%**). Código e histórico Git não explicam o consumo: `.git/` mede
+10.203.230 bytes.
+
+### Causa do crescimento desde 18/09
+
+`outputs/`, `Versions/` e o acervo legado em `work/` permaneceram praticamente
+no mesmo patamar. O novo bloco é `data/archive/`, criado pela migração da Mesa
+Local e atualmente com 17.830.058.617 bytes lógicos (**16,61 GiB**):
+
+- `data/archive/blobs/`: 14.205 PDFs canônicos, 8.907.628.790 bytes;
+- `data/archive/processos/`: visão por processo dos mesmos 14.205 PDFs, mais
+  JSONs; os PDFs são hardlinks para os blobs;
+- `data/archive/publicacoes/`: dois arquivos, 6.445.854 bytes.
+
+O par blob/visão não representa duas cópias físicas. `fsutil hardlink list`
+confirmou no PDF amostrado que os dois caminhos apontam para a mesma identidade
+NTFS. A contagem também é exata: 14.205 blobs e 14.205 PDFs na visão. Uma
+segunda varredura por identidade de arquivo encontrou aproximadamente **65,19
+GiB** de bytes únicos e **8,66 GiB** de sobrecontagem por entradas hardlink no
+projeto. Assim, os 73,6 GiB do Explorer são tamanho lógico; o consumo físico
+atribuível aos arquivos é menor, embora ainda alto.
+
+O acervo canônico cresceu 26 PDFs desde o relatório de 18/09 (14.179 para
+14.205). Isso é crescimento real de dados. A duplicação histórica continua
+maior: o corpus de aproximadamente 8,3 GiB ainda existe fisicamente em
+`work/`, em `Versions/`, em três extrações de `outputs/` e agora uma vez no
+acervo canônico. Além disso, os dois ZIPs principais de `outputs/` somam cerca
+de 10,89 GiB.
+
+### Estado e retomada
+
+- Nenhum arquivo pesado foi removido, movido ou regravado.
+- Branch observada: `codex/mesa-local-refactor`, alinhada ao upstream em
+  `98e4f8c` antes desta atualização documental.
+- O arquivo preexistente não rastreado
+  `work/tce-extractor/.codex-live-pilot.py` foi preservado.
+- O relatório `data/logs/storage-audit.json` é de 18/09 e não deve autorizar
+  uma limpeza atual sem nova auditoria completa com hashes.
+- Antes de qualquer limpeza, medir processos/locks novamente, gerar recibo
+  atual com hashes e escolher explicitamente quais pacotes derivados podem ser
+  colocados em quarentena reversível. `data/archive/` é o acervo canônico e não
+  é candidato.
+
+### Validação da terceira medição
+
+- `verify-project.ps1`: 1.258 testes/checks executados, 1.256 aprovados, 2
+  pulados, 0 falhas; extensão, web, Python portátil, PowerShell, pacote,
+  automação e `git diff --check` passaram.
+- `python -m unittest discover -s . -p 'test_*.py' -q`, dentro de
+  `work/tce-extractor`: 528 executados, 519 aprovados, 8 pulados e 1 falha.
+  A falha está em
+  `test_analysis_pipeline.AnalysisPipelineTests.test_classifies_title_content_and_never_targets_event_one`
+  (`test_analysis_pipeline.py:828`): o primeiro documento foi classificado
+  como `pendente_ocr`, enquanto o teste esperava `outro_documento`.
+- A falha ampla não foi corrigida nesta tarefa porque a alteração realizada é
+  somente documental e o pedido foi diagnóstico de armazenamento. Ela deve ser
+  reproduzida e investigada separadamente antes de declarar a suíte raiz
+  totalmente verde.
