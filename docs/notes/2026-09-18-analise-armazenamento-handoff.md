@@ -228,3 +228,71 @@ de 10,89 GiB.
 - A atualização desta terceira medição foi publicada em
   `origin/codex/mesa-local-refactor`; somente este handoff foi versionado e o
   arquivo local `.codex-live-pilot.py` permaneceu fora do índice.
+
+## Limpeza autorizada — 2026-09-22
+
+O operador autorizou manter somente o novo acervo canônico da Mesa e remover
+os acervos/pacotes antigos que não fossem necessários ao projeto. A operação
+foi executada em duas ondas, com auditoria de hashes antes da remoção.
+
+### Evidência anterior à remoção
+
+- `data/archive/blobs` tinha 14.205 blobs e 8.907.628.790 bytes; todos foram
+  verificados por SHA-256, sem corrupção, nomes malformados ou referências do
+  banco sem blob.
+- O limpador fail-closed removeu primeiro cinco alvos aprovados pelo recibo de
+  migração M1: `work/outputs`, `work/tmp`, `work/tce-extractor/outputs`,
+  `work/tce-extractor/acervo-tce` e `staging-runtime`.
+- Recibo da primeira onda:
+  `data/logs/storage-cleanup-20260922T145145Z.json`; 9.306.794.977 bytes
+  lógicos removidos.
+- `Versions` foi inicialmente preservado porque o ZIP de 14/09 continha 3.273
+  PDFs que não existiam no canônico. O operador esclareceu que o lote antigo
+  "Professor-IPERN - 2 rubricas", com cerca de 200 processos, podia ser
+  descartado. O inventário confirmou exatamente 166 processos, 3.273 PDFs e
+  média de 19,72 PDFs por processo; o ZIP foi então autorizado para remoção.
+- O único PDF de `tmp` ausente do canônico tinha 22 bytes e pertencia à fixture
+  `tmp/m1-fixture`, não a um processo real.
+- `outputs` não continha PDFs ausentes do canônico. Seus bloqueios de auditoria
+  eram ZIPs aninhados e traces inválidos, todos artefatos derivados/QA que o
+  operador autorizou descartar.
+
+### Alvos removidos
+
+- `Versions/`;
+- `outputs/`;
+- `tmp/`;
+- `dist/`;
+- `dados-locais/` (perfil e evidência de QA antigos de 14/09);
+- `work/tce-extractor/portable/dados-locais/` e
+  `work/tce-extractor/dados-locais/` (perfis/estado local ignorados pelo Git);
+- `staging-runtime/`;
+- `work/tce-extractor/acervo-tce/` e saídas/temporários derivados;
+- worktree limpa e destacada `.worktrees/fundamento-legal-v3-r3`;
+- 13 diretórios `__pycache__` derivados.
+
+As remoções são permanentes no diretório local; os pacotes e o lote antigo não
+foram enviados à Lixeira. Os commits Git permanecem no repositório, e código,
+documentação, `data/`, banco, filas, logs e runtime da Mesa foram preservados.
+
+### Resultado e validação
+
+- Tamanho lógico do projeto: de 73,61 GiB para 16,89 GiB.
+- Bytes físicos únicos no projeto: aproximadamente 8,60 GiB; outros 8,30 GiB
+  da soma lógica são a visão por processo em hardlinks, não cópias físicas.
+- Espaço livre em C: de 43,78 GiB para 99,56 GiB; aproximadamente 55,78 GiB
+  físicos recuperados.
+- `data/` responde por 16,64 GiB lógicos; `work/` fonte por 6,13 MiB; `.git/`
+  por aproximadamente 9,71 MiB.
+- Auditoria pós-limpeza:
+  `data/logs/storage-audit-20260922-postcleanup.json`; 14.205 blobs verificados,
+  zero corrupção, zero referências ausentes e nenhum aviso.
+- SQLite `data/atos-tce.db`: `PRAGMA integrity_check=ok`; 14.179 registros em
+  `archive_blobs`, 1.232 processos e 14.736 documentos. Os 26 blobs canônicos
+  adicionais não estavam referenciados pelo banco, mas foram preservados.
+- `verify-project.ps1`: 1.258 executados, 1.256 aprovados, 2 pulados, 0 falhas.
+- O arquivo preexistente `work/tce-extractor/.codex-live-pilot.py` continuou
+  não rastreado e não foi alterado.
+- Esta atualização documental foi publicada em
+  `origin/codex/mesa-local-refactor`; nenhum dado privado ou recibo de `data/`
+  foi incluído no Git.
