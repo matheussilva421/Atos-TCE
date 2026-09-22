@@ -448,3 +448,43 @@ O banco confirmou os dois itens em `DOWNLOADED`. A interface permaneceu por
 alguns minutos em `0 de 2 baixados` porque o coletor já havia gravado os PDFs,
 mas ainda estava canonicalizando/indexando a árvore do acervo; após a conclusão,
 basta atualizar a Mesa com `Ctrl+R`.
+
+## Diagnóstico da análise e dos campos vazios (2026-09-22)
+
+Os 17 processos que haviam entrado em `ERRO` foram reprocessados localmente.
+O erro original era a ausência do Tesseract no runtime esperado pela Mesa. O
+Tesseract instalado em `C:\Program Files\Tesseract-OCR` foi ligado de forma
+reversível por `data\runtime\tesseract`, sem alterar arquivos rastreados e sem
+abrir o portal.
+
+Resultado do reprocessamento:
+
+- 1 processo em `PRONTO`: `100437/2025`, com 7 campos extraídos;
+- 16 processos em `REVISAR`;
+- nenhum dos 17 permaneceu em `ERRO`;
+- os PDFs locais não foram baixados novamente e nenhum ato foi preenchido ou
+  enviado.
+
+Em `004731/2024`, `CAMPOS (0)` não significa que o PDF esteja vazio. O processo
+tem 4 PDFs e o `Volume-Digitalizado-1` possui 128 páginas; a resolução com os
+dados do interessado aparece por volta da página 90. A heurística atual exclui
+documentos do Evento 1 e somente promove fontes explicitamente classificadas
+como resolução administrativa ou guia financeira. Como esse volume reúne várias
+peças e pode produzir evidência de pessoas diferentes, o resultado seguro é
+`REVISAR` sem gravar campos potencialmente errados. A extração desse tipo de
+volume é uma pendência de melhoria separada, com teste específico para preservar
+o vínculo correto entre interessado, documento e página.
+
+Validações locais:
+
+- jobs de análise 24 a 42: concluídos sem falha após o runtime do Tesseract;
+- status global após o reprocessamento: `CONCLUÍDO=716`, `PENDENTE=499`,
+  `PRONTO=1`, `REVISAR=16`;
+- evidência direta: `100437/2025` tem 22 documentos e 7 campos; `004731/2024`
+  tem 4 documentos e 0 campos, apesar do conteúdo estar presente no volume;
+- a aba do e-Contas, login, marcador e envio real não foram tocados.
+
+Próxima retomada: atualizar a Mesa com `Ctrl+R`, filtrar `REVISAR`/`ERRO` e
+usar `004731/2024` como caso de aceitação para a futura melhoria de volumes
+digitalizados. Não clicar em `Preencher ato` enquanto os campos não tiverem
+fonte e interessado confirmados manualmente.
