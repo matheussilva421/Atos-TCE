@@ -434,3 +434,17 @@ autenticada foi fechada; o plano atual continua com 2 processos pendentes.
 Para a retomada, abrir o e-Contas autenticado na tela correta, deixar o
 marcador selecionado e iniciar uma única aquisição. Nenhum ato foi aberto,
 preenchido ou enviado.
+
+## Aquisição final dos dois processos (2026-09-22)
+
+O job 23 foi executado com a sessão autenticada do e-Contas e terminou como
+`COMPLETED` às 06:44 (horário local), com 2 de 2 processos baixados e zero
+falhas. O recibo `data/logs/collector-23-lot-1.json` marcou:
+
+- `100437/2025`: 22 documentos baixados;
+- `004731/2024`: 4 documentos baixados.
+
+O banco confirmou os dois itens em `DOWNLOADED`. A interface permaneceu por
+alguns minutos em `0 de 2 baixados` porque o coletor já havia gravado os PDFs,
+mas ainda estava canonicalizando/indexando a árvore do acervo; após a conclusão,
+basta atualizar a Mesa com `Ctrl+R`.
