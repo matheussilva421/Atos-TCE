@@ -78,6 +78,15 @@ Data: 2026-09-23
 - Ruling: `python -m unittest tests.test_fill_service -v` e o equivalente para `test_store` não importam porque `tests/` neste checkout é diretório plano sem pacote Python; usar descoberta explícita `-s tests -p <arquivo>` executa os mesmos módulos — custo se incorreto: a descoberta pode omitir testes, mitigado pela confirmação do padrão e contagem do módulo.
 - Arquivos alterados: `app/area_restrita/fill_service.py`, `tests/test_fill_service.py`, `tests/test_api_server.py` e este handoff.
 
+## Task 7 do plano — API de resultado parcial
+
+- RED: o teste end-to-end aceitou `changed` + `disabled`, avançou a fill request e preservou o processo como `PRONTO`, mas falhou com `KeyError` porque o GET autenticado ainda não projetava `summary`.
+- A rota existente `/api/v1/fill-requests/{id}` agora retorna o resumo já persistido e `operation_warnings`; não retorna `form_snapshot` bruto e não cria rota de mutação nova.
+- O teste verifica campos `changed`, `preserved`, `unresolved`, warning por campo, warnings operacionais e status `PRONTO`; outro teste confirma que ausência de `field_results` continua sendo HTTP 400.
+- Ruling: `_fill_result_problem()` já validava estrutura e presença de `status` sem exigir sucesso de todos os campos; mantido sem alteração redundante, com teste HTTP provando aceitação de `disabled` — custo se incorreto: uma futura restrição de status pode reintroduzir rejeição global.
+- GREEN: teste focal `partial_fill_results` — 1/1; teste de `field_results` ausente — 1/1; `python -m unittest discover -s tests -p 'test_api_server.py' -q` — 86/86; `git diff --check` passou.
+- Arquivos alterados: `app/api/server.py`, `tests/test_api_server.py` e este handoff.
+
 ## Proteções e decisões
 
 - Os anexos do goal são as fontes canônicas desta execução: design best-effort como SPEC e os dois documentos de implementação como planos obrigatórios. Foram lidos diretamente como entradas do usuário; não é necessário criar cópias no repositório.
@@ -87,7 +96,7 @@ Data: 2026-09-23
 
 ## Pendências e retomada
 
-1. Continuar Tasks 7–9 (API e UI) em `codex/best-effort-form-filling`, com RED antes de cada correção, identity fail-closed e valores divergentes preservados.
+1. Continuar Tasks 8–9 (UI e gates/handoff) em `codex/best-effort-form-filling`, com RED antes de cada correção, identity fail-closed e valores divergentes preservados.
 2. Criar branch de discovery a partir do `main` promovido; usar a sessão real da Área Restrita para concluir PHASE 0 e commitar somente a nota de discovery antes de qualquer código de navegação.
 3. A partir do commit de discovery, criar a branch de navegação; integrar nela os commits Best-Effort/v4 sem perder a ordem de base exigida pelos planos.
 4. Executar todas as suítes, `verify-project.ps1`, `git diff --check`, validações reais supervisionadas, revisão final e push das branches.

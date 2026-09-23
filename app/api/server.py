@@ -601,6 +601,10 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             )
             return
         process = self.mesa.store.get_process(int(request["process_id"])) or {}
+        form_snapshot = request.get("form_snapshot")
+        form_snapshot = form_snapshot if isinstance(form_snapshot, Mapping) else {}
+        summary = form_snapshot.get("summary")
+        warnings = form_snapshot.get("operation_warnings")
         self._send_json(
             {
                 "id": int(request["id"]),
@@ -610,6 +614,8 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
                 "state": request["state"],
                 "mode": request["mode"],
                 "error": request["error"],
+                "summary": dict(summary) if isinstance(summary, Mapping) else None,
+                "warnings": list(warnings) if isinstance(warnings, list) else [],
                 "created_at": request["created_at"],
                 "updated_at": request["updated_at"],
             }

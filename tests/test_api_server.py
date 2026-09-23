@@ -1533,6 +1533,48 @@ class FillOrchestrationTests(ApiTestCase):
         self.assertIn("form_filled", events)
         self.assertIsNone(self.claim())
 
+    def test_partial_fill_results_are_accepted_and_exposed_to_the_mesa(self):
+        request_id = self.start_fill()
+        open_command = self.claim()
+        self.report(open_command["id"], self.open_result())
+        read_command = self.claim()
+        self.report(read_command["id"], self.read_form_result())
+        fill_command = self.claim()
+        body = self.fill_result(fill_command["payload"]["fields"])
+        body["field_results"]["matricula"] = {
+            "before": "",
+            "proposed": FILL_FIELDS["matricula"],
+            "after": "",
+            "status": "disabled",
+            "warning": "control_disabled",
+        }
+        body["field_results"]["data_nascimento"] = {
+            "before": FILL_FIELDS["data_nascimento"],
+            "proposed": FILL_FIELDS["data_nascimento"],
+            "after": FILL_FIELDS["data_nascimento"],
+            "status": "preserved",
+        }
+        body["warnings"] = ["partial operation warning"]
+
+        self.report(fill_command["id"], body)
+
+        request = self.fill_state(request_id)
+        self.assertEqual(request["state"], "PREENCHIDO")
+        self.assertEqual(request["summary"]["changed"], [
+            name
+            for name in fill_command["payload"]["fields"]
+            if name not in {"matricula", "data_nascimento"}
+        ])
+        self.assertEqual(request["summary"]["preserved"], ["data_nascimento"])
+        self.assertTrue(
+            any(item["field"] == "matricula" for item in request["summary"]["unresolved"])
+        )
+        self.assertTrue(
+            any(item["field"] == "matricula" for item in request["summary"]["warnings"])
+        )
+        self.assertIn("partial operation warning", request["warnings"])
+        self.assertEqual(self.store.get_process(self.process_id)["status"], "PRONTO")
+
     def test_an_existing_divergent_value_is_preserved_while_other_fields_are_queued(self):
         request_id = self.start_fill()
         open_command = self.claim()
