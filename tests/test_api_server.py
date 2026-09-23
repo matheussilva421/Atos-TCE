@@ -1592,7 +1592,11 @@ class FillOrchestrationTests(ApiTestCase):
         self.assertEqual(request["state"], "PREENCHIDO")
         self.assertFalse(request["summary"]["mandatory_satisfied"])
         self.assertTrue(request["summary"]["unresolved"])
+        self.assertTrue(any("genero" in warning for warning in request["warnings"]))
         self.assertEqual(self.store.get_process(self.process_id)["status"], "PRONTO")
+        retry_request_id = self.start_fill()
+        self.assertNotEqual(retry_request_id, request_id)
+        self.assertEqual(self.fill_state(retry_request_id)["state"], "OPENING")
 
     def test_an_existing_divergent_value_is_preserved_while_other_fields_are_queued(self):
         request_id = self.start_fill()
