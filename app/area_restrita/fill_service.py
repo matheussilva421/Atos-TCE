@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from ..analysis import MANDATORY_FIELDS
 from ..core.identity import normalize_interested
 from ..core.store import Store
 from .preflight import FillBlocked, build_fill_plan
@@ -47,7 +48,9 @@ OPEN_ACT_SCREENS: frozenset[str] = frozenset({"list", "interested", "form", "but
 #: Refusals the extension reports when the page itself was ambiguous. They are
 #: not portal failures: the workflow stops for a human instead of looking like
 #: a transient error the operator could retry blindly.
-EXTENSION_BLOCK_CODES: frozenset[str] = frozenset({"FORM_AMBIGUOUS", "IDENTITY_AMBIGUOUS"})
+EXTENSION_BLOCK_CODES: frozenset[str] = frozenset(
+    {"FORM_AMBIGUOUS", "IDENTITY_AMBIGUOUS", "IDENTITY_MISMATCH"}
+)
 
 
 class FillError(RuntimeError):
@@ -64,21 +67,48 @@ def identity_of(process: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _verified_fields(result: Mapping[str, Any]) -> dict[str, Any]:
-    """A fill only counts when every changed field reread exactly as proposed."""
+def summarize_field_results(
+    field_results: Mapping[str, Any], mandatory_fields: tuple[str, ...] = MANDATORY_FIELDS
+) -> dict[str, Any]:
+    """Summarize field outcomes while keeping mandatory review items retryable."""
 
-    field_results = result.get("field_results")
-    if not isinstance(field_results, Mapping) or not field_results:
-        return {"ok": False, "reason": "o portal não devolveu a releitura dos campos"}
-    for name, entry in field_results.items():
-        if not isinstance(entry, Mapping):
-            return {"ok": False, "reason": f"resultado inválido para o campo {name}"}
-        status = entry.get("status")
-        if status in {"failed", "disabled", "not_found", "missing", "skipped"}:
-            return {"ok": False, "reason": f"o campo {name} não foi confirmado ({status})"}
-        if status == "changed" and entry.get("after") != entry.get("proposed"):
-            return {"ok": False, "reason": f"o campo {name} releu diferente do proposto"}
-    return {"ok": True, "reason": None}
+    changed: list[str] = []
+    preserved: list[str] = []
+    unresolved: list[dict[str, str]] = []
+    warnings: list[str] = []
+    normalized = dict(field_results)
+    for name in mandatory_fields:
+        normalized.setdefault(name, {"status": "missing_proposal"})
+
+    for name, raw_entry in normalized.items():
+        entry = raw_entry if isinstance(raw_entry, Mapping) else {}
+        status = str(entry.get("status") or "invalid")
+        warning = str(entry.get("warning") or entry.get("error") or "")
+        if warning and warning not in warnings:
+            warnings.append(warning)
+        if status == "changed" and entry.get("after") == entry.get("proposed"):
+            changed.append(str(name))
+            continue
+        if status == "preserved" and not warning:
+            preserved.append(str(name))
+            continue
+        if str(name) in mandatory_fields:
+            unresolved.append(
+                {"field": str(name), "status": status, "warning": warning or status}
+            )
+        elif status not in {"changed", "preserved"}:
+            if not warning:
+                warning = status
+            if warning not in warnings:
+                warnings.append(warning)
+
+    return {
+        "complete": not unresolved,
+        "changed": changed,
+        "preserved": preserved,
+        "unresolved": unresolved,
+        "warnings": warnings,
+    }
 
 
 class FillService:
@@ -231,8 +261,12 @@ class FillService:
         if mismatch:
             self._block(request, mismatch)
             return
+        retry_count = self._stale_retry_count(request)
         self._store.update_fill_request(
-            int(request["id"]), state="PREFLIGHT", error=None, form_snapshot=dict(result)
+            int(request["id"]),
+            state="PREFLIGHT",
+            error=None,
+            form_snapshot={**dict(result), "stale_generation_retries": retry_count},
         )
         self._run_preflight(request, process, result)
 
@@ -262,6 +296,7 @@ class FillService:
             },
             int(request["id"]),
         )
+        retry_count = self._stale_retry_count(request)
         self._store.update_fill_request(
             int(request["id"]),
             state="FILLING",
@@ -271,47 +306,139 @@ class FillService:
                 "plan": plan.fields,
                 "preserved": plan.preserved,
                 "warnings": plan.warnings,
+                "stale_generation_retries": retry_count,
             },
         )
 
     def _handle_fill_result(
         self, request: Mapping[str, Any], result: Mapping[str, Any]
     ) -> None:
-        """Only a fully reread result marks the act as filled."""
+        """Store a field report; promote the process only when review is clear."""
 
         process_id = int(request["process_id"])
         if result.get("ok") is not True:
+            if str(result.get("code") or "").strip().upper() == "STALE_GENERATION":
+                self._retry_stale_generation(request, result)
+                return
             self._refuse(request, result, "preenchimento recusado pelo portal")
             return
-        verification = _verified_fields(result)
-        if not verification["ok"]:
-            self._block(request, verification["reason"])
-            return
+        field_results = self._field_results_for_summary(request, result)
+        summary = summarize_field_results(field_results)
+        snapshot = request.get("form_snapshot")
+        preflight_warnings = snapshot.get("warnings") if isinstance(snapshot, Mapping) else []
+        if isinstance(preflight_warnings, list):
+            summary["warnings"] = list(
+                dict.fromkeys(
+                    [*summary["warnings"], *(str(item) for item in preflight_warnings if item)]
+                )
+            )
         self._store.update_fill_request(
             int(request["id"]),
             state="PREENCHIDO",
             error=None,
             current_command_id=None,
-            form_snapshot={"field_results": result.get("field_results") or {}},
+            form_snapshot={"field_results": field_results, "summary": summary},
         )
-        self._store.set_process_status(
-            process_id,
-            "PREENCHIDO",
-            event_type="form_filled",
-            payload={
-                "fill_request_id": int(request["id"]),
-                "fields": sorted(
-                    name
-                    for name, entry in (result.get("field_results") or {}).items()
-                    if isinstance(entry, Mapping) and entry.get("status") == "changed"
-                ),
-                "preserved": sorted(
-                    name
-                    for name, entry in (result.get("field_results") or {}).items()
-                    if isinstance(entry, Mapping) and entry.get("status") == "preserved"
-                ),
-            },
+        event_payload = {"fill_request_id": int(request["id"]), "summary": summary}
+        if summary["complete"]:
+            self._store.set_process_status(
+                process_id, "PREENCHIDO", event_type="form_filled", payload=event_payload
+            )
+        else:
+            self._store.add_workflow_event(process_id, "form_filled_partial", event_payload)
+
+    @staticmethod
+    def _stale_retry_count(request: Mapping[str, Any]) -> int:
+        snapshot = request.get("form_snapshot")
+        if not isinstance(snapshot, Mapping):
+            return 0
+        try:
+            return max(0, int(snapshot.get("stale_generation_retries") or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def _retry_stale_generation(
+        self, request: Mapping[str, Any], result: Mapping[str, Any]
+    ) -> None:
+        retries = self._stale_retry_count(request)
+        if retries >= 1:
+            self._fail(request, "generation do formulário mudou novamente após uma releitura")
+            return
+        process = self._store.get_process(int(request["process_id"]))
+        if process is None:
+            self._block(request, "processo desapareceu durante a releitura do formulário")
+            return
+        command_id = self._store.queue_fill_command(
+            "READ_FORM", {"identity": identity_of(process)}, int(request["id"])
         )
+        previous = request.get("form_snapshot")
+        snapshot = dict(previous) if isinstance(previous, Mapping) else {}
+        snapshot["stale_generation_retries"] = retries + 1
+        snapshot["stale_generation_after"] = result.get("generation_after")
+        self._store.update_fill_request(
+            int(request["id"]),
+            state="READING",
+            current_command_id=command_id,
+            error=None,
+            form_snapshot=snapshot,
+        )
+
+    @staticmethod
+    def _field_results_for_summary(
+        request: Mapping[str, Any], result: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        raw_results = result.get("field_results")
+        field_results = {
+            str(name): dict(entry)
+            for name, entry in (raw_results.items() if isinstance(raw_results, Mapping) else [])
+            if isinstance(entry, Mapping)
+        }
+        snapshot = request.get("form_snapshot")
+        if not isinstance(snapshot, Mapping):
+            snapshot = {}
+        preserved = snapshot.get("preserved")
+        preserved = preserved if isinstance(preserved, Mapping) else {}
+        raw_warnings = snapshot.get("warnings")
+        warnings = raw_warnings if isinstance(raw_warnings, list) else []
+        for name in MANDATORY_FIELDS:
+            if name in field_results:
+                continue
+            divergence = any(
+                str(warning).startswith(f"EXISTING_VALUE_DIVERGENCE: {name}")
+                for warning in warnings
+            )
+            if name in preserved:
+                value = str(preserved[name] or "")
+                entry: dict[str, Any] = {
+                    "before": value,
+                    "proposed": value,
+                    "after": value,
+                    "status": "preserved",
+                }
+                if divergence:
+                    entry["warning"] = "existing_value_divergence"
+                field_results[name] = entry
+                continue
+            warning_prefixes = (
+                ("CONTROL_NOT_FOUND", "not_found"),
+                ("CONTROL_DISABLED", "disabled"),
+                ("CONTROL_READONLY", "disabled"),
+                ("FIELD_READ_FAILED", "failed"),
+                ("FIELD_PROPOSAL_MISSING", "missing_proposal"),
+                ("OPTION_NOT_AVAILABLE", "option_unavailable"),
+                ("LEGAL_DECISION_UNAVAILABLE", "option_unavailable"),
+            )
+            matched = next(
+                (
+                    (prefix, status)
+                    for prefix, status in warning_prefixes
+                    if any(str(warning).startswith(f"{prefix}: {name}") for warning in warnings)
+                ),
+                None,
+            )
+            status = matched[1] if matched else "missing_proposal"
+            field_results[name] = {"status": status}
+        return field_results
 
     # ------------------------------------------------------------------ helpers
 
@@ -335,8 +462,10 @@ class FillService:
         self._store.update_fill_request(
             int(request["id"]), state="BLOQUEADO", error=reason, current_command_id=None
         )
-        self._set_process_state(
-            int(request["process_id"]), "BLOQUEADO", "fill_blocked", {"reason": reason}
+        self._store.add_workflow_event(
+            int(request["process_id"]),
+            "fill_blocked",
+            {"fill_request_id": int(request["id"]), "reason": reason},
         )
 
     def _refuse(
@@ -355,13 +484,8 @@ class FillService:
         self._store.update_fill_request(
             int(request["id"]), state="ERRO", error=reason, current_command_id=None
         )
-        self._set_process_state(
-            int(request["process_id"]), "ERRO", "fill_failed", {"reason": reason}
-        )
-
-    def _set_process_state(
-        self, process_id: int, status: str, event_type: str, payload: Mapping[str, Any]
-    ) -> None:
-        self._store.set_process_status(
-            process_id, status, event_type=event_type, payload=dict(payload)
+        self._store.add_workflow_event(
+            int(request["process_id"]),
+            "fill_failed",
+            {"fill_request_id": int(request["id"]), "reason": reason},
         )

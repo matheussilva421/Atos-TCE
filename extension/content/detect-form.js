@@ -213,14 +213,24 @@
     for (const name of FIELD_NAMES) {
       const control = getById(documentRef, FIELD_MAP[name]);
       if (!control) continue;
-      const list = readOptions(control);
-      fields[name] = {
-        value: String(control?.value ?? ""),
-        disabled: control?.disabled === true,
-        readOnly: control?.readOnly === true,
-        options: list,
-      };
-      if (list.length > 0) options[name] = list;
+      try {
+        const list = readOptions(control);
+        fields[name] = {
+          value: String(control?.value ?? ""),
+          disabled: control?.disabled === true,
+          readOnly: control?.readOnly === true,
+          readable: true,
+          options: list,
+        };
+        if (list.length > 0) options[name] = list;
+      } catch {
+        fields[name] = {
+          disabled: false,
+          readOnly: false,
+          readable: false,
+          options: [],
+        };
+      }
     }
     return {
       identity,

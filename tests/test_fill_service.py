@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from app.analysis import MANDATORY_FIELDS
 from app.area_restrita.fill_service import FILL_STATES, FillError, FillService
 from app.area_restrita.preflight import FillBlocked, FillPlan, build_fill_plan
 from app.core.models import DocumentRecord, FieldRecord, ProcessRecord
@@ -114,7 +115,7 @@ class FillStateMachineTests(FillRequestTestCase):
         self.assertEqual(request["state"], "BLOQUEADO")
         self.assertIn("divergente", request["error"])
         self.assertIsNone(self.store.claim_extension_command("extension-test"))
-        self.assertEqual(self.store.get_process(process_id)["status"], "BLOQUEADO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
         events = [event["event_type"] for event in self.store.get_process(process_id)["events"]]
         self.assertIn("fill_blocked", events)
 
@@ -216,7 +217,7 @@ class FillStateMachineTests(FillRequestTestCase):
         request = self.store.get_fill_request(request_id)
         self.assertEqual(request["state"], "ERRO")
         self.assertIn("lista", request["error"])
-        self.assertEqual(self.store.get_process(process_id)["status"], "ERRO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
 
     def test_an_ambiguous_page_blocks_instead_of_looking_like_a_portal_error(self):
         # CR-02: the extension refuses to pick between two matching frames.
@@ -233,7 +234,7 @@ class FillStateMachineTests(FillRequestTestCase):
         request = self.store.get_fill_request(request_id)
         self.assertEqual(request["state"], "BLOQUEADO")
         self.assertIn("moldura", request["error"])
-        self.assertEqual(self.store.get_process(process_id)["status"], "BLOQUEADO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
         events = [event["event_type"] for event in self.store.get_process(process_id)["events"]]
         self.assertIn("fill_blocked", events)
 
@@ -267,6 +268,164 @@ class FillStateMachineTests(FillRequestTestCase):
             FILL_STATES,
             ("OPENING", "READING", "PREFLIGHT", "FILLING", "PREENCHIDO", "BLOQUEADO", "ERRO"),
         )
+
+
+class BestEffortFillOutcomeTests(FillRequestTestCase):
+    def begin_fill(self, *, plan_fields=None, dynamic_generation=False):
+        process_id = self.make_process()
+        fields = plan_fields or {name: f"proposta {name}" for name in MANDATORY_FIELDS}
+        if dynamic_generation:
+            def preflight(_process, snapshot):
+                return FillPlan(
+                    identity=dict(IDENTITY), generation=snapshot["generation"], fields=fields
+                )
+        else:
+            preflight = StubPreflight(
+                plan=FillPlan(identity=dict(IDENTITY), generation=4, fields=fields)
+            )
+        service = FillService(self.store, preflight=preflight)
+        request_id = service.request_fill(process_id)
+        open_command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(open_command["id"], {**OPEN_RESULT, "identity": IDENTITY})
+        read_command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(
+            read_command["id"],
+            {
+                "ok": True,
+                "identity": IDENTITY,
+                "generation": 4,
+                "fields": {},
+            },
+        )
+        fill_command = self.store.claim_extension_command("extension-test")
+        self.assertEqual(fill_command["type"], "FILL_FORM")
+        return service, process_id, request_id, fill_command
+
+    @staticmethod
+    def field_result(status, *, before="", proposed="valor", after=None, warning=None):
+        entry = {
+            "before": before,
+            "proposed": proposed,
+            "after": proposed if after is None and status in {"changed", "preserved"} else (after or before),
+            "status": status,
+        }
+        if warning:
+            entry["warning"] = warning
+        return entry
+
+    def test_partial_mandatory_result_finishes_request_and_keeps_process_retryable(self):
+        service, process_id, request_id, fill_command = self.begin_fill(
+            plan_fields={"cargo": "Professor", "matricula": "78.710-8/2"}
+        )
+
+        service.handle_command_result(
+            fill_command["id"],
+            {
+                "ok": True,
+                "field_results": {
+                    "cargo": self.field_result("changed", proposed="Professor"),
+                    "matricula": self.field_result("disabled", proposed="78.710-8/2"),
+                },
+            },
+        )
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "PREENCHIDO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+        summary = self.store.get_fill_request(request_id)["form_snapshot"]["summary"]
+        self.assertEqual(summary["changed"], ["cargo"])
+        self.assertIn("matricula", {item["field"] for item in summary["unresolved"]})
+        self.assertGreater(self.service.request_fill(process_id), request_id)
+
+    def test_every_mandatory_field_verified_promotes_process_to_preenchido(self):
+        service, process_id, request_id, fill_command = self.begin_fill(dynamic_generation=True)
+        results = {
+            name: self.field_result("changed", proposed=f"proposta {name}")
+            for name in MANDATORY_FIELDS
+        }
+
+        service.handle_command_result(fill_command["id"], {"ok": True, "field_results": results})
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "PREENCHIDO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PREENCHIDO")
+
+    def test_divergent_preserved_mandatory_value_stays_unresolved(self):
+        service, process_id, request_id, fill_command = self.begin_fill()
+        results = {
+            name: self.field_result("changed", proposed=f"proposta {name}")
+            for name in MANDATORY_FIELDS
+        }
+        results["cargo"] = self.field_result(
+            "preserved",
+            before="Cargo diferente já existente",
+            proposed="Professor",
+            after="Cargo diferente já existente",
+            warning="existing_value_divergence",
+        )
+
+        service.handle_command_result(fill_command["id"], {"ok": True, "field_results": results})
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "PREENCHIDO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+        self.assertIn("cargo", {item["field"] for item in request["form_snapshot"]["summary"]["unresolved"]})
+
+    def test_technical_fill_refusal_preserves_pronto_and_allows_retry(self):
+        service, process_id, request_id, fill_command = self.begin_fill(dynamic_generation=True)
+
+        service.handle_command_result(
+            fill_command["id"], {"ok": False, "code": "PORTAL_WRITE_FAILED", "error": "falha"}
+        )
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "ERRO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+        self.assertGreater(service.request_fill(process_id), request_id)
+
+    def test_first_stale_generation_rereads_and_replans_once(self):
+        service, process_id, request_id, fill_command = self.begin_fill(dynamic_generation=True)
+
+        service.handle_command_result(
+            fill_command["id"],
+            {"ok": False, "code": "STALE_GENERATION", "generation_after": 5},
+        )
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "READING")
+        self.assertEqual(request["form_snapshot"]["stale_generation_retries"], 1)
+        read_command = self.store.claim_extension_command("extension-test")
+        self.assertEqual(read_command["type"], "READ_FORM")
+        service.handle_command_result(
+            read_command["id"],
+            {
+                "ok": True,
+                "identity": IDENTITY,
+                "generation": 5,
+                "fields": {},
+            },
+        )
+        retry_fill = self.store.claim_extension_command("extension-test")
+        self.assertEqual(retry_fill["type"], "FILL_FORM")
+        self.assertEqual(retry_fill["payload"]["generation"], 5)
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+
+    def test_second_stale_generation_is_technical_error_without_process_corruption(self):
+        service, process_id, request_id, fill_command = self.begin_fill(dynamic_generation=True)
+        service.handle_command_result(
+            fill_command["id"], {"ok": False, "code": "STALE_GENERATION"}
+        )
+        read_command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(
+            read_command["id"],
+            {"ok": True, "identity": IDENTITY, "generation": 5, "fields": {}},
+        )
+        retry_fill = self.store.claim_extension_command("extension-test")
+
+        service.handle_command_result(
+            retry_fill["id"], {"ok": False, "code": "STALE_GENERATION"}
+        )
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "ERRO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+        self.assertIsNone(self.store.claim_extension_command("extension-test"))
 
 
 class ManualFillRequestTests(FillRequestTestCase):
@@ -608,6 +767,15 @@ class PreflightTests(unittest.TestCase):
         self.assertNotIn("cargo", plan.fields)
         self.assertIn("matricula", plan.fields)
         self.assertTrue(any("CONTROL_READONLY" in warning and "cargo" in warning for warning in plan.warnings))
+
+    def test_a_field_read_error_is_not_added_to_the_write_plan(self):
+        snapshot = form_snapshot(fields={"cargo": {"readable": False}})
+
+        plan = build_fill_plan(process_payload(), snapshot)
+
+        self.assertNotIn("cargo", plan.fields)
+        self.assertIn("matricula", plan.fields)
+        self.assertTrue(any("FIELD_READ_FAILED" in warning and "cargo" in warning for warning in plan.warnings))
 
     def test_a_disabled_optional_control_is_only_a_warning(self):
         snapshot = form_snapshot(fields={"genero": {"value": "", "disabled": True, "options": []}})

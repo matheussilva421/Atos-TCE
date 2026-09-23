@@ -72,8 +72,8 @@ test("a select only accepts a value that exists in its current catalog", () => {
     fields: { fundamento_legal: "99" },
   });
 
-  assert.equal(refused.ok, false);
-  assert.equal(refused.field_results.fundamento_legal.status, "failed");
+  assert.equal(refused.ok, true);
+  assert.equal(refused.field_results.fundamento_legal.status, "option_unavailable");
   assert.equal(absent.documentRef.getElementById("txtFundamentoLegal").writeCount, 0);
 
   const present = preparedForm({ selects });
@@ -142,36 +142,27 @@ test("a generation that is not a positive integer writes nothing at all", () => 
   }
 });
 
-test("a disabled or readOnly control is never written", () => {
+test("a disabled field does not stop an independent writable field", () => {
   const disabled = preparedForm();
-  disabled.documentRef.getElementById("txtCargo").disabled = true;
+  disabled.documentRef.getElementById("txtMatricula").disabled = true;
   const disabledForm = reader.readForm(disabled.documentRef);
-  const readOnly = preparedForm();
-  readOnly.documentRef.getElementById("txtMatricula").readOnly = true;
-  const readOnlyForm = reader.readForm(readOnly.documentRef);
 
   const disabledResult = filler.applyFill({
     documentRef: disabled.documentRef,
     identity: disabledForm.identity,
     generation: disabledForm.generation,
-    fields: { cargo: "Professor" },
-  });
-  const readOnlyResult = filler.applyFill({
-    documentRef: readOnly.documentRef,
-    identity: readOnlyForm.identity,
-    generation: readOnlyForm.generation,
-    fields: { matricula: "78.710-8/2" },
+    fields: { cargo: "Professor", matricula: "78.710-8/2" },
   });
 
-  assert.equal(disabledResult.ok, false);
-  assert.equal(disabledResult.field_results.cargo.status, "disabled");
-  assert.equal(disabled.documentRef.getElementById("txtCargo").writeCount, 0);
-  assert.equal(readOnlyResult.ok, false);
-  assert.equal(readOnlyResult.field_results.matricula.status, "disabled");
-  assert.equal(readOnly.documentRef.getElementById("txtMatricula").writeCount, 0);
+  assert.equal(disabledResult.ok, true);
+  assert.equal(disabledResult.field_results.cargo.status, "changed");
+  assert.equal(disabledResult.field_results.matricula.status, "disabled");
+  assert.equal(disabled.documentRef.getElementById("txtCargo").value, "Professor");
+  assert.equal(disabled.documentRef.getElementById("txtCargo").writeCount, 1);
+  assert.equal(disabled.documentRef.getElementById("txtMatricula").writeCount, 0);
 });
 
-test("a field that does not reread as proposed fails the whole fill", () => {
+test("a field that does not reread as proposed fails only that field", () => {
   const { documentRef, form } = preparedForm();
   let calls = 0;
   const lyingReader = {
@@ -187,14 +178,39 @@ test("a field that does not reread as proposed fails the whole fill", () => {
     documentRef,
     identity: form.identity,
     generation: form.generation,
-    fields: { cargo: "Professor" },
+    fields: { cargo: "Professor", matricula: "78.710-8/2" },
     deps: { reader: lyingReader },
   });
 
-  assert.equal(result.ok, false);
-  assert.equal(result.code, "FILL_VERIFICATION_FAILED");
+  assert.equal(result.ok, true);
   assert.equal(result.field_results.cargo.status, "failed");
   assert.equal(result.field_results.cargo.after, "");
+  assert.equal(result.field_results.matricula.status, "changed");
+  assert.equal(documentRef.getElementById("txtMatricula").value, "78.710-8/2");
+});
+
+test("a field readback exception fails only that field and other writes continue", () => {
+  const { documentRef, form } = preparedForm();
+  const cargo = documentRef.getElementById("txtCargo");
+  Object.defineProperty(cargo, "value", {
+    configurable: true,
+    get() {
+      if (this._value) throw new Error("field readback failed");
+      return this._value;
+    },
+  });
+
+  const result = filler.applyFill({
+    documentRef,
+    identity: form.identity,
+    generation: form.generation,
+    fields: { cargo: "Professor", matricula: "78.710-8/2" },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.field_results.cargo.status, "failed");
+  assert.equal(result.field_results.cargo.warning, "field_read_failed");
+  assert.equal(result.field_results.matricula.status, "changed");
 });
 
 test("a missing proposal is reported, not invented", () => {
@@ -207,15 +223,13 @@ test("a missing proposal is reported, not invented", () => {
     fields: { cargo: "", matricula: null },
   });
 
-  assert.equal(result.ok, false);
+  assert.equal(result.ok, true);
   assert.equal(result.field_results.cargo.status, "missing");
   assert.equal(result.field_results.matricula.status, "missing");
   assert.equal(documentRef.getElementById("txtCargo").writeCount, 0);
 });
 
-test("a later invalid field writes nothing at all", () => {
-  // CR-05: the whole plan is validated before the first control is touched, so
-  // a valid first field can never be written when a later one is refused.
+test("a later disabled field does not undo an earlier independent write", () => {
   const { documentRef } = preparedForm();
   documentRef.getElementById("txtMatricula").disabled = true;
   const form = reader.readForm(documentRef);
@@ -227,15 +241,15 @@ test("a later invalid field writes nothing at all", () => {
     fields: { cargo: "Professor", matricula: "78.710-8/2" },
   });
 
-  assert.equal(result.ok, false);
-  assert.equal(result.code, "FILL_PRECHECK_FAILED");
+  assert.equal(result.ok, true);
   assert.equal(result.field_results.matricula.status, "disabled");
-  assert.equal(result.field_results.cargo.status, "skipped");
-  assert.equal(documentRef.getElementById("txtCargo").writeCount, 0);
+  assert.equal(result.field_results.cargo.status, "changed");
+  assert.equal(documentRef.getElementById("txtCargo").value, "Professor");
+  assert.equal(documentRef.getElementById("txtCargo").writeCount, 1);
   assert.equal(documentRef.getElementById("txtMatricula").writeCount, 0);
 });
 
-test("an option that is no longer available holds the whole fill back", () => {
+test("an option that is no longer available does not hold a text field back", () => {
   const selects = { fundamento_legal: [{ value: "41", label: "Emenda 41/2003" }] };
   const { documentRef, form } = preparedForm({ selects });
 
@@ -246,14 +260,60 @@ test("an option that is no longer available holds the whole fill back", () => {
     fields: { cargo: "Professor", fundamento_legal: "99" },
   });
 
-  assert.equal(result.ok, false);
-  assert.equal(result.field_results.fundamento_legal.status, "failed");
-  assert.equal(result.field_results.cargo.status, "skipped");
-  assert.equal(documentRef.getElementById("txtCargo").writeCount, 0);
+  assert.equal(result.ok, true);
+  assert.equal(result.field_results.fundamento_legal.status, "option_unavailable");
+  assert.equal(result.field_results.cargo.status, "changed");
+  assert.equal(documentRef.getElementById("txtCargo").value, "Professor");
+  assert.equal(documentRef.getElementById("txtCargo").writeCount, 1);
   assert.equal(documentRef.getElementById("txtFundamentoLegal").writeCount, 0);
 });
 
-test("a control the plan asks for but the form does not have holds everything back", () => {
+test("a disabled select option is unavailable and does not stop a text field", () => {
+  const selects = { fundamento_legal: [{ value: "41", label: "Emenda 41/2003" }] };
+  const { documentRef } = preparedForm({ selects });
+  documentRef.getElementById("txtFundamentoLegal").querySelectorAll("option")[0].disabled = true;
+  const form = reader.readForm(documentRef);
+
+  const result = filler.applyFill({
+    documentRef,
+    identity: form.identity,
+    generation: form.generation,
+    fields: { cargo: "Professor", fundamento_legal: "41" },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.field_results.fundamento_legal.status, "option_unavailable");
+  assert.equal(result.field_results.cargo.status, "changed");
+  assert.equal(documentRef.getElementById("txtFundamentoLegal").writeCount, 0);
+});
+
+test("a write failure is reported per field and later fields still run", () => {
+  const { documentRef, form } = preparedForm();
+  const cargo = documentRef.getElementById("txtCargo");
+  Object.defineProperty(cargo, "value", {
+    configurable: true,
+    get() {
+      return this._value;
+    },
+    set() {
+      throw new Error("write blocked");
+    },
+  });
+
+  const result = filler.applyFill({
+    documentRef,
+    identity: form.identity,
+    generation: form.generation,
+    fields: { cargo: "Professor", matricula: "78.710-8/2" },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.field_results.cargo.status, "failed");
+  assert.equal(result.field_results.matricula.status, "changed");
+  assert.equal(documentRef.getElementById("txtMatricula").value, "78.710-8/2");
+});
+
+test("a control the plan asks for but the form does not have does not hold other fields back", () => {
   const { documentRef, form } = preparedForm();
 
   const result = filler.applyFill({
@@ -263,9 +323,28 @@ test("a control the plan asks for but the form does not have holds everything ba
     fields: { cargo: "Professor", campo_inexistente: "x" },
   });
 
-  assert.equal(result.ok, false);
+  assert.equal(result.ok, true);
   assert.equal(result.field_results.campo_inexistente.status, "not_found");
-  assert.equal(result.field_results.cargo.status, "skipped");
+  assert.equal(result.field_results.cargo.status, "changed");
+  assert.equal(documentRef.getElementById("txtCargo").value, "Professor");
+  assert.equal(documentRef.getElementById("txtCargo").writeCount, 1);
+});
+
+test("a divergent existing value is preserved while another field is filled", () => {
+  const { documentRef, form } = preparedForm({ values: { cargo: "Professor Classe H" } });
+
+  const result = filler.applyFill({
+    documentRef,
+    identity: form.identity,
+    generation: form.generation,
+    fields: { cargo: "Professor", matricula: "78.710-8/2" },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.field_results.cargo.status, "preserved");
+  assert.equal(result.field_results.cargo.warning, "existing_value_divergence");
+  assert.equal(result.field_results.matricula.status, "changed");
+  assert.equal(documentRef.getElementById("txtCargo").value, "Professor Classe H");
   assert.equal(documentRef.getElementById("txtCargo").writeCount, 0);
 });
 

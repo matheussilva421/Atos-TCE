@@ -14,6 +14,10 @@
 - Snapshot da extensão passa a reportar `disabled` por opção, inclusive quando o `<optgroup>` pai está desabilitado. Isso fecha a informação DOM necessária para o catálogo selecionável; a alteração está testada e será agrupada no commit de leitura de formulário do plano.
 - Best-effort Task 3: `build_fill_plan()` agora bloqueia somente processo/identidade/generation, produz warnings de conteúdo por campo, preserva valores existentes divergentes e deixa campos independentes seguirem. `fundamento_legal` é resolvido antes de qualquer matching literal e validado contra as opções atuais selecionáveis.
 - Best-effort Task 4: o leitor reconhece um formulário com âncoras de processo e pessoa interessada válidas mesmo se um controle de conteúdo estiver ausente; a propriedade daquele campo fica ausente no snapshot, sem fabricar estado vazio.
+- Best-effort Task 5: `FILL_FORM` passou a validar e tentar cada campo independentemente. Falta de proposta/controle, controle disabled/read-only, opção indisponível, divergência não vazia e falha isolada de escrita/releitura ficam no resultado do campo. Valores divergentes são preservados; problemas de conteúdo não impedem os campos seguintes.
+- O leitor DOM agora isola exceções de leitura em cada controle de conteúdo, mantendo identidade e os demais controles disponíveis. O preflight exclui do plano controles ilegíveis e registra `FIELD_READ_FAILED`.
+- Best-effort Task 6: a solicitação de preenchimento termina `PREENCHIDO` com resumo mesmo se parcial; o processo só passa de `PRONTO` a `PREENCHIDO` se os seis campos obrigatórios estiverem satisfeitos. Estado de solicitação `ERRO`/`BLOQUEADO` gera evento sem alterar a classificação documental do processo.
+- `STALE_GENERATION` permite exatamente uma nova leitura e planejamento com nova geração. Um segundo stale encerra a solicitação como `ERRO`; as duas tentativas mantêm o processo em `PRONTO` e o guard do content script escreve zero controles quando a geração já está stale.
 
 ## Testes
 
@@ -29,6 +33,12 @@
 - GREEN da tarefa: `python -m unittest tests.test_fill_service -v` — 56 testes, 56 aprovados, 0 falhas.
 - RED: `node --test extension/tests/detect-form.test.mjs` — o teste de formulário com `matricula` ausente falhou porque o leitor exigia todos os controles mapeados.
 - GREEN: `node --test extension/tests/detect-form.test.mjs` — 11 testes, 11 aprovados, 0 falhas.
+- RED Task 5: `node --test extension/tests/fill-form.test.mjs` — 17 testes, 8 aprovados, 9 falhas esperadas nas novas expectativas por campo; também revelou uma asserção antiga de opção ausente com bloqueio global, ajustada para `option_unavailable`.
+- RED de releitura isolada: os novos testes do leitor e filler falharam por exceção propagada de getter; o teste do preflight incluiu um campo `readable=false` e falhou por esse controle ainda entrar no plano.
+- GREEN extensão: `node --test extension/tests/detect-form.test.mjs extension/tests/fill-form.test.mjs` — 30/30; `npm test --prefix extension` — 141 testes, 141 aprovados, 0 falhas.
+- RED Task 6: `python -m unittest tests.test_fill_service.BestEffortFillOutcomeTests -v` — falhas esperadas em partial/operational state e stale-replan antes da implementação.
+- GREEN Task 6: `python -m unittest tests.test_fill_service -v` — 63 testes, 63 aprovados, 0 falhas; `python -m unittest tests.test_store -v` — 19 testes, 19 aprovados, 0 falhas.
+- `git diff --check` passou após as mudanças de Tasks 5–6.
 
 ## Arquivos
 
@@ -42,6 +52,9 @@
 - `extension/tests/fake-dom.mjs`
 - `app/area_restrita/preflight.py`
 - `tests/test_fill_service.py`
+- `extension/content/fill-form.js`
+- `extension/tests/fill-form.test.mjs`
+- `app/area_restrita/fill_service.py`
 - Este handoff.
 
 ## Git e ambiente
@@ -60,7 +73,7 @@
 
 ## Próxima retomada
 
-1. Iniciar Task 5 com RED para escrita por campo, ausência/readOnly/disabled/opção indisponível e falha isolada de escrita/releitura.
-2. Prosseguir Tasks 6–9 com TDD: request x status, API, Mesa e integração; depois rodar gates amplos.
+1. Prosseguir Task 7 (validação da API e resumo no `GET /api/v1/fill-requests/{id}`), Task 8 (resultado parcial e retry na Mesa) e Task 9 (integração Python/extension com TDD).
+2. Executar integralmente os gates finais da Task 10, `verify-project.ps1`, `git diff --check` e revisão da branch contra SPEC + planos.
 3. Prosseguir Phase 0 em portal real: estabelecer Mesa/extensão atuais, comparar sequência/página de limite e observar fluxo de interessado/formulário/retorno/estabilidade. Não clicar no botão final `Complementar Ato`.
 4. A promoção e criação do branch de descoberta continuam limitadas pela impossibilidade de atualizar refs do GitHub; usar apenas os SHAs locais comprovados e registrar essa restrição.

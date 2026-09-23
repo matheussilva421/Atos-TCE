@@ -134,6 +134,9 @@ def build_fill_plan(
         if control is None:
             plan.warnings.append(f"CONTROL_NOT_FOUND: {name}")
             continue
+        if control.get("readable") is False:
+            plan.warnings.append(f"FIELD_READ_FAILED: {name}")
+            continue
         if control.get("disabled") is True or control.get("readOnly") is True:
             code = "CONTROL_DISABLED" if control.get("disabled") is True else "CONTROL_READONLY"
             plan.warnings.append(f"{code}: {name}")
@@ -162,6 +165,7 @@ def build_fill_plan(
     if (
         legal_proposal
         and legal_control is not None
+        and legal_control.get("readable") is not False
         and legal_control.get("disabled") is not True
         and legal_control.get("readOnly") is not True
     ):

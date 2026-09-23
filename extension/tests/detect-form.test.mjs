@@ -48,6 +48,23 @@ test("an identity-valid form is readable when one content control is absent", ()
   assert.equal(form.fields.matricula, undefined);
 });
 
+test("a content-field read error is isolated from identity and other controls", () => {
+  const documentRef = buildActFormDocument({ selected: "Pessoa Exemplo" });
+  const cargo = documentRef.getElementById(ACT_FIELD_IDS.cargo);
+  Object.defineProperty(cargo, "value", {
+    configurable: true,
+    get() {
+      throw new Error("field getter failed");
+    },
+  });
+
+  const form = reader.readForm(documentRef);
+
+  assert.equal(form.identity.processKey, "102390/2026");
+  assert.equal(form.fields.cargo.readable, false);
+  assert.equal(form.fields.matricula.readable, true);
+});
+
 test("a form hidden by an ancestor is rejected", () => {
   const documentRef = buildActFormDocument({ hiddenAncestor: true });
 
