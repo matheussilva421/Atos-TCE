@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { buildActFormDocument } from "./fake-dom.mjs";
+import { buildActFormDocument, FakeElement } from "./fake-dom.mjs";
 import { COMMAND_TYPES, FORBIDDEN_COMMAND_TYPES } from "../lib/protocol.js";
 
 await import("../lib/area-snapshot.js");
@@ -88,6 +88,33 @@ test("an unavailable select option is reported without refusing the request", ()
   assert.equal(accepted.ok, true);
   assert.equal(accepted.field_results.fundamento_legal.status, "changed");
   assert.equal(present.documentRef.getElementById("txtFundamentoLegal").value, "41");
+});
+
+test("an option in a disabled optgroup cannot be selected", () => {
+  const prepared = preparedForm({
+    selects: {
+      fundamento_legal: [{ value: "41", label: "EC 41/2003" }],
+    },
+  });
+  const select = prepared.documentRef.getElementById("txtFundamentoLegal");
+  const option = select.querySelector("option");
+  const group = new FakeElement("optgroup");
+  group.disabled = true;
+  select.children = [];
+  group.append(option);
+  select.append(group);
+  const form = reader.readForm(prepared.documentRef);
+
+  const result = filler.applyFill({
+    documentRef: prepared.documentRef,
+    identity: form.identity,
+    generation: form.generation,
+    fields: { fundamento_legal: "41" },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.field_results.fundamento_legal.status, "option_unavailable");
+  assert.equal(select.writeCount, 0);
 });
 
 test("an identity mismatch writes nothing at all", () => {
