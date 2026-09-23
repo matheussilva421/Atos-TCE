@@ -84,15 +84,23 @@ git merge-base --is-ancestor origin/codex/mesa-local-refactor origin/main
 
 Expected: exit code 0.
 
-- [ ] **Gate 4: Start implementation from promoted main**
+- [ ] **Gate 4: Create a discovery branch from promoted main**
 
-After Phase 0 has completed and its note is committed, use the execution method's worktree skill and create:
+Before Phase 0:
 
 ```bash
-git switch -c codex/next-process-navigation origin/main
+git switch -c codex/next-process-navigation-discovery origin/main
 ```
 
-If Phase 0's discovery note was committed on a dedicated discovery branch, first merge that note branch into `main` or rebase the implementation branch onto the commit containing the note. The production implementation must have the discovery evidence available in its history.
+Phase 0 is read-only with respect to production code; commit only its evidence note on this branch.
+
+After Phase 0 is complete and the note is committed, create the production implementation branch **from the discovery commit**, not directly from bare `main`:
+
+```bash
+git switch -c codex/next-process-navigation
+```
+
+The implementation branch therefore contains the discovery evidence before Task 1 without requiring a direct documentation commit on `main`.
 
 ---
 
