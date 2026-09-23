@@ -179,42 +179,72 @@ def _confidence(raw: Any) -> float | None:
         return None
 
 
-def _index_documents(documents: Iterable[Mapping[str, Any]]) -> dict[tuple[str, str], int]:
-    index: dict[tuple[str, str], int] = {}
+def _document_title_key(value: Any) -> str:
+    """Compare portal and archive titles while ignoring display punctuation."""
+
+    return "".join(character for character in str(value).casefold() if character.isalnum())
+
+
+def _index_documents(
+    documents: Iterable[Mapping[str, Any]],
+) -> dict[tuple[str, str], int | None]:
+    index: dict[tuple[str, str], int | None] = {}
+
+    def add(key: tuple[str, str], document_id: int) -> None:
+        if key not in index:
+            index[key] = document_id
+        elif index[key] != document_id:
+            # Keep collisions explicit so resolution never chooses the first file.
+            index[key] = None
+
     for document in documents:
         try:
             document_id = int(document["id"])
         except (KeyError, TypeError, ValueError):
             continue
         event = str(document.get("event") or "").strip()
-        title = str(document.get("title") or "").strip().casefold()
+        title = _document_title_key(document.get("title") or "")
         if title:
-            index.setdefault((event, title), document_id)
-            index.setdefault(("", title), document_id)
-        index.setdefault((event, ""), document_id)
+            add((event, title), document_id)
+            add(("", title), document_id)
+        add((event, ""), document_id)
     return index
 
 
 def _resolve_document_id(
-    source: Mapping[str, Any], index: Mapping[tuple[str, str], int]
+    source: Mapping[str, Any], index: Mapping[tuple[str, str], int | None]
 ) -> int | None:
     if not index:
         return None
     event = source.get("event")
     event_key = str(event).strip() if event is not None else ""
     title_raw = source.get("document") or source.get("title")
-    title = str(title_raw or "").strip().casefold()
+    title_was_provided = bool(str(title_raw or "").strip())
+    title = _document_title_key(title_raw or "")
+    if title_was_provided and not title:
+        return None
     if title:
-        exact = index.get((event_key, title))
-        if exact is None:
-            exact = index.get(("", title))
-        if exact is not None:
-            return exact
+        for key in ((event_key, title), ("", title)):
+            exact = index.get(key)
+            if exact is not None:
+                return exact
+            if key in index:
+                return None
+
+        matches: set[int] = set()
+        ambiguous_match = False
         for (entry_event, entry_title), document_id in index.items():
             if event_key and entry_event and entry_event != event_key:
                 continue
             if entry_title and (entry_title.startswith(title) or title.startswith(entry_title)):
-                return document_id
+                if document_id is None:
+                    ambiguous_match = True
+                else:
+                    matches.add(document_id)
+        if ambiguous_match:
+            return None
+        if len(matches) == 1:
+            return next(iter(matches))
         # A named document that is not registered must stay unresolved: linking
         # it to another file of the same event would fabricate evidence.
         return None

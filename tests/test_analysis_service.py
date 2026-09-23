@@ -206,6 +206,58 @@ class NormalizationTests(unittest.TestCase):
         self.assertEqual(record.page, 1)
         self.assertEqual(record.evidence["citation"]["document"], "Documento_Processo_Portal_Gestor")
 
+    def test_a_citation_resolves_title_when_spacing_and_hyphens_differ(self):
+        documents = [{"id": 14733, "event": "1", "title": "Volume-Digitalizado-1"}]
+        payload = complete_payload(
+            cargo={
+                "value": "aposentadoria voluntária",
+                "status": "found",
+                "event": "1",
+                "document": "Volume Digitalizado - 1  ",
+                "page": 90,
+            }
+        )
+
+        analysis = normalize_analysis("004731/2024", payload, documents=documents)
+        record = next(item for item in analysis.fields if item.field_name == "cargo")
+
+        self.assertEqual(record.document_id, 14733)
+        self.assertEqual(record.page, 90)
+
+    def test_ambiguous_normalized_document_titles_are_not_linked(self):
+        documents = [
+            {"id": 14733, "event": "1", "title": "Volume-Digitalizado-1"},
+            {"id": 14737, "event": "1", "title": "Volume Digitalizado 1"},
+        ]
+        payload = complete_payload(
+            cargo={
+                "value": "aposentadoria voluntária",
+                "status": "found",
+                "event": "1",
+                "document": "Volume.Digitalizado-1",
+                "page": 90,
+            }
+        )
+
+        analysis = normalize_analysis("004731/2024", payload, documents=documents)
+        record = next(item for item in analysis.fields if item.field_name == "cargo")
+
+        self.assertIsNone(record.document_id)
+
+    def test_event_only_source_is_not_linked_when_the_event_has_multiple_documents(self):
+        documents = [
+            {"id": 14733, "event": "1", "title": "Volume-Digitalizado-1"},
+            {"id": 14737, "event": "1", "title": "Anexo.pdf"},
+        ]
+        payload = complete_payload(
+            cargo={"value": "aposentadoria voluntária", "status": "found", "event": "1"}
+        )
+
+        analysis = normalize_analysis("004731/2024", payload, documents=documents)
+        record = next(item for item in analysis.fields if item.field_name == "cargo")
+
+        self.assertIsNone(record.document_id)
+
     def test_an_unregistered_document_is_reported_as_a_warning(self):
         payload = complete_payload(cargo=found("Professor", document="Sumiu.pdf"))
 
