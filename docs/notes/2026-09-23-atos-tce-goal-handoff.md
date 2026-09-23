@@ -75,7 +75,7 @@ Data: 2026-09-23
 - Atualizado o contrato de integração que antes bloqueava divergência de releitura: `python -m unittest discover -s tests -p 'test_api_server.py' -q` — 85 testes, 85 passaram. A primeira execução encontrou só a expectativa antiga; após atualizar o teste, a repetição completa passou.
 - `git diff --check`: passou.
 - Ruling: uma rejeição de preflight fora de identidade/formulário/processo termina como `ERRO` da tentativa, não `BLOQUEADO` — isso mantém BLOQUEADO reservado ao risco de alvo errado e o processo retryable — custo se incorreto: uma recusa preventiva pode aparecer como falha técnica.
-- Ruling: `python -m unittest tests.test_fill_service -v` e o equivalente para `test_store` não importam porque `tests/` neste checkout é diretório plano sem pacote Python; usar descoberta explícita `-s tests -p <arquivo>` executa os mesmos módulos — custo se incorreto: a descoberta pode omitir testes, mitigado pela confirmação do padrão e contagem do módulo.
+- Ruling: `python -m unittest tests.test_fill_service/test_store/test_api_server/test_web_suite -v` não importa porque `tests/` neste checkout é diretório plano sem pacote Python; usar descoberta explícita `-s tests -p <arquivo>` executa os mesmos módulos — custo se incorreto: a descoberta pode omitir testes, mitigado pela confirmação do padrão e contagem dos módulos.
 - Arquivos alterados: `app/area_restrita/fill_service.py`, `tests/test_fill_service.py`, `tests/test_api_server.py` e este handoff.
 
 ## Task 7 do plano — API de resultado parcial
@@ -87,6 +87,15 @@ Data: 2026-09-23
 - GREEN: teste focal `partial_fill_results` — 1/1; teste de `field_results` ausente — 1/1; `python -m unittest discover -s tests -p 'test_api_server.py' -q` — 86/86; `git diff --check` passou.
 - Arquivos alterados: `app/api/server.py`, `tests/test_api_server.py` e este handoff.
 
+## Task 8 do plano — resumo parcial na Mesa
+
+- RED: os asserts de wiring falharam porque a Mesa não possuía `renderFillSummary` nem uma lista de avisos para o resultado da request.
+- A Mesa agora mostra contagens de alterados, preservados e pendentes de revisão, com instrução explícita para conferir o formulário e concluir manualmente no portal. A lista identifica campo + código/motivo e cria os nós com `textContent`.
+- O resumo da última tentativa é mantido por processo enquanto a tela de detalhes é atualizada. O botão continua elegível apenas pelo status documental `PRONTO`, mesmo após request parcial/técnica; processo `PREENCHIDO` pode continuar exibindo o resumo sem ação de preenchimento.
+- Nenhum controle ou endpoint de submit/send/finalize foi adicionado; `index.html` não precisou mudar.
+- GREEN: `node --test app/web/tests/*.test.mjs` — 24/24; wrapper `python -m unittest discover -s tests -p 'test_web_suite.py' -v` com `PYTHONUTF8=1` — 2/2; `git diff --check` passou. O wrapper sem UTF-8 falhou na captura de saída Node devido à página de código cp1252 do Windows; rerun UTF-8 passou. O warning Node `MODULE_TYPELESS_PACKAGE_JSON` preexistente continua não bloqueante.
+- Arquivos alterados: `app/web/app.js`, `app/web/app.css`, `app/web/tests/ui-wiring.test.mjs` e este handoff.
+
 ## Proteções e decisões
 
 - Os anexos do goal são as fontes canônicas desta execução: design best-effort como SPEC e os dois documentos de implementação como planos obrigatórios. Foram lidos diretamente como entradas do usuário; não é necessário criar cópias no repositório.
@@ -96,7 +105,7 @@ Data: 2026-09-23
 
 ## Pendências e retomada
 
-1. Continuar Tasks 8–9 (UI e gates/handoff) em `codex/best-effort-form-filling`, com RED antes de cada correção, identity fail-closed e valores divergentes preservados.
+1. Continuar Task 9 (fluxo integrado best-effort), os gates gerais e revisão/handoffs em `codex/best-effort-form-filling`, com RED antes de cada correção, identity fail-closed e valores divergentes preservados.
 2. Criar branch de discovery a partir do `main` promovido; usar a sessão real da Área Restrita para concluir PHASE 0 e commitar somente a nota de discovery antes de qualquer código de navegação.
 3. A partir do commit de discovery, criar a branch de navegação; integrar nela os commits Best-Effort/v4 sem perder a ordem de base exigida pelos planos.
 4. Executar todas as suítes, `verify-project.ps1`, `git diff --check`, validações reais supervisionadas, revisão final e push das branches.

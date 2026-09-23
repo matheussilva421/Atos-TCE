@@ -63,27 +63,86 @@ async function loadPdfjs() {
     ERRO: "O preenchimento falhou.",
   };
 
+  function renderFillSummary(request) {
+    const summaryHost = document.getElementById("fill-summary");
+    const warningsHost = document.getElementById("fill-warnings");
+    const statusHost = document.getElementById("fill-status");
+    if (!summaryHost || !warningsHost) return;
+
+    const summary = request && request.summary && typeof request.summary === "object"
+      ? request.summary
+      : null;
+    if (summary) {
+      const changed = Array.isArray(summary.changed) ? summary.changed : [];
+      const preserved = Array.isArray(summary.preserved) ? summary.preserved : [];
+      const unresolved = Array.isArray(summary.unresolved) ? summary.unresolved : [];
+      const countLabel = (count, singular, plural) => `${numberFormat.format(count)} ${count === 1 ? singular : plural}`;
+      summaryHost.textContent =
+        `Ato preenchido — ${countLabel(changed.length, "alterado", "alterados")}, ` +
+        `${countLabel(preserved.length, "preservado", "preservados")}, ` +
+        `${countLabel(unresolved.length, "para revisar", "para revisar")}. ` +
+        "Confira o formulário e conclua manualmente no portal.";
+    } else {
+      summaryHost.textContent = "";
+    }
+
+    if (statusHost && request) {
+      statusHost.textContent = FILL_STATE_LABELS[request.state] || request.state || "";
+      if (request.error) statusHost.textContent += ` (${request.error})`;
+    }
+
+    const entries = new Map();
+    const fieldWarnings = [
+      ...(Array.isArray(summary?.unresolved) ? summary.unresolved : []),
+      ...(Array.isArray(summary?.warnings) ? summary.warnings : []),
+    ];
+    for (const warning of fieldWarnings) {
+      if (!warning || typeof warning !== "object") continue;
+      const field = String(warning.field || "");
+      const reason = String(warning.code || warning.warning || warning.error || warning.status || "revisar");
+      const key = `${field}:${reason}`;
+      if (!entries.has(key)) {
+        const label = FIELD_LABELS[field] || field || "Formulário";
+        entries.set(key, element("li", { text: `${label} — ${reason}` }));
+      }
+    }
+    for (const warning of Array.isArray(request?.warnings) ? request.warnings : []) {
+      if (typeof warning !== "string" || !warning.trim()) continue;
+      const key = `operation:${warning}`;
+      if (!entries.has(key)) entries.set(key, element("li", { text: warning }));
+    }
+    warningsHost.replaceChildren(...entries.values());
+    warningsHost.hidden = entries.size === 0;
+  }
+
   async function startFill() {
     const button = document.getElementById("fill-act");
     const status = document.getElementById("fill-status");
     if (!state.selectedId || !button || !status) return;
+    const processId = state.selectedId;
+    delete state.fillResults[processId];
+    renderFillSummary(null);
     button.disabled = true;
     status.textContent = "Solicitando o preenchimento…";
     try {
-      const created = await postJson(`/api/v1/processes/${state.selectedId}/fill`, {});
+      const created = await postJson(`/api/v1/processes/${processId}/fill`, {});
       const deadline = Date.now() + 300000;
       for (;;) {
         await sleep(1000);
         const request = await getJson(`/api/v1/fill-requests/${created.fill_request_id}`);
         status.textContent = FILL_STATE_LABELS[request.state] || request.state;
         if (request.error) status.textContent += ` (${request.error})`;
-        if (["PREENCHIDO", "BLOQUEADO", "ERRO"].includes(request.state)) break;
+        if (["PREENCHIDO", "BLOQUEADO", "ERRO"].includes(request.state)) {
+          state.fillResults[processId] = request;
+          renderFillSummary(request);
+          break;
+        }
         if (Date.now() > deadline) {
           status.textContent = "O preenchimento não respondeu a tempo. Verifique a extensão.";
           break;
         }
       }
-      await selectProcess(state.selectedId);
+      if (state.selectedId === processId) await selectProcess(processId);
     } catch (error) {
       status.textContent = `Não foi possível preencher: ${error.message}`;
     } finally {
@@ -100,6 +159,7 @@ async function loadPdfjs() {
     acquisitionJob: null,
     tab: "dados",
     detail: null,
+    fillResults: {},
     viewer: { documentId: null, page: 1, pageCount: 1, scale: 1.5, rotation: 0, rects: [] },
   };
 
@@ -611,6 +671,7 @@ async function loadPdfjs() {
       archivePanel(process),
       (tabs[state.tab] || tabs.dados)()
     );
+    if (state.fillResults[process.id]) renderFillSummary(state.fillResults[process.id]);
     refreshTabBar();
   }
 
@@ -673,12 +734,25 @@ async function loadPdfjs() {
         attrs: { type: "button", id: "fill-act" },
       }),
       element("span", { className: "muted", attrs: { id: "fill-status" } }),
+      element("p", {
+        className: "fill-summary",
+        attrs: { id: "fill-summary", role: "status", "aria-live": "polite" },
+      }),
+      element("ul", {
+        className: "fill-warnings",
+        attrs: { id: "fill-warnings", "aria-live": "polite" },
+      }),
     ]);
-    if (process.status !== "PRONTO") {
+    const button = panel.querySelector("button");
+    if (process.status === "PRONTO") {
+      button.addEventListener("click", startFill);
+    } else {
+      button.hidden = true;
+    }
+    if (process.status !== "PRONTO" && !state.fillResults[process.id]) {
       panel.hidden = true;
       return panel;
     }
-    panel.querySelector("button").addEventListener("click", startFill);
     return panel;
   }
 

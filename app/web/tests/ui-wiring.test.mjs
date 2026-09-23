@@ -49,6 +49,37 @@ test("a paused acquisition is resumed instead of restarted", () => {
   assert.ok(source.includes("setResumableJob(jobId)"), "a pausa mostra o retomar");
 });
 
+test("a partial fill renders changed, preserved, review counts and manual guidance", () => {
+  assert.match(source, /function renderFillSummary\(request\)/u);
+  assert.match(source, /Array\.isArray\(summary\.changed\)/u);
+  assert.match(source, /Array\.isArray\(summary\.preserved\)/u);
+  assert.match(source, /Array\.isArray\(summary\.unresolved\)/u);
+  assert.match(source, /countLabel\(changed\.length/u);
+  assert.match(source, /countLabel\(preserved\.length/u);
+  assert.match(source, /countLabel\(unresolved\.length/u);
+  assert.match(source, /Ato preenchido/u);
+  assert.match(source, /conclua manualmente no portal/u);
+});
+
+test("fill warnings identify the field and the reason", () => {
+  assert.match(source, /summary\?\.warnings/u);
+  assert.match(source, /FIELD_LABELS\[field\]/u);
+  assert.match(source, /fill-warnings/u);
+});
+
+test("the fill action remains available according to PRONTO process status", () => {
+  const panel = source.slice(source.indexOf("function fillPanel"));
+  const body = panel.slice(0, panel.indexOf("function refreshTabBar"));
+
+  assert.match(body, /process\.status !== "PRONTO"/u);
+  assert.doesNotMatch(body, /request\.(?:state|error)/u);
+});
+
+test("the Mesa does not add a submit, send or finalize action", () => {
+  assert.doesNotMatch(page, /id="(?:submit|send|finalize|complement-act)[^"]*"/iu);
+  assert.doesNotMatch(source, /AUTO_SUBMIT|COMPLEMENT_ACT|FINALIZE|\/api\/v1\/[^"`]*(?:submit|send|finalize)/iu);
+});
+
 test("a reload restores the active acquisition job from the Mesa", () => {
   assert.match(source, /plan\.active_job/u);
   assert.match(source, /active_job\.status/u);
