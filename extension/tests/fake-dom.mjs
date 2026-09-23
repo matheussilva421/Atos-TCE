@@ -354,6 +354,7 @@ export function buildActFormDocument({
           text: option.label ?? "",
           value: option.value ?? "",
         });
+        node.disabled = option.disabled === true;
         if (option.selected) {
           node.selected = true;
           select.value = option.value;

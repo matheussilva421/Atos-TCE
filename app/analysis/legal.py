@@ -737,6 +737,8 @@ def selectable_legal_options(options: Any) -> list[dict[str, Any]]:
     for index, option in enumerate(option_list):
         if not isinstance(option, Mapping):
             continue
+        if option.get("disabled") is True or option.get("selectable") is False:
+            continue
         raw_value = option.get("value")
         raw_label = option.get("label")
         value = "" if raw_value is None else str(raw_value)

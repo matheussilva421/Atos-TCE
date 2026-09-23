@@ -1575,6 +1575,25 @@ class FillOrchestrationTests(ApiTestCase):
         self.assertIn("partial operation warning", request["warnings"])
         self.assertEqual(self.store.get_process(self.process_id)["status"], "PRONTO")
 
+    def test_empty_field_results_are_summarized_as_partial_and_process_stays_retryable(self):
+        request_id = self.start_fill()
+        open_command = self.claim()
+        self.report(open_command["id"], self.open_result())
+        read_command = self.claim()
+        self.report(read_command["id"], self.read_form_result())
+        fill_command = self.claim()
+        body = self.fill_result(fill_command["payload"]["fields"])
+        body["field_results"] = {}
+
+        status, _headers, posted = self.report_raw(fill_command["id"], body)
+
+        self.assertEqual(status, 200, posted)
+        request = self.fill_state(request_id)
+        self.assertEqual(request["state"], "PREENCHIDO")
+        self.assertFalse(request["summary"]["mandatory_satisfied"])
+        self.assertTrue(request["summary"]["unresolved"])
+        self.assertEqual(self.store.get_process(self.process_id)["status"], "PRONTO")
+
     def test_an_existing_divergent_value_is_preserved_while_other_fields_are_queued(self):
         request_id = self.start_fill()
         open_command = self.claim()

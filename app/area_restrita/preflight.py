@@ -88,6 +88,8 @@ def _resolve_option_value(control: Mapping[str, Any], proposal: str) -> str | No
         return None
     selectable: list[tuple[str, str]] = []
     for option in options:
+        if option.get("disabled") is True:
+            continue
         raw_value = "" if option.get("value") is None else str(option.get("value"))
         raw_label = "" if option.get("label") is None else str(option.get("label"))
         if not raw_value.strip() or not raw_label.strip():
@@ -241,7 +243,11 @@ def _legal_decision(
         return None
     control = _control(snapshot, "fundamento_legal") or {}
     options = [
-        {"value": str(option.get("value") or ""), "label": str(option.get("label") or "")}
+        {
+            "value": str(option.get("value") or ""),
+            "label": str(option.get("label") or ""),
+            "disabled": option.get("disabled") is True,
+        }
         for option in _control_options(control)
     ]
     context = {

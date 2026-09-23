@@ -182,6 +182,7 @@
     return options.map((option) => ({
       value: String(option.value ?? ""),
       label: String(option.label || option.textContent || "").trim(),
+      disabled: option.disabled === true || option.parentElement?.disabled === true,
     }));
   }
 

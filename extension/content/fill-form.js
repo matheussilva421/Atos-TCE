@@ -70,6 +70,7 @@
         value === proposedValue &&
         Boolean(value.trim() && label) &&
         option.disabled !== true &&
+        option.parentElement?.disabled !== true &&
         !/^selecion(?:e|ar)\b/u.test(normalizedLabel)
       );
     });

@@ -109,7 +109,8 @@ test("the option catalog of every select is read", () => {
     selects: {
       fundamento_legal: [
         { value: "", label: "Selecione uma fundamentação", selected: true },
-        { value: "41", label: "Art. 6º e art. 7º da Emenda Constitucional 41/2003" },
+        { value: "41", label: "Art. 6º e art. 7º da Emenda Constitucional 41/2003", disabled: true },
+        { value: "47", label: "Emenda Constitucional 47/2005" },
       ],
       genero: [{ value: "F", label: "Feminino" }],
     },
@@ -117,12 +118,14 @@ test("the option catalog of every select is read", () => {
 
   const form = reader.readForm(documentRef);
 
-  assert.equal(form.options.fundamento_legal.length, 2);
+  assert.equal(form.options.fundamento_legal.length, 3);
   assert.deepEqual(form.options.fundamento_legal[1], {
     value: "41",
     label: "Art. 6º e art. 7º da Emenda Constitucional 41/2003",
+    disabled: true,
   });
-  assert.equal(form.fields.fundamento_legal.options.length, 2);
+  assert.equal(form.options.fundamento_legal[2].disabled, false);
+  assert.equal(form.fields.fundamento_legal.options.length, 3);
   assert.equal(form.fields.genero.options[0].value, "F");
 });
 

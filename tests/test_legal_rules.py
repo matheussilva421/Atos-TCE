@@ -326,6 +326,29 @@ class FoundationBehaviourTests(unittest.TestCase):
         self.assertIn(decision["option_value"], selectable_values)
         self.assertEqual(len(selectable_values), 1)
 
+    def test_disabled_best_match_does_not_hide_an_enabled_catalog_option(self):
+        decision = legal.resolve_legal_foundation(
+            {
+                "resolution_status": "complete",
+                "operative_text": "RESOLVE: Art. 6º da Emenda Constitucional 41/2003",
+            },
+            [
+                {
+                    "value": "EC41",
+                    "label": "Art. 6º da Emenda Constitucional 41/2003",
+                    "disabled": True,
+                },
+                {
+                    "value": "EC47",
+                    "label": "Emenda Constitucional 47/2005",
+                    "disabled": False,
+                },
+            ],
+        )
+
+        self.assertEqual(decision["status"], "selected")
+        self.assertEqual(decision["option_value"], "EC47")
+
     def test_placeholder_only_catalog_does_not_produce_a_selection(self):
         decision = self.decide("v4_only_placeholder")
 
@@ -400,6 +423,23 @@ class SelectableLegalCatalogTests(unittest.TestCase):
         options = [{"value": "", "label": "Emenda Constitucional 41/2003"}]
 
         self.assertEqual(legal.selectable_legal_options(options), [])
+
+    def test_selectable_catalog_drops_disabled_dom_options(self):
+        options = [
+            {"value": "EC41", "label": "Emenda Constitucional 41/2003", "disabled": True},
+            {"value": "EC47", "label": "Emenda Constitucional 47/2005", "disabled": False},
+        ]
+
+        self.assertEqual(
+            legal.selectable_legal_options(options),
+            [
+                {
+                    "value": "EC47",
+                    "label": "Emenda Constitucional 47/2005",
+                    "index": 1,
+                }
+            ],
+        )
 
     def test_selectable_catalog_preserves_option_index_and_raw_value(self):
         options = [

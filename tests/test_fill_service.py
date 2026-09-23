@@ -856,6 +856,24 @@ class PreflightTests(unittest.TestCase):
         )
         self.assertEqual(plan.fields["fundamento_legal"], "41")
 
+    def test_legal_best_available_skips_a_disabled_best_match(self):
+        snapshot = form_snapshot(
+            fields={
+                "fundamento_legal": {
+                    "value": "",
+                    "options": [
+                        {"value": "41", "label": "EC 41/2003", "disabled": True},
+                        {"value": "47", "label": "EC 47/2005", "disabled": False},
+                    ],
+                }
+            }
+        )
+
+        plan = build_fill_plan(process_payload(), snapshot)
+
+        self.assertEqual(plan.legal_decision["option_value"], "47")
+        self.assertEqual(plan.fields["fundamento_legal"], "47")
+
     def test_an_ordinary_select_option_is_resolved_by_label_to_its_value(self):
         snapshot = form_snapshot(
             fields={
@@ -869,6 +887,24 @@ class PreflightTests(unittest.TestCase):
         plan = build_fill_plan(process_payload(), snapshot)
 
         self.assertEqual(plan.fields["modalidade"], "APOS")
+
+    def test_a_disabled_ordinary_select_option_is_reported_as_unavailable(self):
+        snapshot = form_snapshot(
+            fields={
+                "modalidade": {
+                    "value": "",
+                    "options": [
+                        {"value": "APOS", "label": "Aposentadoria voluntária", "disabled": True},
+                    ],
+                }
+            }
+        )
+
+        plan = build_fill_plan(process_payload(), snapshot)
+
+        self.assertNotIn("modalidade", plan.fields)
+        self.assertIn("cargo", plan.fields)
+        self.assertTrue(any("modalidade" in warning and "opção" in warning.lower() for warning in plan.warnings))
 
     def test_an_unavailable_ordinary_select_warns_without_stopping_other_fields(self):
         snapshot = form_snapshot(

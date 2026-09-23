@@ -118,7 +118,7 @@ def _read_form_result_problem(payload: Mapping[str, Any]) -> str | None:
 
 def _fill_result_problem(payload: Mapping[str, Any]) -> str | None:
     field_results = payload.get("field_results")
-    if not isinstance(field_results, Mapping) or not field_results:
+    if not isinstance(field_results, Mapping):
         return "field_results ausente no resultado do preenchimento"
     for name, entry in field_results.items():
         if not isinstance(entry, Mapping):
