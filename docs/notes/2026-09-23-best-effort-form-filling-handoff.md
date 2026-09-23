@@ -20,6 +20,7 @@
 - `STALE_GENERATION` permite exatamente uma nova leitura e planejamento com nova geração. Um segundo stale encerra a solicitação como `ERRO`; as duas tentativas mantêm o processo em `PRONTO` e o guard do content script escreve zero controles quando a geração já está stale.
 - Best-effort Task 7: o resultado FILL_FORM aceita sucesso parcial estruturado; `GET /api/v1/fill-requests/{id}` retorna o resumo persistido (`changed`, `preserved`, `unresolved`, `warnings`, `complete`) mantendo sessão Mesa e contrato de autenticação existentes.
 - Best-effort Task 8: a Mesa exibe contagens alteradas/preservadas/revisão, motivos por campo e instrução explícita de conclusão manual. O resumo é reaplicado após recarregar o detalhe; a ação permanece disponível quando o status documental é `PRONTO`, inclusive após resultado parcial/erro.
+- Best-effort Task 9: integração com o preflight real cobre proposta legal documental não literal, escolha de valor presente no catálogo, controle `matricula` ausente, campos independentes preenchíveis e processo `PRONTO` com resultado parcial. O router MV3 conserva no relato tanto o campo `changed` quanto o campo `disabled`.
 
 ## Testes
 
@@ -47,6 +48,9 @@
 - RED Task 8: as asserções de interface falharam por não haver contagens, motivos, renderização após refresh nem resumo acessível ao operador.
 - GREEN Task 8: `node --test app/web/tests/*.test.mjs` — 24 testes, 24 aprovados, 0 falhas; `python -m unittest tests.test_web_suite -v` — 2/2; `node --check app/web/app.js` passou.
 - Regressão após detalhar alertas por campo: `python -m unittest tests.test_fill_service -q` — 63/63 e teste parcial de API 1/1 aprovados; `git diff --check` passou.
+- GREEN Task 9: `python -m unittest tests.test_legal_rules tests.test_fill_service tests.test_api_server -q` — 183 testes, 183 aprovados, 0 falhas.
+- GREEN extensão de integração: `node --test extension/tests/detect-form.test.mjs extension/tests/fill-form.test.mjs extension/tests/router.test.mjs` — 79/79.
+- Guardas finais específicas: `node --test extension/tests/protocol.test.mjs` — 9/9; `python -m unittest tests.test_extension_parity -q` — 3/3; `git diff --check` passou.
 
 ## Arquivos
 
@@ -86,7 +90,6 @@
 
 ## Próxima retomada
 
-1. Prosseguir Task 9 (integração Python/extension com TDD).
-2. Executar integralmente os gates finais da Task 10, `verify-project.ps1`, `git diff --check` e revisão da branch contra SPEC + planos.
-3. Prosseguir Phase 0 em portal real: estabelecer Mesa/extensão atuais, comparar sequência/página de limite e observar fluxo de interessado/formulário/retorno/estabilidade. Não clicar no botão final `Complementar Ato`.
-4. A promoção e criação do branch de descoberta continuam limitadas pela impossibilidade de atualizar refs do GitHub; usar apenas os SHAs locais comprovados e registrar essa restrição.
+1. Executar integralmente os gates finais da Task 10, `verify-project.ps1`, `git diff --check` e revisão da branch contra SPEC + planos.
+2. Prosseguir PHASE 0 em portal real: estabelecer Mesa/extensão atuais, reconciliar a sequência/página de limite e observar fluxo de interessado/formulário/retorno/estabilidade. Não clicar no botão final `Complementar Ato`.
+3. A promoção e criação do branch de descoberta continuam limitadas pela impossibilidade de atualizar refs do GitHub; usar apenas os SHAs locais comprovados e registrar essa restrição.

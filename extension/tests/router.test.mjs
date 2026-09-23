@@ -114,15 +114,22 @@ test("a form that never appears fails instead of inventing a snapshot", async ()
   assert.match(result.error, /formulário/u);
 });
 
-test("a FILL_FORM command returns the verified per-field result", async () => {
+test("a FILL_FORM command returns changed and unresolved field results", async () => {
   const result = await executeCommand(
-    { id: 25, type: "FILL_FORM", payload: { identity: IDENTITY, generation: 4, fields: { cargo: "Professor" } } },
+    {
+      id: 25,
+      type: "FILL_FORM",
+      payload: { identity: IDENTITY, generation: 4, fields: { cargo: "Professor", matricula: "78.710-8/2" } },
+    },
     {
       fillForm: async () => ({
         ok: true,
         identity: IDENTITY,
         generation_after: 5,
-        field_results: { cargo: { before: "", proposed: "Professor", after: "Professor", status: "changed" } },
+        field_results: {
+          cargo: { before: "", proposed: "Professor", after: "Professor", status: "changed" },
+          matricula: { before: "", proposed: "78.710-8/2", after: "", status: "disabled" },
+        },
       }),
     }
   );
@@ -131,6 +138,7 @@ test("a FILL_FORM command returns the verified per-field result", async () => {
   assert.equal(result.ok, true);
   assert.equal(result.generation_after, 5);
   assert.equal(result.field_results.cargo.status, "changed");
+  assert.equal(result.field_results.matricula.status, "disabled");
 });
 
 test("a refused fill keeps its code", async () => {

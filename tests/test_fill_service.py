@@ -369,6 +369,64 @@ class BestEffortFillOutcomeTests(FillRequestTestCase):
         self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
         self.assertIn("cargo", {item["field"] for item in request["form_snapshot"]["summary"]["unresolved"]})
 
+    def test_real_preflight_and_fill_summary_keep_nonliteral_legal_and_missing_control_partial(self):
+        process_id = self.make_process()
+        process_values = dict(MANDATORY_VALUES)
+        process_values["fundamento_legal"] = (
+            "Aposentadoria voluntária com base no art. 7º da Emenda à Constituição Estadual 20/2020"
+        )
+        self.store.replace_fields(
+            process_id,
+            [
+                FieldRecord(field_name=name, value=value, status="found", confidence=1.0)
+                for name, value in process_values.items()
+            ],
+        )
+        service = FillService(self.store)
+        request_id = service.request_fill(process_id)
+        open_command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(open_command["id"], {**OPEN_RESULT, "identity": IDENTITY})
+        read_command = self.store.claim_extension_command("extension-test")
+        controls = form_controls()
+        del controls["matricula"]
+        controls["fundamento_legal"]["options"] = [
+            {"value": "41", "label": "Art. 6º e art. 7º da Emenda Constitucional 41/2003"},
+            {"value": "47", "label": "Art. 3º da Emenda Constitucional 47/2005"},
+        ]
+
+        service.handle_command_result(
+            read_command["id"],
+            {"ok": True, "identity": IDENTITY, "generation": 4, "fields": controls},
+        )
+
+        fill_command = self.store.claim_extension_command("extension-test")
+        planned = fill_command["payload"]["fields"]
+        self.assertEqual(fill_command["type"], "FILL_FORM")
+        self.assertEqual(planned["cargo"], "Professor")
+        self.assertIn(planned["fundamento_legal"], {"41", "47"})
+        self.assertIn(planned["fundamento_legal"], {item["value"] for item in controls["fundamento_legal"]["options"]})
+        self.assertNotEqual(planned["fundamento_legal"], process_values["fundamento_legal"])
+
+        service.handle_command_result(
+            fill_command["id"],
+            {
+                "ok": True,
+                "identity": IDENTITY,
+                "generation_after": 5,
+                "field_results": {
+                    name: self.field_result("changed", proposed=value)
+                    for name, value in planned.items()
+                },
+            },
+        )
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "PREENCHIDO")
+        self.assertIn(
+            "matricula", {item["field"] for item in request["form_snapshot"]["summary"]["unresolved"]}
+        )
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+
     def test_technical_fill_refusal_preserves_pronto_and_allows_retry(self):
         service, process_id, request_id, fill_command = self.begin_fill(dynamic_generation=True)
 
