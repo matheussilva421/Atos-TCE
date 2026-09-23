@@ -1,7 +1,7 @@
 # Handoff — Best-Effort + Legal v4
 
-**Data:** 2026-09-23  
-**Branch:** `codex/atos-tce-best-effort-v4`  
+**Data:** 2026-09-23
+**Branch:** `codex/atos-tce-best-effort-v4`
 **Base:** `b1d41e848c39cb61947b011501925c40f86793fb` (`origin/main` local tracking ref)
 
 ## Concluído
