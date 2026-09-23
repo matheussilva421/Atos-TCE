@@ -395,7 +395,7 @@ class ManualFallbackTests(FillRequestTestCase):
         self.assertEqual(self.store.get_fill_request(automatic_request)["state"], "FILLING")
         self.assertEqual(self.store.get_fill_request(manual_request)["mode"], "manual")
 
-    def test_the_manual_path_blocks_without_queuing_when_a_value_diverges(self):
+    def test_the_manual_path_queues_other_fields_and_preserves_a_divergent_value(self):
         self.ready_process()
         service = FillService(self.store)
 
@@ -404,20 +404,26 @@ class ManualFallbackTests(FillRequestTestCase):
         )
 
         request = self.store.get_fill_request(request_id)
-        self.assertEqual(request["state"], "BLOQUEADO")
-        self.assertIn("EXISTING_VALUE_DIVERGENCE", request["error"])
-        self.assertIsNone(self.store.claim_extension_command("extension-test"))
+        command = self.store.claim_extension_command("extension-test")
+        self.assertEqual(request["state"], "FILLING")
+        self.assertEqual(command["type"], "FILL_FORM")
+        self.assertEqual(command["payload"]["preserved"]["matricula"], "11.111-1/1")
+        self.assertTrue(
+            any("EXISTING_VALUE_DIVERGENCE" in warning for warning in request["form_snapshot"]["warnings"])
+        )
 
-    def test_a_snapshot_without_controls_blocks_instead_of_filling(self):
+    def test_a_snapshot_without_controls_queues_an_empty_plan_with_field_warnings(self):
         self.ready_process()
         service = FillService(self.store)
 
         request_id = service.request_manual_fill({"identity": dict(IDENTITY), "generation": 3})
 
         request = self.store.get_fill_request(request_id)
-        self.assertEqual(request["state"], "BLOQUEADO")
-        self.assertIn("CONTROL_NOT_FOUND", request["error"])
-        self.assertIsNone(self.store.claim_extension_command("extension-test"))
+        command = self.store.claim_extension_command("extension-test")
+        self.assertEqual(request["state"], "FILLING")
+        self.assertEqual(command["type"], "FILL_FORM")
+        self.assertEqual(command["payload"]["fields"], {})
+        self.assertTrue(any("CONTROL_NOT_FOUND" in warning for warning in request["form_snapshot"]["warnings"]))
 
 
 class SchemaV4Tests(FillRequestTestCase):
@@ -512,20 +518,30 @@ def form_controls(**overrides):
 
 class PreflightTests(unittest.TestCase):
     def test_exact_identity_and_empty_controls_produce_a_plan(self):
-        plan = build_fill_plan(process_payload(), form_snapshot())
+        snapshot = form_snapshot(
+            fields={
+                "fundamento_legal": {
+                    "value": "",
+                    "options": [
+                        {"value": "A", "label": "Art. 6º e art. 7º da Emenda Constitucional 41/2003"}
+                    ],
+                }
+            }
+        )
+        plan = build_fill_plan(process_payload(), snapshot)
 
         self.assertEqual(plan.generation, 3)
         self.assertEqual(plan.fields["cargo"], "Professor")
         self.assertEqual(plan.preserved, {})
-        self.assertEqual(plan.legal_decision["rules_version"], "legal-foundation-v3")
+        self.assertEqual(plan.legal_decision["rules_version"], "legal-foundation-v4")
         self.assertEqual(len(plan.fields), len(MANDATORY_VALUES))
 
-    def test_a_missing_mandatory_proposal_blocks_the_whole_fill(self):
-        with self.assertRaises(FillBlocked) as context:
-            build_fill_plan(process_payload(drop=("data_nascimento",)), form_snapshot())
+    def test_a_missing_mandatory_proposal_warns_and_keeps_other_fields(self):
+        plan = build_fill_plan(process_payload(drop=("data_nascimento",)), form_snapshot())
 
-        self.assertEqual(context.exception.code, "FIELD_PROPOSAL_MISSING")
-        self.assertEqual(context.exception.details, ["data_nascimento"])
+        self.assertIn("cargo", plan.fields)
+        self.assertNotIn("data_nascimento", plan.fields)
+        self.assertTrue(any("FIELD_PROPOSAL_MISSING" in warning and "data_nascimento" in warning for warning in plan.warnings))
 
     def test_a_missing_optional_proposal_is_only_a_warning(self):
         plan = build_fill_plan(process_payload(), form_snapshot())
@@ -541,29 +557,32 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(plan.preserved, {"cargo": "PROFESSOR"})
         self.assertNotIn("cargo", plan.fields)
 
-    def test_an_existing_divergent_value_blocks(self):
+    def test_an_existing_divergent_value_is_preserved_and_does_not_block(self):
         snapshot = form_snapshot(fields={"matricula": {"value": "11.111-1/1", "options": []}})
 
-        with self.assertRaises(FillBlocked) as context:
-            build_fill_plan(process_payload(), snapshot)
+        plan = build_fill_plan(process_payload(), snapshot)
 
-        self.assertEqual(context.exception.code, "EXISTING_VALUE_DIVERGENCE")
-        self.assertEqual(context.exception.details, ["matricula"])
+        self.assertEqual(plan.preserved["matricula"], "11.111-1/1")
+        self.assertIn("cargo", plan.fields)
+        self.assertTrue(any("EXISTING_VALUE_DIVERGENCE" in warning for warning in plan.warnings))
 
-    def test_a_select_proposal_absent_from_the_current_options_blocks(self):
+    def test_an_unavailable_ordinary_select_warns_and_keeps_other_fields(self):
+        process = process_payload()
+        process["fields"].append({"field_name": "genero", "value": "Não binário", "status": "found"})
         snapshot = form_snapshot(
             fields={
-                "fundamento_legal": {
+                "genero": {
                     "value": "",
-                    "options": [{"value": "X", "label": "Fundamentação antiga"}],
+                    "options": [{"value": "F", "label": "Feminino"}],
                 }
             }
         )
 
-        with self.assertRaises(FillBlocked) as context:
-            build_fill_plan(process_payload(), snapshot)
+        plan = build_fill_plan(process, snapshot)
 
-        self.assertEqual(context.exception.code, "OPTION_NOT_AVAILABLE")
+        self.assertNotIn("genero", plan.fields)
+        self.assertIn("cargo", plan.fields)
+        self.assertTrue(any("OPTION_NOT_AVAILABLE" in warning and "genero" in warning for warning in plan.warnings))
 
     def test_a_select_option_is_resolved_by_label_to_its_value(self):
         snapshot = form_snapshot(
@@ -581,13 +600,14 @@ class PreflightTests(unittest.TestCase):
 
         self.assertEqual(plan.fields["fundamento_legal"], "41")
 
-    def test_a_readonly_mandatory_control_blocks(self):
+    def test_a_readonly_mandatory_control_warns_and_keeps_other_fields(self):
         snapshot = form_snapshot(fields={"cargo": {"value": "", "readOnly": True, "options": []}})
 
-        with self.assertRaises(FillBlocked) as context:
-            build_fill_plan(process_payload(), snapshot)
+        plan = build_fill_plan(process_payload(), snapshot)
 
-        self.assertEqual(context.exception.code, "CONTROL_READONLY")
+        self.assertNotIn("cargo", plan.fields)
+        self.assertIn("matricula", plan.fields)
+        self.assertTrue(any("CONTROL_READONLY" in warning and "cargo" in warning for warning in plan.warnings))
 
     def test_a_disabled_optional_control_is_only_a_warning(self):
         snapshot = form_snapshot(fields={"genero": {"value": "", "disabled": True, "options": []}})
@@ -595,16 +615,17 @@ class PreflightTests(unittest.TestCase):
         plan = build_fill_plan(process_payload(), snapshot)
 
         self.assertNotIn("genero", plan.fields)
-        self.assertTrue(any("desabilitado" in warning for warning in plan.warnings))
+        self.assertTrue(any("CONTROL_DISABLED" in warning for warning in plan.warnings))
 
-    def test_a_missing_mandatory_control_blocks(self):
+    def test_a_missing_mandatory_control_warns_and_keeps_other_fields(self):
         snapshot = form_snapshot()
         del snapshot["fields"]["matricula"]
 
-        with self.assertRaises(FillBlocked) as context:
-            build_fill_plan(process_payload(), snapshot)
+        plan = build_fill_plan(process_payload(), snapshot)
 
-        self.assertEqual(context.exception.code, "CONTROL_NOT_FOUND")
+        self.assertNotIn("matricula", plan.fields)
+        self.assertIn("cargo", plan.fields)
+        self.assertTrue(any("CONTROL_NOT_FOUND" in warning and "matricula" in warning for warning in plan.warnings))
 
     def test_the_generation_is_required(self):
         for generation in (None, 0, -1, "3", 2.5):
@@ -649,6 +670,123 @@ class PreflightTests(unittest.TestCase):
         self.assertTrue(plan.legal_decision["automatic"])
         self.assertEqual(plan.fields["fundamento_legal"], "A")
 
+    def test_nonliteral_documentary_legal_text_is_resolved_against_the_catalog(self):
+        process = process_payload()
+        legal_proposal = next(field for field in process["fields"] if field["field_name"] == "fundamento_legal")
+        legal_proposal["value"] = (
+            "Aposentadoria voluntária com base no art. 7º da Emenda à Constituição Estadual 20/2020"
+        )
+        snapshot = form_snapshot(
+            fields={
+                "fundamento_legal": {
+                    "value": "",
+                    "options": [
+                        {"value": "41", "label": "Art. 6º e art. 7º da Emenda Constitucional 41/2003"},
+                        {"value": "47", "label": "Art. 3º da Emenda Constitucional 47/2005"},
+                    ],
+                }
+            }
+        )
+
+        plan = build_fill_plan(process, snapshot)
+
+        self.assertIn(plan.fields["fundamento_legal"], {"41", "47"})
+        self.assertEqual(plan.fields["fundamento_legal"], plan.legal_decision["option_value"])
+
+    def test_disabled_legal_options_are_not_passed_as_selectable(self):
+        process = process_payload()
+        seen = {}
+
+        def resolver(context, options):
+            seen["options"] = options
+            return {
+                "automatic": True,
+                "status": "selected",
+                "decision_state": "AUTO_SELECTED",
+                "option_value": "41",
+                "method": "best-available",
+            }
+
+        snapshot = form_snapshot(
+            fields={
+                "fundamento_legal": {
+                    "value": "",
+                    "options": [
+                        {"value": "41", "label": "EC 41/2003", "disabled": False},
+                        {"value": "47", "label": "EC 47/2005", "disabled": True},
+                    ],
+                }
+            }
+        )
+
+        plan = build_fill_plan(process, snapshot, legal_resolver=resolver)
+
+        self.assertTrue(seen["options"][1]["disabled"])
+        self.assertEqual(plan.fields["fundamento_legal"], "41")
+
+    def test_a_disabled_legal_control_is_not_added_to_the_write_plan(self):
+        snapshot = form_snapshot(
+            fields={
+                "fundamento_legal": {
+                    "value": "",
+                    "disabled": True,
+                    "options": [{"value": "41", "label": "EC 41/2003"}],
+                }
+            }
+        )
+
+        plan = build_fill_plan(process_payload(), snapshot)
+
+        self.assertNotIn("fundamento_legal", plan.fields)
+        self.assertIn("cargo", plan.fields)
+        self.assertTrue(any("CONTROL_DISABLED" in warning and "fundamento_legal" in warning for warning in plan.warnings))
+
+    def test_stale_legal_value_outside_the_current_catalog_is_skipped(self):
+        def resolver(context, options):
+            return {
+                "automatic": True,
+                "status": "selected",
+                "decision_state": "AUTO_SELECTED",
+                "option_value": "STALE",
+                "method": "best-available",
+            }
+
+        snapshot = form_snapshot(
+            fields={
+                "fundamento_legal": {
+                    "value": "",
+                    "options": [{"value": "41", "label": "EC 41/2003"}],
+                }
+            }
+        )
+
+        plan = build_fill_plan(process_payload(), snapshot, legal_resolver=resolver)
+
+        self.assertNotIn("fundamento_legal", plan.fields)
+        self.assertIn("cargo", plan.fields)
+        self.assertTrue(any("OPTION_NOT_AVAILABLE" in warning and "fundamento_legal" in warning for warning in plan.warnings))
+
+    def test_a_nonempty_legal_placeholder_is_treated_as_empty(self):
+        snapshot = form_snapshot(
+            fields={
+                "fundamento_legal": {
+                    "value": "0",
+                    "options": [
+                        {"value": "0", "label": "Selecione uma fundamentação"},
+                        {
+                            "value": "41",
+                            "label": "Art. 6º e art. 7º da Emenda Constitucional 41/2003",
+                        },
+                    ],
+                }
+            }
+        )
+
+        plan = build_fill_plan(process_payload(), snapshot)
+
+        self.assertEqual(plan.fields["fundamento_legal"], "41")
+        self.assertNotIn("EXISTING_VALUE_DIVERGENCE", " ".join(plan.warnings))
+
     def test_the_legal_engine_receives_the_current_form_options(self):
         seen = {}
 
@@ -676,7 +814,7 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(seen["options"][0]["value"], "41")
         self.assertEqual(seen["context"]["cargo"], "Professor")
         self.assertIn("Emenda Constitucional 41", seen["context"]["operative_text"])
-        self.assertTrue(any("sem decisão automática" in warning for warning in plan.warnings))
+        self.assertTrue(any("LEGAL_DECISION_UNAVAILABLE" in warning for warning in plan.warnings))
 
     def test_a_broken_legal_engine_degrades_to_a_warning(self):
         def resolver(context, options):

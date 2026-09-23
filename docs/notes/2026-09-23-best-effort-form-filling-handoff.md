@@ -12,6 +12,7 @@
 - O seletor desempata primeiro por ausência de hard conflict, score, correspondência estrutural, crosswalk, discriminadores, lexical e por último `option_index`. A SPEC manda desempatar por componentes antes do índice, mesmo que o plano não enumere essa sequência.
 - Oracles de decisão v3 seguem como histórico; os primitivos preservados continuam cobertos por paridade.
 - Snapshot da extensão passa a reportar `disabled` por opção, inclusive quando o `<optgroup>` pai está desabilitado. Isso fecha a informação DOM necessária para o catálogo selecionável; a alteração está testada e será agrupada no commit de leitura de formulário do plano.
+- Best-effort Task 3: `build_fill_plan()` agora bloqueia somente processo/identidade/generation, produz warnings de conteúdo por campo, preserva valores existentes divergentes e deixa campos independentes seguirem. `fundamento_legal` é resolvido antes de qualquer matching literal e validado contra as opções atuais selecionáveis.
 
 ## Testes
 
@@ -21,6 +22,10 @@
 - GREEN: o mesmo teste direcionado passou; `python -m unittest tests.test_legal_rules -v` — 33 testes, 33 aprovados, 0 falhas.
 - Snapshot DOM RED: `node --test extension/tests/detect-form.test.mjs` — 10/11 passaram; o novo teste falhou porque `disabled` não era reportado.
 - Snapshot DOM GREEN: `node --test extension/tests/detect-form.test.mjs` — 11 testes, 11 aprovados, 0 falhas.
+- RED: `python -m unittest tests.test_fill_service.PreflightTests -v` — 9 erros esperados nos contratos best-effort do preflight.
+- RED adicional: um teste provou que controle legal disabled ainda entrava no plano; após incluir a guarda, passou.
+- GREEN: `python -m unittest tests.test_fill_service.PreflightTests -v` — 21 testes, 21 aprovados, 0 falhas.
+- GREEN da tarefa: `python -m unittest tests.test_fill_service -v` — 56 testes, 56 aprovados, 0 falhas.
 
 ## Arquivos
 
@@ -31,6 +36,8 @@
 - `tests/oracles/legal/README.md`
 - `extension/content/detect-form.js`
 - `extension/tests/detect-form.test.mjs`
+- `app/area_restrita/preflight.py`
+- `tests/test_fill_service.py`
 - Este handoff.
 
 ## Git e ambiente
@@ -49,7 +56,7 @@
 
 ## Próxima retomada
 
-1. Iniciar Task 3 com RED de integração no `build_fill_plan()`: resolução legal antes do matcher literal, validação de catálogo selecionável atual e problemas de campo como warning.
-2. Prosseguir os Tasks 3–9 com TDD e commits por tarefa; manter request operacional separada do status documental.
+1. Iniciar Task 4 com RED de leitura de formulário com controles de conteúdo ausentes e manter anchors process+interessado obrigatórios.
+2. Prosseguir Tasks 5–9 com TDD: filler por campo, request x status, API, Mesa e integração; depois rodar gates amplos.
 3. Prosseguir Phase 0 em portal real: estabelecer Mesa/extensão atuais, comparar sequência/página de limite e observar fluxo de interessado/formulário/retorno/estabilidade. Não clicar no botão final `Complementar Ato`.
 4. A promoção e criação do branch de descoberta continuam limitadas pela impossibilidade de atualizar refs do GitHub; usar apenas os SHAs locais comprovados e registrar essa restrição.
