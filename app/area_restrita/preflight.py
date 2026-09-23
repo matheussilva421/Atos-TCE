@@ -1,9 +1,8 @@
-"""Fail-closed preflight for one act form.
+"""Identity-safe, best-effort preflight for one act form.
 
-The extension only reports what the DOM contains; the decision of what may be
-written — and whether anything may be written at all — belongs to the backend.
-Every mandatory field must pass before a single control is touched, because a
-partially filled act is worse than an untouched one.
+The extension only reports what the DOM contains; the backend confirms the
+target identity and plans each field independently. Content problems produce
+warnings for that field, while an unsafe or stale target blocks the request.
 """
 
 from __future__ import annotations
@@ -13,14 +12,22 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..analysis import MANDATORY_FIELDS, OPTIONAL_FIELDS
-from ..analysis.legal import RULES_VERSION, resolve_legal_foundation
+from ..analysis.legal import (
+    PLACEHOLDER_PATTERN,
+    RULES_VERSION,
+    is_automatic_legal_decision,
+    normalize_legal_text,
+    resolve_legal_foundation,
+    selectable_legal_options,
+)
 from ..core.identity import normalize_interested
 
 ALLOWED_FIELDS: tuple[str, ...] = MANDATORY_FIELDS + OPTIONAL_FIELDS
+SELECT_FIELDS = frozenset({"modalidade", "fundamento_legal"})
 
 
 class FillBlocked(RuntimeError):
-    """A preflight failure that must stop the fill with a machine code."""
+    """An unsafe process/form target or invalid request that must stop filling."""
 
     def __init__(self, code: str, details: Sequence[str] | None = None) -> None:
         self.code = code
@@ -47,6 +54,8 @@ def compare_text(value: Any) -> str:
 def _proposals(process: Mapping[str, Any]) -> dict[str, str]:
     proposals: dict[str, str] = {}
     for entry in process.get("fields") or []:
+        if not isinstance(entry, Mapping):
+            continue
         name = str(entry.get("field_name") or "")
         value = entry.get("value")
         if name in ALLOWED_FIELDS and entry.get("status") == "found" and value:
@@ -76,15 +85,38 @@ def _resolve_option_value(control: Mapping[str, Any], proposal: str) -> str | No
 
     options = _control_options(control)
     if not options:
-        return proposal
+        return None
+    selectable: list[tuple[str, str]] = []
     for option in options:
-        if str(option.get("value") or "") == proposal:
-            return proposal
+        raw_value = "" if option.get("value") is None else str(option.get("value"))
+        raw_label = "" if option.get("label") is None else str(option.get("label"))
+        if not raw_value.strip() or not raw_label.strip():
+            continue
+        if PLACEHOLDER_PATTERN.match(normalize_legal_text(raw_label).strip()):
+            continue
+        selectable.append((raw_value, raw_label))
+    for value, _ in selectable:
+        if value == proposal:
+            return value
     wanted = compare_text(proposal)
-    for option in options:
-        if compare_text(option.get("label")) == wanted:
-            return str(option.get("value") or "")
+    for value, label in selectable:
+        if compare_text(label) == wanted:
+            return value
     return None
+
+
+def _is_selected_placeholder(control: Mapping[str, Any], current: str) -> bool:
+    """Treat an explicitly selected select placeholder as an empty control."""
+
+    if not current:
+        return True
+    for option in _control_options(control):
+        value = "" if option.get("value") is None else str(option.get("value"))
+        if value != current:
+            continue
+        label = "" if option.get("label") is None else str(option.get("label"))
+        return bool(PLACEHOLDER_PATTERN.match(normalize_legal_text(label).strip()))
+    return False
 
 
 def build_fill_plan(
@@ -98,8 +130,10 @@ def build_fill_plan(
     if not isinstance(process, Mapping):
         raise FillBlocked("PROCESS_MISSING")
     snapshot = form_snapshot if isinstance(form_snapshot, Mapping) else {}
-    process_key = str(process.get("process_key") or "")
-    interested = str(process.get("interested_normalized") or "")
+    process_key = str(process.get("process_key") or "").strip()
+    interested = normalize_interested(process.get("interested_normalized") or "")
+    if not process_key or not interested:
+        raise FillBlocked("IDENTITY_MISSING")
 
     identity = snapshot.get("identity")
     if not isinstance(identity, Mapping):
@@ -108,6 +142,8 @@ def build_fill_plan(
     snapshot_interested = normalize_interested(
         identity.get("interestedNormalized") or identity.get("interested_normalized") or ""
     )
+    if not snapshot_key or not snapshot_interested:
+        raise FillBlocked("IDENTITY_MISSING")
     if snapshot_key != process_key or snapshot_interested != interested:
         raise FillBlocked("IDENTITY_MISMATCH")
 
@@ -115,49 +151,82 @@ def build_fill_plan(
     if not isinstance(generation, int) or isinstance(generation, bool) or generation < 1:
         raise FillBlocked("GENERATION_MISSING")
 
-    proposals = _proposals(process)
-    missing = [name for name in MANDATORY_FIELDS if name not in proposals]
-    if missing:
-        raise FillBlocked("FIELD_PROPOSAL_MISSING", missing)
-
     plan = FillPlan(identity=dict(identity), generation=generation)
+    proposals = _proposals(process)
+    legal_proposal = proposals.get("fundamento_legal")
+    if legal_proposal:
+        plan.legal_decision = _legal_decision(proposals, snapshot, legal_resolver, plan)
+        legal_control = _control(snapshot, "fundamento_legal")
+        legal_options = selectable_legal_options(
+            _control_options(legal_control) if legal_control is not None else []
+        )
+        if not legal_options and not any(
+            "LEGAL_OPTIONS_EMPTY" in str(warning) for warning in plan.warnings
+        ):
+            plan.warnings.append("fundamento_legal: LEGAL_OPTIONS_EMPTY - sem opção selecionável")
+        if plan.legal_decision:
+            diagnostics = plan.legal_decision.get("warnings") or []
+            if not isinstance(diagnostics, (list, tuple)):
+                diagnostics = [diagnostics]
+            for warning in diagnostics:
+                if isinstance(warning, str) and warning.strip():
+                    plan.warnings.append(f"fundamento_legal: {warning}")
+
+    legal_value: str | None = None
+    legal_decision = plan.legal_decision
+    if legal_proposal and legal_decision:
+        chosen = legal_decision.get("option_value")
+        selectable_values = {
+            option["value"]
+            for option in selectable_legal_options(
+                _control_options(_control(snapshot, "fundamento_legal") or {})
+            )
+        }
+        if chosen is not None and str(chosen) not in selectable_values:
+            plan.warnings.append("fundamento_legal: valor resolvido não pertence ao catálogo atual")
+        elif is_automatic_legal_decision(legal_decision):
+            legal_value = str(chosen)
+        else:
+            plan.warnings.append("fundamento_legal: sem decisão automática; campo mantido para revisão")
+
     for name in ALLOWED_FIELDS:
         proposal = proposals.get(name)
         control = _control(snapshot, name)
-        mandatory = name in MANDATORY_FIELDS
         if control is None:
-            if mandatory:
-                raise FillBlocked("CONTROL_NOT_FOUND", [name])
-            plan.warnings.append(f"controle opcional ausente no formulário: {name}")
+            plan.warnings.append(f"controle ausente no formulário: {name}")
             continue
         if control.get("disabled") is True or control.get("readOnly") is True:
-            if mandatory:
-                raise FillBlocked("CONTROL_READONLY", [name])
-            plan.warnings.append(f"controle opcional desabilitado: {name}")
+            plan.warnings.append(f"controle desabilitado ou somente leitura: {name}")
             continue
         if proposal is None:
-            plan.warnings.append(f"sem proposta para o campo opcional: {name}")
+            plan.warnings.append(f"sem proposta para o campo: {name}")
             continue
-        current = str(control.get("value") or "").strip()
-        if current:
-            if compare_text(current) == compare_text(proposal):
-                plan.preserved[name] = current
-                continue
-            raise FillBlocked("EXISTING_VALUE_DIVERGENCE", [name])
-        resolved = _resolve_option_value(control, proposal)
-        if resolved is None:
-            raise FillBlocked("OPTION_NOT_AVAILABLE", [name])
-        plan.fields[name] = resolved
 
-    plan.legal_decision = _legal_decision(proposals, snapshot, legal_resolver, plan)
-    if "fundamento_legal" in plan.fields and plan.legal_decision:
-        chosen = plan.legal_decision.get("option_value")
-        if plan.legal_decision.get("automatic") and chosen:
-            plan.fields["fundamento_legal"] = str(chosen)
-        elif not plan.legal_decision.get("automatic"):
-            plan.warnings.append(
-                "fundamento legal sem decisão automática; o texto localizado foi mantido para revisão"
-            )
+        raw_current = "" if control.get("value") is None else str(control.get("value"))
+        current = raw_current.strip()
+        if name in SELECT_FIELDS and _is_selected_placeholder(control, current):
+            current = ""
+        if current:
+            expected = legal_value if name == "fundamento_legal" else proposal
+            if expected is not None and compare_text(current) == compare_text(expected):
+                plan.preserved[name] = raw_current
+                continue
+            plan.preserved[name] = raw_current
+            plan.warnings.append(f"valor divergente existente preservado: {name}")
+            continue
+
+        if name == "fundamento_legal":
+            if legal_value is not None:
+                plan.fields[name] = legal_value
+            continue
+        if name in SELECT_FIELDS:
+            resolved = _resolve_option_value(control, proposal)
+            if resolved is None:
+                plan.warnings.append(f"opção indisponível no catálogo atual: {name}")
+                continue
+            plan.fields[name] = resolved
+            continue
+        plan.fields[name] = proposal
     return plan
 
 

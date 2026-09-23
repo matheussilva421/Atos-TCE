@@ -1420,6 +1420,9 @@ class FillOrchestrationTests(ApiTestCase):
             name: {"value": "", "disabled": False, "readOnly": False, "options": []}
             for name in list(FILL_FIELDS) + ["genero"]
         }
+        fields["modalidade"]["options"] = [
+            {"value": "M", "label": FILL_FIELDS["modalidade"]},
+        ]
         fields["fundamento_legal"]["options"] = [
             {"value": "A", "label": FILL_FIELDS["fundamento_legal"]},
             {"value": "B", "label": "Art. 3º da Emenda Constitucional 47/2005"},
@@ -1530,7 +1533,7 @@ class FillOrchestrationTests(ApiTestCase):
         self.assertIn("form_filled", events)
         self.assertIsNone(self.claim())
 
-    def test_an_existing_divergent_value_blocks_without_queuing_a_fill(self):
+    def test_an_existing_divergent_value_is_preserved_while_other_fields_are_queued(self):
         request_id = self.start_fill()
         open_command = self.claim()
         self.report(open_command["id"], self.open_result())
@@ -1544,10 +1547,12 @@ class FillOrchestrationTests(ApiTestCase):
         )
 
         request = self.fill_state(request_id)
-        self.assertEqual(request["state"], "BLOQUEADO")
-        self.assertIn("EXISTING_VALUE_DIVERGENCE", request["error"])
-        self.assertEqual(self.store.get_process(self.process_id)["status"], "BLOQUEADO")
-        self.assertIsNone(self.claim(), "a blocked preflight must not queue FILL_FORM")
+        self.assertEqual(request["state"], "FILLING")
+        self.assertEqual(self.store.get_process(self.process_id)["status"], "PRONTO")
+        fill_command = self.claim()
+        self.assertEqual(fill_command["type"], "FILL_FORM")
+        self.assertNotIn("matricula", fill_command["payload"]["fields"])
+        self.assertIn("cargo", fill_command["payload"]["fields"])
 
     def test_a_verification_failure_never_marks_the_act_as_filled(self):
         request_id = self.start_fill()

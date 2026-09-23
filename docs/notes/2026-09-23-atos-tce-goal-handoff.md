@@ -16,7 +16,7 @@ Data: 2026-09-23
 - `node --test app/web/tests/*.test.mjs`: 20 passaram, 0 falhas; houve aviso não bloqueante `MODULE_TYPELESS_PACKAGE_JSON`.
 - `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1`: 1258 verificações, 1256 passaram, 0 falhas, 2 skips. Todos os 7 estágios passaram. Logs temporários em `%TEMP%\tce-project-verification-7b4e29484dfb4e9fbc527902c3fb93ee`.
 - `git diff --check`: passou.
-- Observação de layout: o caminho `.erify-project.ps1` dos planos não existe neste repositório; usar o caminho acima, conforme `AGENTS.md`.
+- Observação de layout: o gate oficial deste checkout é `work/tce-extractor/verify-project.ps1`, conforme `AGENTS.md`.
 
 ## Task 1 do plano — catálogo selecionável
 
@@ -34,17 +34,27 @@ Data: 2026-09-23
 - O fixture com placeholder mostrou divergência preexistente: o oracle JS preserva `value=""`, mas `_option_parts()` Python o substituía pelo label. Corrigido para preservar o valor bruto e manter a paridade histórica.
 - GREEN: `python -m unittest tests.test_legal_rules -q` — 32 testes, 32 passaram, 0 falhas. `git diff --check` passou.
 
+## Task 3 do plano — preflight best-effort
+
+- RED confirmado ao substituir os contratos antigos de bloqueio global: proposta obrigatória ausente, controle ausente/read-only, divergência existente e opção legal não literal falharam pelos `FillBlocked`/matcher anteriores.
+- `build_fill_plan()` agora mantém hard blocks apenas para processo/formulário sem identidade suficiente, incompatibilidade de identidade e generation inválida. Proposta/controle ausente, disabled/read-only, divergência e opção comum indisponível viram warnings de campo e os demais campos permanecem no plano.
+- Valores divergentes são registrados em `preserved` sem reescrita. A modalidade usa apenas valor/label de opção real; valor vazio e placeholder não podem vencer. Fundamento legal passa primeiro pelo resolver v4, valida membership no catálogo selecionável e nunca cai no matcher literal genérico; catálogo placeholder-only deixa o campo pendente e mantém os demais.
+- RED adicional confirmou que o matcher comum aceitava um `<option>` com valor vazio por label; corrigido e coberto.
+- Atualizados testes de preflight, fallback manual e orquestração API para parcial best-effort. A identity ausente na origem também bloqueia explicitamente.
+- GREEN: `python -m unittest tests.test_fill_service -q` — 57 testes, 57 passaram; `python -m unittest tests.test_legal_rules -q` — 32/32; `python -m unittest tests.test_api_server -q` — 85/85. `git diff --check` passou.
+- Arquivos alterados: `app/area_restrita/preflight.py`, `tests/test_fill_service.py`, `tests/test_api_server.py`.
+
 ## Proteções e decisões
 
-- Os três arquivos fornecidos pelo usuário são a SPEC/plano canônico. Estão no checkout original e são ignorados pelo padrão `/*` do `.gitignore`; não foram copiados nem versionados.
+- Os anexos do goal são as fontes canônicas desta execução: design best-effort como SPEC e os dois documentos de implementação como planos obrigatórios. Foram lidos diretamente como entradas do usuário; não é necessário criar cópias no repositório.
 - O diff original de melhor-esforço foi inspecionado e não foi portado: parte dele permite escrita em formulário com identidade divergente e substitui valor real divergente, contradizendo a SPEC. Mantê-lo preservado no checkout original; implementar no branch limpo com TDD.
 - Não iniciar código de navegação até completar e registrar toda a PHASE 0 observada na Área Restrita real. A descoberta deve preceder qualquer implementação dessa função.
 - Ainda não foi feita validação real supervisionada nem login nesta sessão.
 
 ## Pendências e retomada
 
-1. Continuar os Tasks 3–9 (preflight best-effort, leitor, filler, state machine e UI) em `codex/best-effort-form-filling`, com RED antes de cada correção, identidade fail-closed e valores divergentes preservados.
-2. Fazer commits por tarefa conforme o plano e atualizar este handoff após cada bloco.
+1. Continuar Tasks 4–9 (leitor, filler, state machine e UI) em `codex/best-effort-form-filling`, com RED antes de cada correção, identidade fail-closed e valores divergentes preservados.
+2. Commitar Task 3 e atualizar este handoff após cada bloco seguinte.
 3. Criar branch de discovery a partir do `main` promovido; usar a sessão real da Área Restrita para concluir PHASE 0 e commitar somente a nota de discovery antes de qualquer código de navegação.
 4. A partir do commit de discovery, criar a branch de navegação; integrar nela os commits Best-Effort/v4 sem perder a ordem de base exigida pelos planos.
 5. Executar todas as suítes, `verify-project.ps1`, `git diff --check`, validações reais supervisionadas, revisão final e push das branches.
@@ -52,4 +62,4 @@ Data: 2026-09-23
 ## GitHub
 
 - `main`: promoção publicada e verificada em `b1d41e8`.
-- Branch de implementação: local em `.worktrees/atos-tce-baseline`; commits de feature ainda pendentes.
+- Branch de implementação: `.worktrees/atos-tce-baseline`, com Tasks 1–2 publicados em `origin/codex/best-effort-form-filling`; Task 3 validada e ainda sem commit.
