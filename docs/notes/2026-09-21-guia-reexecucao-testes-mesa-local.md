@@ -97,26 +97,37 @@ $chromeCandidates = @(
 $chrome = $chromeCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if (-not $chrome) { throw 'chrome.exe não encontrado' }
 $qaProfile = "$env:LOCALAPPDATA\AtosTCE\perfil-qa-20260921"
-$sessionUrl = 'COLE_AQUI_A_URL_COMPLETA_IMPRESSA_PELO_START.cmd'
+if (Test-Path -LiteralPath (Join-Path $qaProfile 'SingletonLock')) {
+    throw "Feche a janela Chrome QA que usa este perfil antes de iniciá-la com CDP: $qaProfile"
+}
 Start-Process -FilePath $chrome -ArgumentList @(
     '--remote-debugging-port=9222',
     "--user-data-dir=$qaProfile",
     '--no-first-run',
-    '--no-default-browser-check',
-    $sessionUrl
+    '--no-default-browser-check'
 )
+$portFile = Join-Path $qaProfile 'DevToolsActivePort'
+$deadline = (Get-Date).AddSeconds(15)
+while ((-not (Test-Path -LiteralPath $portFile)) -and ((Get-Date) -lt $deadline)) {
+    Start-Sleep -Milliseconds 250
+}
+if (-not (Test-Path -LiteralPath $portFile)) {
+    throw "Chrome QA não iniciou CDP. Confirme se a janela abriu: $qaProfile"
+}
+$port = Get-Content -LiteralPath $portFile -TotalCount 1
+Invoke-RestMethod -Uri "http://127.0.0.1:$port/json/version" -TimeoutSec 5 |
+    Select-Object Browser, 'Protocol-Version'
 ```
 
-Verifique que o Chrome QA respondeu ao CDP:
+O Chrome QA abre sem URL para que você cole nela a URL da Mesa/START.cmd na
+própria barra de endereço. Se o e-Contas pedir autenticação, faça login
+manualmente nessa janela. Para os gates M2/M3/M5, abra a Área Restrita e
+confirme manualmente o marcador antes de continuar. Não coloque senha, código
+ou token no terminal, script ou log.
 
-```powershell
-Invoke-RestMethod 'http://127.0.0.1:9222/json/version'
-Invoke-RestMethod 'http://127.0.0.1:9222/json/list'
-```
-
-Faça o login no portal manualmente nessa janela quando o gate M2/M3/M5 exigir
-uma sessão autenticada. Não coloque senha, código ou token em script, arquivo ou
-log.
+O comando acima deve mostrar `Browser` e `Protocol-Version`. Se a pasta de perfil
+estiver aberta sem CDP, feche apenas a janela que usa esse perfil e execute o
+bloco novamente; não rode o scanner antes de o teste responder.
 
 ## 5. Carregar a extensão atual
 

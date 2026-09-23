@@ -24,6 +24,25 @@ the known QA profile had no `DevToolsActivePort`, and the port recorded by the
 default Chrome profile did not answer locally. Therefore M2 real remains
 **pending**, with no conclusion about scan equality.
 
+## Follow-up attempt
+
+The user then ran the M2 commands while the target profile still had no
+`DevToolsActivePort`. The initial guard correctly stopped. The subsequent
+commands were entered anyway, so the scanner wrote its missing-port diagnostic
+to `area-cdp.json`; the comparer correctly rejected that text as non-JSON. This
+was not a portal scan or a comparison mismatch. The target profile directory
+contains its Chrome data and extension folder but had neither an active port
+file nor a profile lock at inspection time. The runbook now starts this profile
+with `--remote-debugging-port=9222`, waits for its endpoint, and opens without
+a URL so the user can paste the Mesa session URL in the address bar.
+
+The runbook's Chrome QA launch section was updated after this attempt: it now
+checks for an existing profile lock, launches the installed Chrome binary with
+the custom QA data directory and CDP port, waits up to 15 seconds for
+`DevToolsActivePort`, and verifies `/json/version` before scanning. The user
+should stop if any guard fails; the CDP scan and comparison must not be run
+after an earlier `throw`.
+
 ## Changes
 
 - `scripts/scan-area-cdp.ps1`: resolve the default repository root in the script
@@ -36,7 +55,8 @@ default Chrome profile did not answer locally. Therefore M2 real remains
 - `tests/test_compare_area_scans.py`: regression test reads a PowerShell-style
   UTF-16 JSON file.
 - `docs/notes/2026-09-21-guia-reexecucao-testes-mesa-local.md`: fail fast when
-  the QA profile is not attached to CDP and when the scan command fails.
+  the QA profile is not attached to CDP or the scan command fails; start the QA
+  profile with CDP and verify its endpoint before scanning.
 
 ## Validation
 
@@ -49,6 +69,8 @@ default Chrome profile did not answer locally. Therefore M2 real remains
 - `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass
   -File .\work\tce-extractor\verify-project.ps1`: 1,258 executed, 1,256
   passed, 0 failed, 2 skipped; all seven stages passed.
+- The official gate was rerun after the Chrome QA launch instructions changed:
+  same result, all seven stages passed.
 - `git diff --check`: passed in the official gate.
 - The live comparison was attempted against the failed output file and correctly
   stopped with a JSON parse error. No portal scan was performed in this run.
@@ -82,8 +104,9 @@ completed). Keep the portal marker human-selected.
 
 ## GitHub and remaining work
 
-Commit `fe95da8` (`fix: repair M2 CDP scan comparison`) is pushed to
-`origin/codex/mesa-local-refactor`. Only the six M2 implementation, test, and
-documentation files were committed. The pre-existing untracked
-`work/tce-extractor/.codex-live-pilot.py` remains untouched. M2 remains pending
-the live QA scan and comparison.
+Commits `fe95da8` (`fix: repair M2 CDP scan comparison`) and `61719fc`
+(`docs: record M2 CDP handoff status`) are pushed to
+`origin/codex/mesa-local-refactor`. The follow-up Chrome QA launch instructions
+and this note's update are pending their documentation commit. The pre-existing
+untracked `work/tce-extractor/.codex-live-pilot.py` remains untouched. M2
+remains pending the live QA scan and comparison.
