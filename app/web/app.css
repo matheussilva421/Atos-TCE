@@ -514,6 +514,30 @@ button.ghost {
   cursor: default;
 }
 
+.fill-status {
+  flex: 1 1 100%;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.fill-status p {
+  margin: 4px 0;
+}
+
+.fill-summary-title {
+  font-weight: 600;
+}
+
+.fill-summary-manual {
+  color: var(--ink-soft);
+}
+
+.fill-warnings {
+  margin: 6px 0 4px;
+  padding-left: 20px;
+  color: var(--error);
+}
+
 .acquisition {
   margin: 14px 0 4px;
 }

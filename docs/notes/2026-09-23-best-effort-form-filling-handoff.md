@@ -19,6 +19,7 @@
 - Best-effort Task 6: a solicitação de preenchimento termina `PREENCHIDO` com resumo mesmo se parcial; o processo só passa de `PRONTO` a `PREENCHIDO` se os seis campos obrigatórios estiverem satisfeitos. Estado de solicitação `ERRO`/`BLOQUEADO` gera evento sem alterar a classificação documental do processo.
 - `STALE_GENERATION` permite exatamente uma nova leitura e planejamento com nova geração. Um segundo stale encerra a solicitação como `ERRO`; as duas tentativas mantêm o processo em `PRONTO` e o guard do content script escreve zero controles quando a geração já está stale.
 - Best-effort Task 7: o resultado FILL_FORM aceita sucesso parcial estruturado; `GET /api/v1/fill-requests/{id}` retorna o resumo persistido (`changed`, `preserved`, `unresolved`, `warnings`, `complete`) mantendo sessão Mesa e contrato de autenticação existentes.
+- Best-effort Task 8: a Mesa exibe contagens alteradas/preservadas/revisão, motivos por campo e instrução explícita de conclusão manual. O resumo é reaplicado após recarregar o detalhe; a ação permanece disponível quando o status documental é `PRONTO`, inclusive após resultado parcial/erro.
 
 ## Testes
 
@@ -43,6 +44,9 @@
 - RED Task 7: novo teste de API avançou pelo fluxo parcial e falhou apenas porque o GET não expunha `summary`.
 - GREEN Task 7: `python -m unittest tests.test_api_server.FillOrchestrationTests.test_an_existing_divergent_value_is_preserved_while_other_fields_fill tests.test_api_server.FillOrchestrationTests.test_a_field_that_rereads_differently_remains_a_review_item tests.test_api_server.FillOrchestrationTests.test_partial_field_results_are_accepted_summarized_and_retryable -v` — 3/3.
 - GREEN da suíte: `python -m unittest tests.test_api_server -q` — 86 testes, 86 aprovados, 0 falhas.
+- RED Task 8: as asserções de interface falharam por não haver contagens, motivos, renderização após refresh nem resumo acessível ao operador.
+- GREEN Task 8: `node --test app/web/tests/*.test.mjs` — 24 testes, 24 aprovados, 0 falhas; `python -m unittest tests.test_web_suite -v` — 2/2; `node --check app/web/app.js` passou.
+- Regressão após detalhar alertas por campo: `python -m unittest tests.test_fill_service -q` — 63/63 e teste parcial de API 1/1 aprovados; `git diff --check` passou.
 
 ## Arquivos
 
@@ -61,6 +65,9 @@
 - `app/area_restrita/fill_service.py`
 - `app/api/server.py`
 - `tests/test_api_server.py`
+- `app/web/app.js`
+- `app/web/app.css`
+- `app/web/tests/ui-wiring.test.mjs`
 - Este handoff.
 
 ## Git e ambiente
@@ -79,7 +86,7 @@
 
 ## Próxima retomada
 
-1. Prosseguir Task 8 (resultado parcial e retry na Mesa) e Task 9 (integração Python/extension com TDD).
+1. Prosseguir Task 9 (integração Python/extension com TDD).
 2. Executar integralmente os gates finais da Task 10, `verify-project.ps1`, `git diff --check` e revisão da branch contra SPEC + planos.
 3. Prosseguir Phase 0 em portal real: estabelecer Mesa/extensão atuais, comparar sequência/página de limite e observar fluxo de interessado/formulário/retorno/estabilidade. Não clicar no botão final `Complementar Ato`.
 4. A promoção e criação do branch de descoberta continuam limitadas pela impossibilidade de atualizar refs do GitHub; usar apenas os SHAs locais comprovados e registrar essa restrição.

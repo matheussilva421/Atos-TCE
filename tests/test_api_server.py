@@ -1567,6 +1567,9 @@ class FillOrchestrationTests(ApiTestCase):
         self.assertIn(
             "matricula", {item["field"] for item in request["summary"]["unresolved"]}
         )
+        self.assertTrue(
+            any(item["field"] == "matricula" for item in request["summary"]["field_warnings"])
+        )
         self.assertEqual(self.store.get_process(self.process_id)["status"], "PRONTO")
         retry_id = self.start_fill()
         self.assertGreater(retry_id, request_id)

@@ -63,27 +63,85 @@ async function loadPdfjs() {
     ERRO: "O preenchimento falhou.",
   };
 
+  function renderFillSummary(status, request) {
+    const summary = request.summary || {};
+    const changed = Array.isArray(summary.changed) ? summary.changed.length : 0;
+    const preserved = Array.isArray(summary.preserved) ? summary.preserved.length : 0;
+    const unresolved = Array.isArray(summary.unresolved) ? summary.unresolved.length : 0;
+    const count = (value, singular, plural) => `${numberFormat.format(value)} ${value === 1 ? singular : plural}`;
+    const fieldWarnings = Array.isArray(summary.field_warnings) ? summary.field_warnings : [];
+    const fieldWarningTexts = new Set(
+      fieldWarnings.map((item) => `${item.field}: ${item.warning || item.status}`.toLowerCase())
+    );
+    const generalWarnings = (Array.isArray(summary.warnings) ? summary.warnings : []).filter(
+      (warning) => !fieldWarningTexts.has(String(warning).toLowerCase())
+    );
+    const warningItems = [
+      ...fieldWarnings.map((item) =>
+        `${FIELD_LABELS[item.field] || item.field}: ${item.warning || item.status}`
+      ),
+      ...generalWarnings,
+    ];
+    status.replaceChildren(
+      element("p", {
+        className: "fill-summary-title",
+        text: `Ato preenchido${summary.complete ? "" : " parcialmente"} — ${count(changed, "alterado", "alterados")}, ${count(preserved, "preservado", "preservados")}, ${count(unresolved, "para revisar", "para revisar")}.`,
+      }),
+      element("p", {
+        className: "muted fill-summary-manual",
+        text: "Confira o formulário e conclua manualmente no portal.",
+      }),
+      warningItems.length
+        ? element("ul", { className: "fill-warnings" },
+            [...new Set(warningItems)].map((warning) => element("li", { text: warning }))
+          )
+        : null
+    );
+  }
+
+  function renderFillStatus(status, request) {
+    if (request.summary && typeof request.summary === "object") {
+      renderFillSummary(status, request);
+      return;
+    }
+    status.textContent = FILL_STATE_LABELS[request.state] || request.state;
+    if (request.error) status.textContent += ` (${request.error})`;
+  }
+
   async function startFill() {
     const button = document.getElementById("fill-act");
     const status = document.getElementById("fill-status");
     if (!state.selectedId || !button || !status) return;
+    const processId = state.selectedId;
+    let lastRequest = null;
+    let timedOut = false;
     button.disabled = true;
     status.textContent = "Solicitando o preenchimento…";
     try {
-      const created = await postJson(`/api/v1/processes/${state.selectedId}/fill`, {});
+      const created = await postJson(`/api/v1/processes/${processId}/fill`, {});
       const deadline = Date.now() + 300000;
       for (;;) {
         await sleep(1000);
         const request = await getJson(`/api/v1/fill-requests/${created.fill_request_id}`);
-        status.textContent = FILL_STATE_LABELS[request.state] || request.state;
-        if (request.error) status.textContent += ` (${request.error})`;
+        lastRequest = request;
+        renderFillStatus(status, request);
         if (["PREENCHIDO", "BLOQUEADO", "ERRO"].includes(request.state)) break;
         if (Date.now() > deadline) {
           status.textContent = "O preenchimento não respondeu a tempo. Verifique a extensão.";
+          timedOut = true;
           break;
         }
       }
-      await selectProcess(state.selectedId);
+      if (state.selectedId === processId) {
+        await selectProcess(processId);
+        if (state.selectedId === processId) {
+          const refreshedStatus = document.getElementById("fill-status");
+          if (lastRequest && refreshedStatus) renderFillStatus(refreshedStatus, lastRequest);
+          else if (timedOut && refreshedStatus) {
+            refreshedStatus.textContent = "O preenchimento não respondeu a tempo. Verifique a extensão.";
+          }
+        }
+      }
     } catch (error) {
       status.textContent = `Não foi possível preencher: ${error.message}`;
     } finally {
@@ -672,7 +730,7 @@ async function loadPdfjs() {
         text: "Preencher ato",
         attrs: { type: "button", id: "fill-act" },
       }),
-      element("span", { className: "muted", attrs: { id: "fill-status" } }),
+      element("div", { className: "fill-status", attrs: { id: "fill-status" } }),
     ]);
     if (process.status !== "PRONTO") {
       panel.hidden = true;

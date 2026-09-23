@@ -76,6 +76,7 @@ def summarize_field_results(
     preserved: list[str] = []
     unresolved: list[dict[str, str]] = []
     warnings: list[str] = []
+    field_warnings: list[dict[str, str]] = []
     normalized = dict(field_results)
     for name in mandatory_fields:
         normalized.setdefault(name, {"status": "missing_proposal"})
@@ -84,23 +85,24 @@ def summarize_field_results(
         entry = raw_entry if isinstance(raw_entry, Mapping) else {}
         status = str(entry.get("status") or "invalid")
         warning = str(entry.get("warning") or entry.get("error") or "")
-        if warning and warning not in warnings:
-            warnings.append(warning)
         if status == "changed" and entry.get("after") == entry.get("proposed"):
             changed.append(str(name))
             continue
         if status == "preserved" and not warning:
             preserved.append(str(name))
             continue
+        if not warning and status not in {"changed", "preserved"}:
+            warning = status
+        if warning:
+            field_warning = {"field": str(name), "status": status, "warning": warning}
+            field_warnings.append(field_warning)
+            warning_text = f"{name}: {warning}"
+            if warning_text not in warnings:
+                warnings.append(warning_text)
         if str(name) in mandatory_fields:
             unresolved.append(
                 {"field": str(name), "status": status, "warning": warning or status}
             )
-        elif status not in {"changed", "preserved"}:
-            if not warning:
-                warning = status
-            if warning not in warnings:
-                warnings.append(warning)
 
     return {
         "complete": not unresolved,
@@ -108,6 +110,7 @@ def summarize_field_results(
         "preserved": preserved,
         "unresolved": unresolved,
         "warnings": warnings,
+        "field_warnings": field_warnings,
     }
 
 
