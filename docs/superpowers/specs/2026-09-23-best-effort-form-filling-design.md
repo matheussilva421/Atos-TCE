@@ -294,6 +294,119 @@ Warnings precisam ser visíveis no detalhe da tentativa/processo.
 
 A Mesa não deve ocultar o botão apenas porque uma tentativa anterior terminou com warning/erro operacional.
 
+## 12. Navegação rápida — próximo processo
+
+Além do preenchimento best-effort, o fluxo deve permitir avançar rapidamente para o próximo processo elegível pela **Mesa** e pelo **side panel da extensão**, usando uma ação visual simples de seta/“Próximo”.
+
+Objetivo operacional:
+
+> Depois de revisar ou concluir manualmente um ato, o operador clica uma vez em “Próximo”. A extensão reutiliza a Área Restrita já autenticada e aberta, mantém o contexto do marcador atual, navega até o próximo processo elegível, seleciona o interessado correto quando houver essa etapa e deixa o formulário do ato aberto e identificado, pronto para preencher/revisar.
+
+### 12.1. Descoberta obrigatória antes da implementação
+
+Essa função **não deve ser implementada a partir de suposições sobre o portal**.
+
+O plano de implementação deve começar com uma fase própria de análise da Área Restrita, antes de qualquer código funcional de “Próximo processo”.
+
+A fase deve mapear, no portal real:
+
+- telas e frames envolvidos na volta do formulário para a lista;
+- se o portal reutiliza frame, abre sibling frame/tab ou recria documentos;
+- como o marcador atual é representado e preservado;
+- se voltar da tela do formulário mantém o marcador selecionado;
+- como a lista é ordenada;
+- como identificar inequivocamente o processo atual e o seguinte;
+- comportamento ao chegar ao fim da página;
+- comportamento ao chegar ao fim do marcador;
+- paginação e latência entre cliques;
+- etapa de seleção do interessado e comportamento dos radios;
+- existência de controles nativos de voltar/avançar que possam ser reutilizados;
+- mudanças de URL, DOM e generation durante a navegação;
+- o que ocorre quando o processo seguinte não está mais disponível ou mudou de estado.
+
+Saída obrigatória dessa fase:
+
+1. um handoff/nota curta documentando o fluxo real observado;
+2. seletores/sentinelas confiáveis e invariantes de navegação;
+3. diagrama ou sequência textual `form -> list/interested -> next form`;
+4. casos de erro/ambiguidade encontrados;
+5. decisão sobre qual mecanismo de navegação é o mais rápido e menos frágil;
+6. testes/fixtures necessários para reproduzir o comportamento observado.
+
+**Gate:** nenhuma implementação de “Próximo processo” começa antes dessa análise estar concluída e registrada.
+
+### 12.2. Regra de “próximo”
+
+A escolha do próximo processo deve permanecer propriedade da Mesa, não da extensão.
+
+A extensão não deve escolher “o próximo que aparecer no DOM”. Ela recebe uma identidade explícita e apenas navega até ela.
+
+Como regra inicial de design, “próximo” significa o próximo processo **documentalmente elegível para preenchimento** dentro do contexto atual da Área Restrita/último snapshot válido do marcador, preservando a ordenação observada no portal. A fase de descoberta deve confirmar se essa ordenação é estável e suficiente; se não for, a spec deve ser ajustada antes da implementação.
+
+### 12.3. Fluxo esperado
+
+```text
+ato atual aberto
+  -> operador conclui/revisa manualmente
+  -> clica "Próximo" na Mesa OU na extensão
+  -> Mesa resolve a identidade do próximo processo elegível
+  -> extensão reutiliza a aba autenticada da Área Restrita
+  -> volta/navega para o contexto do marcador atual
+  -> localiza o processo exato
+  -> abre o ato
+  -> seleciona o interessado exato, se houver etapa intermediária
+  -> confirma identidade do formulário
+  -> deixa o formulário aberto, pronto para preencher
+```
+
+A primeira versão **não deve preencher automaticamente ao clicar em Próximo**. O objetivo é navegação rápida e previsível. O preenchimento continua sendo uma ação separada, evitando que um clique de navegação também altere campos sem intenção explícita.
+
+### 12.4. UX
+
+A ação deve existir nos dois pontos de trabalho:
+
+- Mesa: botão/seta “Próximo processo” próximo aos controles do processo/preenchimento;
+- extensão: botão/seta equivalente no side panel.
+
+Requisitos de fluidez:
+
+- um clique;
+- sem abrir nova Mesa;
+- reutilizar a aba autenticada existente;
+- evitar reloads completos quando o portal permitir;
+- foco na aba/formulário de destino ao terminar;
+- feedback curto: “Abrindo próximo…”, “Interessado selecionado…”, “Formulário pronto”;
+- desabilitar/mostrar “Fim da fila” quando não existir próximo elegível.
+
+### 12.5. Segurança
+
+Mesmo sendo uma ação rápida:
+
+- a Mesa envia a identidade exata do alvo;
+- a extensão nunca decide por posição visual;
+- seleção do interessado exige match exato de identidade;
+- formulário final deve ser relido e confirmado;
+- se houver ambiguidade, não avançar por tentativa;
+- mudança de marcador/contexto durante a navegação exige nova leitura;
+- nenhuma capacidade de submit/finalização automática é adicionada.
+
+### 12.6. Testes mínimos
+
+Após a fase de descoberta, cobrir:
+
+- próximo na mesma página;
+- próximo em página seguinte;
+- próximo exigindo seleção de interessado;
+- formulário atual já sendo o próximo alvo;
+- fim da fila;
+- marcador/contexto alterado;
+- identidade divergente;
+- processo alvo desaparecido;
+- mais de um frame candidato;
+- latência/navegação intermediária sem clicar duas vezes;
+- ação disparada pela Mesa;
+- ação disparada pelo side panel.
+
 ## 12. Observabilidade
 
 O relatório deve permitir descobrir por que um campo não foi escrito sem transformar isso em bloqueio global.
