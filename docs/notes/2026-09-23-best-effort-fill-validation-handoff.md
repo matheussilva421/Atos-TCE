@@ -6,7 +6,8 @@
 
 - Branch: `codex/best-effort-form-filling`
 - SHA: `c13677815dcb0d164f3182ce06681d00ea0e8c19`
-- Os dois commits finais de correção neste bloco são `576904d` e `c136778`.
+- Correções: `576904d`; teste de optgroup disabled: `c136778`.
+- Commit de teste-only posterior: `dd39d80`, que também verifica warning por campo e novo pedido retryable após resultado vazio. API suite rerun: 87/87. Nenhum código de produção mudou após `c136778`.
 
 ## Gates automatizados
 
@@ -29,7 +30,7 @@ O verificador oficial cobriu extensão, web, Python portátil, PowerShell, pacot
 
 ## Validação real supervisionada — pendente
 
-Nenhum caso real foi executado ainda. Não havia aba da Área Restrita aberta na sessão Chrome observada. Não substituir evidência real por fixtures ou pelos gates locais.
+Nenhum caso real foi executado ainda. A guia da Área Restrita foi aberta para preparar o handoff, mas o Chrome respondeu `ERR_BLOCKED_BY_CLIENT`; nenhuma sessão autenticada ou caso real foi observado. Não substituir evidência real por fixtures ou pelos gates locais.
 
 | Caso obrigatório | Identidade / texto documental / opções DOM / candidatos / escolha / confiança e margem / conflito / campos alterados-preservados-pendentes / releitura / status |
 |---|---|
@@ -43,9 +44,9 @@ Também falta o caso operacional supervisionado: uma falha isolada de campo não
 
 ## Continuação exata
 
-1. No Chrome do perfil `Matheus`, abrir e autenticar manualmente em `https://novaarearestrita.tce.rn.gov.br` (não compartilhar credenciais com a automação), abrir a lista normal da Área Restrita, selecionar o marcador dinâmico normalmente usado e deixar a lista visível.
+1. Resolver o bloqueio do Chrome para o domínio oficial no ambiente normal do operador; não contornar aviso ou política do navegador. Depois, no Chrome do perfil `Matheus`, autenticar manualmente em `https://novaarearestrita.tce.rn.gov.br` (não compartilhar credenciais com a automação), abrir a lista normal da Área Restrita, selecionar o marcador dinâmico normalmente usado e deixar a lista visível.
 2. Avisar quando estiver pronto. Continuar os cinco casos Best-Effort sem clicar em **Complementar Ato**.
-3. Em seguida, na branch de discovery baseada no `main` promovido, executar integralmente a PHASE 0 do plano de navegação, registrar frames, retorno, marcador, lista/paginação, interessado, ordem do scan e latências. Nenhum código de navegação antes de a nota ser completa e commitada.
+3. A branch/worktree local `codex/next-process-navigation-discovery`, criada de `origin/main` em `b1d41e8`, está pronta para discovery. Nela, executar integralmente a PHASE 0 do plano, registrar frames, retorno, marcador, lista/paginação, interessado, ordem do scan e latências. Nenhum código de navegação antes de a nota ser completa e commitada.
 4. A PHASE 0 solicita observar o resultado de **Complementar Ato** manual. Não automatizar esse clique; se esse passo for necessário para fechar a evidência, parar no formulário revisado para o operador executar manualmente e depois continuar a observação.
 
 ## Segurança

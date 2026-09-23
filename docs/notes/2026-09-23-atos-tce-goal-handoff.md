@@ -122,7 +122,7 @@ Data: 2026-09-23
 ## GitHub
 
 - `main`: promoção publicada e verificada em `b1d41e8`.
-- Branch de implementação: `.worktrees/atos-tce-baseline`, Tasks 1–9 publicadas em `origin/codex/best-effort-form-filling` até `02e4a31`; commits locais adicionais `576904d` e `c136778` corrigem o filtro de opções DOM desabilitadas e o resultado vazio de preenchimento parcial. Push desses dois commits e das notas recém-criadas ainda pendente.
+- Branch de implementação: `.worktrees/atos-tce-baseline`, Tasks 1–9 e correções de revisão publicadas em `origin/codex/best-effort-form-filling` até `cc903c6` (inclui `576904d`, `c136778` e o handoff Task 10). Commit de teste-only `dd39d80` e atualizações deste handoff aguardam push.
 
 ## Task 10 Best-Effort — gates locais concluídos, validação real pendente
 
@@ -133,10 +133,13 @@ Data: 2026-09-23
 - `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1`: 1.258 executados, 1.256 passaram, 0 falhas, 2 skips; todas as etapas verdes.
 - `git diff --check`: passou. O caminho real do verificador no checkout é `work/tce-extractor/verify-project.ps1`; a forma `./verify-project.ps1` do plano não existe neste layout.
 - Criado `docs/notes/2026-09-23-best-effort-fill-validation-handoff.md`, com matriz dos cinco casos legais reais e do caso de falha isolada ainda pendentes. Nenhum acesso autenticado à Área Restrita foi observado; nada foi classificado como validação real.
+- Chrome profile `Matheus` bloqueou `https://novaarearestrita.tce.rn.gov.br` com `ERR_BLOCKED_BY_CLIENT`; nenhum bypass nem mudança de configuração foi tentado.
+- Worktree local `C:\Users\slvma\Downloads\Github\Atos-TCE\.worktrees\atos-tce-navigation-discovery` e branch `codex/next-process-navigation-discovery` foram criados a partir de `origin/main` (`b1d41e8`). Nenhuma nota de discovery ou alteração de navegação foi feita ainda.
+- Reforço do teste de resultado vazio (warning de campo opcional + nova fill request após o primeiro partial): `python -m unittest discover -s tests -p 'test_api_server.py' -q` — 87/87; nenhuma alteração de produção após o gate completo no SHA `c136778`.
 
 ## Retomada a partir do próximo ponto
 
-1. Publicar os commits `576904d` e `c136778` junto das notas deste handoff.
-2. Abrir no Chrome do perfil `Matheus` a Área Restrita autenticada, escolher o marcador dinâmico usado no fluxo normal e deixar a lista visível. Depois concluir os cinco casos Best-Effort sem clicar **Complementar Ato**.
-3. Executar a PHASE 0 integral em branch de discovery derivada do `main` promovido. Registrar evidência real e commitar somente a nota antes de escrever código de navegação.
+1. No ambiente normal do operador, resolver o bloqueio do Chrome para o domínio oficial sem contornar avisos/políticas; depois autenticar manualmente, selecionar o marcador dinâmico e deixar a lista visível.
+2. Concluir os cinco casos Best-Effort e o caso operacional supervisionado sem clicar **Complementar Ato**.
+3. Na worktree de discovery preparada a partir de `main`, executar a PHASE 0 integral; registrar evidência real e commitar somente a nota antes de escrever código de navegação.
 4. Produzir a branch de navegação a partir do commit de discovery, integrar os commits Best-Effort/v4 e só então implementar a ação “Próximo”; ela apenas navega e mantém o clique final manual.
