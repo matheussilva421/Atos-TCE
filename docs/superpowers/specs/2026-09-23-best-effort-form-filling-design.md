@@ -43,8 +43,10 @@ Esses continuam sendo **hard block**:
 - ausência de identidade suficiente para vincular o formulário ao processo;
 - mais de um formulário candidato sem critério seguro para escolher;
 - troca de identidade entre leitura e escrita;
-- stale generation que não possa ser recuperada por releitura/replanejamento;
+- stale generation interrompe a escrita daquela tentativa; o serviço deve fazer **uma** releitura/replanejamento automático antes de encerrar a fill request como erro técnico;
 - comando pertencente a requisição diferente/stale/foreign.
+
+Esses casos são "hard stop" para escrita, mas nem todos significam que o **processo** deve virar `BLOQUEADO`. `BLOQUEADO` fica reservado a identidade/alvo ambíguo ou incompatível; falha técnica/race de geração termina a fill request sem reclassificar o processo documental.
 
 A automação nunca deve "chutar" qual processo preencher.
 
@@ -226,7 +228,7 @@ A mudança de comportamento é:
 6. reler cada campo alterado;
 7. retornar `field_results` completo.
 
-Identidade/generation continuam sendo invariantes globais: se falharem, zero writes.
+Identidade/generation continuam sendo invariantes globais: se identidade falhar, zero writes e hard block. Se a generation estiver stale, zero writes naquela execução e o backend pode ordenar **uma** nova `READ_FORM -> PREFLIGHT -> FILL_FORM` com snapshot fresco. Uma segunda ocorrência consecutiva encerra a fill request como erro técnico e mantém o processo documental elegível para retry.
 
 Falha de um campo após o início da escrita não desfaz os outros campos já corretamente preenchidos; é registrada como warning/result.
 
@@ -247,11 +249,16 @@ O estado analítico do processo (`PRONTO`, `REVISAR`, etc.) não deve ser corrom
 
 Uma falha de transporte/DOM/filler pertence à **fill request**, não necessariamente à qualificação documental do processo.
 
-### 10.1. Resultado terminal recomendado
+### 10.1. Fill request x status documental do processo
 
-`PREENCHIDO` significa que a tentativa executou e produziu relatório, mesmo que existam campos preservados ou warnings.
+A fill request e o processo têm semânticas diferentes:
 
-Exemplo:
+- `fill_request.state = PREENCHIDO`: a tentativa chegou ao fim do filler e produziu relatório por campo. Isso **não** significa automaticamente que todos os campos obrigatórios ficaram satisfeitos.
+- `process.status = PREENCHIDO`: todos os campos obrigatórios com proposta estão satisfeitos no formulário (foram `changed` ou já estavam equivalentes/`preserved` sem divergência impeditiva de revisão).
+- se a tentativa terminou com conteúdo obrigatório ainda não satisfeito — por exemplo `not_found`, `disabled`, `option_unavailable`, `failed` ou `existing_value_divergence` — a fill request pode terminar normalmente com warnings, mas o processo **permanece `PRONTO`** para revisão/retry.
+- se nenhum campo foi efetivamente gravado e ainda há pendências obrigatórias, nunca promover o processo para `PREENCHIDO`.
+
+Exemplo de tentativa concluída parcialmente:
 
 ```json
 {
@@ -260,19 +267,20 @@ Exemplo:
   "preserved": ["modalidade"],
   "warnings": [
     {"field": "data_publicacao_doe", "code": "CONTROL_NOT_FOUND"}
-  ]
+  ],
+  "process_status_after": "PRONTO"
 }
 ```
 
-`BLOQUEADO` fica reservado aos hard blocks de identidade/alvo.
+`BLOQUEADO` fica reservado a identidade/alvo incompatível ou ambíguo.
 
-`ERRO` representa falha técnica da requisição de preenchimento, sem transformar automaticamente um processo documentalmente `PRONTO` em `ERRO`.
+`ERRO` representa falha técnica da fill request (por exemplo stale generation persistente, transporte ou DOM indisponível), sem transformar automaticamente um processo documentalmente `PRONTO` em `ERRO`.
 
 ### 10.2. Retry
 
 Depois de warning ou erro técnico, o usuário deve poder tentar preencher novamente sem precisar reparar manualmente o status do processo.
 
-A Mesa deve oferecer a ação enquanto o processo continuar elegível documentalmente.
+A Mesa deve oferecer a ação enquanto o processo continuar documentalmente elegível. Uma nova tentativa relê o formulário atual; valores já corretos serão preservados e somente campos ainda pendentes serão tentados.
 
 ## 11. Mesa/UI
 
@@ -336,17 +344,19 @@ Testes v4 tornam-se a fonte de verdade da nova política de seleção.
 8. Campo ausente/desabilitado vira warning.
 9. Releitura divergente de um campo não apaga o resultado dos outros.
 10. Erro operacional da tentativa não deve reclassificar automaticamente o processo documental.
+11. Uma fill request parcial pode terminar normalmente sem promover o processo para `PREENCHIDO`.
+12. Stale generation faz zero writes, permite uma releitura/replanejamento e nunca é ignorada.
 
 ### Fundamento v4
 
-11. proposta documental + >= 1 opção real => exatamente 1 opção escolhida.
-12. opção escolhida pertence ao catálogo atual.
-13. placeholder nunca é vencedor.
-14. baixa confiança não gera vazio.
-15. baixa margem não gera vazio.
-16. empate não gera vazio.
-17. hard conflict não gera vazio.
-18. mesma entrada + mesmo catálogo => mesma opção.
+13. proposta documental + >= 1 opção real => exatamente 1 opção escolhida.
+14. opção escolhida pertence ao catálogo atual.
+15. placeholder nunca é vencedor.
+16. baixa confiança não gera vazio.
+17. baixa margem não gera vazio.
+18. empate não gera vazio.
+19. hard conflict não gera vazio.
+20. mesma entrada + mesmo catálogo => mesma opção.
 
 ## 15. Estratégia de testes
 
