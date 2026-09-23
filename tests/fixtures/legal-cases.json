@@ -133,5 +133,56 @@
       "cargo": "Professor"
     },
     "options": []
+  },
+  {
+    "name": "v4_all_hard_conflict",
+    "policy": "legal-foundation-v4",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Art. 6º da Emenda Constitucional 41/2003, reforma de militar",
+      "cargo": "Militar"
+    },
+    "options": [
+      {"value": "A", "label": "Art. 6º da Emenda Constitucional 41/2003"},
+      {"value": "B", "label": "Art. 7º da Emenda Constitucional 41/2003"}
+    ]
+  },
+  {
+    "name": "v4_true_tie_unknown_catalog",
+    "policy": "legal-foundation-v4",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Regra transitória do município para aposentadoria voluntária",
+      "cargo": "Servidor"
+    },
+    "options": [
+      {"value": "A", "label": "Regra do município para aposentadoria voluntária"},
+      {"value": "B", "label": "Regra do município para aposentadoria voluntária"}
+    ]
+  },
+  {
+    "name": "v4_placeholder_plus_real_option",
+    "policy": "legal-foundation-v4",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Art. 6º e art. 7º da Emenda Constitucional 41/2003",
+      "cargo": "Professor"
+    },
+    "options": [
+      {"value": "", "label": "Selecione o Fundamento Legal"},
+      {"value": "EC41", "label": "Art. 6º e art. 7º da Emenda Constitucional 41/2003"}
+    ]
+  },
+  {
+    "name": "v4_only_placeholder",
+    "policy": "legal-foundation-v4",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Art. 6º da Emenda Constitucional 41/2003",
+      "cargo": "Professor"
+    },
+    "options": [
+      {"value": "", "label": "Selecione o Fundamento Legal"}
+    ]
   }
 ]

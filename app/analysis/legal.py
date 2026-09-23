@@ -1,4 +1,4 @@
-"""Python owner of the legal foundation rules (``legal-foundation-v3``).
+"""Python owner of the legal foundation rules (``legal-foundation-v4``).
 
 Behavioural port, not a redesign, of the proven extension chain: normalizer.js,
 legal-reference-parser-v2.js, the parser and decision parts of
@@ -17,7 +17,7 @@ import unicodedata
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Mapping, Sequence
 
-RULES_VERSION = "legal-foundation-v3"
+RULES_VERSION = "legal-foundation-v4"
 
 ROMAN_VALUES: dict[str, int] = {
     "i": 1,
@@ -751,8 +751,10 @@ def selectable_legal_options(options: Any) -> list[dict[str, Any]]:
 
 def _option_parts(option: Any, index: int) -> dict[str, Any]:
     if option is not None and isinstance(option, Mapping):
-        value = option.get("value") or option.get("label") or ""
-        label = option.get("label") or value
+        raw_value = option.get("value")
+        raw_label = option.get("label")
+        value = raw_value if raw_value is not None else (raw_label or "")
+        label = raw_label if raw_label is not None else value
         return dict(option, index=index, value=value, label=label)
     return {"index": index, "value": option, "label": option}
 
@@ -1457,11 +1459,10 @@ def _rank_one(
             "expressamente na fundamentação. Revisão recomendada."
         )
 
-    score = (
-        0.0
-        if hard_reasons
-        else sum(components[key] * weight for key, weight in SCORE_WEIGHTS.items())
-    )
+    # Keep the compatibility score even when a candidate has a hard conflict.
+    # V4 still prefers conflict-free options, but can rank the real catalog if
+    # every selectable option conflicts with some documentary detail.
+    score = sum(components[key] * weight for key, weight in SCORE_WEIGHTS.items())
     return {
         "class_id": candidate["class_id"],
         "scope": candidate["scope"],
@@ -1514,7 +1515,7 @@ def classify_portal_legal_foundation(
     options: Any = None,
     hints: Any = None,
 ) -> dict[str, Any]:
-    """Rank the portal catalog against the documentary legal profile."""
+    """Choose the best real catalog option and retain uncertainty as diagnostics."""
 
     hint_map = hints if isinstance(hints, Mapping) else {}
     profile = build_retirement_legal_profile(
@@ -1522,16 +1523,25 @@ def classify_portal_legal_foundation(
         cargo=cargo,
         documentary_value=hint_map.get("documentaryValue"),
     )
-    if not as_text(operative_text).strip():
-        return _empty_decision(profile, "missing-source")
-    option_list = options if isinstance(options, list) else []
+    source_text = as_text(operative_text)
+    if not source_text.strip():
+        return _empty_decision(profile, "missing-source", ["missing-source"])
+    option_list = selectable_legal_options(options)
+    if not option_list:
+        return _empty_decision(profile, "LEGAL_OPTIONS_EMPTY", ["LEGAL_OPTIONS_EMPTY"])
     normalized_options = [
-        build_catalog_option_signature(option, index) for index, option in enumerate(option_list)
+        build_catalog_option_signature(option, option["index"]) for option in option_list
     ]
-    if not normalized_options:
-        return _empty_decision(profile, "CATALOG_CLASS_MISSING")
 
     references = profile["references"]
+    source_warnings: list[str] = []
+    parsed_references = parse_legal_references(source_text)
+    if not parsed_references:
+        source_warnings.append("no-legal-references")
+    if any(not reference.get("complete") for reference in parsed_references):
+        source_warnings.append("reference-incomplete")
+    if _has_contradiction(parsed_references):
+        source_warnings.append("contradictory-reference")
     reference_types = {reference.get("diploma_type") for reference in references}
     ec41_reference = any(
         reference.get("diploma_type") == "ec"
@@ -1547,84 +1557,76 @@ def classify_portal_legal_foundation(
     )
     # Coexisting EC and ECE diplomas are not a conflict by themselves: ECE/RN
     # 20/2020 may preserve previous rules. Only contradictory roles conflict.
-    if ({"cf"} <= reference_types and "ce" in reference_types) or (
+    family_conflict = ({"cf"} <= reference_types and "ce" in reference_types) or (
         ec41_reference and ec47_article3
-    ):
-        return _empty_decision(profile, "family-conflict", [], "DOCUMENT_CONFLICT")
+    )
+    if family_conflict:
+        source_warnings.append("family-conflict")
+
+    candidates = [_rank_one(profile, source_text, option) for option in normalized_options]
+    has_conflict_free = any(not candidate["hard_conflict"] for candidate in candidates)
+
+    def tie_break_key(candidate: Mapping[str, Any]) -> tuple[float, ...]:
+        components = candidate.get("score_components") or {}
+        return (
+            float(candidate.get("score") or 0),
+            float(components.get("crosswalk") or 0),
+            float(components.get("discriminators") or 0),
+            float(components.get("lexical") or 0),
+        )
 
     ranking = sorted(
-        [
-            _rank_one(profile, operative_text, option)
-            for option in normalized_options
-            if option["selectable"]
-        ],
-        key=lambda candidate: (-candidate["score"], candidate["option_index"]),
+        candidates,
+        key=lambda candidate: (
+            not candidate["hard_conflict"] if has_conflict_free else True,
+            *tie_break_key(candidate),
+            -int(candidate.get("option_index") or 0),
+        ),
+        reverse=True,
     )
-    viable = [candidate for candidate in ranking if not candidate["rejected"]]
-    if not viable:
-        decision = _empty_decision(profile, "no-compatible-candidate")
-        decision["ranking"] = ranking
-        return decision
-
-    best = viable[0]
-    second = viable[1] if len(viable) > 1 else None
+    best = ranking[0]
+    preferred_candidates = [
+        candidate
+        for candidate in ranking
+        if candidate["hard_conflict"] is best["hard_conflict"]
+    ]
+    second = preferred_candidates[1] if len(preferred_candidates) > 1 else None
     margin = best["confidence"] - second["confidence"] if second is not None else best["confidence"]
     reasons = list(best["reasons"])
-    warnings = list(best["warnings"])
-    tied = second is not None and best["confidence"] == second["confidence"]
+    warnings = list(dict.fromkeys([*source_warnings, *best["warnings"]]))
+    tied = second is not None and tie_break_key(best) == tie_break_key(second)
     if tied:
-        tied_count = sum(1 for candidate in viable if candidate["confidence"] == best["confidence"])
+        tied_count = sum(1 for candidate in preferred_candidates if tie_break_key(candidate) == tie_break_key(best))
         reasons.extend(["equivalent-candidates", f"tie:{tied_count}"])
-    if best["confidence"] >= 0.90 and margin >= 0.12 and not best["hard_conflict"]:
-        status = "selected"
-    elif best["confidence"] >= 0.75 and not best["hard_conflict"]:
-        status = "review"
-    else:
-        status = "pending"
-    # An option the structural classifier could not recognise never becomes an
-    # automatic selection: it stays in review even when the numeric score passes.
-    has_structural_evidence = (
-        best["class_id"] == "EC20_ART8"
-        or _structural_match(profile["references"], best.get("candidate_references") or [])
-        or any(str(reason).startswith("crosswalk:") for reason in (best.get("reasons") or []))
-    )
-    if (
-        status == "selected"
-        and str(best["class_id"]).startswith("CATALOG_OPTION_")
-        and not has_structural_evidence
-    ):
-        status = "review"
-        warnings.append("Classe jurídica do catálogo não reconhecida; confirmação manual necessária.")
-    if tied:
-        decision_state = "TRUE_TIE"
-    elif status == "selected":
-        decision_state = "AUTO_SELECTED"
-    elif status == "review":
-        decision_state = "REVIEW_REQUIRED"
-    else:
-        decision_state = "NO_COMPATIBLE_CANDIDATE"
-    if status != "selected":
-        warnings.append(
-            "Decisão não atende os limites de confiança/margem para preenchimento automático."
-        )
+        warnings.extend(["equivalent-candidates", "tie-broken-by-option-index"])
+    if not has_conflict_free:
+        warnings.append("hard-conflict-best-available")
+    if str(best["class_id"]).startswith("CATALOG_OPTION_"):
+        warnings.append("unknown-catalog-class")
+    if best["confidence"] < 0.90:
+        warnings.append("low-confidence")
+    if margin < 0.12:
+        warnings.append("low-margin")
+    warnings = list(dict.fromkeys(warnings))
     components = dict(best["score_components"])
     components["lexical_weight"] = SCORE_WEIGHTS["lexical"]
     return {
-        "status": status,
-        "decision_state": decision_state,
-        "automatic": status == "selected",
+        "status": "selected",
+        "decision_state": "AUTO_SELECTED",
+        "automatic": True,
         "scope": profile["scope"],
         "option_value": best["option_value"],
         "option_label": best["option_label"],
         "class_id": best["class_id"],
-        "method": best["method"] if status == "selected" else "none",
+        "method": best["method"] if best["method"] != "none" else "best-available",
         "confidence": best["confidence"],
         "margin": margin,
         "hard_conflict": best["hard_conflict"] is True,
-        "reason": None if status == "selected" else "manual-review-required",
+        "reason": None,
         "reasons": reasons,
         "warnings": warnings,
         "ranking": ranking,
+        "tie_break_used": tied,
         "profile": profile,
         "score_components": components,
     }
@@ -2000,27 +2002,16 @@ def _score_candidate(
 
 
 def is_automatic_legal_decision(decision: Any) -> bool:
-    """Shared guard: only a complete, unambiguous, high-confidence decision passes."""
+    """Shared guard for selection integrity; confidence is diagnostic in v4."""
 
     if not isinstance(decision, Mapping):
         return False
-    confidence = decision.get("confidence")
-    margin = decision.get("margin")
-    numbers = (int, float)
     return (
         decision.get("status") == "selected"
         and decision.get("decision_state") == "AUTO_SELECTED"
         and decision.get("rules_version") == RULES_VERSION
         and decision.get("method") != "none"
-        and decision.get("hard_conflict") is not True
-        and isinstance(confidence, numbers)
-        and not isinstance(confidence, bool)
-        and math.isfinite(confidence)
-        and confidence >= 0.90
-        and isinstance(margin, numbers)
-        and not isinstance(margin, bool)
-        and math.isfinite(margin)
-        and margin >= 0.12
+        and bool(str(decision.get("option_value") or "").strip())
     )
 
 
@@ -2075,6 +2066,7 @@ def _adapt_crosswalk_decision(
         "score": js_round(float(classification.get("confidence") or 0) * 100),
         "confidence": classification.get("confidence"),
         "margin": classification.get("margin"),
+        "tie_break_used": classification.get("tie_break_used") is True,
         "reason": classification.get("reason"),
         "hard_conflict": classification.get("hard_conflict") is True,
         "reasons": [*classification_reasons, *classification_warnings],
@@ -2121,27 +2113,11 @@ def resolve_legal_foundation(
     """Python owner of the legal foundation decision for one act."""
 
     operative_text = _operative_text_from_context(context)
-    if (
-        not isinstance(context, Mapping)
-        or context.get("resolution_status") != "complete"
-        or not operative_text.strip()
-    ):
-        return _base_decision(
-            context, ["context-incomplete"], _zero_ranking(options, "context-incomplete")
-        )
-    references = parse_legal_references(operative_text)
-    if not references:
-        return _base_decision(
-            context, ["no-legal-references"], _zero_ranking(options, "no-legal-references")
-        )
-    if any(not reference.get("complete") for reference in references):
-        return _base_decision(
-            context, ["reference-incomplete"], _zero_ranking(options, "reference-incomplete")
-        )
-    if _has_contradiction(references):
-        return _base_decision(
-            context, ["contradictory-reference"], _zero_ranking(options, "contradictory-reference")
-        )
+    if not isinstance(context, Mapping) or not operative_text.strip():
+        reason = "missing-source" if not operative_text.strip() else "context-incomplete"
+        decision = _base_decision(context, [reason], _zero_ranking(options, reason))
+        decision["warnings"] = [reason]
+        return decision
     cargo = context.get("cargo")
     if cargo is None:
         fields = context.get("fields")
@@ -2155,4 +2131,20 @@ def resolve_legal_foundation(
         options=options,
         hints=context.get("hints") or {},
     )
-    return _adapt_crosswalk_decision(context, operative_text, classification)
+    decision = _adapt_crosswalk_decision(context, operative_text, classification)
+    if context.get("resolution_status") != "complete":
+        decision["warnings"] = list(dict.fromkeys([*decision["warnings"], "context-incomplete"]))
+        decision["reasons"] = list(dict.fromkeys([*decision["reasons"], "context-incomplete"]))
+    selectable_values = {option["value"] for option in selectable_legal_options(options)}
+    selected_value = decision.get("option_value")
+    if selected_value is not None and selected_value not in selectable_values:
+        decision["status"] = "pending"
+        decision["automatic"] = False
+        decision["decision_state"] = "REVIEW_REQUIRED"
+        decision["method"] = "none"
+        decision["option_value"] = None
+        decision["option_label"] = None
+        decision["reason"] = "LEGAL_OPTION_NOT_IN_CATALOG"
+        decision["reasons"] = list(dict.fromkeys([*decision["reasons"], "LEGAL_OPTION_NOT_IN_CATALOG"]))
+        decision["warnings"] = list(dict.fromkeys([*decision["warnings"], "LEGAL_OPTION_NOT_IN_CATALOG"]))
+    return decision

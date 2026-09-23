@@ -3,8 +3,10 @@
 Estes arquivos são **cópias** dos módulos JavaScript comprovados que serviam de
 oráculo para o fundamento legal do backend (M4, tarefa 3). Eles foram promovidos
 da extensão legada para cá em 2026-09-18 para que o gate de paridade sobreviva à
-aposentadoria do legado (M6, tarefa 8): o teste `tests/test_legal_rules.py` roda
-`tests/legal_parity_harness.mjs`, que carrega exatamente estes arquivos.
+aposentadoria do legado (M6, tarefa 8). Permanecem como histórico imutável da
+policy `legal-foundation-v3`. O harness continua verificando paridade de
+normalização, referências, perfis e assinaturas de catálogo; a seleção final
+best-available `legal-foundation-v4` é coberta por contratos Python próprios.
 
 | Arquivo | Papel |
 |---|---|
@@ -24,4 +26,6 @@ Regras:
 2. eles são a única superfície JS do legado que o runtime/testes modernos podem
    usar: nenhum caminho de `app/`, `extension/`, `packaging/` ou `START.cmd`
    aponta para a árvore legada (ver `tests/test_no_legacy_paths.py`).
+3. divergências de decisão final v3/v4 são intencionais; não altere o oracle v3
+   para fazê-lo imitar a policy v4.
 

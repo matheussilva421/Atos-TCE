@@ -25,6 +25,15 @@ Data: 2026-09-23
 - GREEN: helper implementado em `app/analysis/legal.py`; os 3 testes passaram e `python -m unittest tests.test_legal_rules -v` passou (27 testes, 0 falhas).
 - Nenhum oracle v3 foi alterado; a escolha final ainda permanece v3 até completar o Task 2.
 
+## Task 2 do plano — legal-foundation-v4
+
+- RED confirmado nos contratos para fonte incompleta/contraditória, classe desconhecida, hard conflicts, thresholds, empate e catálogo vazio.
+- Implementado `legal-foundation-v4`: texto documental é ranqueador; opções reais são filtradas pelo helper canônico; hard conflicts preferem candidatas sem conflito quando disponíveis e, caso contrário, a melhor candidata real é selecionada. Empate termina pelo índice original e produz warnings. Confiança/margem continuam diagnósticos.
+- A decisão passa a `selected/AUTO_SELECTED` somente com `option_value` selecionável no catálogo; a validação de membership também existe no resolver. Sem texto ou sem opção real, não inventa seleção.
+- O teste v3 deixou de exigir igualdade da decisão final. Harness e README identificam o JS como histórico v3; parser, normalizador, perfil e assinatura de catálogo continuam em paridade. Nenhum oracle JS foi alterado.
+- O fixture com placeholder mostrou divergência preexistente: o oracle JS preserva `value=""`, mas `_option_parts()` Python o substituía pelo label. Corrigido para preservar o valor bruto e manter a paridade histórica.
+- GREEN: `python -m unittest tests.test_legal_rules -q` — 32 testes, 32 passaram, 0 falhas. `git diff --check` passou.
+
 ## Proteções e decisões
 
 - Os três arquivos fornecidos pelo usuário são a SPEC/plano canônico. Estão no checkout original e são ignorados pelo padrão `/*` do `.gitignore`; não foram copiados nem versionados.
@@ -34,7 +43,7 @@ Data: 2026-09-23
 
 ## Pendências e retomada
 
-1. Continuar os Tasks 2–9 (legal-foundation-v4 e best-effort) em `codex/best-effort-form-filling`, com RED antes de cada correção, identidade fail-closed e valores divergentes preservados.
+1. Continuar os Tasks 3–9 (preflight best-effort, leitor, filler, state machine e UI) em `codex/best-effort-form-filling`, com RED antes de cada correção, identidade fail-closed e valores divergentes preservados.
 2. Fazer commits por tarefa conforme o plano e atualizar este handoff após cada bloco.
 3. Criar branch de discovery a partir do `main` promovido; usar a sessão real da Área Restrita para concluir PHASE 0 e commitar somente a nota de discovery antes de qualquer código de navegação.
 4. A partir do commit de discovery, criar a branch de navegação; integrar nela os commits Best-Effort/v4 sem perder a ordem de base exigida pelos planos.

@@ -1,9 +1,8 @@
-"""Parity and behaviour tests for the backend legal foundation (M4 Task 3).
+"""Tests for the v4 legal policy and the unchanged parts of the historical v3 oracle.
 
-The oracle is the proven JavaScript pipeline: ``legal_parity_harness.mjs`` runs
-``resolveLegalFoundation`` and its helpers over the same fixtures and the test
-compares every field. A behavioural assertion that disagrees with the oracle is
-a bug in the port, not a licence to change the rule.
+The JavaScript oracle remains authoritative for parsing, normalization, profile
+and catalog-signature parity. Final best-available selection is intentionally
+owned by the Python v4 contract tests below.
 """
 
 import json
@@ -196,19 +195,18 @@ class ProfileAndSignatureParityTests(unittest.TestCase):
 
 @unittest.skipIf(NODE is None, "node is not available for the parity oracle")
 class FoundationParityTests(unittest.TestCase):
-    def test_every_fixture_decision_matches_the_proven_javascript(self):
-        for fixture in cases():
-            with self.subTest(fixture=fixture["name"]):
-                expected = oracle_for(fixture["name"])["decision"]
-                actual = legal.resolve_legal_foundation(
-                    fixture["context"], fixture.get("options") or []
-                )
-                compare(self, expected, actual, f"decision[{fixture['name']}]")
+    def test_the_javascript_decisions_remain_the_historical_v3_oracle(self):
+        for expected in oracle():
+            with self.subTest(fixture=expected["name"]):
+                self.assertEqual(expected["decision"]["rules_version"], "legal-foundation-v3")
 
-    def test_the_full_python_result_matches_the_oracle_document(self):
+    def test_unchanged_python_outputs_match_the_historical_v3_oracle(self):
+        unchanged_outputs = ("normalize", "references", "references_v2", "profile", "signatures")
         for fixture, expected in zip(cases(), oracle()):
             with self.subTest(fixture=fixture["name"]):
-                compare(self, expected, python_result(fixture), f"result[{fixture['name']}]")
+                actual = python_result(fixture)
+                for key in unchanged_outputs:
+                    compare(self, expected[key], actual[key], f"{key}[{fixture['name']}]")
 
 
 class FoundationBehaviourTests(unittest.TestCase):
@@ -224,7 +222,7 @@ class FoundationBehaviourTests(unittest.TestCase):
         self.assertEqual(decision["decision_state"], "AUTO_SELECTED")
         self.assertEqual(decision["confidence"], 1)
         self.assertEqual(decision["margin"], 1)
-        self.assertEqual(decision["rules_version"], "legal-foundation-v3")
+        self.assertEqual(decision["rules_version"], "legal-foundation-v4")
         self.assertEqual(decision["option_value"], "A")
         self.assertEqual(len(decision["citations"]), 1)
 
@@ -235,46 +233,115 @@ class FoundationBehaviourTests(unittest.TestCase):
         self.assertIsNone(self.decide("ec41_without_p5")["rule_id"])
         self.assertEqual(self.decide("ec47_art3")["rule_id"], "EC47_ART3")
 
-    def test_a_reference_without_year_blocks_the_decision(self):
+    def test_a_reference_without_year_is_a_warning_when_a_real_option_exists(self):
         decision = self.decide("incomplete_reference")
 
-        self.assertEqual(decision["status"], "pending")
-        self.assertEqual(decision["reasons"], ["reference-incomplete"])
-        self.assertFalse(decision["automatic"])
+        self.assertEqual(decision["status"], "selected")
+        self.assertTrue(decision["automatic"])
+        self.assertEqual(decision["option_value"], "A")
+        self.assertIn("reference-incomplete", decision["warnings"])
 
-    def test_contradictory_years_for_the_same_diploma_block_the_decision(self):
-        self.assertEqual(self.decide("contradictory_reference")["reasons"], ["contradictory-reference"])
+    def test_contradictory_references_are_a_warning_when_a_real_option_exists(self):
+        decision = self.decide("contradictory_reference")
 
-    def test_an_operative_text_without_references_blocks_the_decision(self):
-        self.assertEqual(self.decide("no_references")["reasons"], ["no-legal-references"])
+        self.assertEqual(decision["status"], "selected")
+        self.assertIn("contradictory-reference", decision["warnings"])
 
-    def test_an_incomplete_context_blocks_the_decision(self):
-        self.assertEqual(self.decide("context_incomplete")["reasons"], ["context-incomplete"])
+    def test_operative_text_without_parseable_references_still_ranks_the_catalog(self):
+        decision = self.decide("no_references")
 
-    def test_a_federal_and_state_constitution_conflict_blocks_the_decision(self):
+        self.assertEqual(decision["status"], "selected")
+        self.assertIn("no-legal-references", decision["warnings"])
+
+    def test_incomplete_reference_status_does_not_veto_usable_documentary_text(self):
+        decision = self.decide("context_incomplete")
+
+        self.assertEqual(decision["status"], "selected")
+        self.assertIn("context-incomplete", decision["warnings"])
+
+    def test_a_federal_and_state_constitution_conflict_is_diagnostic(self):
         decision = self.decide("constitution_family_conflict")
 
-        self.assertEqual(decision["decision_state"], "DOCUMENT_CONFLICT")
-        self.assertEqual(decision["status"], "pending")
+        self.assertEqual(decision["decision_state"], "AUTO_SELECTED")
+        self.assertEqual(decision["status"], "selected")
+        self.assertIn("family-conflict", decision["warnings"])
 
-    def test_a_catalog_option_without_structural_evidence_stays_in_review(self):
+    def test_a_catalog_option_without_structural_evidence_is_still_selected(self):
         decision = self.decide("unrecognised_catalog_option")
 
-        self.assertEqual(decision["status"], "pending")
-        self.assertEqual(decision["decision_state"], "REVIEW_REQUIRED")
-        self.assertFalse(decision["automatic"])
+        self.assertEqual(decision["status"], "selected")
+        self.assertTrue(decision["automatic"])
+        self.assertTrue(decision["class_id"].startswith("CATALOG_OPTION_"))
+        self.assertIn("unknown-catalog-class", decision["warnings"])
 
-    def test_a_military_profile_rejects_a_civil_catalog_option(self):
+    def test_a_military_profile_hard_conflict_does_not_veto_a_real_option(self):
         decision = self.decide("military_scope")
 
-        self.assertEqual(decision["status"], "pending")
-        self.assertEqual(decision["reasons"][0], "no-compatible-candidate")
+        self.assertEqual(decision["status"], "selected")
+        self.assertTrue(decision["hard_conflict"])
+        self.assertIn("hard-conflict-best-available", decision["warnings"])
 
-    def test_no_catalog_option_is_reported_as_a_missing_class(self):
+    def test_no_selectable_catalog_option_is_reported_without_inventing_a_value(self):
         decision = self.decide("empty_options")
 
-        self.assertIn("CATALOG_CLASS_MISSING", decision["reasons"])
+        self.assertIsNone(decision["option_value"])
+        self.assertIn("LEGAL_OPTIONS_EMPTY", decision["warnings"])
         self.assertFalse(decision["automatic"])
+
+    def test_low_confidence_hard_conflict_still_selects_a_catalog_member(self):
+        fixture = case("v4_all_hard_conflict")
+        decision = self.decide("v4_all_hard_conflict")
+        selectable_values = {
+            option["value"] for option in legal.selectable_legal_options(fixture["options"])
+        }
+
+        self.assertEqual(decision["status"], "selected")
+        self.assertTrue(decision["hard_conflict"])
+        self.assertLess(decision["confidence"], 0.90)
+        self.assertIn("hard-conflict-best-available", decision["warnings"])
+        self.assertIn(decision["option_value"], selectable_values)
+
+    def test_unknown_class_and_true_tie_choose_the_first_option_deterministically(self):
+        decision = self.decide("v4_true_tie_unknown_catalog")
+        repeated = self.decide("v4_true_tie_unknown_catalog")
+
+        self.assertEqual(decision["status"], "selected")
+        self.assertTrue(decision["class_id"].startswith("CATALOG_OPTION_"))
+        self.assertEqual(decision["option_value"], "A")
+        self.assertEqual(decision["option_value"], repeated["option_value"])
+        self.assertEqual(decision["margin"], 0)
+        self.assertTrue(decision["tie_break_used"])
+        self.assertIn("equivalent-candidates", decision["warnings"])
+        self.assertIn("tie-broken-by-option-index", decision["warnings"])
+
+    def test_placeholder_is_ignored_when_a_real_option_is_available(self):
+        fixture = case("v4_placeholder_plus_real_option")
+        decision = self.decide("v4_placeholder_plus_real_option")
+        selectable_values = {
+            option["value"]
+            for option in legal.selectable_legal_options(fixture["options"])
+        }
+
+        self.assertEqual(decision["option_value"], "EC41")
+        self.assertIn(decision["option_value"], selectable_values)
+        self.assertEqual(len(selectable_values), 1)
+
+    def test_placeholder_only_catalog_does_not_produce_a_selection(self):
+        decision = self.decide("v4_only_placeholder")
+
+        self.assertEqual(decision["status"], "pending")
+        self.assertIsNone(decision["option_value"])
+        self.assertIn("LEGAL_OPTIONS_EMPTY", decision["warnings"])
+
+    def test_missing_documentary_text_does_not_invent_a_legal_choice(self):
+        decision = legal.resolve_legal_foundation(
+            {"resolution_status": "complete", "operative_text": ""},
+            [{"value": "A", "label": "Art. 6º da Emenda Constitucional 41/2003"}],
+        )
+
+        self.assertEqual(decision["status"], "pending")
+        self.assertIsNone(decision["option_value"])
+        self.assertIn("missing-source", decision["warnings"])
 
     def test_the_operative_text_is_read_after_the_last_resolve_marker(self):
         self.assertEqual(self.decide("operative_text_after_resolve_marker")["rule_id"], "EC47_ART3")
@@ -283,20 +350,27 @@ class FoundationBehaviourTests(unittest.TestCase):
         selected = self.decide("ec41_without_p5")
         self.assertTrue(legal.is_automatic_legal_decision(selected))
 
-        weak = dict(selected, confidence=0.8)
-        self.assertFalse(legal.is_automatic_legal_decision(weak))
+        weak = dict(selected, confidence=0.1, margin=0)
+        self.assertTrue(legal.is_automatic_legal_decision(weak))
 
         conflicting = dict(selected, hard_conflict=True)
-        self.assertFalse(legal.is_automatic_legal_decision(conflicting))
+        self.assertTrue(legal.is_automatic_legal_decision(conflicting))
 
         wrong_version = dict(selected, rules_version="legal-foundation-v2")
         self.assertFalse(legal.is_automatic_legal_decision(wrong_version))
 
+        no_method = dict(selected, method="none")
+        self.assertFalse(legal.is_automatic_legal_decision(no_method))
+
+        no_value = dict(selected, option_value="")
+        self.assertFalse(legal.is_automatic_legal_decision(no_value))
+
         no_confidence = {key: value for key, value in selected.items() if key != "confidence"}
-        self.assertFalse(legal.is_automatic_legal_decision(no_confidence))
+        no_confidence.pop("margin", None)
+        self.assertTrue(legal.is_automatic_legal_decision(no_confidence))
 
     def test_the_rules_version_is_pinned(self):
-        self.assertEqual(legal.RULES_VERSION, "legal-foundation-v3")
+        self.assertEqual(legal.RULES_VERSION, "legal-foundation-v4")
         self.assertEqual(self.decide("ec47_art3")["rules_version"], legal.RULES_VERSION)
 
 
