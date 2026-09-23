@@ -18,6 +18,13 @@ Data: 2026-09-23
 - `git diff --check`: passou.
 - Observação de layout: o caminho `.erify-project.ps1` dos planos não existe neste repositório; usar o caminho acima, conforme `AGENTS.md`.
 
+## Task 1 do plano — catálogo selecionável
+
+- Criados 3 testes para excluir placeholders e valores/rótulos vazios, impedir fallback do label para `value`, e preservar valor bruto/índice original.
+- RED confirmado: os 3 testes falharam por `AttributeError` porque `selectable_legal_options` ainda não existia.
+- GREEN: helper implementado em `app/analysis/legal.py`; os 3 testes passaram e `python -m unittest tests.test_legal_rules -v` passou (27 testes, 0 falhas).
+- Nenhum oracle v3 foi alterado; a escolha final ainda permanece v3 até completar o Task 2.
+
 ## Proteções e decisões
 
 - Os três arquivos fornecidos pelo usuário são a SPEC/plano canônico. Estão no checkout original e são ignorados pelo padrão `/*` do `.gitignore`; não foram copiados nem versionados.
@@ -27,7 +34,7 @@ Data: 2026-09-23
 
 ## Pendências e retomada
 
-1. Implementar objetivos Best-Effort e legal-foundation-v4 em `codex/best-effort-form-filling`, teste RED antes de cada correção, mantendo identidade fail-closed e valores divergentes preservados.
+1. Continuar os Tasks 2–9 (legal-foundation-v4 e best-effort) em `codex/best-effort-form-filling`, com RED antes de cada correção, identidade fail-closed e valores divergentes preservados.
 2. Fazer commits por tarefa conforme o plano e atualizar este handoff após cada bloco.
 3. Criar branch de discovery a partir do `main` promovido; usar a sessão real da Área Restrita para concluir PHASE 0 e commitar somente a nota de discovery antes de qualquer código de navegação.
 4. A partir do commit de discovery, criar a branch de navegação; integrar nela os commits Best-Effort/v4 sem perder a ordem de base exigida pelos planos.

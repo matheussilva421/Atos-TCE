@@ -300,6 +300,51 @@ class FoundationBehaviourTests(unittest.TestCase):
         self.assertEqual(self.decide("ec47_art3")["rules_version"], legal.RULES_VERSION)
 
 
+class SelectableLegalCatalogTests(unittest.TestCase):
+    def test_selectable_catalog_drops_placeholders_and_empty_options(self):
+        options = [
+            {"value": "", "label": "Selecione o Fundamento Legal"},
+            {"value": "", "label": "EC 41/2003"},
+            {"value": " ", "label": "EC 47/2005"},
+            {"value": "CF40", "label": ""},
+            {"value": "PLACEHOLDER", "label": "Selecionar uma opção"},
+            {"value": " 47 ", "label": "Emenda Constitucional 47/2005"},
+        ]
+
+        self.assertEqual(
+            legal.selectable_legal_options(options),
+            [
+                {
+                    "value": " 47 ",
+                    "label": "Emenda Constitucional 47/2005",
+                    "index": 5,
+                }
+            ],
+        )
+
+    def test_selectable_catalog_never_substitutes_label_for_an_empty_value(self):
+        options = [{"value": "", "label": "Emenda Constitucional 41/2003"}]
+
+        self.assertEqual(legal.selectable_legal_options(options), [])
+
+    def test_selectable_catalog_preserves_option_index_and_raw_value(self):
+        options = [
+            {"value": "", "label": "Selecione..."},
+            {"value": " EC41 ", "label": "Emenda Constitucional 41/2003"},
+        ]
+
+        self.assertEqual(
+            legal.selectable_legal_options(options),
+            [
+                {
+                    "value": " EC41 ",
+                    "label": "Emenda Constitucional 41/2003",
+                    "index": 1,
+                }
+            ],
+        )
+
+
 class PlanFixtureDivergenceTests(unittest.TestCase):
     """Record where the plan's illustrative fixture disagrees with the engine."""
 

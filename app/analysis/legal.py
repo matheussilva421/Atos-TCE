@@ -729,6 +729,26 @@ ARTICLE_NUMBER_PATTERN = re.compile(r"\bart(?:igo|igos)?s?\.?\s*(\d+)\s*(?:º|ª
 PARAGRAPH_NUMBER_PATTERN = re.compile(r"§{1,2}\s*(\d+)")
 
 
+def selectable_legal_options(options: Any) -> list[dict[str, Any]]:
+    """Return real DOM options without changing their submitted values."""
+
+    option_list = options if isinstance(options, list) else []
+    selectable: list[dict[str, Any]] = []
+    for index, option in enumerate(option_list):
+        if not isinstance(option, Mapping):
+            continue
+        raw_value = option.get("value")
+        raw_label = option.get("label")
+        value = "" if raw_value is None else str(raw_value)
+        label = "" if raw_label is None else str(raw_label)
+        if not value.strip() or not label.strip():
+            continue
+        if PLACEHOLDER_PATTERN.match(normalize_legal_text(label).strip()):
+            continue
+        selectable.append({"value": value, "label": label, "index": index})
+    return selectable
+
+
 def _option_parts(option: Any, index: int) -> dict[str, Any]:
     if option is not None and isinstance(option, Mapping):
         value = option.get("value") or option.get("label") or ""
