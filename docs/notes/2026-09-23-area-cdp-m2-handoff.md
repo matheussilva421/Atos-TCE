@@ -82,7 +82,8 @@ completed). Keep the portal marker human-selected.
 
 ## GitHub and remaining work
 
-At handoff creation, the implementation and this note are not yet committed.
-Preserve the pre-existing untracked `work/tce-extractor/.codex-live-pilot.py`;
-do not stage it. After commit/push, update this section with the commit SHA and
-push result. M2 remains pending the live QA scan and comparison.
+Commit `fe95da8` (`fix: repair M2 CDP scan comparison`) is pushed to
+`origin/codex/mesa-local-refactor`. Only the six M2 implementation, test, and
+documentation files were committed. The pre-existing untracked
+`work/tce-extractor/.codex-live-pilot.py` remains untouched. M2 remains pending
+the live QA scan and comparison.
