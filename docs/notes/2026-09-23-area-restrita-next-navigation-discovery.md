@@ -70,3 +70,10 @@ Três medições manuais somente de navegação, desde clique na ação da linha
 - A lista foi deixada visível no Chrome na página 9; o marcador normal foi preservado.
 - As aberturas de formulário não preencheram campos. Formulários anteriores ficaram em frames ocultos; alternar para `Proc./ Doc. Eletrônicos` restaura a lista sem submeter.
 - Última conferência local do branch de discovery: derivado de `origin/main`; ainda não contém implementação de navegação.
+
+## Observação complementar da sessão Chrome (23/09/2026)
+
+- A aba autenticada permaneceu na lista da página 9, com o marcador normal selecionado. A árvore de acessibilidade confirmou o rótulo `PROFESSOR - IPERN` e contagem 1.197 no filtro, coincidente com o cabeçalho; o filtro foi recolhido após a leitura, sem mudar o marcador.
+- O valor bruto do `<option>` não foi obtido: a avaliação DOM do frame não ficou acessível pela ferramenta de browser desta sessão. Não se infere o valor salvo no scan como valor vivo.
+- A porta `127.0.0.1:18743` segue sem listener, portanto não há Mesa ativa para ler `SCAN_PAGE`. O Chrome DevTools MCP/extensão também não está disponível nesta sessão; nenhuma rota alternativa de inspeção interna do Chrome foi tentada.
+- O bloqueio de Phase 0 permanece: falta abrir a Mesa/painel atual da extensão e observar um caso de retorno após conclusão manual supervisionada. Nenhum botão de conclusão foi acionado.
