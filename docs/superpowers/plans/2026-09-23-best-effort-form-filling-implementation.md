@@ -39,25 +39,35 @@
 
 This gate runs **before Task 1** and is not optional.
 
-- [ ] **Gate 1: Fetch and verify the exact branch relation**
+- [ ] **Gate 1: Fetch refs and inspect ancestry**
 
 ```bash
 git fetch origin --prune
 git rev-parse origin/main
 git rev-parse origin/codex/mesa-local-refactor
+git merge-base --is-ancestor origin/codex/mesa-local-refactor origin/main
+```
+
+If that command exits 0, `main` already contains the refactor branch; never move `main` backward. Continue to Gate 4.
+
+If it exits non-zero, run:
+
+```bash
 git merge-base --is-ancestor origin/main origin/codex/mesa-local-refactor
 git rev-list --left-right --count origin/main...origin/codex/mesa-local-refactor
 ```
 
-Expected at planning time:
+At planning time the expected count is:
 
 ```text
 0 154
 ```
 
-The first number must be `0`. If it is non-zero, stop: `main` has commits not contained in the refactor branch and must be reconciled explicitly before promotion.
+If `origin/main` is not an ancestor of the refactor branch either, stop: the histories diverged and must be reconciled explicitly before promotion.
 
-- [ ] **Gate 2: Run the current branch baseline before moving main**
+- [ ] **Gate 2: Run the refactor baseline before moving main**
+
+Only when promotion is still pending:
 
 ```bash
 git switch codex/mesa-local-refactor
@@ -71,7 +81,7 @@ git diff --check
 
 Expected: all existing suites green. Any pre-existing failure must be recorded in `docs/notes/2026-09-23-pre-promotion-baseline.md` before proceeding; do not reinterpret a new implementation failure as baseline noise.
 
-- [ ] **Gate 3: Fast-forward main to the refactor branch**
+- [ ] **Gate 3: Fast-forward main when promotion is pending**
 
 ```bash
 git switch main
@@ -80,21 +90,15 @@ git merge --ff-only origin/codex/mesa-local-refactor
 git push origin main
 ```
 
-- [ ] **Gate 4: Prove promotion completed without divergence**
+- [ ] **Gate 4: Prove the refactor history is contained in main**
 
 ```bash
 git fetch origin
-test "$(git rev-parse origin/main)" = "$(git rev-parse origin/codex/mesa-local-refactor)"
+git merge-base --is-ancestor origin/codex/mesa-local-refactor origin/main
 git log -1 --oneline origin/main
 ```
 
-On PowerShell, use:
-
-```powershell
-if ((git rev-parse origin/main) -ne (git rev-parse origin/codex/mesa-local-refactor)) {
-    throw "main was not promoted to the refactor HEAD"
-}
-```
+Expected: ancestry command exits 0. Equality is expected on the first promotion, but later execution is also valid when `main` has additional descendants.
 
 - [ ] **Gate 5: Create the implementation branch/worktree from promoted main**
 
