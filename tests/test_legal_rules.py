@@ -300,6 +300,39 @@ class FoundationBehaviourTests(unittest.TestCase):
         self.assertEqual(self.decide("ec47_art3")["rules_version"], legal.RULES_VERSION)
 
 
+class SelectableLegalOptionsTests(unittest.TestCase):
+    def test_selectable_catalog_drops_placeholder_and_empty_values(self):
+        options = [
+            {"value": "", "label": "Selecione o Fundamento Legal"},
+            {"value": "41", "label": "EC 41/2003"},
+        ]
+
+        self.assertEqual(
+            legal.selectable_legal_options(options),
+            [{"value": "41", "label": "EC 41/2003", "index": 1}],
+        )
+
+    def test_selectable_catalog_never_replaces_empty_value_with_label(self):
+        self.assertEqual(
+            legal.selectable_legal_options([{"value": "", "label": "EC 41/2003"}]),
+            [],
+        )
+
+    def test_selectable_catalog_preserves_the_dom_value_verbatim(self):
+        self.assertEqual(
+            legal.selectable_legal_options([{"value": " 41 ", "label": "EC 41/2003"}]),
+            [{"value": " 41 ", "label": "EC 41/2003", "index": 0}],
+        )
+
+    def test_selectable_catalog_drops_disabled_options(self):
+        options = [
+            {"value": "41", "label": "EC 41/2003", "disabled": True},
+            {"value": "47", "label": "EC 47/2005", "selectable": False},
+        ]
+
+        self.assertEqual(legal.selectable_legal_options(options), [])
+
+
 class PlanFixtureDivergenceTests(unittest.TestCase):
     """Record where the plan's illustrative fixture disagrees with the engine."""
 
