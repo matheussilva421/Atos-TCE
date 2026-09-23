@@ -18,6 +18,7 @@
 - O leitor DOM agora isola exceções de leitura em cada controle de conteúdo, mantendo identidade e os demais controles disponíveis. O preflight exclui do plano controles ilegíveis e registra `FIELD_READ_FAILED`.
 - Best-effort Task 6: a solicitação de preenchimento termina `PREENCHIDO` com resumo mesmo se parcial; o processo só passa de `PRONTO` a `PREENCHIDO` se os seis campos obrigatórios estiverem satisfeitos. Estado de solicitação `ERRO`/`BLOQUEADO` gera evento sem alterar a classificação documental do processo.
 - `STALE_GENERATION` permite exatamente uma nova leitura e planejamento com nova geração. Um segundo stale encerra a solicitação como `ERRO`; as duas tentativas mantêm o processo em `PRONTO` e o guard do content script escreve zero controles quando a geração já está stale.
+- Best-effort Task 7: o resultado FILL_FORM aceita sucesso parcial estruturado; `GET /api/v1/fill-requests/{id}` retorna o resumo persistido (`changed`, `preserved`, `unresolved`, `warnings`, `complete`) mantendo sessão Mesa e contrato de autenticação existentes.
 
 ## Testes
 
@@ -39,6 +40,9 @@
 - RED Task 6: `python -m unittest tests.test_fill_service.BestEffortFillOutcomeTests -v` — falhas esperadas em partial/operational state e stale-replan antes da implementação.
 - GREEN Task 6: `python -m unittest tests.test_fill_service -v` — 63 testes, 63 aprovados, 0 falhas; `python -m unittest tests.test_store -v` — 19 testes, 19 aprovados, 0 falhas.
 - `git diff --check` passou após as mudanças de Tasks 5–6.
+- RED Task 7: novo teste de API avançou pelo fluxo parcial e falhou apenas porque o GET não expunha `summary`.
+- GREEN Task 7: `python -m unittest tests.test_api_server.FillOrchestrationTests.test_an_existing_divergent_value_is_preserved_while_other_fields_fill tests.test_api_server.FillOrchestrationTests.test_a_field_that_rereads_differently_remains_a_review_item tests.test_api_server.FillOrchestrationTests.test_partial_field_results_are_accepted_summarized_and_retryable -v` — 3/3.
+- GREEN da suíte: `python -m unittest tests.test_api_server -q` — 86 testes, 86 aprovados, 0 falhas.
 
 ## Arquivos
 
@@ -55,6 +59,8 @@
 - `extension/content/fill-form.js`
 - `extension/tests/fill-form.test.mjs`
 - `app/area_restrita/fill_service.py`
+- `app/api/server.py`
+- `tests/test_api_server.py`
 - Este handoff.
 
 ## Git e ambiente
@@ -73,7 +79,7 @@
 
 ## Próxima retomada
 
-1. Prosseguir Task 7 (validação da API e resumo no `GET /api/v1/fill-requests/{id}`), Task 8 (resultado parcial e retry na Mesa) e Task 9 (integração Python/extension com TDD).
+1. Prosseguir Task 8 (resultado parcial e retry na Mesa) e Task 9 (integração Python/extension com TDD).
 2. Executar integralmente os gates finais da Task 10, `verify-project.ps1`, `git diff --check` e revisão da branch contra SPEC + planos.
 3. Prosseguir Phase 0 em portal real: estabelecer Mesa/extensão atuais, comparar sequência/página de limite e observar fluxo de interessado/formulário/retorno/estabilidade. Não clicar no botão final `Complementar Ato`.
 4. A promoção e criação do branch de descoberta continuam limitadas pela impossibilidade de atualizar refs do GitHub; usar apenas os SHAs locais comprovados e registrar essa restrição.

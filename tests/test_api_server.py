@@ -1530,7 +1530,48 @@ class FillOrchestrationTests(ApiTestCase):
         self.assertIn("form_filled", events)
         self.assertIsNone(self.claim())
 
-    def test_an_existing_divergent_value_blocks_without_queuing_a_fill(self):
+    def test_partial_field_results_are_accepted_summarized_and_retryable(self):
+        request_id = self.start_fill()
+        open_command = self.claim()
+        self.report(open_command["id"], self.open_result())
+        read_command = self.claim()
+        self.report(read_command["id"], self.read_form_result())
+        fill_command = self.claim()
+
+        self.report(
+            fill_command["id"],
+            {
+                "ok": True,
+                "identity": dict(FILL_IDENTITY),
+                "generation_after": 5,
+                "field_results": {
+                    "cargo": {
+                        "before": "",
+                        "proposed": "Professor",
+                        "after": "Professor",
+                        "status": "changed",
+                    },
+                    "matricula": {
+                        "before": "",
+                        "proposed": "78.710-8/2",
+                        "after": "",
+                        "status": "disabled",
+                    },
+                },
+            },
+        )
+
+        request = self.fill_state(request_id)
+        self.assertEqual(request["state"], "PREENCHIDO")
+        self.assertEqual(request["summary"]["changed"], ["cargo"])
+        self.assertIn(
+            "matricula", {item["field"] for item in request["summary"]["unresolved"]}
+        )
+        self.assertEqual(self.store.get_process(self.process_id)["status"], "PRONTO")
+        retry_id = self.start_fill()
+        self.assertGreater(retry_id, request_id)
+
+    def test_an_existing_divergent_value_is_preserved_while_other_fields_fill(self):
         request_id = self.start_fill()
         open_command = self.claim()
         self.report(open_command["id"], self.open_result())
@@ -1544,10 +1585,19 @@ class FillOrchestrationTests(ApiTestCase):
         )
 
         request = self.fill_state(request_id)
-        self.assertEqual(request["state"], "BLOQUEADO")
-        self.assertIn("EXISTING_VALUE_DIVERGENCE", request["error"])
-        self.assertEqual(self.store.get_process(self.process_id)["status"], "BLOQUEADO")
-        self.assertIsNone(self.claim(), "a blocked preflight must not queue FILL_FORM")
+        self.assertEqual(request["state"], "FILLING")
+        fill_command = self.claim()
+        self.assertEqual(fill_command["type"], "FILL_FORM")
+        planned = fill_command["payload"]["fields"]
+        self.assertNotIn("matricula", planned)
+        self.report(fill_command["id"], self.fill_result(planned))
+
+        request = self.fill_state(request_id)
+        self.assertEqual(request["state"], "PREENCHIDO")
+        self.assertIn(
+            "matricula", {item["field"] for item in request["summary"]["unresolved"]}
+        )
+        self.assertEqual(self.store.get_process(self.process_id)["status"], "PRONTO")
 
     def test_a_verification_failure_never_marks_the_act_as_filled(self):
         request_id = self.start_fill()
@@ -1573,7 +1623,7 @@ class FillOrchestrationTests(ApiTestCase):
         self.assertEqual(request["state"], "ERRO")
         self.assertNotEqual(self.store.get_process(self.process_id)["status"], "PREENCHIDO")
 
-    def test_a_field_that_rereads_differently_blocks_the_request(self):
+    def test_a_field_that_rereads_differently_remains_a_review_item(self):
         request_id = self.start_fill()
         open_command = self.claim()
         self.report(open_command["id"], self.open_result())
@@ -1587,8 +1637,9 @@ class FillOrchestrationTests(ApiTestCase):
         self.report(fill_command["id"], body)
 
         request = self.fill_state(request_id)
-        self.assertEqual(request["state"], "BLOQUEADO")
-        self.assertIn("cargo", request["error"])
+        self.assertEqual(request["state"], "PREENCHIDO")
+        self.assertIn("cargo", {item["field"] for item in request["summary"]["unresolved"]})
+        self.assertEqual(self.store.get_process(self.process_id)["status"], "PRONTO")
 
     def test_only_a_pronto_process_can_be_filled(self):
         self.store.set_process_status(self.process_id, "REVISAR")
