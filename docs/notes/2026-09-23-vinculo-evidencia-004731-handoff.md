@@ -43,11 +43,11 @@ fora do escopo deste reparo.
 
 ## Git e retomada
 
-No início, o branch era `codex/mesa-local-refactor`, alinhado com
-`origin/codex/mesa-local-refactor`. O arquivo não rastreado
-`work/tce-extractor/.codex-live-pilot.py` foi preservado e não deve ser incluído
-no commit. Antes de concluir, revisar o diff, atualizar o status do Git e
-registrar commit/push.
+Commit `1afd57348211b6f3d66cc99abb2c4744985428ee` (`fix: link analysis fields
+to normalized PDF titles`) foi enviado com sucesso para
+`origin/codex/mesa-local-refactor`. O branch ficou alinhado com o remoto. O
+arquivo não rastreado `work/tce-extractor/.codex-live-pilot.py` foi preservado
+e não foi incluído no commit.
 
 O `START.cmd` atual executa `app.main` e o README identifica `app/` como a Mesa
 suportada; o `AGENTS.md` ainda descreve o layout legado em
