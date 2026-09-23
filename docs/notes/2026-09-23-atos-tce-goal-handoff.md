@@ -96,6 +96,15 @@ Data: 2026-09-23
 - GREEN: `node --test app/web/tests/*.test.mjs` — 24/24; wrapper `python -m unittest discover -s tests -p 'test_web_suite.py' -v` com `PYTHONUTF8=1` — 2/2; `git diff --check` passou. O wrapper sem UTF-8 falhou na captura de saída Node devido à página de código cp1252 do Windows; rerun UTF-8 passou. O warning Node `MODULE_TYPELESS_PACKAGE_JSON` preexistente continua não bloqueante.
 - Arquivos alterados: `app/web/app.js`, `app/web/app.css`, `app/web/tests/ui-wiring.test.mjs` e este handoff.
 
+## Task 9 do plano — contrato integrado backend/extensão
+
+- Ruling: a Task 9 é explicitamente test-only após Tasks 1–8 e não prevê correção de produção; portanto, os novos testes servem como hardening de uma cadeia já implementada, sem introduzir falha artificial — custo se incorreto: uma falha latente poderia passar; mitigação: a combinação ponta a ponta foi assertada junto dos cenários de filler/roteador e dos gates proibidos.
+- O teste de `FillService` cobre `READ_FORM -> build_fill_plan -> FILL_FORM -> field_results -> summary`: texto legal documental diferente do rótulo, option value selecionável `EC41`, controle obrigatório ausente, matrícula divergente preservada, campos independentes relidos com o proposto e processo mantido `PRONTO` por pendências mandatórias.
+- Testes do filler cobrem duas escritas válidas junto de controle ausente e valor real divergente; o roteador mantém o resultado parcial `ok:true` e propaga statuses/warning intactos.
+- Primeiro run Node encontrou erro no próprio fixture (ID de teste `txtDataPublicacaoDOE` não existe); atualizado para o ID canônico `txtDataDOE`, sem mudança de produção.
+- GREEN focado: descoberta Python de legal `32/32`, fill service `67/67`, API `86/86`; Node `detect-form + fill-form + router` `80/80`; protocolo proibido `9/9`; parity `3/3`.
+- Arquivos alterados: `tests/test_fill_service.py`, `extension/tests/router.test.mjs`, `extension/tests/fill-form.test.mjs` e este handoff.
+
 ## Proteções e decisões
 
 - Os anexos do goal são as fontes canônicas desta execução: design best-effort como SPEC e os dois documentos de implementação como planos obrigatórios. Foram lidos diretamente como entradas do usuário; não é necessário criar cópias no repositório.
@@ -105,10 +114,10 @@ Data: 2026-09-23
 
 ## Pendências e retomada
 
-1. Continuar Task 9 (fluxo integrado best-effort), os gates gerais e revisão/handoffs em `codex/best-effort-form-filling`, com RED antes de cada correção, identity fail-closed e valores divergentes preservados.
+1. Executar Task 10 do plano best-effort: gates completos, cinco casos supervisionados no portal real e criar `docs/notes/2026-09-23-best-effort-fill-validation-handoff.md`; login/ações no portal continuam humanos.
 2. Criar branch de discovery a partir do `main` promovido; usar a sessão real da Área Restrita para concluir PHASE 0 e commitar somente a nota de discovery antes de qualquer código de navegação.
 3. A partir do commit de discovery, criar a branch de navegação; integrar nela os commits Best-Effort/v4 sem perder a ordem de base exigida pelos planos.
-4. Executar todas as suítes, `verify-project.ps1`, `git diff --check`, validações reais supervisionadas, revisão final e push das branches.
+4. Executar as suítes/gates de navegação, `verify-project.ps1`, `git diff --check`, validações reais supervisionadas e revisão final; publicar as branches.
 
 ## GitHub
 

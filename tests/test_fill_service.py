@@ -578,6 +578,47 @@ class FillServiceOutcomeTests(FillRequestTestCase):
         self.assertEqual(legal_result["warning"], "option_unavailable")
         self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
 
+    def test_best_effort_contract_flows_from_read_through_plan_and_summary(self):
+        controls = form_controls()
+        controls["fundamento_legal"]["options"] = [
+            {"value": "EC41", "label": "EC 41/2003"},
+        ]
+        controls["matricula"]["value"] = "matrícula divergente preenchida no portal"
+        del controls["data_publicacao_doe"]
+        process_id, request_id, fill_command = self.reach_filling(controls=controls)
+
+        fields = fill_command["payload"]["fields"]
+        self.assertNotEqual(MANDATORY_VALUES["fundamento_legal"], "EC 41/2003")
+        self.assertEqual(fields["fundamento_legal"], "EC41")
+        self.assertIn("cargo", fields)
+        self.assertNotIn("data_publicacao_doe", fields)
+        self.assertNotIn("matricula", fields)
+        self.assertEqual(
+            fill_command["payload"]["preserved"]["matricula"],
+            "matrícula divergente preenchida no portal",
+        )
+
+        self.service.handle_command_result(
+            fill_command["id"], self.successful_fill_result(fill_command)
+        )
+
+        request = self.store.get_fill_request(request_id)
+        summary = request["form_snapshot"]["summary"]
+        self.assertEqual(request["state"], "PREENCHIDO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+        self.assertIn("fundamento_legal", summary["changed"])
+        self.assertIn("cargo", summary["changed"])
+        self.assertIn("matricula", summary["preserved"])
+        self.assertTrue(
+            {"data_publicacao_doe", "matricula"}.issubset(
+                {entry["field"] for entry in summary["unresolved"]}
+            )
+        )
+        for name in ("fundamento_legal", "cargo"):
+            field_result = request["form_snapshot"]["field_results"][name]
+            self.assertEqual(field_result["status"], "changed")
+            self.assertEqual(field_result["after"], field_result["proposed"])
+
     def test_a_technical_failure_keeps_the_process_pronto_and_allows_retry(self):
         process_id, request_id, fill_command = self.reach_filling()
 

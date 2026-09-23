@@ -326,6 +326,41 @@ test("a missing control is reported without stopping another field", () => {
   assert.equal(documentRef.getElementById("txtCargo").value, "Professor");
 });
 
+test("legal option and independent text controls are written around a missing field and divergence", () => {
+  const selects = {
+    fundamento_legal: [{ value: "EC41", label: "EC 41/2003" }],
+  };
+  const { documentRef, form } = preparedForm({
+    selects,
+    values: { cargo: "Cargo divergente preenchido no portal" },
+    missingFields: ["txtMatricula"],
+  });
+
+  const result = filler.applyFill({
+    documentRef,
+    identity: form.identity,
+    generation: form.generation,
+    fields: {
+      fundamento_legal: "EC41",
+      data_publicacao_doe: "27/03/2024",
+      cargo: "Professor",
+      matricula: "78.710-8/2",
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.field_results.fundamento_legal.status, "changed");
+  assert.equal(result.field_results.fundamento_legal.after, "EC41");
+  assert.equal(result.field_results.data_publicacao_doe.status, "changed");
+  assert.equal(result.field_results.cargo.status, "preserved");
+  assert.equal(result.field_results.cargo.warning, "existing_value_divergence");
+  assert.equal(result.field_results.matricula.status, "not_found");
+  assert.equal(documentRef.getElementById("txtFundamentoLegal").value, "EC41");
+  assert.equal(documentRef.getElementById("txtDataDOE").value, "27/03/2024");
+  assert.equal(documentRef.getElementById("txtCargo").value, "Cargo divergente preenchido no portal");
+  assert.equal(documentRef.getElementById("txtCargo").writeCount, 0);
+});
+
 test("a divergent existing value is preserved while another field is changed", () => {
   const { documentRef, form } = preparedForm({ values: { cargo: "Cargo preenchido no portal" } });
 

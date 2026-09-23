@@ -133,6 +133,38 @@ test("a FILL_FORM command returns the verified per-field result", async () => {
   assert.equal(result.field_results.cargo.status, "changed");
 });
 
+test("a FILL_FORM command preserves a successful partial field report", async () => {
+  const partialResults = {
+    cargo: { before: "", proposed: "Professor", after: "Professor", status: "changed" },
+    matricula: {
+      before: "",
+      proposed: "78.710-8/2",
+      after: "",
+      status: "disabled",
+      warning: "control_disabled",
+    },
+  };
+  const result = await executeCommand(
+    {
+      id: 27,
+      type: "FILL_FORM",
+      payload: { identity: IDENTITY, generation: 4, fields: { cargo: "Professor", matricula: "78.710-8/2" } },
+    },
+    {
+      fillForm: async () => ({
+        ok: true,
+        identity: IDENTITY,
+        generation_after: 5,
+        field_results: partialResults,
+      }),
+    }
+  );
+
+  assert.equal(result.command_id, 27);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.field_results, partialResults);
+});
+
 test("a refused fill keeps its code", async () => {
   const result = await executeCommand(
     { id: 26, type: "FILL_FORM", payload: {} },
