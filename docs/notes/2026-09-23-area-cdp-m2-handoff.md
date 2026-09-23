@@ -104,9 +104,9 @@ completed). Keep the portal marker human-selected.
 
 ## GitHub and remaining work
 
-Commits `fe95da8` (`fix: repair M2 CDP scan comparison`) and `61719fc`
-(`docs: record M2 CDP handoff status`) are pushed to
-`origin/codex/mesa-local-refactor`. The follow-up Chrome QA launch instructions
-and this note's update are pending their documentation commit. The pre-existing
-untracked `work/tce-extractor/.codex-live-pilot.py` remains untouched. M2
-remains pending the live QA scan and comparison.
+Commits `fe95da8` (`fix: repair M2 CDP scan comparison`), `61719fc`
+(`docs: record M2 CDP handoff status`), and `9c1f38d`
+(`docs: clarify Chrome QA CDP launch`) are pushed to
+`origin/codex/mesa-local-refactor`. The pre-existing untracked
+`work/tce-extractor/.codex-live-pilot.py` remains untouched. M2 remains pending
+the live QA scan and comparison.
