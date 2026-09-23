@@ -16,7 +16,7 @@ Saída: um único objeto JSON no stdout. Diagnóstico vai para stderr.
 #>
 [CmdletBinding()]
 param(
-    [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
+    [string]$RepoRoot = '',
     [string]$ChromeUserData = "$env:LOCALAPPDATA\Google\Chrome\User Data",
     [string]$PortalPattern = 'novaarearestrita\.tce\.rn\.gov\.br',
     [int]$MaxPages = 50,
@@ -25,6 +25,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $RepoRoot = Split-Path -Parent $PSScriptRoot
+}
 
 function Write-Diagnostic { param([string]$Message) [Console]::Error.WriteLine($Message) }
 

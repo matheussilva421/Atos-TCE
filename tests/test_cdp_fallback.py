@@ -1,6 +1,7 @@
 """Tests for the read-only Área Restrita CDP compatibility fallback (M2 Task 6)."""
 
 import json
+import shutil
 import subprocess
 import unittest
 from pathlib import Path
@@ -93,6 +94,32 @@ class CdpCommandTests(unittest.TestCase):
         # Only pagination may be driven, and only through the shared scanner.
         self.assertIn("findNextPageControl", source)
         self.assertIn("area-snapshot.js", source)
+
+    @unittest.skipUnless(shutil.which("powershell.exe"), "requires Windows PowerShell")
+    def test_script_resolves_default_repo_root_after_parameter_binding(self):
+        script = REPO_ROOT / "scripts" / "scan-area-cdp.ps1"
+        with TemporaryDirectory() as chrome_profile:
+            result = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(script),
+                    "-ChromeUserData",
+                    chrome_profile,
+                ],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                timeout=15,
+            )
+
+        output = (result.stdout + result.stderr).decode(errors="replace")
+        self.assertNotIn("Split-Path", output)
+        self.assertIn("DevToolsActivePort", output)
 
 
 class CdpOutputTests(unittest.TestCase):

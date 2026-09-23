@@ -8,13 +8,14 @@ SQLite store — and reports the divergences: rows that only one side saw,
 classification or act-id mismatches, and a different scope or marker. It never
 connects to the portal, never writes to the store and never types credentials.
 
-    powershell.exe -File scripts\scan-area-cdp.ps1 -Output data\logs\area-cdp.json
+    powershell.exe -File scripts\scan-area-cdp.ps1 > data\logs\area-cdp.json
     python scripts/compare-area-scans.py --cdp-json data\logs\area-cdp.json --db data\atos-tce.db
 """
 
 from __future__ import annotations
 
 import argparse
+import codecs
 import json
 import sys
 from collections.abc import Mapping
@@ -165,8 +166,14 @@ def read_scan_json(path: str | Path) -> dict[str, Any]:
     if not source.is_file():
         raise ComparisonError(f"arquivo de varredura ausente: {source}")
     try:
-        payload = json.loads(source.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError) as error:
+        raw = source.read_bytes()
+        encoding = (
+            "utf-16"
+            if raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE))
+            else "utf-8-sig"
+        )
+        payload = json.loads(raw.decode(encoding))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ComparisonError(f"varredura ilegível ({source}): {error}") from error
     if not isinstance(payload, dict):
         raise ComparisonError(f"varredura sem objeto JSON: {source}")

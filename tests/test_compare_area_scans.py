@@ -213,6 +213,14 @@ class MesaSideTests(CompareTestCase):
 
 
 class CompareCliTests(CompareTestCase):
+    def test_reads_utf16_json_created_by_windows_powershell_redirection(self):
+        cdp = self.tmp / "cdp.json"
+        cdp.write_bytes(json.dumps(CDP_PAYLOAD, ensure_ascii=False).encode("utf-16"))
+
+        payload = _module().read_scan_json(cdp)
+
+        self.assertEqual(payload, CDP_PAYLOAD)
+
     def test_cli_file_against_file_reports_equality(self):
         cdp = self.write("cdp.json", CDP_PAYLOAD)
         mesa = self.write("mesa.json", MESA_PAYLOAD)

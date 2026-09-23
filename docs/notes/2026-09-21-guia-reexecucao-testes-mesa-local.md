@@ -155,7 +155,14 @@ Com o portal autenticado no Chrome QA:
 
 ```powershell
 $qaProfile = "$env:LOCALAPPDATA\AtosTCE\perfil-qa-20260921"
+if (-not (Test-Path -LiteralPath (Join-Path $qaProfile 'DevToolsActivePort'))) {
+    throw "Chrome QA não está ativo com depuração remota neste perfil: $qaProfile"
+}
 powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\scripts\scan-area-cdp.ps1 -ChromeUserData $qaProfile 1> data\logs\area-cdp.json 2> data\logs\area-cdp-diagnostics.log
+if ($LASTEXITCODE -ne 0) {
+    Get-Content -LiteralPath data\logs\area-cdp-diagnostics.log
+    throw 'A varredura CDP falhou; não compare um arquivo de saída incompleto.'
+}
 Get-Content data\logs\area-cdp-diagnostics.log
 ```
 
@@ -164,8 +171,12 @@ O JSON do scanner fica em `area-cdp.json` e o diagnóstico em
 informado.
 Depois compare com a última varredura persistida:
 
+O PowerShell 5.1 pode gravar a saída redirecionada como UTF-16LE; o comparador
+detecta o BOM e também aceita JSON UTF-8.
+
 ```powershell
 python scripts/compare-area-scans.py --cdp-json data\logs\area-cdp.json --db data\atos-tce.db --json data\logs\area-compare.json
+if ($LASTEXITCODE -ne 0) { throw 'M2 não passou; confira area-compare.json.' }
 Get-Content data\logs\area-compare.json
 ```
 
