@@ -7,9 +7,8 @@
  *
  * What this module deliberately cannot do: locate or click the final
  * "Complementar Ato" button, submit a form, or invent a field that the backend
- * did not authorize. Every write is reread and reported; a single failed
- * verification makes the whole fill fail so the backend never marks the act as
- * filled on partial evidence.
+ * did not authorize. Identity and generation are guarded before writes; each
+ * authorized field is then attempted and verified independently.
  */
 
 (() => {
@@ -18,13 +17,11 @@
   const FIELD_STATUS = Object.freeze({
     CHANGED: "changed",
     PRESERVED: "preserved",
-    MISSING: "missing",
+    MISSING_PROPOSAL: "missing_proposal",
     DISABLED: "disabled",
     NOT_FOUND: "not_found",
+    OPTION_UNAVAILABLE: "option_unavailable",
     FAILED: "failed",
-    //: A field that would have been written, but was held back because another
-    //: field failed the local check. It proves that nothing was written.
-    SKIPPED: "skipped",
   });
 
   function normalize(value) {
@@ -33,11 +30,12 @@
   }
 
   function sameIdentity(left, right) {
-    return (
-      Boolean(left && right) &&
-      String(left.processKey) === String(right.processKey) &&
-      normalize(left.interestedNormalized) === normalize(right.interestedNormalized)
-    );
+    const leftProcess = String(left?.processKey ?? "").trim();
+    const rightProcess = String(right?.processKey ?? "").trim();
+    const leftInterested = normalize(left?.interestedNormalized);
+    const rightInterested = normalize(right?.interestedNormalized);
+    return Boolean(leftProcess && rightProcess && leftInterested && rightInterested) &&
+      leftProcess === rightProcess && leftInterested === rightInterested;
   }
 
   function nativeValueSetter(control) {
@@ -64,7 +62,29 @@
     const options = control?.options
       ? [...control.options]
       : [...(control?.querySelectorAll?.("option") ?? [])];
-    return options.some((option) => String(option.value ?? "") === proposedValue);
+    return options.some((option) => {
+      const value = String(option.value ?? "");
+      const label = String(option.label || option.textContent || "").trim();
+      const normalizedLabel = normalize(label);
+      return (
+        value === proposedValue &&
+        Boolean(value.trim() && label) &&
+        option.disabled !== true &&
+        !/^selecion(?:e|ar)\b/u.test(normalizedLabel)
+      );
+    });
+  }
+
+  function isSelectedPlaceholder(control, current) {
+    if (String(control?.tagName ?? "").toUpperCase() !== "SELECT" || !current) return false;
+    const options = control?.options
+      ? [...control.options]
+      : [...(control?.querySelectorAll?.("option") ?? [])];
+    return options.some((option) => {
+      const value = String(option.value ?? "");
+      const label = String(option.label || option.textContent || "");
+      return value === current && /^selecion(?:e|ar)\b/u.test(normalize(label));
+    });
   }
 
   function writeControl(documentRef, control, proposedValue) {
@@ -81,17 +101,23 @@
     return typeof documentRef?.getElementById === "function" ? documentRef.getElementById(id) : null;
   }
 
+  function identityFromReader(reader, documentRef) {
+    if (typeof reader?.readIdentity === "function") return reader.readIdentity(documentRef);
+    if (typeof reader?.readProcess !== "function" || typeof reader?.readInterested !== "function") return null;
+    const process = reader.readProcess(documentRef);
+    const interested = reader.readInterested(documentRef);
+    return {
+      processKey: process?.key ?? "",
+      interestedNormalized: interested?.normalized ?? "",
+    };
+  }
+
   /**
    * Apply the authorized plan to the open form.
    *
-   * Returns ``{ok, identity, generation_after, field_results, code}``. Nothing
-   * is written unless the identity, the generation and every planned control
-   * agree beforehand; every written or preserved field is reread afterwards.
-   *
-   * The fill runs in two phases. Phase A validates every field without
-   * touching a control; a single invalid field ends the whole fill with zero
-   * writes, because a partially written act is worse than an untouched one.
-   * Phase B writes only after phase A passed completely.
+   * Returns ``{ok, identity, generation_after, field_results, warnings, code}``.
+   * Identity and generation are request-wide guards. After they pass, a field
+   * problem is recorded locally and does not prevent later fields from running.
    */
   function applyFill({ documentRef = globalThis.document, identity, generation, fields = {}, deps = {} } = {}) {
     const reader = deps.reader ?? globalThis.TCEFormReader;
@@ -117,101 +143,151 @@
     if (before.generation !== generation) {
       return { ok: false, code: "STALE_GENERATION", generation_after: before.generation, field_results: {} };
     }
+    if (!fields || typeof fields !== "object" || Array.isArray(fields)) {
+      return {
+        ok: false,
+        code: "INVALID_FIELD_PLAN",
+        generation_after: before.generation,
+        field_results: {},
+      };
+    }
 
-    // ------------------------------------------------- phase A: no writes
     const fieldResults = {};
-    const plans = [];
-    for (const [field, proposedValue] of Object.entries(fields)) {
+    const plans = Object.entries(fields).map(([field, proposedValue]) => {
       const proposal = proposedValue === null || proposedValue === undefined ? "" : String(proposedValue);
       const control = controlOf(documentRef, field);
-      const current = before.fields?.[field]?.value ?? "";
-      const entry = { before: current, proposed: proposal, after: current, status: FIELD_STATUS.MISSING };
-      const plan = { field, entry, control, proposal, writable: false };
+      const current = String(before.fields?.[field]?.value ?? control?.value ?? "");
+      const entry = {
+        before: current,
+        proposed: proposal,
+        after: current,
+        status: FIELD_STATUS.MISSING_PROPOSAL,
+      };
       fieldResults[field] = entry;
-      plans.push(plan);
+      return { field, entry, control, proposal };
+    });
+
+    let latest = before;
+    let safetyFailure = null;
+    for (let index = 0; index < plans.length; index += 1) {
+      const { field, entry, control, proposal } = plans[index];
       if (proposal === "") {
+        entry.warning = "missing_proposal";
         continue;
       }
       if (!control) {
         entry.status = FIELD_STATUS.NOT_FOUND;
+        entry.warning = "control_not_found";
         continue;
       }
       if (control.disabled === true || control.readOnly === true) {
         entry.status = FIELD_STATUS.DISABLED;
+        entry.warning = "control_disabled";
         continue;
       }
-      if (current === proposal) {
+      let current = String(control.value ?? latest.fields?.[field]?.value ?? "");
+      if (isSelectedPlaceholder(control, current)) current = "";
+      const isSelect = String(control.tagName ?? "").toUpperCase() === "SELECT";
+      const equivalent = isSelect ? current === proposal : normalize(current) === normalize(proposal);
+      if (current.trim() && equivalent) {
         entry.status = FIELD_STATUS.PRESERVED;
         continue;
       }
-      if (String(control.tagName ?? "").toUpperCase() === "SELECT" && !optionValueExists(control, proposal)) {
-        entry.status = FIELD_STATUS.FAILED;
+      if (current.trim()) {
+        entry.status = FIELD_STATUS.PRESERVED;
+        entry.warning = "existing_value_divergence";
         continue;
       }
-      entry.status = FIELD_STATUS.CHANGED;
-      plan.writable = true;
-    }
-
-    const refused = plans.some(
-      (plan) => plan.entry.status !== FIELD_STATUS.PRESERVED && plan.writable !== true
-    );
-    if (refused) {
-      for (const plan of plans) {
-        if (plan.writable) plan.entry.status = FIELD_STATUS.SKIPPED;
+      if (isSelect && !optionValueExists(control, proposal)) {
+        entry.status = FIELD_STATUS.OPTION_UNAVAILABLE;
+        entry.warning = "option_unavailable";
+        continue;
       }
-      return {
-        ok: false,
-        code: "FILL_PRECHECK_FAILED",
-        identity: before.identity,
-        generation_after: before.generation,
-        field_results: fieldResults,
-      };
-    }
 
-    // ------------------------------------------- phase B: write and reread
-    for (const plan of plans) {
-      if (!plan.writable) continue;
+      let writeError = null;
       try {
-        writeControl(documentRef, plan.control, plan.proposal);
-        plan.entry.after = String(plan.control.value ?? "");
+        writeControl(documentRef, control, proposal);
       } catch (error) {
-        plan.entry.status = FIELD_STATUS.FAILED;
-        plan.entry.after = String(plan.control.value ?? "");
-        plan.entry.error = String(error?.message ?? error);
+        writeError = String(error?.message ?? error);
+      }
+
+      let reread = null;
+      let rereadError = null;
+      try {
+        reread = reader.readForm(documentRef);
+      } catch (error) {
+        rereadError = String(error?.message ?? error);
+      }
+
+      if (!reread) {
+        entry.status = FIELD_STATUS.FAILED;
+        entry.after = String(control.value ?? "");
+        entry.warning = "field_reread_failed";
+        entry.error = rereadError ?? "form_not_available_during_reread";
+        let identityAfterFailure = null;
+        let visibleAfterFailure = false;
+        try {
+          visibleAfterFailure =
+            typeof reader.isVisibleForm !== "function" || reader.isVisibleForm(documentRef) === true;
+          identityAfterFailure = identityFromReader(reader, documentRef);
+        } catch {
+          visibleAfterFailure = false;
+        }
+        if (visibleAfterFailure && sameIdentity(identityAfterFailure, before.identity)) {
+          continue;
+        }
+        safetyFailure = "FORM_NOT_AVAILABLE_AFTER_WRITE";
+        for (const remaining of plans.slice(index + 1)) {
+          remaining.entry.status = FIELD_STATUS.FAILED;
+          remaining.entry.error = "not_attempted_after_form_unavailable";
+        }
+        break;
+      }
+      if (!sameIdentity(reread.identity, before.identity)) {
+        entry.status = FIELD_STATUS.FAILED;
+        entry.after = String(reread.fields?.[field]?.value ?? control.value ?? "");
+        entry.warning = "form_identity_changed";
+        entry.error = "identity_changed_during_fill";
+        safetyFailure = "IDENTITY_MISMATCH_AFTER_WRITE";
+        for (const remaining of plans.slice(index + 1)) {
+          remaining.entry.status = FIELD_STATUS.FAILED;
+          remaining.entry.error = "not_attempted_after_identity_change";
+        }
+        break;
+      }
+      latest = reread;
+      const rereadField = reread.fields?.[field];
+      if (!rereadField) {
+        entry.status = FIELD_STATUS.FAILED;
+        entry.warning = "field_reread_failed";
+        entry.error = writeError ?? "control_not_reported_after_write";
+        entry.after = String(control.value ?? "");
+        continue;
+      }
+      entry.after = String(rereadField.value ?? "");
+      if (writeError) {
+        entry.status = FIELD_STATUS.FAILED;
+        entry.warning = "field_write_failed";
+        entry.error = writeError;
+      } else if (entry.after === proposal) {
+        entry.status = FIELD_STATUS.CHANGED;
+      } else {
+        entry.status = FIELD_STATUS.FAILED;
+        entry.warning = "field_reread_mismatch";
+        entry.error = "reread_did_not_match_proposal";
       }
     }
 
-    // Reread the form: only what the DOM really reports counts as filled.
-    const after = reader.readForm(documentRef);
-    let verified = true;
-    for (const plan of plans) {
-      if (plan.entry.status !== FIELD_STATUS.CHANGED) continue;
-      const reported = after?.fields?.[plan.field]?.value ?? "";
-      plan.entry.after = reported;
-      if (reported !== plan.proposal) {
-        plan.entry.status = FIELD_STATUS.FAILED;
-        verified = false;
-      }
-    }
-    for (const entry of Object.values(fieldResults)) {
-      if (
-        [
-          FIELD_STATUS.FAILED,
-          FIELD_STATUS.DISABLED,
-          FIELD_STATUS.NOT_FOUND,
-          FIELD_STATUS.MISSING,
-          FIELD_STATUS.SKIPPED,
-        ].includes(entry.status)
-      ) {
-        verified = false;
-      }
-    }
+    const warnings = Object.entries(fieldResults)
+      .filter(([, entry]) => entry.warning)
+      .map(([field, entry]) => ({ field, code: entry.warning }));
     return {
-      ok: verified && Boolean(after),
-      identity: after?.identity ?? before.identity,
-      generation_after: after?.generation ?? before.generation,
+      ok: safetyFailure === null,
+      identity: latest.identity ?? before.identity,
+      generation_after: latest.generation ?? before.generation,
       field_results: fieldResults,
-      code: verified && after ? null : "FILL_VERIFICATION_FAILED",
+      warnings,
+      code: safetyFailure,
     };
   }
 

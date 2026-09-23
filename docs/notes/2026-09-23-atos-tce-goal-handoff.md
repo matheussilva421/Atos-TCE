@@ -53,6 +53,16 @@ Data: 2026-09-23
 - GREEN: `node --test extension/tests/detect-form.test.mjs` — 12 testes, 12 passaram.
 - Arquivos alterados: `extension/content/detect-form.js`, `extension/tests/detect-form.test.mjs`, `extension/tests/fake-dom.mjs`.
 
+## Task 5 do plano — filler independente por campo
+
+- RED confirmado em oito casos que antes recusavam o request ou mudavam campos válidos para `skipped`: select indisponível, disabled/read-only, proposta vazia, ausência de controle, falhas de escrita/releitura e valor divergente.
+- Guardas globais de formulário, identidade e generation continuam antes de qualquer escrita. Identity incompleta/mismatch, reader ausente e generation ausente/stale retornam `ok:false` sem writes.
+- Após os guardas, cada proposta recebe `field_results` próprio: `changed`, `preserved`, `missing_proposal`, `not_found`, `disabled`, `option_unavailable` ou `failed`. Divergência existente fica preservada com `existing_value_divergence`; placeholder selecionado é tratado como vazio; valor de select deve pertencer ao catálogo atual e não pode ser placeholder/disabled.
+- Campos graváveis são escritos, relidos individualmente e a execução continua após falha daquele campo. Exceção de releitura permite continuar somente quando visibilidade e identidade do formulário continuam confirmadas.
+- `ok:true` indica que os guards passaram e o passe por campo terminou; resultados parciais permanecem nos campos/warnings. Nenhuma capacidade de submit/finalização foi adicionada.
+- GREEN: `node --test extension/tests/fill-form.test.mjs` — 17/17; `npm test --prefix extension` — 140/140; `git diff --check` passou.
+- Arquivos alterados: `extension/content/fill-form.js`, `extension/tests/fill-form.test.mjs`.
+
 ## Proteções e decisões
 
 - Os anexos do goal são as fontes canônicas desta execução: design best-effort como SPEC e os dois documentos de implementação como planos obrigatórios. Foram lidos diretamente como entradas do usuário; não é necessário criar cópias no repositório.
@@ -62,7 +72,7 @@ Data: 2026-09-23
 
 ## Pendências e retomada
 
-1. Continuar Tasks 5–9 (filler, state machine e UI) em `codex/best-effort-form-filling`, com RED antes de cada correção, identidade fail-closed e valores divergentes preservados.
+1. Commitar Task 5; continuar Tasks 6–9 (state machine, API e UI) em `codex/best-effort-form-filling`, com RED antes de cada correção, identity fail-closed e valores divergentes preservados.
 2. Criar branch de discovery a partir do `main` promovido; usar a sessão real da Área Restrita para concluir PHASE 0 e commitar somente a nota de discovery antes de qualquer código de navegação.
 3. A partir do commit de discovery, criar a branch de navegação; integrar nela os commits Best-Effort/v4 sem perder a ordem de base exigida pelos planos.
 4. Executar todas as suítes, `verify-project.ps1`, `git diff --check`, validações reais supervisionadas, revisão final e push das branches.
@@ -70,4 +80,4 @@ Data: 2026-09-23
 ## GitHub
 
 - `main`: promoção publicada e verificada em `b1d41e8`.
-- Branch de implementação: `.worktrees/atos-tce-baseline`, com Tasks 1–4 publicadas em `origin/codex/best-effort-form-filling` até `60a55c7`.
+- Branch de implementação: `.worktrees/atos-tce-baseline`, com Tasks 1–4 publicadas em `origin/codex/best-effort-form-filling` até `84d1946`; Task 5 validada e ainda sem commit.
