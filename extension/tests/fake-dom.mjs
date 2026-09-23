@@ -325,6 +325,7 @@ export function buildActFormDocument({
   frame = null,
   hiddenAncestor = false,
   complete = true,
+  missingFields = [],
 } = {}) {
   const documentRef = new FakeDocument({ screen: "form" });
   const parentWindow = frame ? { document: null } : null;
@@ -343,6 +344,7 @@ export function buildActFormDocument({
     new FakeElement("input", { id: "txtAnoProcesso", value: year ?? "" })
   );
   for (const [name, id] of Object.entries(ACT_FIELD_IDS)) {
+    if (missingFields.includes(name)) continue;
     if (selects[name]) {
       const select = new FakeElement("select", { id });
       for (const option of selects[name]) {

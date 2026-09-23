@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildActFormDocument, buildFrameElement, ACT_FIELD_IDS } from "./fake-dom.mjs";
+import { FakeElement, buildActFormDocument, buildFrameElement, ACT_FIELD_IDS } from "./fake-dom.mjs";
 
 await import("../lib/area-snapshot.js");
 await import("../content/detect-form.js");
@@ -35,13 +35,17 @@ test("a complete visible form reports identity, generation and field state", () 
   assert.deepEqual(form.fields.modalidade.options, []);
 });
 
-test("a late form is absent until every mapped control exists", () => {
-  const incomplete = buildActFormDocument({ complete: false, selected: "Pessoa Exemplo" });
-  const complete = buildActFormDocument({ selected: "Pessoa Exemplo" });
+test("an identity-valid form is readable when one content control is absent", () => {
+  const partial = buildActFormDocument({
+    selected: "Pessoa Exemplo",
+    missingFields: ["matricula"],
+  });
 
-  assert.equal(reader.readForm(incomplete), null);
-  assert.equal(reader.hasCompleteForm(incomplete), false);
-  assert.notEqual(reader.readForm(complete), null);
+  const form = reader.readForm(partial);
+
+  assert.notEqual(form, null);
+  assert.equal(form.identity.processKey, "102390/2026");
+  assert.equal(form.fields.matricula, undefined);
 });
 
 test("a form hidden by an ancestor is rejected", () => {
@@ -95,9 +99,39 @@ test("the option catalog of every select is read", () => {
   assert.deepEqual(form.options.fundamento_legal[1], {
     value: "41",
     label: "Art. 6º e art. 7º da Emenda Constitucional 41/2003",
+    disabled: false,
   });
   assert.equal(form.fields.fundamento_legal.options.length, 2);
   assert.equal(form.fields.genero.options[0].value, "F");
+});
+
+test("the option catalog reports disabled options and disabled optgroups", () => {
+  const documentRef = buildActFormDocument({
+    selected: "Pessoa Exemplo",
+    selects: {
+      fundamento_legal: [
+        { value: "41", label: "Emenda Constitucional 41/2003" },
+        { value: "42", label: "Emenda Constitucional 42/2003" },
+      ],
+    },
+  });
+  const select = documentRef.getElementById(ACT_FIELD_IDS.fundamento_legal);
+  const options = select.querySelectorAll("option");
+  options[1].disabled = true;
+
+  const group = new FakeElement("optgroup");
+  group.disabled = true;
+  const grouped = new FakeElement("option", { value: "43", text: "Emenda Constitucional 43/2003" });
+  group.append(grouped);
+  select.append(group);
+
+  const form = reader.readForm(documentRef);
+
+  assert.deepEqual(form.options.fundamento_legal, [
+    { value: "41", label: "Emenda Constitucional 41/2003", disabled: false },
+    { value: "42", label: "Emenda Constitucional 42/2003", disabled: true },
+    { value: "43", label: "Emenda Constitucional 43/2003", disabled: true },
+  ]);
 });
 
 test("the generation advances only when the form state changes", () => {

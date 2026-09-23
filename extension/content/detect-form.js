@@ -22,10 +22,9 @@
   });
 
   const FIELD_NAMES = Object.freeze(Object.keys(FIELD_MAP));
-  const SENTINEL_IDS = Object.freeze([
+  const IDENTITY_SENTINEL_IDS = Object.freeze([
     "txtNumeroProcesso",
     "txtAnoProcesso",
-    ...FIELD_NAMES.map((field) => FIELD_MAP[field]),
   ]);
 
   const GENERATION = new WeakMap();
@@ -46,7 +45,12 @@
   }
 
   function hasCompleteForm(documentRef = globalThis.document) {
-    return SENTINEL_IDS.every((id) => Boolean(getById(documentRef, id)));
+    const processInputsExist = IDENTITY_SENTINEL_IDS.every((id) => Boolean(getById(documentRef, id)));
+    const processForm =
+      getById(documentRef, "complementarAtoForm") ??
+      getById(documentRef, IDENTITY_SENTINEL_IDS[0])?.closest?.("form") ??
+      null;
+    return processInputsExist && Boolean(processForm);
   }
 
   function computedStyleValue(windowRef, element, property) {
@@ -107,7 +111,7 @@
       }
       const formElement =
         getById(documentRef, "complementarAtoForm") ??
-        getById(documentRef, SENTINEL_IDS[0])?.closest?.("form") ??
+        getById(documentRef, IDENTITY_SENTINEL_IDS[0])?.closest?.("form") ??
         null;
       return inspectVisibleAncestors(formElement, documentWindow, seenElements);
     } catch {
@@ -173,6 +177,7 @@
     return options.map((option) => ({
       value: String(option.value ?? ""),
       label: String(option.label || option.textContent || "").trim(),
+      disabled: option.disabled === true || option.parentElement?.disabled === true,
     }));
   }
 
@@ -207,6 +212,7 @@
     const options = {};
     for (const name of FIELD_NAMES) {
       const control = getById(documentRef, FIELD_MAP[name]);
+      if (!control) continue;
       const list = readOptions(control);
       fields[name] = {
         value: String(control?.value ?? ""),
@@ -235,7 +241,7 @@
     readOptions,
     FIELD_MAP,
     FIELD_NAMES,
-    SENTINEL_IDS,
+    SENTINEL_IDS: IDENTITY_SENTINEL_IDS,
   });
 
   const runtime = globalThis.chrome?.runtime;

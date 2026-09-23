@@ -13,6 +13,7 @@
 - Oracles de decisão v3 seguem como histórico; os primitivos preservados continuam cobertos por paridade.
 - Snapshot da extensão passa a reportar `disabled` por opção, inclusive quando o `<optgroup>` pai está desabilitado. Isso fecha a informação DOM necessária para o catálogo selecionável; a alteração está testada e será agrupada no commit de leitura de formulário do plano.
 - Best-effort Task 3: `build_fill_plan()` agora bloqueia somente processo/identidade/generation, produz warnings de conteúdo por campo, preserva valores existentes divergentes e deixa campos independentes seguirem. `fundamento_legal` é resolvido antes de qualquer matching literal e validado contra as opções atuais selecionáveis.
+- Best-effort Task 4: o leitor reconhece um formulário com âncoras de processo e pessoa interessada válidas mesmo se um controle de conteúdo estiver ausente; a propriedade daquele campo fica ausente no snapshot, sem fabricar estado vazio.
 
 ## Testes
 
@@ -26,6 +27,8 @@
 - RED adicional: um teste provou que controle legal disabled ainda entrava no plano; após incluir a guarda, passou.
 - GREEN: `python -m unittest tests.test_fill_service.PreflightTests -v` — 21 testes, 21 aprovados, 0 falhas.
 - GREEN da tarefa: `python -m unittest tests.test_fill_service -v` — 56 testes, 56 aprovados, 0 falhas.
+- RED: `node --test extension/tests/detect-form.test.mjs` — o teste de formulário com `matricula` ausente falhou porque o leitor exigia todos os controles mapeados.
+- GREEN: `node --test extension/tests/detect-form.test.mjs` — 11 testes, 11 aprovados, 0 falhas.
 
 ## Arquivos
 
@@ -36,6 +39,7 @@
 - `tests/oracles/legal/README.md`
 - `extension/content/detect-form.js`
 - `extension/tests/detect-form.test.mjs`
+- `extension/tests/fake-dom.mjs`
 - `app/area_restrita/preflight.py`
 - `tests/test_fill_service.py`
 - Este handoff.
@@ -56,7 +60,7 @@
 
 ## Próxima retomada
 
-1. Iniciar Task 4 com RED de leitura de formulário com controles de conteúdo ausentes e manter anchors process+interessado obrigatórios.
-2. Prosseguir Tasks 5–9 com TDD: filler por campo, request x status, API, Mesa e integração; depois rodar gates amplos.
+1. Iniciar Task 5 com RED para escrita por campo, ausência/readOnly/disabled/opção indisponível e falha isolada de escrita/releitura.
+2. Prosseguir Tasks 6–9 com TDD: request x status, API, Mesa e integração; depois rodar gates amplos.
 3. Prosseguir Phase 0 em portal real: estabelecer Mesa/extensão atuais, comparar sequência/página de limite e observar fluxo de interessado/formulário/retorno/estabilidade. Não clicar no botão final `Complementar Ato`.
 4. A promoção e criação do branch de descoberta continuam limitadas pela impossibilidade de atualizar refs do GitHub; usar apenas os SHAs locais comprovados e registrar essa restrição.
