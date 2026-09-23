@@ -1,9 +1,9 @@
 /**
  * Runs the proven JavaScript legal foundation over a fixture file and prints one
- * JSON document with the legacy results.
+ * JSON document with historical v3 results.
  *
- * Used by tests/test_legal_rules.py as the parity oracle: the same fixtures are
- * fed to app/analysis/legal.py and to this harness, and both answers must match.
+ * Tests continue to compare unchanged parser/profile/signature primitives.
+ * Final selection policy is owned by the Python legal-foundation-v4 contract.
  */
 
 import { readFileSync } from "node:fs";

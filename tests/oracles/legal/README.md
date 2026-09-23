@@ -25,3 +25,7 @@ Regras:
    usar: nenhum caminho de `app/`, `extension/`, `packaging/` ou `START.cmd`
    aponta para a árvore legada (ver `tests/test_no_legacy_paths.py`).
 
+3. The final decisions emitted by the harness are historical v3 results and do
+   not gate current selection policy. Python v4 tests own the best-available
+   choice contract. Parser, profile, normalization and catalog-signature parity
+   remain covered.

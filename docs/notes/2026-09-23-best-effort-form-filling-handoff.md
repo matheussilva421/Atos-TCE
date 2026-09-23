@@ -8,16 +8,29 @@
 
 - Best-effort Task 1: adicionado `selectable_legal_options()` como filtro canônico de opções DOM reais. A função ignora placeholder, valor vazio, opção disabled/não selecionável, não usa label como fallback para value e preserva o `value` não vazio exatamente como recebido.
 - Quatro testes novos em `tests/test_legal_rules.py` cobrem placeholder, ausência de value, valor literal do DOM e opções indisponíveis.
+- Best-effort Task 2: `legal-foundation-v4` agora escolhe deterministicamente a melhor opção selecionável sempre que há texto documental e catálogo real. Baixa confiança/margem, empate, conflito, classe desconhecida e referência incompleta/contraditória ficam como warning. Valor de opção preserva a forma bruta do DOM.
+- O seletor desempata primeiro por ausência de hard conflict, score, correspondência estrutural, crosswalk, discriminadores, lexical e por último `option_index`. A SPEC manda desempatar por componentes antes do índice, mesmo que o plano não enumere essa sequência.
+- Oracles de decisão v3 seguem como histórico; os primitivos preservados continuam cobertos por paridade.
+- Snapshot da extensão passa a reportar `disabled` por opção, inclusive quando o `<optgroup>` pai está desabilitado. Isso fecha a informação DOM necessária para o catálogo selecionável; a alteração está testada e será agrupada no commit de leitura de formulário do plano.
 
 ## Testes
 
 - RED: `python -m unittest tests.test_legal_rules.SelectableLegalOptionsTests -v` — 4 erros esperados porque o helper ainda não existia.
 - GREEN: `python -m unittest tests.test_legal_rules -v` — 28 testes, 28 aprovados, 0 falhas.
+- RED: `python -m unittest tests.test_legal_rules.V4BestAvailableTests.test_equal_scores_use_semantic_components_before_catalog_index -v` — falhou como esperado, pois a primeira opção DOM ganhava o score empatado.
+- GREEN: o mesmo teste direcionado passou; `python -m unittest tests.test_legal_rules -v` — 33 testes, 33 aprovados, 0 falhas.
+- Snapshot DOM RED: `node --test extension/tests/detect-form.test.mjs` — 10/11 passaram; o novo teste falhou porque `disabled` não era reportado.
+- Snapshot DOM GREEN: `node --test extension/tests/detect-form.test.mjs` — 11 testes, 11 aprovados, 0 falhas.
 
 ## Arquivos
 
 - `app/analysis/legal.py`
 - `tests/test_legal_rules.py`
+- `tests/fixtures/legal-cases.json`
+- `tests/legal_parity_harness.mjs`
+- `tests/oracles/legal/README.md`
+- `extension/content/detect-form.js`
+- `extension/tests/detect-form.test.mjs`
 - Este handoff.
 
 ## Git e ambiente
@@ -31,10 +44,12 @@
 - Chrome perfil Matheus autenticado; lista do setor aberta no marcador normal, página 1/40, contagem visível 1.197.
 - A leitura somente observacional dos frames detectou lista em frame interno e quadro de botões irmão; o scanner read-only existente confirmou 30 linhas na página 1.
 - Comparação composta processo+interessado com o scan local de 21/09: 29/30 identidades correspondem; há drift de contagem/ordem. A página 1 contém apenas itens já concluídos. Primeiro `PRONTO` no scan salvo: posição 227 (página 8). Nenhum nome ou identificador individual foi registrado.
+- A leitura atual confirmou novamente página 1/40, 30 linhas e total 1.197. A consulta por avaliação de DOM do tab de topo não atravessa os documentos de frame usados pela árvore de acessibilidade; requer diagnóstico pelo frame/CDP já permitido no plano. A divergência histórica segue sem resolução; não abrir processo por posição.
 - Nenhuma ação de conclusão/envio foi executada.
 
 ## Próxima retomada
 
-1. Task 2: escrever contratos v4 RED em testes/fixtures, confirmar falha e implementar ranking best-available usando o helper.
-2. Prosseguir Phase 0 em portal real: verificar o alvo exato da página 8, fluxo de interessado, abertura do formulário, botão nativo de retorno e latências. Não clicar no botão final `Complementar Ato`.
-3. Pausar no ponto do clique final manual se a observação pós-conclusão continuar indispensável; não escrever código de navegação antes do handoff Phase 0 completo.
+1. Iniciar Task 3 com RED de integração no `build_fill_plan()`: resolução legal antes do matcher literal, validação de catálogo selecionável atual e problemas de campo como warning.
+2. Prosseguir os Tasks 3–9 com TDD e commits por tarefa; manter request operacional separada do status documental.
+3. Prosseguir Phase 0 em portal real: estabelecer Mesa/extensão atuais, comparar sequência/página de limite e observar fluxo de interessado/formulário/retorno/estabilidade. Não clicar no botão final `Complementar Ato`.
+4. A promoção e criação do branch de descoberta continuam limitadas pela impossibilidade de atualizar refs do GitHub; usar apenas os SHAs locais comprovados e registrar essa restrição.

@@ -133,5 +133,109 @@
       "cargo": "Professor"
     },
     "options": []
+  },
+  {
+    "name": "v4_low_confidence",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Aposentadoria voluntaria conforme a legislacao vigente.",
+      "cargo": "Servidor"
+    },
+    "options": [
+      {
+        "value": "weak",
+        "label": "Art. 3 da Emenda Constitucional 47/2005"
+      }
+    ]
+  },
+  {
+    "name": "v4_low_margin",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Art. 3 da Emenda Constitucional 47/2005",
+      "cargo": "Servidor"
+    },
+    "options": [
+      {
+        "value": "exact",
+        "label": "Art. 3 da Emenda Constitucional 47/2005"
+      },
+      {
+        "value": "near",
+        "label": "Art. 3 da Emenda Constitucional 47/2005 conforme a legislacao aplicavel"
+      }
+    ]
+  },
+  {
+    "name": "v4_true_tie",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Art. 3 da Emenda Constitucional 47/2005",
+      "cargo": "Servidor"
+    },
+    "options": [
+      {
+        "value": "first",
+        "label": "Art. 3 da Emenda Constitucional 47/2005"
+      },
+      {
+        "value": "second",
+        "label": "Art. 3 da Emenda Constitucional 47/2005"
+      }
+    ]
+  },
+  {
+    "name": "v4_all_hard_conflicts",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Art. 3 da Emenda Constitucional 47/2005",
+      "cargo": "Servidor"
+    },
+    "options": [
+      {
+        "value": "cf",
+        "label": "Art. 40 paragrafo 5 da Constituicao Federal para militar"
+      },
+      {
+        "value": "ec41",
+        "label": "Art. 6 da Emenda Constitucional 41/2003 para militar"
+      }
+    ]
+  },
+  {
+    "name": "v4_placeholder_plus_real",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Art. 3 da Emenda Constitucional 47/2005",
+      "cargo": "Servidor"
+    },
+    "options": [
+      {
+        "value": "",
+        "label": "Selecione o Fundamento Legal"
+      },
+      {
+        "value": "ec47",
+        "label": "Art. 3 da Emenda Constitucional 47/2005"
+      }
+    ]
+  },
+  {
+    "name": "v4_only_placeholder",
+    "context": {
+      "resolution_status": "complete",
+      "operative_text": "Art. 3 da Emenda Constitucional 47/2005",
+      "cargo": "Servidor"
+    },
+    "options": [
+      {
+        "value": "",
+        "label": "Selecione o Fundamento Legal"
+      },
+      {
+        "value": "placeholder",
+        "label": "Selecionar fundamento legal"
+      }
+    ]
   }
 ]
