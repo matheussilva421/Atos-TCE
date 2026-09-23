@@ -64,7 +64,21 @@ If not, test whether `main` is an ancestor of the refactor branch:
 git merge-base --is-ancestor origin/main origin/codex/mesa-local-refactor
 ```
 
-If exit code is 0, promote by fast-forward:
+If that also fails, stop. The histories diverged and require explicit reconciliation before this plan may continue.
+
+If `main` is an ancestor and promotion is pending, run the refactor baseline first:
+
+```bash
+git switch codex/mesa-local-refactor
+git pull --ff-only origin codex/mesa-local-refactor
+python -m unittest discover -s tests -p "test_*.py" -q
+npm test --prefix extension
+node --test app/web/tests/*.test.mjs
+powershell -ExecutionPolicy Bypass -File .\verify-project.ps1
+git diff --check
+```
+
+Only with the baseline green, promote by fast-forward:
 
 ```bash
 git switch main
@@ -72,8 +86,6 @@ git pull --ff-only origin main
 git merge --ff-only origin/codex/mesa-local-refactor
 git push origin main
 ```
-
-If both ancestry tests fail, stop. The histories diverged and require explicit reconciliation before this plan may continue.
 
 - [ ] **Gate 3: Prove promotion**
 
