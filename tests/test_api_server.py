@@ -1490,12 +1490,67 @@ class FillOrchestrationTests(ApiTestCase):
         fill_command = self.claim()
         self.assertEqual(fill_command["type"], "FILL_FORM")
 
-        status, _headers, posted = self.report_raw(fill_command["id"], {"ok": True})
+        status, _headers, posted = self.report_raw(
+            fill_command["id"],
+            {"ok": True, "identity": dict(FILL_IDENTITY), "generation_after": 5},
+        )
 
         self.assertEqual(status, 400, posted)
         self.assertEqual(posted["error"], "invalid_result")
         self.assertIn("field_results", posted["detail"])
         self.assertEqual(self.fill_state(request_id)["state"], "FILLING")
+
+    def test_a_fill_success_without_identity_is_refused(self):
+        request_id = self.start_fill()
+        open_command = self.claim()
+        self.report(open_command["id"], self.open_result())
+        read_command = self.claim()
+        self.report(read_command["id"], self.read_form_result())
+        fill_command = self.claim()
+        body = self.fill_result(fill_command["payload"]["fields"])
+        body.pop("identity")
+
+        status, _headers, posted = self.report_raw(fill_command["id"], body)
+
+        self.assertEqual(status, 400, posted)
+        self.assertEqual(posted["error"], "invalid_result")
+        self.assertIn("identidade", posted["detail"])
+        self.assertEqual(self.fill_state(request_id)["state"], "FILLING")
+        self.assertEqual(self.store.get_process(self.process_id)["status"], "PRONTO")
+
+    def test_a_fill_success_without_generation_after_is_refused(self):
+        request_id = self.start_fill()
+        open_command = self.claim()
+        self.report(open_command["id"], self.open_result())
+        read_command = self.claim()
+        self.report(read_command["id"], self.read_form_result())
+        fill_command = self.claim()
+        body = self.fill_result(fill_command["payload"]["fields"])
+        body.pop("generation_after")
+
+        status, _headers, posted = self.report_raw(fill_command["id"], body)
+
+        self.assertEqual(status, 400, posted)
+        self.assertEqual(posted["error"], "invalid_result")
+        self.assertIn("generation", posted["detail"])
+        self.assertEqual(self.fill_state(request_id)["state"], "FILLING")
+        self.assertEqual(self.store.get_process(self.process_id)["status"], "PRONTO")
+
+    def test_a_fill_result_for_another_interested_person_is_blocked(self):
+        request_id = self.start_fill()
+        open_command = self.claim()
+        self.report(open_command["id"], self.open_result())
+        read_command = self.claim()
+        self.report(read_command["id"], self.read_form_result())
+        fill_command = self.claim()
+        body = self.fill_result(fill_command["payload"]["fields"])
+        body["identity"]["interestedNormalized"] = "outra pessoa"
+
+        status, _headers, posted = self.report_raw(fill_command["id"], body)
+
+        self.assertEqual(status, 200, posted)
+        self.assertEqual(self.fill_state(request_id)["state"], "BLOQUEADO")
+        self.assertEqual(self.store.get_process(self.process_id)["status"], "PRONTO")
 
     def test_the_full_chain_opens_reads_preflights_and_fills(self):
         request_id = self.start_fill()

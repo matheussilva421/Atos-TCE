@@ -322,6 +322,8 @@ class BestEffortFillOutcomeTests(FillRequestTestCase):
             fill_command["id"],
             {
                 "ok": True,
+                "identity": IDENTITY,
+                "generation_after": 5,
                 "field_results": {
                     "cargo": self.field_result("changed", proposed="Professor"),
                     "matricula": self.field_result("disabled", proposed="78.710-8/2"),
@@ -343,7 +345,10 @@ class BestEffortFillOutcomeTests(FillRequestTestCase):
             for name in MANDATORY_FIELDS
         }
 
-        service.handle_command_result(fill_command["id"], {"ok": True, "field_results": results})
+        service.handle_command_result(
+            fill_command["id"],
+            {"ok": True, "identity": IDENTITY, "generation_after": 5, "field_results": results},
+        )
 
         self.assertEqual(self.store.get_fill_request(request_id)["state"], "PREENCHIDO")
         self.assertEqual(self.store.get_process(process_id)["status"], "PREENCHIDO")
@@ -362,7 +367,10 @@ class BestEffortFillOutcomeTests(FillRequestTestCase):
             warning="existing_value_divergence",
         )
 
-        service.handle_command_result(fill_command["id"], {"ok": True, "field_results": results})
+        service.handle_command_result(
+            fill_command["id"],
+            {"ok": True, "identity": IDENTITY, "generation_after": 5, "field_results": results},
+        )
 
         request = self.store.get_fill_request(request_id)
         self.assertEqual(request["state"], "PREENCHIDO")
