@@ -62,7 +62,7 @@ Data: 2026-09-23
 
 ## Pendências e retomada
 
-1. Commitar Task 4; continuar Tasks 5–9 (filler, state machine e UI) em `codex/best-effort-form-filling`, com RED antes de cada correção, identidade fail-closed e valores divergentes preservados.
+1. Continuar Tasks 5–9 (filler, state machine e UI) em `codex/best-effort-form-filling`, com RED antes de cada correção, identidade fail-closed e valores divergentes preservados.
 2. Criar branch de discovery a partir do `main` promovido; usar a sessão real da Área Restrita para concluir PHASE 0 e commitar somente a nota de discovery antes de qualquer código de navegação.
 3. A partir do commit de discovery, criar a branch de navegação; integrar nela os commits Best-Effort/v4 sem perder a ordem de base exigida pelos planos.
 4. Executar todas as suítes, `verify-project.ps1`, `git diff --check`, validações reais supervisionadas, revisão final e push das branches.
@@ -70,4 +70,4 @@ Data: 2026-09-23
 ## GitHub
 
 - `main`: promoção publicada e verificada em `b1d41e8`.
-- Branch de implementação: `.worktrees/atos-tce-baseline`, com Tasks 1–3 publicadas em `origin/codex/best-effort-form-filling`; Task 4 validada e ainda sem commit.
+- Branch de implementação: `.worktrees/atos-tce-baseline`, com Tasks 1–4 publicadas em `origin/codex/best-effort-form-filling` até `60a55c7`.
