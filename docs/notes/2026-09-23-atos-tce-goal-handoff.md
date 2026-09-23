@@ -122,4 +122,21 @@ Data: 2026-09-23
 ## GitHub
 
 - `main`: promoção publicada e verificada em `b1d41e8`.
-- Branch de implementação: `.worktrees/atos-tce-baseline`, Tasks 1–9 publicadas em `origin/codex/best-effort-form-filling` até `1e7cb2b`; Task 6 `0cc808b`, Task 7 `c7c8edc`, Task 8 `258fb23`, Task 9 `1e7cb2b`.
+- Branch de implementação: `.worktrees/atos-tce-baseline`, Tasks 1–9 publicadas em `origin/codex/best-effort-form-filling` até `02e4a31`; commits locais adicionais `576904d` e `c136778` corrigem o filtro de opções DOM desabilitadas e o resultado vazio de preenchimento parcial. Push desses dois commits e das notas recém-criadas ainda pendente.
+
+## Task 10 Best-Effort — gates locais concluídos, validação real pendente
+
+- SHA testado: `c13677815dcb0d164f3182ce06681d00ea0e8c19`.
+- RED/GREEN adicional cobriu: melhor candidato jurídico desabilitado, opção de select desabilitada, `optgroup` desabilitado e `field_results: {}` sem travar a fill request ou reclassificar o processo.
+- `python -m unittest discover -s tests -p 'test_*.py' -q`: 603 executados, 602 passaram, 0 falhas, 1 skip.
+- `npm test --prefix extension`: 143/143; `node --test app/web/tests/*.test.mjs`: 24/24.
+- `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1`: 1.258 executados, 1.256 passaram, 0 falhas, 2 skips; todas as etapas verdes.
+- `git diff --check`: passou. O caminho real do verificador no checkout é `work/tce-extractor/verify-project.ps1`; a forma `./verify-project.ps1` do plano não existe neste layout.
+- Criado `docs/notes/2026-09-23-best-effort-fill-validation-handoff.md`, com matriz dos cinco casos legais reais e do caso de falha isolada ainda pendentes. Nenhum acesso autenticado à Área Restrita foi observado; nada foi classificado como validação real.
+
+## Retomada a partir do próximo ponto
+
+1. Publicar os commits `576904d` e `c136778` junto das notas deste handoff.
+2. Abrir no Chrome do perfil `Matheus` a Área Restrita autenticada, escolher o marcador dinâmico usado no fluxo normal e deixar a lista visível. Depois concluir os cinco casos Best-Effort sem clicar **Complementar Ato**.
+3. Executar a PHASE 0 integral em branch de discovery derivada do `main` promovido. Registrar evidência real e commitar somente a nota antes de escrever código de navegação.
+4. Produzir a branch de navegação a partir do commit de discovery, integrar os commits Best-Effort/v4 e só então implementar a ação “Próximo”; ela apenas navega e mantém o clique final manual.
