@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- **Before Task 1, promote `codex/mesa-local-refactor` to `main`.** Current planning-time relation: 154 commits ahead, 0 behind.
+- **Before Task 1, promote `codex/mesa-local-refactor` to `main`.** Recompute ancestry/counts immediately before promotion; do not rely on a stale planning-time commit count.
 - Promotion must be fast-forward only; never force-push, rewrite `main`, or discard a divergent remote commit.
 - After promotion, implementation work starts from the promoted `main`, not from the old refactor branch.
 - Identity/process targeting remains fail-closed.
@@ -57,11 +57,7 @@ git merge-base --is-ancestor origin/main origin/codex/mesa-local-refactor
 git rev-list --left-right --count origin/main...origin/codex/mesa-local-refactor
 ```
 
-At planning time the expected count is:
-
-```text
-0 154
-```
+The first number reported by `git rev-list --left-right --count` must be `0` when promotion is pending. The second number is expected to grow as this plan/spec receives documentation commits.
 
 If `origin/main` is not an ancestor of the refactor branch either, stop: the histories diverged and must be reconciled explicitly before promotion.
 
