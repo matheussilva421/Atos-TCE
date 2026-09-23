@@ -324,7 +324,7 @@ export function buildActFormDocument({
   selected = null,
   frame = null,
   hiddenAncestor = false,
-  complete = true,
+  missingFields = [],
 } = {}) {
   const documentRef = new FakeDocument({ screen: "form" });
   const parentWindow = frame ? { document: null } : null;
@@ -338,11 +338,15 @@ export function buildActFormDocument({
 
   const form = new FakeElement("form", { id: "complementarAtoForm" });
   const [number, year] = String(processKey).split("/");
-  form.append(
-    new FakeElement("input", { id: "txtNumeroProcesso", value: number ?? "" }),
-    new FakeElement("input", { id: "txtAnoProcesso", value: year ?? "" })
-  );
+  const missing = new Set(missingFields);
+  if (!missing.has("txtNumeroProcesso")) {
+    form.append(new FakeElement("input", { id: "txtNumeroProcesso", value: number ?? "" }));
+  }
+  if (!missing.has("txtAnoProcesso")) {
+    form.append(new FakeElement("input", { id: "txtAnoProcesso", value: year ?? "" }));
+  }
   for (const [name, id] of Object.entries(ACT_FIELD_IDS)) {
+    if (missing.has(name) || missing.has(id)) continue;
     if (selects[name]) {
       const select = new FakeElement("select", { id });
       for (const option of selects[name]) {
@@ -360,7 +364,6 @@ export function buildActFormDocument({
       form.append(select);
       continue;
     }
-    if (!complete && name === "genero") continue;
     const input = new FakeElement("input", { id, value: values[name] ?? "" });
     form.append(input);
   }

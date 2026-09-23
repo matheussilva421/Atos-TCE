@@ -44,6 +44,15 @@ Data: 2026-09-23
 - GREEN: `python -m unittest tests.test_fill_service -q` — 57 testes, 57 passaram; `python -m unittest tests.test_legal_rules -q` — 32/32; `python -m unittest tests.test_api_server -q` — 85/85. `git diff --check` passou.
 - Arquivos alterados: `app/area_restrita/preflight.py`, `tests/test_fill_service.py`, `tests/test_api_server.py`.
 
+## Task 4 do plano — leitor com controles parciais
+
+- RED confirmado: leitor retornou `null` para formulário com identidade válida e controle `matricula` ausente, pois a versão anterior exigia todos os controles mapeados.
+- Separadas as sentinelas de identidade (`txtNumeroProcesso`, `txtAnoProcesso`) dos controles de conteúdo. O formulário também precisa de uma raiz do ato, e os dois campos de identidade devem pertencer a ela; rádio de interessado selecionado continua obrigatório para identidade.
+- `readForm()` inclui cada controle presente e omite campos ausentes, permitindo que o backend registre o controle como faltante. Sem âncoras de identidade, interessado selecionado ou raiz de formulário, a leitura continua recusada.
+- RED adicional provou que números de processo fora da raiz de formulário não qualificam a página; a validação da raiz foi mantida fail-closed.
+- GREEN: `node --test extension/tests/detect-form.test.mjs` — 12 testes, 12 passaram.
+- Arquivos alterados: `extension/content/detect-form.js`, `extension/tests/detect-form.test.mjs`, `extension/tests/fake-dom.mjs`.
+
 ## Proteções e decisões
 
 - Os anexos do goal são as fontes canônicas desta execução: design best-effort como SPEC e os dois documentos de implementação como planos obrigatórios. Foram lidos diretamente como entradas do usuário; não é necessário criar cópias no repositório.
@@ -53,13 +62,12 @@ Data: 2026-09-23
 
 ## Pendências e retomada
 
-1. Continuar Tasks 4–9 (leitor, filler, state machine e UI) em `codex/best-effort-form-filling`, com RED antes de cada correção, identidade fail-closed e valores divergentes preservados.
-2. Commitar Task 3 e atualizar este handoff após cada bloco seguinte.
-3. Criar branch de discovery a partir do `main` promovido; usar a sessão real da Área Restrita para concluir PHASE 0 e commitar somente a nota de discovery antes de qualquer código de navegação.
-4. A partir do commit de discovery, criar a branch de navegação; integrar nela os commits Best-Effort/v4 sem perder a ordem de base exigida pelos planos.
-5. Executar todas as suítes, `verify-project.ps1`, `git diff --check`, validações reais supervisionadas, revisão final e push das branches.
+1. Commitar Task 4; continuar Tasks 5–9 (filler, state machine e UI) em `codex/best-effort-form-filling`, com RED antes de cada correção, identidade fail-closed e valores divergentes preservados.
+2. Criar branch de discovery a partir do `main` promovido; usar a sessão real da Área Restrita para concluir PHASE 0 e commitar somente a nota de discovery antes de qualquer código de navegação.
+3. A partir do commit de discovery, criar a branch de navegação; integrar nela os commits Best-Effort/v4 sem perder a ordem de base exigida pelos planos.
+4. Executar todas as suítes, `verify-project.ps1`, `git diff --check`, validações reais supervisionadas, revisão final e push das branches.
 
 ## GitHub
 
 - `main`: promoção publicada e verificada em `b1d41e8`.
-- Branch de implementação: `.worktrees/atos-tce-baseline`, com Tasks 1–2 publicados em `origin/codex/best-effort-form-filling`; Task 3 validada e ainda sem commit.
+- Branch de implementação: `.worktrees/atos-tce-baseline`, com Tasks 1–3 publicadas em `origin/codex/best-effort-form-filling`; Task 4 validada e ainda sem commit.

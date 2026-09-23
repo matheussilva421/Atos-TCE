@@ -22,10 +22,9 @@
   });
 
   const FIELD_NAMES = Object.freeze(Object.keys(FIELD_MAP));
-  const SENTINEL_IDS = Object.freeze([
+  const IDENTITY_SENTINEL_IDS = Object.freeze([
     "txtNumeroProcesso",
     "txtAnoProcesso",
-    ...FIELD_NAMES.map((field) => FIELD_MAP[field]),
   ]);
 
   const GENERATION = new WeakMap();
@@ -45,8 +44,20 @@
       : "";
   }
 
-  function hasCompleteForm(documentRef = globalThis.document) {
-    return SENTINEL_IDS.every((id) => Boolean(getById(documentRef, id)));
+  function getActFormRoot(documentRef = globalThis.document) {
+    return (
+      getById(documentRef, "complementarAtoForm") ??
+      getById(documentRef, IDENTITY_SENTINEL_IDS[0])?.closest?.("form") ??
+      null
+    );
+  }
+
+  function hasIdentityAnchors(documentRef = globalThis.document) {
+    const number = getById(documentRef, IDENTITY_SENTINEL_IDS[0]);
+    const year = getById(documentRef, IDENTITY_SENTINEL_IDS[1]);
+    const formRoot = getActFormRoot(documentRef);
+    if (!number || !year || !formRoot) return false;
+    return number.closest?.("form") === formRoot && year.closest?.("form") === formRoot;
   }
 
   function computedStyleValue(windowRef, element, property) {
@@ -105,10 +116,8 @@
         if (parentWindow === undefined || parentWindow === null || parentWindow === currentWindow) break;
         currentWindow = parentWindow;
       }
-      const formElement =
-        getById(documentRef, "complementarAtoForm") ??
-        getById(documentRef, SENTINEL_IDS[0])?.closest?.("form") ??
-        null;
+      const formElement = getActFormRoot(documentRef);
+      if (!formElement) return false;
       return inspectVisibleAncestors(formElement, documentWindow, seenElements);
     } catch {
       return false;
@@ -177,7 +186,7 @@
   }
 
   function readIdentity(documentRef) {
-    if (!hasCompleteForm(documentRef)) return null;
+    if (!hasIdentityAnchors(documentRef)) return null;
     const process = readProcess(documentRef);
     const interested = readInterested(documentRef);
     if (!process.key || !interested?.normalized) return null;
@@ -200,18 +209,19 @@
    * ``null`` is the answer for a late or hidden form: the caller retries.
    */
   function readForm(documentRef = globalThis.document) {
-    if (!isVisibleForm(documentRef) || !hasCompleteForm(documentRef)) return null;
+    if (!isVisibleForm(documentRef) || !hasIdentityAnchors(documentRef)) return null;
     const identity = readIdentity(documentRef);
     if (!identity) return null;
     const fields = {};
     const options = {};
     for (const name of FIELD_NAMES) {
       const control = getById(documentRef, FIELD_MAP[name]);
+      if (!control) continue;
       const list = readOptions(control);
       fields[name] = {
-        value: String(control?.value ?? ""),
-        disabled: control?.disabled === true,
-        readOnly: control?.readOnly === true,
+        value: String(control.value ?? ""),
+        disabled: control.disabled === true,
+        readOnly: control.readOnly === true,
         options: list,
       };
       if (list.length > 0) options[name] = list;
@@ -229,13 +239,13 @@
   globalThis.TCEFormReader = Object.freeze({
     readForm,
     isVisibleForm,
-    hasCompleteForm,
+    hasIdentityAnchors,
     readProcess,
     readInterested,
     readOptions,
     FIELD_MAP,
     FIELD_NAMES,
-    SENTINEL_IDS,
+    IDENTITY_SENTINEL_IDS,
   });
 
   const runtime = globalThis.chrome?.runtime;

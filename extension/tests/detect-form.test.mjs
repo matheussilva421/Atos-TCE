@@ -35,13 +35,39 @@ test("a complete visible form reports identity, generation and field state", () 
   assert.deepEqual(form.fields.modalidade.options, []);
 });
 
-test("a late form is absent until every mapped control exists", () => {
-  const incomplete = buildActFormDocument({ complete: false, selected: "Pessoa Exemplo" });
+test("an identity-valid form is readable when one content control is absent", () => {
+  const partial = buildActFormDocument({
+    selected: "Pessoa Exemplo",
+    missingFields: ["matricula"],
+  });
   const complete = buildActFormDocument({ selected: "Pessoa Exemplo" });
 
-  assert.equal(reader.readForm(incomplete), null);
-  assert.equal(reader.hasCompleteForm(incomplete), false);
+  const form = reader.readForm(partial);
+  assert.notEqual(form, null);
+  assert.equal(form.identity.processKey, "102390/2026");
+  assert.equal(form.fields.matricula, undefined);
   assert.notEqual(reader.readForm(complete), null);
+});
+
+test("a form without process identity anchors is not readable", () => {
+  const documentRef = buildActFormDocument({
+    selected: "Pessoa Exemplo",
+    missingFields: ["txtNumeroProcesso"],
+  });
+
+  assert.equal(reader.readForm(documentRef), null);
+});
+
+test("process identity fields outside the act form do not qualify as a form", () => {
+  const documentRef = buildActFormDocument({ selected: "Pessoa Exemplo" });
+  const formElement = documentRef.getElementById("complementarAtoForm");
+  const controls = [...formElement.children];
+  documentRef.body.children = documentRef.body.children.filter((child) => child !== formElement);
+  formElement.children = [];
+  for (const control of controls) control.parentElement = null;
+  documentRef.body.append(...controls);
+
+  assert.equal(reader.readForm(documentRef), null);
 });
 
 test("a form hidden by an ancestor is rejected", () => {
