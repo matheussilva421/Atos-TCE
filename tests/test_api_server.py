@@ -1578,7 +1578,7 @@ class FillOrchestrationTests(ApiTestCase):
         self.assertEqual(request["state"], "ERRO")
         self.assertNotEqual(self.store.get_process(self.process_id)["status"], "PREENCHIDO")
 
-    def test_a_field_that_rereads_differently_blocks_the_request(self):
+    def test_a_field_that_rereads_differently_stays_a_reviewable_partial_result(self):
         request_id = self.start_fill()
         open_command = self.claim()
         self.report(open_command["id"], self.open_result())
@@ -1592,8 +1592,8 @@ class FillOrchestrationTests(ApiTestCase):
         self.report(fill_command["id"], body)
 
         request = self.fill_state(request_id)
-        self.assertEqual(request["state"], "BLOQUEADO")
-        self.assertIn("cargo", request["error"])
+        self.assertEqual(request["state"], "PREENCHIDO")
+        self.assertEqual(self.store.get_process(self.process_id)["status"], "PRONTO")
 
     def test_only_a_pronto_process_can_be_filled(self):
         self.store.set_process_status(self.process_id, "REVISAR")

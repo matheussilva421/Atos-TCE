@@ -4,7 +4,12 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from app.area_restrita.fill_service import FILL_STATES, FillError, FillService
+from app.area_restrita.fill_service import (
+    FILL_STATES,
+    FillError,
+    FillService,
+    summarize_field_results,
+)
 from app.area_restrita.preflight import FillBlocked, FillPlan, build_fill_plan
 from app.analysis.legal import RULES_VERSION, selectable_legal_options
 from app.core.models import DocumentRecord, FieldRecord, ProcessRecord
@@ -115,7 +120,7 @@ class FillStateMachineTests(FillRequestTestCase):
         self.assertEqual(request["state"], "BLOQUEADO")
         self.assertIn("divergente", request["error"])
         self.assertIsNone(self.store.claim_extension_command("extension-test"))
-        self.assertEqual(self.store.get_process(process_id)["status"], "BLOQUEADO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
         events = [event["event_type"] for event in self.store.get_process(process_id)["events"]]
         self.assertIn("fill_blocked", events)
 
@@ -217,7 +222,7 @@ class FillStateMachineTests(FillRequestTestCase):
         request = self.store.get_fill_request(request_id)
         self.assertEqual(request["state"], "ERRO")
         self.assertIn("lista", request["error"])
-        self.assertEqual(self.store.get_process(process_id)["status"], "ERRO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
 
     def test_an_ambiguous_page_blocks_instead_of_looking_like_a_portal_error(self):
         # CR-02: the extension refuses to pick between two matching frames.
@@ -234,7 +239,7 @@ class FillStateMachineTests(FillRequestTestCase):
         request = self.store.get_fill_request(request_id)
         self.assertEqual(request["state"], "BLOQUEADO")
         self.assertIn("moldura", request["error"])
-        self.assertEqual(self.store.get_process(process_id)["status"], "BLOQUEADO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
         events = [event["event_type"] for event in self.store.get_process(process_id)["events"]]
         self.assertIn("fill_blocked", events)
 
@@ -427,6 +432,221 @@ class ManualFallbackTests(FillRequestTestCase):
         self.assertEqual(command["payload"]["fields"], {})
         self.assertTrue(any("controle ausente" in warning for warning in request["form_snapshot"]["warnings"]))
         self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+
+
+class FillResultSummaryTests(unittest.TestCase):
+    def test_changed_and_equivalent_preserved_are_satisfied_but_divergence_is_not(self):
+        summary = summarize_field_results(
+            {
+                "cargo": {"status": "changed", "before": "", "proposed": "Professor", "after": "Professor"},
+                "matricula": {"status": "preserved", "before": "123", "proposed": "123", "after": "123"},
+                "data_nascimento": {
+                    "status": "preserved",
+                    "before": "01/01/1950",
+                    "proposed": "02/02/1950",
+                    "after": "01/01/1950",
+                    "warning": "existing_value_divergence",
+                },
+                "data_publicacao_doe": {"status": "disabled"},
+            },
+            mandatory_fields=("cargo", "matricula", "data_nascimento", "data_publicacao_doe"),
+        )
+
+        self.assertEqual(summary["changed"], ["cargo"])
+        self.assertEqual(summary["preserved"], ["matricula", "data_nascimento"])
+        self.assertFalse(summary["mandatory_satisfied"])
+        self.assertEqual(
+            {entry["field"] for entry in summary["unresolved"]},
+            {"data_nascimento", "data_publicacao_doe"},
+        )
+
+    def test_optional_warning_does_not_make_mandatory_fields_unsatisfied(self):
+        summary = summarize_field_results(
+            {
+                "cargo": {"status": "changed", "before": "", "proposed": "Professor", "after": "Professor"},
+                "genero": {"status": "disabled", "warning": "control_disabled"},
+            },
+            mandatory_fields=("cargo",),
+        )
+
+        self.assertTrue(summary["mandatory_satisfied"])
+        self.assertEqual(summary["unresolved"][0]["field"], "genero")
+
+
+class FillServiceOutcomeTests(FillRequestTestCase):
+    def ready_process(self, values=None):
+        process_id = self.make_process()
+        values = dict(MANDATORY_VALUES if values is None else values)
+        self.store.replace_fields(
+            process_id,
+            [
+                FieldRecord(field_name=name, value=value, status="found", confidence=1.0)
+                for name, value in values.items()
+            ],
+        )
+        return process_id
+
+    def reach_filling(self, *, values=None, controls=None):
+        process_id = self.ready_process(values)
+        request_id = self.service.request_fill(process_id)
+        open_command = self.store.claim_extension_command("extension-test")
+        self.service.handle_command_result(open_command["id"], {**OPEN_RESULT, "identity": IDENTITY})
+        read_command = self.store.claim_extension_command("extension-test")
+        self.service.handle_command_result(
+            read_command["id"],
+            {
+                "ok": True,
+                "identity": IDENTITY,
+                "generation": 3,
+                "fields": form_controls() if controls is None else controls,
+            },
+        )
+        fill_command = self.store.claim_extension_command("extension-test")
+        self.assertEqual(fill_command["type"], "FILL_FORM")
+        return process_id, request_id, fill_command
+
+    @staticmethod
+    def successful_fill_result(command):
+        fields = command["payload"]["fields"]
+        return {
+            "ok": True,
+            "identity": dict(IDENTITY),
+            "generation_after": 4,
+            "field_results": {
+                name: {"before": "", "proposed": value, "after": value, "status": "changed"}
+                for name, value in fields.items()
+            },
+        }
+
+    def test_a_partial_fill_finishes_the_request_but_keeps_the_process_pronto_and_retryable(self):
+        process_id, request_id, fill_command = self.reach_filling(
+            values={"cargo": "Professor", "matricula": "78.710-8/2"}
+        )
+        self.service.handle_command_result(
+            fill_command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "field_results": {
+                    "cargo": {"before": "", "proposed": "Professor", "after": "Professor", "status": "changed"},
+                    "matricula": {
+                        "before": "",
+                        "proposed": "78.710-8/2",
+                        "after": "",
+                        "status": "disabled",
+                        "warning": "control_disabled",
+                    },
+                },
+            },
+        )
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "PREENCHIDO")
+        self.assertEqual(request["form_snapshot"]["summary"]["changed"], ["cargo"])
+        self.assertTrue(any(item["field"] == "matricula" for item in request["form_snapshot"]["summary"]["unresolved"]))
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+
+        retry_id = self.service.request_fill(process_id)
+        self.assertEqual(self.store.get_fill_request(retry_id)["state"], "OPENING")
+        self.assertEqual(self.store.claim_extension_command("extension-test")["type"], "OPEN_ACT")
+
+    def test_a_fully_satisfied_mandatory_plan_marks_the_process_filled(self):
+        process_id, request_id, fill_command = self.reach_filling()
+
+        self.service.handle_command_result(
+            fill_command["id"], self.successful_fill_result(fill_command)
+        )
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "PREENCHIDO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PREENCHIDO")
+
+    def test_a_placeholder_only_legal_catalog_is_reported_as_a_field_warning(self):
+        controls = form_controls()
+        controls["fundamento_legal"]["options"] = [
+            {"value": "", "label": "Selecione"},
+        ]
+        process_id, request_id, fill_command = self.reach_filling(controls=controls)
+
+        self.service.handle_command_result(
+            fill_command["id"], self.successful_fill_result(fill_command)
+        )
+
+        request = self.store.get_fill_request(request_id)
+        legal_result = request["form_snapshot"]["field_results"]["fundamento_legal"]
+        self.assertEqual(legal_result["status"], "option_unavailable")
+        self.assertEqual(legal_result["warning"], "option_unavailable")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+
+    def test_a_technical_failure_keeps_the_process_pronto_and_allows_retry(self):
+        process_id, request_id, fill_command = self.reach_filling()
+
+        self.service.handle_command_result(
+            fill_command["id"], {"ok": False, "code": "FILL_FAILED", "error": "erro técnico"}
+        )
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "ERRO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+        retry_id = self.service.request_fill(process_id)
+        self.assertEqual(self.store.get_fill_request(retry_id)["state"], "OPENING")
+
+    def test_a_fill_identity_mismatch_blocks_only_the_request_without_retrying(self):
+        process_id, request_id, fill_command = self.reach_filling()
+
+        self.service.handle_command_result(
+            fill_command["id"],
+            {"ok": False, "code": "IDENTITY_MISMATCH", "error": "identidade divergente"},
+        )
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "BLOQUEADO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+        self.assertIsNone(self.store.claim_extension_command("extension-test"))
+
+    def test_a_stale_generation_retries_one_fresh_read_and_can_complete(self):
+        process_id, request_id, fill_command = self.reach_filling()
+        self.service.handle_command_result(
+            fill_command["id"],
+            {"ok": False, "code": "STALE_GENERATION", "generation_after": 4},
+        )
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "READING")
+        self.assertEqual(request["form_snapshot"]["stale_generation_retries"], 1)
+        read_command = self.store.claim_extension_command("extension-test")
+        self.assertEqual(read_command["type"], "READ_FORM")
+        self.service.handle_command_result(
+            read_command["id"],
+            {"ok": True, "identity": IDENTITY, "generation": 5, "fields": form_controls()},
+        )
+        retried_fill = self.store.claim_extension_command("extension-test")
+        self.assertEqual(retried_fill["type"], "FILL_FORM")
+        self.service.handle_command_result(
+            retried_fill["id"], self.successful_fill_result(retried_fill)
+        )
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "PREENCHIDO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PREENCHIDO")
+
+    def test_a_second_stale_generation_ends_as_technical_error_without_status_corruption(self):
+        process_id, request_id, fill_command = self.reach_filling()
+        self.service.handle_command_result(
+            fill_command["id"], {"ok": False, "code": "STALE_GENERATION", "generation_after": 4}
+        )
+        read_command = self.store.claim_extension_command("extension-test")
+        self.service.handle_command_result(
+            read_command["id"],
+            {"ok": True, "identity": IDENTITY, "generation": 5, "fields": form_controls()},
+        )
+        retried_fill = self.store.claim_extension_command("extension-test")
+        self.service.handle_command_result(
+            retried_fill["id"], {"ok": False, "code": "STALE_GENERATION", "generation_after": 6}
+        )
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "ERRO")
+        self.assertEqual(request["form_snapshot"]["stale_generation_retries"], 1)
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+        self.assertIsNone(self.store.claim_extension_command("extension-test"))
 
 
 class SchemaV4Tests(FillRequestTestCase):
@@ -912,9 +1132,10 @@ class FillServicePreflightTests(FillRequestTestCase):
         _service, request_id = self.reach_reading(stub)
 
         request = self.store.get_fill_request(request_id)
-        self.assertEqual(request["state"], "BLOQUEADO")
+        self.assertEqual(request["state"], "ERRO")
         self.assertIn("EXISTING_VALUE_DIVERGENCE", request["error"])
         self.assertIn("matricula", request["error"])
+        self.assertEqual(self.store.get_process(request["process_id"])["status"], "PRONTO")
         self.assertIsNone(self.store.claim_extension_command("extension-test"))
 
     def test_a_broken_preflight_moves_the_request_to_erro(self):

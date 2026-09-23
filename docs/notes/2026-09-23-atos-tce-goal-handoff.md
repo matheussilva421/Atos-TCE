@@ -63,6 +63,21 @@ Data: 2026-09-23
 - GREEN: `node --test extension/tests/fill-form.test.mjs` — 17/17; `npm test --prefix extension` — 140/140; `git diff --check` passou.
 - Arquivos alterados: `extension/content/fill-form.js`, `extension/tests/fill-form.test.mjs`.
 
+## Task 6 do plano — resultado da tentativa separado do status do processo
+
+- RED: os novos testes não importaram porque `summarize_field_results` ainda não existia; após a implementação mínima, testes de ordenação e um caso de catálogo jurídico apenas com placeholder falharam com expectativas comportamentais, e foram corrigidos antes de prosseguir.
+- O serviço agora produz resumo determinístico por campo (`changed`, `preserved`, `unresolved`, `warnings`, `mandatory_satisfied`). Divergência de valor preservado e falha de releitura não são confundidas com sucesso; proposta/controle/opção ausente gera resultado local e os demais campos continuam.
+- Uma tentativa completa pode terminar `PREENCHIDO` com warnings. O processo só passa a `PREENCHIDO` se todos os campos obrigatórios forem satisfeitos; em resultado parcial, erro técnico ou bloqueio, o processo continua `PRONTO` e pode iniciar nova tentativa.
+- `_block()` e `_fail()` agora atualizam somente a fill request e acrescentam eventos (`fill_blocked` / `fill_failed`). Erros de identidade/formulário/processo classificam a request como `BLOQUEADO`; falha de preflight não identitária termina em `ERRO`.
+- `STALE_GENERATION` agenda exatamente um novo `READ_FORM`, guarda o contador no `form_snapshot` e reexecuta preflight. Uma segunda ocorrência encerra a request em `ERRO`; identidade divergente nunca recebe retry.
+- Não houve migração/schema: o retry counter e o resumo usam o JSON de `form_snapshot` existente.
+- RED/GREEN focal: `python -m unittest discover -s tests -p 'test_fill_service.py' -q` — 66 testes, 66 passaram; `python -m unittest discover -s tests -p 'test_store.py' -q` — 19/19.
+- Atualizado o contrato de integração que antes bloqueava divergência de releitura: `python -m unittest discover -s tests -p 'test_api_server.py' -q` — 85 testes, 85 passaram. A primeira execução encontrou só a expectativa antiga; após atualizar o teste, a repetição completa passou.
+- `git diff --check`: passou.
+- Ruling: uma rejeição de preflight fora de identidade/formulário/processo termina como `ERRO` da tentativa, não `BLOQUEADO` — isso mantém BLOQUEADO reservado ao risco de alvo errado e o processo retryable — custo se incorreto: uma recusa preventiva pode aparecer como falha técnica.
+- Ruling: `python -m unittest tests.test_fill_service -v` e o equivalente para `test_store` não importam porque `tests/` neste checkout é diretório plano sem pacote Python; usar descoberta explícita `-s tests -p <arquivo>` executa os mesmos módulos — custo se incorreto: a descoberta pode omitir testes, mitigado pela confirmação do padrão e contagem do módulo.
+- Arquivos alterados: `app/area_restrita/fill_service.py`, `tests/test_fill_service.py`, `tests/test_api_server.py` e este handoff.
+
 ## Proteções e decisões
 
 - Os anexos do goal são as fontes canônicas desta execução: design best-effort como SPEC e os dois documentos de implementação como planos obrigatórios. Foram lidos diretamente como entradas do usuário; não é necessário criar cópias no repositório.
@@ -72,7 +87,7 @@ Data: 2026-09-23
 
 ## Pendências e retomada
 
-1. Continuar Tasks 6–9 (state machine, API e UI) em `codex/best-effort-form-filling`, com RED antes de cada correção, identity fail-closed e valores divergentes preservados.
+1. Continuar Tasks 7–9 (API e UI) em `codex/best-effort-form-filling`, com RED antes de cada correção, identity fail-closed e valores divergentes preservados.
 2. Criar branch de discovery a partir do `main` promovido; usar a sessão real da Área Restrita para concluir PHASE 0 e commitar somente a nota de discovery antes de qualquer código de navegação.
 3. A partir do commit de discovery, criar a branch de navegação; integrar nela os commits Best-Effort/v4 sem perder a ordem de base exigida pelos planos.
 4. Executar todas as suítes, `verify-project.ps1`, `git diff --check`, validações reais supervisionadas, revisão final e push das branches.
@@ -80,4 +95,4 @@ Data: 2026-09-23
 ## GitHub
 
 - `main`: promoção publicada e verificada em `b1d41e8`.
-- Branch de implementação: `.worktrees/atos-tce-baseline`, com Tasks 1–5 publicadas em `origin/codex/best-effort-form-filling` até `9e33cc1`.
+- Branch de implementação: `.worktrees/atos-tce-baseline`, Tasks 1–5 publicadas até `9e33cc1`; Task 6 está validada localmente e será publicada com este handoff.
