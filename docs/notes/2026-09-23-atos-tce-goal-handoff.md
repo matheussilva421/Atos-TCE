@@ -122,4 +122,4 @@ Data: 2026-09-23
 ## GitHub
 
 - `main`: promoção publicada e verificada em `b1d41e8`.
-- Branch de implementação: `.worktrees/atos-tce-baseline`, Tasks 1–8 publicadas em `origin/codex/best-effort-form-filling` até `258fb23`; Task 6 `0cc808b`, Task 7 `c7c8edc`, Task 8 `258fb23`.
+- Branch de implementação: `.worktrees/atos-tce-baseline`, Tasks 1–9 publicadas em `origin/codex/best-effort-form-filling` até `1e7cb2b`; Task 6 `0cc808b`, Task 7 `c7c8edc`, Task 8 `258fb23`, Task 9 `1e7cb2b`.
