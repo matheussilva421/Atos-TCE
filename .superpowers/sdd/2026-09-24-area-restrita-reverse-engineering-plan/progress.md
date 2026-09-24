@@ -65,3 +65,28 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - Interested/form screens are not currently loaded. The next concrete action is Task 9's single `LIST -> INTERESTED` L1 transition, after the operator identifies an authorized test act. Do not select an interested party, fill fields, or perform L3 actions during that transition.
 - No runtime, contract, or fixture changes. Handoff updated at `docs/notes/2026-09-24-area-restrita-lab-handoff.md`. `git diff --check` passed. Repository gate `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1`: 1,259 executed, 1,257 passed, 0 failed, 2 skips; all seven stages passed. Contract parity: 7/7 passed.
 - GitHub: commit `90d61ebe989af59426cecba5deb5650b73fc445e` (`docs: record authenticated portal L0 baseline`) was pushed; `git push` returned success and reported `9598871..90d61eb`. The local tracking ref matches. Two subsequent `git ls-remote` checks could not connect to GitHub port 443, so the remote SHA could not be independently rechecked.
+
+## 2026-09-24 — Mesa bootstrap no Chrome QA
+
+- Root cause: launcher `app.main` usa `webbrowser.open`, portanto o bootstrap seguia o browser padrão. Um helper exclusivo de Portal Lab agora direciona essa chamada ao CDP loopback do Chrome QA, mantendo o runtime/pacote sem dependência de DevTools.
+- RED/GREEN: três contratos novos falharam antes do helper existir e passaram depois. `python -m unittest tests.test_portal_lab_contract -v`: 16/16. `py_compile` e help CLI passaram.
+- Smoke real com data-root temporário: bootstrap de uso único foi aceito no mesmo Chrome QA e redirecionou para o dashboard. Aba e diretório temporários removidos; serviço temporário não ficou ativo. Token não foi impresso.
+- Banco de produção local consultado em modo read-only: integridade `ok`, sem jobs/comandos ativos. O serviço real não estava escutando em `18743` nesta checagem; os jobs interrompidos e itens históricos foram mantidos.
+- Código/documentação tocados: `scripts/portal-lab/launch_mesa_in_qa_chrome.py` (novo), `tests/test_portal_lab_contract.py`, `devtools/area-restrita/README.md`, handoff. Nenhum runtime ou portal foi alterado.
+- Gate Python completo e `verify-project.ps1` ainda pendentes. Estado seguinte: executar ambos; iniciar Mesa real com o helper na porta 18743 e data-root existente; confirmar sessão do dashboard no Chrome QA; acionar análise uma única vez e observar apenas agregados. Task 8/9/10, Phase 0 e Next Process permanecem pendentes conforme os gates do plano; não implementar Next Process antes de Task 10 + Phase 0. Commit/push pendentes.
+
+
+## Continuation — shared Chrome Mesa launch and live scan (2026-09-24)
+
+- Goal objective from attachment `82e0b0b9-0d4e-4973-90a4-5794b6d71a3e` read. Best-Effort Task 10 + Next Process Phase 0 remain the first functional gate; no Próximo Processo runtime implemented.
+- Dev-only CDP helper added with RED/GREEN tests and usage docs. Full tests: Python 635/634 pass/1 skip; integrated verify-project 1,259/1,257 pass/2 skips, all seven stages green.
+- Root cause of first bootstrap 401: two Mesa processes simultaneously listened on 18743; the stale process consumed the request. After stopping it and restarting once, the new Chrome QA tab redirected to `/` successfully. Current portal page remains active in same Chrome.
+- First analysis attempt failed because no authenticated portal tab was active. Re-activated the portal tab and clicked Analyze once from the background Mesa page. Extension command succeeded, but only 27 items were saved (24 completed, 3 pending); full 1,197-item reconciliation and pagination remain unresolved. No acts/forms were opened or filled.
+- Raw selected marker retained only in ignored local file `tmp/portal-lab/2026-09-24-task8-live-scan/marker-private.json`; it was not changed or added to Git. DB `integrity_check=ok`; no active jobs or commands.
+- Next: evidence-first diagnose the one-page scan, reconcile 1,198 vs 1,197, finish Task 10 and Phase 0 with operator supervision; only then consider Next Process Tasks 1–8. Final adversarial review, full gates, and standalone package remain outstanding.
+- Commit/push for the helper block are pending.
+
+
+- Launcher hardening follow-up: test was red for a userinfo URL and an extra fragment parameter; strict loopback bootstrap validation now rejects both before CDP requests. Focused contract suite 17/17. After this change root Python passed 636 tests (635 pass, 1 skip); integrated verify-project passed 1,259 (1,257 pass, 2 skips), all seven stages green.
+
+- Duplicate-listener guard added after the live port collision: host must be `127.0.0.1`; an exclusive bind preflight refuses occupied Mesa ports before starting the server. RED/GREEN two tests passed, and a live CLI preflight against the current server returned exit 2 without creating another process. Final root Python 638/637 pass/1 skip; verify-project 1,259/1,257 pass/2 skips, all stages green.

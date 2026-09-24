@@ -35,6 +35,33 @@ O verificador não imprime nem salva a URL WebSocket retornada pelo Chrome.
 Capturas brutas também ficam fora do Git; somente fixtures revisadas e
 sanitizadas podem ser versionadas.
 
+## Abrir a Mesa no mesmo Chrome QA
+
+Quando a Área Restrita já estiver autenticada no Chrome QA e a Mesa estiver
+respondendo em `127.0.0.1:18743`, use o launcher de desenvolvimento abaixo. Ele
+substitui somente a chamada de abertura do navegador no processo da Mesa e
+encaminha a URL de bootstrap de uso único ao CDP local do Chrome QA. O token
+permanece no fragmento da URL, não aparece no terminal e não é enviado ao
+portal. O runtime e o pacote portátil não dependem deste launcher.
+
+Se outra instância da Mesa estiver usando a mesma pasta `data`, encerre-a
+primeiro com `Ctrl+C` na janela em que foi iniciada. Depois, na raiz do
+repositório, inicie:
+
+```powershell
+python .\scripts\portal-lab\launch_mesa_in_qa_chrome.py `
+  --cdp-url http://127.0.0.1:9222 -- `
+  --data-root data --host 127.0.0.1 --port 18743
+```
+
+O launcher valida que o CDP e seu WebSocket estão em loopback antes de iniciar
+a Mesa. A aba nova do mesmo perfil recebe o bootstrap oficial e retorna ao
+dashboard local. Confirme “Mesa conectada” no painel da extensão. Para analisar,
+deixe a aba autenticada da Área Restrita ativa no Chrome QA; a extensão precisa
+encontrar essa aba quando recebe o comando da Mesa. O launcher recusa host fora
+de `127.0.0.1` e porta da Mesa já ocupada. Não copie a URL de bootstrap para o
+portal ou para outro perfil.
+
 ## Chrome DevTools MCP
 
 Use [`chrome-devtools-mcp.example.json`](chrome-devtools-mcp.example.json) como

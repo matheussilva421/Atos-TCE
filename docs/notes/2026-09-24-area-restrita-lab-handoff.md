@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
-**Estado:** Tasks 1–7 publicadas em `origin/codex/atos-tce-unified`; o commit Task 7 `35ef33d5c14c6dcbb53fa334adac04ee08a3a967` foi confirmado no remoto. O operador informou login manual. Task 8 está em andamento: baseline L0 capturada e sanitizada; lista e frame de botões carregados. Interessado/formulário ainda não foram observados; a próxima transição prevista é Task 9 L1 e exige ato de teste autorizado pelo operador.
+**Estado:** Tasks 1–7 publicadas em `origin/codex/atos-tce-unified`. Task 8 está em andamento: Mesa autenticada no Chrome QA e scan real via extensão salvo com 27 itens (24 concluídos, 3 pendentes); a lista completa informada pelo portal tem 1.197 itens e ainda não foi reconciliada. Best-Effort Task 10 e Next Process Phase 0 seguem abertos; Tasks 9–12 e Próximo Processo não foram implementadas nesta retomada.
 
 ## Resumo
 
@@ -252,3 +252,55 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - Operador: colar localmente o URL mostrado pela janela PowerShell na barra de endereço do Chrome QA e aguardar o retorno ao dashboard da Mesa.
 - Depois da confirmação, verificar a sessão sem capturar dados pessoais, acionar uma vez **Analisar Área Restrita** pela interface oficial (ação de leitura autorizada) e conferir somente contagens agregadas. Continuar a reconciliação 1.198/1.197 e as fases pendentes do objetivo.
 - O servidor está em execução na porta 18743. GitHub: commit `b931487` publicado na branch `codex/atos-tce-unified`; nesta retomada não houve alteração de código nem testes.
+
+## Retomada — launcher Mesa no Chrome QA (2026-09-24)
+
+- Diagnóstico confirmado: `app.main` abre o bootstrap de uso único com `webbrowser.open`, que delega ao navegador padrão do Windows. O login da Área Restrita e o cookie da Mesa são separados; páginas criadas no Chrome MCP não recebiam a sessão própria da Mesa.
+- Adicionado `scripts/portal-lab/launch_mesa_in_qa_chrome.py`, ferramenta somente de desenvolvimento. Pré-valida CDP e WebSocket em loopback; substitui no processo da Mesa apenas a abertura do navegador e cria uma aba no Chrome QA usando o endpoint local `/json/new`. O alvo permitido é somente `http://127.0.0.1:<porta>/bootstrap#token=...`. A mensagem e erros não imprimem o token. Runtime e pacote portátil inalterados.
+- TDD: três testes novos foram primeiro executados em RED pela ausência do launcher; após implementação, os três passaram. Regressão focada `python -m unittest tests.test_portal_lab_contract -v`: 16 executados, 16 passaram, 0 falhas. `py_compile` e `--help` passaram.
+- Validação manual em banco descartável: o launcher abriu a URL de bootstrap no Chrome conectado ao CDP e a página foi redirecionada para o dashboard local, comprovando que a sessão foi aceita. A aba de smoke foi fechada, o processo/porta temporária não ficou ativo e o diretório temporário criado para o smoke foi removido com verificação do caminho.
+- Rechecagem somente leitura do banco real: `PRAGMA integrity_check=ok`; a consulta de estados não encontrou jobs ou comandos ativos. As filas e jobs históricos foram preservados. No momento da verificação, não havia processo escutando em `18743`; nenhum serviço real foi encerrado por este bloco.
+- Arquivos deste bloco: `scripts/portal-lab/launch_mesa_in_qa_chrome.py` (novo), `tests/test_portal_lab_contract.py`, `devtools/area-restrita/README.md` e este handoff. Nenhum código em `app/`, `extension/` ou runtime portátil foi alterado.
+- Gates amplos ainda pendentes: suíte Python completa e `verify-project.ps1`; `git diff --check` passou após a integração documental.
+- Próxima retomada: executar os gates; iniciar a Mesa real com `python .\\scripts\\portal-lab\\launch_mesa_in_qa_chrome.py --cdp-url http://127.0.0.1:9222 -- --data-root data --host 127.0.0.1 --port 18743`; verificar a nova aba do Chrome QA sem expor token ou dados pessoais; confirmar sessão da Mesa; então acionar uma vez **Analisar Área Restrita** e conferir somente contagens/estado agregado.
+- Plano maior: Task 8 está em progresso; Task 9 e Task 10 reais e Next Process Phase 0 ainda precisam cumprir seus gates na ordem do plano. Próximo Processo não deve ser implementado antes de Task 10 e Phase 0 completos. Conclusão final da ação no portal continua manual.
+- GitHub: implementação ainda sem commit/push; publicar somente após os gates e validar SHA remoto.
+
+
+## Retomada — bootstrap, tab ativo e scan real (2026-09-24)
+
+- Lido o objetivo solicitado em `C:\\Users\\slvma\\.codex\\attachments\\82e0b0b9-0d4e-4973-90a4-5794b6d71a3e\\goal-objective.md`; ele mantém as fases Best-Effort Task 10 + Phase 0 antes da implementação de Próximo Processo.
+- O helper `scripts/portal-lab/launch_mesa_in_qa_chrome.py` foi integrado. Diagnóstico operacional: o primeiro bootstrap encontrou dois processos escutando em `127.0.0.1:18743`; o antigo respondeu ao token novo e retornou 401. Uma verificação via `Get-NetTCPConnection` havia sido negada e ocultada por `-ErrorAction SilentlyContinue`; `netstat -ano` mostrou os dois listeners. O processo antigo foi encerrado.
+- Antes de reiniciar o processo novo que ainda falhava, foi criado backup SQLite consistente em `%TEMP%\Atos-TCE-Mesa-restart-safety-20260924.db` (`PRAGMA integrity_check=ok`, 15.130.624 bytes); o processo helper foi encerrado à força após `taskkill` normal ser recusado pelo Windows. O DB em `data/atos-tce.db` passou novamente em `integrity_check`; remover o backup temporário próprio após confirmar estabilidade final.
+- Após confirmar zero listeners, o helper iniciou uma única Mesa na porta 18743 e o Chrome QA abriu o bootstrap em nova aba; a aba foi redirecionada para `/`, sem token na URL final. A Área Restrita permaneceu no mesmo Chrome. O launcher imprimiu somente mensagem sanitizada.
+- A primeira ação oficial **Analisar Área Restrita** falhou porque a aba Mesa ficou ativa e a extensão não encontrou aba autenticada. A mensagem registrada foi classificada como `Nenhuma aba autenticada da Área Restrita está aberta.`; não houve scan salvo. Com a aba do portal ativa, o botão da Mesa foi acionado uma vez em background, mantendo o portal ativo, e o comando `SCAN_AREA` terminou `SUCCEEDED`.
+- Evidência agregada do scan mais recente: origem `extension`, escopo `sector_finalistic`, 27 linhas únicas, 24 concluídas, 3 pendentes, 0 ambíguas/bloqueadas/não encontradas; a contagem não alcança os 1.197 itens informados na lista e, portanto, o delta com os 1.198 itens salvos continua aberto. A causa da paginação limitada ainda não foi observada; não afirmar scan completo. O marcador ativo foi retornado pela própria extensão sem alteração; o valor bruto permanece somente no artefato ignorado `tmp/portal-lab/2026-09-24-task8-live-scan/marker-private.json`, nunca no Git/handoff.
+- SQLite permanece íntegro e não há jobs/comandos ativos após o scan. Nenhum ato foi aberto, nenhum interessado escolhido, nenhum campo preenchido e nenhum clique final ocorreu. A aba do portal ficou ativa; a Mesa continua aberta em outra aba no mesmo Chrome QA.
+- README do Portal Lab agora registra a sequência de abertura e a necessidade de manter ativa a aba autenticada durante análise. Não foi alterado runtime/extensão.
+- Validação: `python -m unittest tests.test_portal_lab_contract -v` — 16/16; `python -m py_compile scripts/portal-lab/launch_mesa_in_qa_chrome.py` — passou; `python scripts/portal-lab/launch_mesa_in_qa_chrome.py --help` — passou; Python completo — 635 executados, 634 passaram, 0 falharam, 1 skip; `verify-project.ps1` — 1.259 executados, 1.257 passaram, 0 falharam, 2 skips, todos os 7 estágios passaram; `git diff --check` passou.
+- Arquivos versionados alterados neste bloco: `scripts/portal-lab/launch_mesa_in_qa_chrome.py` (novo), `tests/test_portal_lab_contract.py`, `devtools/area-restrita/README.md`, este handoff e ledger SDD. `app/`, `extension/` e pacote portátil continuam sem mudanças.
+- GitHub ainda sem commit/push deste bloco; revalidar status/SHA, atualizar handoff/ledger e publicar.
+
+### Retomada obrigatória
+
+1. Revisar por que o scan oficial persistiu somente 27 itens; capturar evidência estrutural permitida e fechar a observação de paginação antes de qualquer correção runtime.
+2. Reconciliar `1198` salvos versus `1197` atuais, confirmar ordem, frames, retorno de formulário, baseline e estado após conclusão manual; preservar o marcador selecionado.
+3. Executar Best-Effort Task 10 nos cinco casos reais e no caso parcial supervisionado. Não escolher ato/interessado nem preencher formulário sem autorização contextual; o clique final segue humano.
+4. Só após Task 10 + Phase 0 concluírem, considerar Próximo Processo Tasks 1–8. Repetir gates, revisão adversarial e packaging standalone ao final.
+
+
+### Hardening do launcher e gates após o ajuste (2026-09-24)
+
+- Novo contrato RED/GREEN: URLs de bootstrap com userinfo ou dados extras no fragmento eram aceitas; agora são recusadas antes de qualquer chamada CDP. O token permitido precisa ser exclusivamente URL-safe e ficar no fragmento `token=`.
+- Focado final: `python -m unittest tests.test_portal_lab_contract -v` — 17 executados, 17 passaram, 0 falhas. `py_compile` e CLI help também passaram.
+- Suíte completa após o ajuste: `python -m unittest discover -s tests -p "test_*.py" -q` — 636 executados, 635 passaram, 1 skip, 0 falhas. Gate `verify-project.ps1` — 1.259 executados, 1.257 passaram, 2 skips, 0 falhas; todos os 7 estágios passaram.
+- O serviço real permanece aberto no Chrome QA; último scan estável continua sendo o scan de 27 itens acima. Nenhuma ação no portal foi repetida durante os testes.
+- Backup SQLite temporário será removido após conferir que a base atual continua íntegra; artefato privado do marcador permanece ignorado localmente.
+
+
+### Proteção contra instâncias duplicadas (2026-09-24)
+
+- A causa operacional confirmou que dois processos podiam escutar em `18743`; o launcher agora exige host exatamente `127.0.0.1` e faz preflight de bind exclusivo da porta antes de iniciar `app.main`. Porta ocupada é recusada com exit 2, antes de criar outra Mesa/URL bootstrap.
+- TDD: dois contratos de porta falharam por função ausente; após a proteção, os dois passaram. Teste de integração local com o servidor ativo confirmou `occupied_port_guard=passed`, exit 2, sem segunda instância.
+- Root Python após a proteção: 638 executados, 637 passaram, 1 skip, 0 falhas. `verify-project.ps1`: 1.259 executados, 1.257 passaram, 2 skips, 0 falhas; todos os sete estágios passaram. `git diff --check` passou.
+- README documenta host/porta e manter ativa a aba autenticada do portal. O serviço atual permanece único/saudável no Chrome QA; backup temporário removido após `integrity_check=ok`.

@@ -12,11 +12,13 @@ import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import quote
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LAUNCHER = REPO_ROOT / "scripts" / "portal-lab" / "Start-AtosChrome.ps1"
 CDP_CHECKER = REPO_ROOT / "scripts" / "portal-lab" / "Test-CdpEndpoint.ps1"
+MESA_QA_LAUNCHER = REPO_ROOT / "scripts" / "portal-lab" / "launch_mesa_in_qa_chrome.py"
 MCP_CONFIG = REPO_ROOT / "devtools" / "area-restrita" / "chrome-devtools-mcp.example.json"
 MCP_SAFETY = REPO_ROOT / ".agents" / "skills" / "area-restrita" / "references" / "safety.md"
 SANITIZER = REPO_ROOT / "scripts" / "portal-lab" / "sanitize-capture.py"
@@ -78,6 +80,47 @@ def cdp_fixture(websocket_url: str, status: int = 200):
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     server.requests = []
     server.payload = payload
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+@contextmanager
+def cdp_browser_fixture():
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.server.requests.append(("GET", self.path))
+            body = json.dumps(
+                {"webSocketDebuggerUrl": f"ws://127.0.0.1:{self.server.server_port}/devtools/browser/test"}
+            ).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_PUT(self):
+            self.server.requests.append(("PUT", self.path))
+            from urllib.parse import unquote, urlsplit
+
+            target_url = unquote(urlsplit(self.path).query)
+            body = json.dumps({"id": "test-target", "type": "page", "url": target_url}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _format, *_args):
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.requests = []
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -173,6 +216,80 @@ class CdpEndpointContractTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("CDP version endpoint did not return HTTP 200", result.stderr)
+
+
+class MesaQaHandoffContractTests(unittest.TestCase):
+    def load_launcher(self):
+        self.assertTrue(MESA_QA_LAUNCHER.is_file(), "missing Mesa-to-QA Chrome launcher")
+        spec = importlib.util.spec_from_file_location("portal_lab_mesa_qa_launcher", MESA_QA_LAUNCHER)
+        self.assertIsNotNone(spec)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_bootstrap_handoff_opens_only_the_official_local_bootstrap_in_loopback_cdp(self):
+        with cdp_browser_fixture() as server:
+            cdp_url = f"http://127.0.0.1:{server.server_port}"
+            bootstrap_url = "http://127.0.0.1:18743/bootstrap#token=synthetic-one-time-code"
+
+            opened = self.load_launcher().open_bootstrap_in_chrome(cdp_url, bootstrap_url)
+
+            self.assertTrue(opened)
+            self.assertEqual(
+                server.requests,
+                [
+                    ("GET", "/json/version"),
+                    ("PUT", "/json/new?" + quote(bootstrap_url, safe="")),
+                ],
+            )
+
+    def test_handoff_rejects_non_loopback_targets_before_network_access(self):
+        with cdp_browser_fixture() as server:
+            launcher = self.load_launcher()
+
+            opened = launcher.open_bootstrap_in_chrome(
+                f"http://127.0.0.1:{server.server_port}",
+                "https://portal.example/act",
+            )
+
+            self.assertFalse(opened)
+            self.assertEqual(server.requests, [])
+
+    def test_handoff_rejects_noncanonical_local_bootstrap_urls_before_network_access(self):
+        with cdp_browser_fixture() as server:
+            launcher = self.load_launcher()
+            cdp_url = f"http://127.0.0.1:{server.server_port}"
+            invalid_urls = (
+                "http://user@127.0.0.1:18743/bootstrap#token=synthetic-one-time-code",
+                "http://127.0.0.1:18743/bootstrap#token=synthetic-one-time-code&extra=1",
+            )
+
+            for bootstrap_url in invalid_urls:
+                with self.subTest(bootstrap_url="malformed local bootstrap"):
+                    self.assertFalse(launcher.open_bootstrap_in_chrome(cdp_url, bootstrap_url))
+
+            self.assertEqual(server.requests, [])
+
+    def test_safe_handoff_message_never_echoes_the_one_time_url(self):
+        one_time_url = "http://127.0.0.1:18743/bootstrap#token=synthetic-one-time-code"
+
+        message = self.load_launcher().safe_bootstrap_handoff_message(one_time_url)
+
+        self.assertIn("Chrome QA", message)
+        self.assertNotIn("synthetic-one-time-code", message)
+
+    def test_launcher_refuses_a_port_already_owned_by_another_mesa_process(self):
+        with cdp_browser_fixture() as server:
+            launcher = self.load_launcher()
+
+            available = launcher.can_bind_mesa_port("127.0.0.1", server.server_port)
+
+            self.assertFalse(available)
+
+    def test_launcher_only_allows_the_loopback_host_used_by_bootstrap(self):
+        launcher = self.load_launcher()
+
+        self.assertFalse(launcher.can_bind_mesa_port("0.0.0.0", 18743))
 
 
 class McpConfigContractTests(unittest.TestCase):
