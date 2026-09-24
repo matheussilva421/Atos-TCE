@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Atos-TCE Area Restrita portal contract",
+  "type": "object",
+  "required": ["schema_version", "states", "routes", "transitions", "forbidden_actions"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "states": {
+      "type": "object",
+      "required": ["list", "interested", "form", "buttons", "transitioning", "unknown", "ambiguous"],
+      "propertyNames": {
+        "enum": ["list", "interested", "form", "buttons", "transitioning", "unknown", "ambiguous"]
+      },
+      "additionalProperties": {
+        "type": "object"
+      }
+    },
+    "routes": {
+      "type": "object",
+      "required": ["ProcessonoSetor.asp", "ComplementarAto.asp", "botoesNOVO.asp"],
+      "additionalProperties": {
+        "type": "object",
+        "required": ["allowed_roles"],
+        "properties": {
+          "allowed_roles": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": ["list", "interested", "form", "buttons", "transitioning", "unknown", "ambiguous"]
+            }
+          },
+          "frame_relation": {
+            "type": "object",
+            "required": ["relative_to", "relation"],
+            "properties": {
+              "relative_to": { "type": "string" },
+              "relation": { "const": "sibling" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "transitions": {
+      "type": "object"
+    },
+    "forbidden_actions": {
+      "const": ["finalize", "submit", "sign", "tramitate"]
+    }
+  }
+}

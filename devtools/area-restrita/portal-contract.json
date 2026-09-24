@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "states": {
+    "list": {
+      "runtime_roles": ["list"],
+      "sentinels": ["#tbproc01", "#NumeroPagina"]
+    },
+    "interested": {
+      "runtime_roles": ["interested"],
+      "sentinels": ["#PessoasAssocicadas", "#PessoasAssociadas", "input[name=escolha]"]
+    },
+    "form": {
+      "runtime_roles": ["form"],
+      "root_id": "complementarAtoForm",
+      "identity_sentinel_ids": ["txtNumeroProcesso", "txtAnoProcesso"],
+      "field_ids": [
+        "txtModalidade",
+        "txtFundamentoLegal",
+        "txtDataDOE",
+        "txtCargo",
+        "txtMatricula",
+        "txtDataNascimento",
+        "txtGenero"
+      ]
+    },
+    "buttons": {
+      "runtime_roles": ["buttons"],
+      "sentinels": ["[data-action=return-list]", "Voltar", "Retornar"]
+    },
+    "transitioning": {
+      "runtime_roles": [],
+      "sentinels": []
+    },
+    "unknown": {
+      "runtime_roles": ["unknown"],
+      "sentinels": []
+    },
+    "ambiguous": {
+      "runtime_roles": [],
+      "sentinels": []
+    }
+  },
+  "routes": {
+    "ProcessonoSetor.asp": {
+      "allowed_roles": ["list"]
+    },
+    "ComplementarAto.asp": {
+      "allowed_roles": ["interested", "form"]
+    },
+    "botoesNOVO.asp": {
+      "allowed_roles": ["buttons"],
+      "frame_relation": {
+        "relative_to": "ProcessonoSetor.asp",
+        "relation": "sibling"
+      }
+    }
+  },
+  "transitions": {},
+  "forbidden_actions": ["finalize", "submit", "sign", "tramitate"]
+}

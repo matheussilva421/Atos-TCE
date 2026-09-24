@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
-**Estado:** Tasks 1–5 concluídas localmente. Task 5 está no commit `c8cd3d0`; dois pushes receberam HTTP 500 do GitHub, portanto a publicação está pendente. O gate de conexão MCP continua aguardando recarga do cliente.
+**Estado:** Tasks 1–6 concluídas localmente. Task 5 e seu handoff estão nos commits locais `c8cd3d0` e `3fb664f`; os dois pushes tentados receberam HTTP 500. Task 6 aguarda commit/push. O gate de conexão MCP continua aguardando recarga do cliente.
 
 ## Resumo
 
@@ -19,6 +19,7 @@
 - Portal Lab Task 4: instalado localmente o skill oficial do Playwright CLI (0.1.13) e criado workflow restrito. Attach CDP a `127.0.0.1:9222`, snapshot de `chrome://new-tab-page/` e `detach` passaram; o Chrome permaneceu aberto. A skill vendorizada em `.agents/skills/playwright-cli/` fica ignorada, assim como o snapshot `.playwright-cli/`.
 - Commit Task 4: `1a5250b` (`docs: define Playwright portal investigation workflow`).
 - Portal Lab Task 5: criados `capture-structure.js`, `sanitize-capture.py` e `compare-captures.py`. A captura não lê `.value`; o sanitizador usa allowlist, remove query strings/segredos, classifica texto e rejeita CPF/processo/token residual, inclusive processo percent-encoded; o comparador sanitiza ambos os arquivos e gera deltas estruturais determinísticos.
+- Portal Lab Task 6: criado o contrato versionado, JSON Schema e quatro fixtures com identidade fictícia. A paridade cobre os papéis emitidos pelo scanner, sentinelas de formulário, rotas/fontes existentes, frame irmão e a separação entre tela de botões e formulário. Nenhuma suposição de comportamento foi adicionada ao runtime.
 
 ## Arquivos alterados
 
@@ -36,6 +37,13 @@
 - `scripts/portal-lab/sanitize-capture.py`
 - `scripts/portal-lab/compare-captures.py`
 - `tests/test_portal_lab_contract.py`
+- `devtools/area-restrita/portal-contract.schema.json`
+- `devtools/area-restrita/portal-contract.json`
+- `devtools/area-restrita/fixtures/list-page.json`
+- `devtools/area-restrita/fixtures/interested.json`
+- `devtools/area-restrita/fixtures/form.json`
+- `devtools/area-restrita/fixtures/buttons.json`
+- `extension/tests/portal-contract.test.mjs`
 - Este handoff.
 
 ## Testes e validações
@@ -63,6 +71,12 @@
 - Gate completo final: `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1` — 1.259 executados, 1.257 passaram, 0 falhas, 2 skips; todos os sete estágios passaram.
 - Não houve captura de portal real; os testes usam valores sintéticos, Node VM e arquivos temporários.
 - O runtime de `app/`, `extension/` e `START.cmd` não ganhou dependência do laboratório. Nenhum código de navegação/preenchimento foi alterado.
+- Task 6 RED: `node --test extension/tests/portal-contract.test.mjs` — 7 falharam inicialmente pela ausência do contrato, schema e fixtures.
+- Task 6 GREEN: o mesmo comando — 7 passaram, incluindo paridade dos papéis, sentinelas e distinção FORM/BUTTONS.
+- Task 6 extensão completa: `npm test --prefix extension` — 152 executados, 152 passaram, 0 falhas.
+- Task 6 Portal Lab: `python -m unittest tests.test_portal_lab_contract -v` — 13 passaram, 0 falhas.
+- Task 6 Python completo da raiz: `python -m unittest discover -s tests -p "test_*.py" -q` — 632 executados, 631 passaram, 0 falhas, 1 skip.
+- Gate integrado: `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1` — 1.259 executados, 1.257 passaram, 0 falhas, 2 skips; todos os sete estágios passaram.
 
 ## Ambiente de laboratório observado
 
@@ -80,6 +94,7 @@
 - O teste textual de dependência varre apenas os componentes distribuídos (`app/`, `extension/`, `START.cmd`). `packaging/` é verificado por comportamento, pois precisa conter os nomes proibidos para rejeitá-los.
 - A configuração global do MCP usa `--browser-url=http://127.0.0.1:9222`, `--categoryExtensions`, `--no-usage-statistics` e `--no-performance-crux`; Chrome 153 atende ao requisito de versão indicado pelo CLI instalado.
 - A skill Playwright fornecida inclui comandos genéricos de cookies/storage/close/kill; para o Portal Lab prevalece o workflow local restrito, que proíbe esses comandos e usa `detach`.
+- `portal-contract.json` é oráculo documental/de teste, não configuração de runtime. `transitioning` e `ambiguous` são vocabulário permitido, mas não são emitidos pelo scanner atual.
 - `.agents/skills/playwright-cli/` é uma instalação local do fornecedor, ignorada no Git; a skill/referências próprias em `.agents/skills/area-restrita/` continuam versionáveis.
 - Trabalho permanece na branch canônica solicitada; nenhum branch paralelo foi criado.
 - As ferramentas MCP desta sessão ainda apontam para outro Chrome mesmo após editar a configuração. Reiniciar/reconectar o cliente MCP e repetir a prova do alvo antes de qualquer login.
@@ -90,13 +105,14 @@
 - Até Task 2, `6d809dc`, `f0354f8`, `777cab2`, `9d5a248` e `03afec2` estavam publicados em `origin/codex/atos-tce-unified`.
 - `298cac1`, `d95b228` e `c3b2f42` estão publicados.
 - `1a5250b`, `afd6fb4` e os fechamentos da Task 4 `022acee` estão publicados em `origin/codex/atos-tce-unified`; `022acee` era o HEAD local/remoto antes da Task 5.
-- Task 5: implementação e testes validados; commit local `c8cd3d0` (`dev: add sanitized portal structure capture`). Dois pushes foram rejeitados pelo GitHub com `Internal Server Error`; remoto ainda não confirmado.
+- Task 5: implementação e testes validados; commit local `c8cd3d0` (`dev: add sanitized portal structure capture`) e handoff local `3fb664f`. Dois pushes foram rejeitados pelo GitHub com `Internal Server Error`; remoto ainda não confirmado.
+- Task 6: contrato, schema, fixtures, teste de paridade e README validados localmente; commit/push pendentes.
 
 ## Pendências e retomada
 
 1. Recarregar o cliente MCP e provar que as ferramentas estão ligadas a `127.0.0.1:9222`; não iniciar login enquanto essa prova falhar.
-2. Reconciliar e publicar `c8cd3d0` quando o GitHub aceitar push.
-3. Continuar Tasks 6–7: contrato/fixtures e skill, em sequência e com TDD.
+2. Reconciliar/publicar os commits locais `c8cd3d0` e `3fb664f` quando o GitHub aceitar push; incluir Task 6 no próximo push.
+3. Publicar Task 6 depois de revisar o diff e continuar Task 7 com TDD.
 4. Depois dos gates locais e de provar a conexão MCP ao Chrome dedicado, iniciar observação supervisionada L0; concluir observações reais antes de qualquer alteração no runtime.
 
 Nenhum login, submit, envio, finalize ou clique final foi automatizado. Chrome dedicado PID 2800 continua aberto para as tarefas seguintes. Runtime standalone e gates finais continuam pendentes.

@@ -1,0 +1,19 @@
+{
+  "fixture_version": 1,
+  "state": "form",
+  "route": "ComplementarAto.asp",
+  "process_key": "000001/2099",
+  "interested_normalized": "pessoa teste",
+  "root_id": "complementarAtoForm",
+  "identity_sentinel_ids": ["txtNumeroProcesso", "txtAnoProcesso"],
+  "field_ids": [
+    "txtModalidade",
+    "txtFundamentoLegal",
+    "txtDataDOE",
+    "txtCargo",
+    "txtMatricula",
+    "txtDataNascimento",
+    "txtGenero"
+  ],
+  "interested_radio_name": "escolha"
+}

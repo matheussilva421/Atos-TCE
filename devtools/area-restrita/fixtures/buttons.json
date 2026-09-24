@@ -1,0 +1,10 @@
+{
+  "fixture_version": 1,
+  "state": "buttons",
+  "route": "botoesNOVO.asp",
+  "process_key": "000001/2099",
+  "interested_normalized": "pessoa teste",
+  "control_tag": "button",
+  "control_text": "Voltar",
+  "data_action": "return-list"
+}

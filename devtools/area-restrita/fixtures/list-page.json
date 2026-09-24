@@ -1,0 +1,10 @@
+{
+  "fixture_version": 1,
+  "state": "list",
+  "route": "ProcessonoSetor.asp",
+  "process_key": "000001/2099",
+  "interested_normalized": "pessoa teste",
+  "page_number": "7",
+  "table_id": "tbproc01",
+  "pagination_id": "NumeroPagina"
+}

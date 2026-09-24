@@ -92,3 +92,21 @@ O sanitizador recusa sobrescrever uma saída existente sem `--force`, elimina
 cookies/headers/storage e valores, remove query strings e rejeita saída com
 padrões residuais de identificador ou token. Arquivos brutos, sanitizados e
 diffs continuam fora do Git.
+
+## Contrato e fixtures
+
+`portal-contract.json` é o contrato documental e oráculo dos testes; o runtime
+continua usando os leitores em `extension/lib/area-snapshot.js` e
+`extension/content/detect-form.js`. `transitioning` e `ambiguous` fazem parte do
+vocabulário permitido, mas o scanner atual não os emite. Os quatro arquivos em
+`fixtures/` usam somente identidades fictícias.
+
+Execute a verificação de paridade com:
+
+```powershell
+node --test extension/tests/portal-contract.test.mjs
+```
+
+As rotas e o vínculo de frame irmão registrados no contrato são limitados ao
+código e aos testes legados existentes; uma mudança real do portal exige nova
+captura sanitizada antes de alterar este contrato ou o runtime.

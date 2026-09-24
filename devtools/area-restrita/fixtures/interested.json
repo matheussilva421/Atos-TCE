@@ -1,0 +1,9 @@
+{
+  "fixture_version": 1,
+  "state": "interested",
+  "route": "ComplementarAto.asp",
+  "process_key": "000001/2099",
+  "interested_normalized": "pessoa teste",
+  "table_id": "PessoasAssocicadas",
+  "radio_selector": "input[name=escolha]"
+}
