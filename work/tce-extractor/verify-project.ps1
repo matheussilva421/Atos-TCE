@@ -132,7 +132,7 @@ function Get-DefaultVerificationStages {
     $pythonCommand = New-VerificationCommand -FilePath $python -Arguments @('-m', 'unittest', 'discover', '-s', 'portable', '-p', 'test_*.py', '-q') -WorkingDirectory $extractorRoot -DisplayCommand 'python -m unittest discover -s portable -p test_*.py -q'
 
     $powerShellCommands = @()
-    foreach ($testName in @('Test-DocumentationTracking.ps1', 'Test-PortableMenu.ps1', 'Test-PortableReset.ps1', 'Test-ProjectVerification.ps1', 'Test-TcePortable.ps1', 'Test-WorkspaceCleanup.ps1')) {
+    foreach ($testName in @('Test-DocumentationTracking.ps1', 'Test-PortableMenu.ps1', 'Test-PortableReset.ps1', 'Test-ProjectVerification.ps1', 'Test-QAChromeLauncher.ps1', 'Test-TcePortable.ps1', 'Test-WorkspaceCleanup.ps1')) {
         $testPath = Join-Path $testsRoot $testName
         $powerShellCommands += New-VerificationCommand -FilePath $powershell -Arguments @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $testPath) -WorkingDirectory $extractorRoot -DisplayCommand ('powershell.exe -NoProfile -File tests/' + $testName)
     }

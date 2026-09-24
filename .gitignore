@@ -17,6 +17,7 @@
 !/work/tce-extractor/*.py
 /work/tce-extractor/.codex-live-pilot.py
 !/work/tce-extractor/*.ps1
+!/work/tce-extractor/*.bat
 !/work/tce-extractor/QA-DEPENDENCIAS.md
 !/work/tce-extractor/requirements-qa.txt
 !/work/tce-extractor/docs/
