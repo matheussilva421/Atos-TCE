@@ -37,12 +37,18 @@ sanitizadas podem ser versionadas.
 
 ## Chrome DevTools MCP
 
-Para uma conexão ao Chrome dedicado, a configuração local do MCP deve usar
-`--browser-url=http://127.0.0.1:9222` e `--categoryExtensions`, além de
-`--no-usage-statistics` e `--no-performance-crux`. Essa combinação requer
-Chrome 149 ou posterior. A configuração global já instalada pelo operador deve
-ser revisada antes da conexão; este README não guarda perfis, tokens ou URLs de
-WebSocket.
+Use [`chrome-devtools-mcp.example.json`](chrome-devtools-mcp.example.json) como
+exemplo de configuração do cliente MCP. Ele aponta explicitamente para
+`http://127.0.0.1:9222`, habilita a categoria de extensões e desabilita
+telemetria de uso e Performance CrUX. Essa combinação requer Chrome 149 ou
+posterior. O exemplo não instala nem altera a configuração global do cliente.
+
+Antes de usar uma sessão autenticada, confirme que o MCP está ligado ao Chrome
+dedicado. A presença das ferramentas MCP, por si só, não identifica o browser
+alvo. Siga os limites de acesso em
+`.agents/skills/area-restrita/references/safety.md`.
+Depois de alterar a entrada MCP, reinicie ou reconecte o cliente para aplicar os
+novos argumentos e repita a confirmação do alvo antes de qualquer sessão real.
 
 Uma conexão bem-sucedida ao CDP comprova somente a disponibilidade local do
 navegador. Não comprova autenticação, comportamento do portal, qualificação de

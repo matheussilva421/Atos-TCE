@@ -15,6 +15,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LAUNCHER = REPO_ROOT / "scripts" / "portal-lab" / "Start-AtosChrome.ps1"
 CDP_CHECKER = REPO_ROOT / "scripts" / "portal-lab" / "Test-CdpEndpoint.ps1"
+MCP_CONFIG = REPO_ROOT / "devtools" / "area-restrita" / "chrome-devtools-mcp.example.json"
+MCP_SAFETY = REPO_ROOT / ".agents" / "skills" / "area-restrita" / "references" / "safety.md"
 
 
 def powershell_env() -> dict:
@@ -166,6 +168,49 @@ class CdpEndpointContractTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("CDP version endpoint did not return HTTP 200", result.stderr)
+
+
+class McpConfigContractTests(unittest.TestCase):
+    def test_example_uses_dedicated_loopback_chrome_and_privacy_flags(self):
+        self.assertTrue(MCP_CONFIG.is_file(), "missing versioned Chrome DevTools MCP example")
+        config = json.loads(MCP_CONFIG.read_text(encoding="utf-8"))
+        server = config["mcpServers"]["chrome-devtools"]
+        args = server["args"]
+
+        self.assertEqual(server["command"], "npx")
+        self.assertIn("chrome-devtools-mcp@latest", args)
+        self.assertIn("--browser-url=http://127.0.0.1:9222", args)
+        self.assertIn("--categoryExtensions", args)
+        self.assertIn("--no-usage-statistics", args)
+        self.assertIn("--no-performance-crux", args)
+        self.assertEqual(sum(arg.startswith("--browser-url=") for arg in args), 1)
+
+    def test_safety_policy_documents_default_l1_l2_and_prohibited_actions(self):
+        self.assertTrue(MCP_SAFETY.is_file(), "missing Area Restrita MCP safety policy")
+        policy = MCP_SAFETY.read_text(encoding="utf-8").casefold()
+        required = (
+            "permitido por padrão",
+            "listar páginas/frames",
+            "snapshot",
+            "console",
+            "network",
+            "evaluate de leitura",
+            "screenshot estrutural",
+            "exige gate l1",
+            "paginação",
+            "abrir complementar ato",
+            "exige gate l2",
+            "selecionar interessado",
+            "preencher campos",
+            "proibido",
+            "clicar conclusão",
+            "submit final",
+            "assinatura",
+            "tramitação",
+        )
+        for item in required:
+            with self.subTest(item=item):
+                self.assertIn(item, policy)
 
 
 if __name__ == "__main__":
