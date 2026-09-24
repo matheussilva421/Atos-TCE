@@ -96,3 +96,10 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 
 - Commit `331a7e001dacc2d850007c872cdeef616d79507e` (`dev: launch Mesa inside QA Chrome`) pushed successfully from `f235b46`. Elevated `git ls-remote` returned the same full SHA.
 - Implementation block is published. The overall user goal remains active: 27/1,197 scan reconciliation, Best-Effort Task 10, Phase 0, Next Process, adversarial review, and standalone packaging are not complete.
+
+## Follow-up L0 — scan parcial de 27 itens (2026-09-24)
+
+- Playwright CLI attached ao CDP loopback do Chrome QA com diretórios auxiliares redirecionados para `tmp/portal-lab/`; captura estrutural sanitizada de 9 frames. O inventário atual tem frames `iframeOBJ` duplicados e uma rota `/SISTEMAS/Processo/expirou.asp`; a lista não está presente. Nenhuma navegação ou preenchimento foi feito.
+- SQLite read-only: integridade `ok`; scan recente com 27 itens únicos. A ordem coincide exatamente com o sufixo 1.172–1.198 de scans completos anteriores com 1.198 itens. Causa provável: scanner iniciou na última página e não normaliza para a primeira. Evidência estática: `scanAreaPages` parte do `SCAN_PAGE` atual, avança adiante e encerra em `page >= total_pages`; o resultado persistido não guarda a página inicial, então falta confirmação direta.
+- O estado 1.198/1.197 permanece aberto. Sem alteração de runtime: gate exige Task 10 real e Phase 0 real primeiro. Próximo passo é recuperar a observação da lista autenticada, fechar Task 10 com cinco casos e parcial best-effort, então completar Phase 0.
+- Artefatos raw e sanitized são locais/ignorados: `tmp/portal-lab/2026-09-24-task8-live-scan/`. Nenhum teste executado neste bloco de diagnóstico; nenhum código alterado.
