@@ -102,4 +102,5 @@ Três medições manuais somente de navegação, desde clique na ação da linha
 - Não clicar em **Analisar Área Restrita** para substituir o snapshot de página, não iniciar Tasks 1–8 e não inferir que a ordem é segura com base apenas no scan salvo.
 - A Mesa local está aberta no Chrome para continuação. Próximo passo: operador abrir a Área Restrita autenticada no perfil `Matheus`, manter o marcador normal selecionado e abrir o painel da extensão. Se o bloqueio do navegador persistir, a intervenção deve ser resolver o acesso pelo fluxo normal do operador; a automação não deve contorná-lo. Depois, obter somente o `SCAN_PAGE` vivo e comparar identidades anonimizadas com o scan salvo.
 - Após esses dados, ainda será necessária a validação supervisionada em que o operador faz manualmente o clique final em um processo controlado; então medir o retorno/estado posterior. Nenhum clique final foi feito nesta retomada.
-- Testes: nenhum executado nesta retomada; não houve alteração de código. Handoff atualizado; commit/push desta atualização devem ser registrados após a validação documental.
+- Testes: nenhum executado nesta retomada, pois não houve alteração de código; os gates finais ainda não foram rodados.
+- `git diff --check` passou. O checkpoint documental foi commitado como `dfe8187` e enviado em fast-forward para `origin/codex/atos-tce-unified`.
