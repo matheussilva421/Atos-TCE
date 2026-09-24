@@ -251,4 +251,4 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 
 - Operador: colar localmente o URL mostrado pela janela PowerShell na barra de endereço do Chrome QA e aguardar o retorno ao dashboard da Mesa.
 - Depois da confirmação, verificar a sessão sem capturar dados pessoais, acionar uma vez **Analisar Área Restrita** pela interface oficial (ação de leitura autorizada) e conferir somente contagens agregadas. Continuar a reconciliação 1.198/1.197 e as fases pendentes do objetivo.
-- O servidor está em execução na porta 18743. Commit/push deste registro e validação final do estado Git ainda pendentes.
+- O servidor está em execução na porta 18743. GitHub: commit `b931487` publicado na branch `codex/atos-tce-unified`; nesta retomada não houve alteração de código nem testes.
