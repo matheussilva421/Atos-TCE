@@ -202,3 +202,12 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 ### Git
 
 - Commit publicado anterior: `7f2fe4c` (`docs: record Mesa extension connection state`). Este adendo registra a baseline recém-executada; fazer commit/push e revalidar o SHA ao concluir este bloco.
+
+
+## Retomada — confirmação da fronteira de sessão (2026-09-24)
+
+- Foi aberto o dashboard local por uma aba CUA criada pelo agente, sem enviar token. O botão **Analisar Área Restrita** estava visível e habilitado; o clique normal pela interface respondeu `session_required`. Isso confirma que o perfil CUA/MCP não possui o cookie de sessão Mesa.
+- Nenhum comando de extensão foi criado: consulta SQLite somente leitura confirmou 0 `QUEUED`/`CLAIMED`; o histórico `SCAN_AREA` permanece em 14 falhos e 5 concluídos. O serviço segue saudável (HTTP 200). A aba criada pelo agente foi fechada. Nenhum ato/formulário foi aberto.
+- A interface que pode ter recebido a sessão pelo bootstrap automático é o navegador padrão aberto pelo launcher normal. Retomada manual: usar esse navegador/aba, não a aba do perfil de laboratório; se estiver autenticado, acionar **Analisar Área Restrita** uma vez e avisar quando terminar. Se aparecer `session_required`, parar e solicitar nova sessão pelo bootstrap oficial, sem transportar token via DevTools.
+- Nenhuma alteração em código/runtime e nenhum teste adicional após a baseline verde registrada acima. `git diff --check` passou antes deste adendo.
+- A branch continua em `codex/atos-tce-unified`. Fazer commit/push deste handoff e verificar SHA/status ao encerrar.
