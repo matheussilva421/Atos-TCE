@@ -106,3 +106,30 @@ test("acquisition tells the operator to prepare e-Contas before downloading", ()
   assert.match(source, /Abrindo o e-Contas para login e preparando o download/u);
   assert.match(source, /Faça login no e-Contas, deixe a tela correta e o marcador selecionado/u);
 });
+
+test("fill completion renders changed, preserved and review counts", () => {
+  assert.ok(source.includes("summary.changed.length"));
+  assert.ok(source.includes("summary.preserved.length"));
+  assert.ok(source.includes("summary.unresolved.length"));
+  assert.ok(source.includes("Confira o formulário e conclua manualmente no portal"));
+});
+
+test("fill warnings identify the affected field and its review reason", () => {
+  assert.ok(source.includes("summary.unresolved"));
+  assert.ok(source.includes("FIELD_LABELS"));
+  assert.ok(source.includes("summary.warnings"));
+});
+
+test("a PRONTO process retains the fill action for retry regardless of prior request state", () => {
+  const panel = source.slice(source.indexOf("function fillPanel"));
+  const body = panel.slice(0, panel.indexOf("function refreshTabBar"));
+
+  assert.match(body, /process\.status !== "PRONTO"/u);
+  assert.doesNotMatch(body, /request\.state|ERRO|BLOQUEADO/u);
+});
+
+test("fill summary survives the detail refresh and never adds a submit action", () => {
+  assert.ok(source.includes("renderFillStatus(refreshedStatus, lastRequest)"));
+  assert.ok(source.includes("function renderFillSummary"));
+  assert.doesNotMatch(source + page, /id="(?:submit|send|finalize|complement-act)"/iu);
+});

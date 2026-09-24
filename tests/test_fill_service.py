@@ -952,6 +952,15 @@ class PreflightTests(unittest.TestCase):
         self.assertIn("cargo", plan.fields)
         self.assertTrue(any("matricula" in warning and "ausente" in warning for warning in plan.warnings))
 
+    def test_a_field_read_error_is_not_added_to_the_write_plan(self):
+        snapshot = form_snapshot(fields={"cargo": {"readable": False}})
+
+        plan = build_fill_plan(process_payload(), snapshot)
+
+        self.assertNotIn("cargo", plan.fields)
+        self.assertIn("matricula", plan.fields)
+        self.assertTrue(any("FIELD_READ_FAILED" in warning and "cargo" in warning for warning in plan.warnings))
+
     def test_a_stale_legal_resolver_value_is_skipped_and_warned(self):
         snapshot = form_snapshot(
             fields={

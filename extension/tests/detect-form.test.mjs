@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildActFormDocument, buildFrameElement, ACT_FIELD_IDS } from "./fake-dom.mjs";
+import { buildActFormDocument, buildFrameElement, FakeElement, ACT_FIELD_IDS } from "./fake-dom.mjs";
 
 await import("../lib/area-snapshot.js");
 await import("../content/detect-form.js");
@@ -47,6 +47,23 @@ test("an identity-valid form is readable when one content control is absent", ()
   assert.equal(form.identity.processKey, "102390/2026");
   assert.equal(form.fields.matricula, undefined);
   assert.notEqual(reader.readForm(complete), null);
+});
+
+test("a content-field read error is isolated from identity and other controls", () => {
+  const documentRef = buildActFormDocument({ selected: "Pessoa Exemplo" });
+  const cargo = documentRef.getElementById(ACT_FIELD_IDS.cargo);
+  Object.defineProperty(cargo, "value", {
+    configurable: true,
+    get() {
+      throw new Error("field getter failed");
+    },
+  });
+
+  const form = reader.readForm(documentRef);
+
+  assert.equal(form.identity.processKey, "102390/2026");
+  assert.equal(form.fields.cargo.readable, false);
+  assert.equal(form.fields.matricula.readable, true);
 });
 
 test("a form without process identity anchors is not readable", () => {
@@ -127,6 +144,38 @@ test("the option catalog of every select is read", () => {
   assert.equal(form.options.fundamento_legal[2].disabled, false);
   assert.equal(form.fields.fundamento_legal.options.length, 3);
   assert.equal(form.fields.genero.options[0].value, "F");
+});
+
+test("the option catalog reports disabled options and disabled optgroups", () => {
+  const documentRef = buildActFormDocument({
+    selected: "Pessoa Exemplo",
+    selects: {
+      fundamento_legal: [
+        { value: "41", label: "Emenda Constitucional 41/2003" },
+        { value: "42", label: "Emenda Constitucional 42/2003" },
+      ],
+    },
+  });
+  const select = documentRef.getElementById(ACT_FIELD_IDS.fundamento_legal);
+  const options = select.querySelectorAll("option");
+  options[1].disabled = true;
+
+  const group = new FakeElement("optgroup");
+  group.disabled = true;
+  const grouped = new FakeElement("option", {
+    value: "43",
+    text: "Emenda Constitucional 43/2003",
+  });
+  group.append(grouped);
+  select.append(group);
+
+  const form = reader.readForm(documentRef);
+
+  assert.deepEqual(form.options.fundamento_legal, [
+    { value: "41", label: "Emenda Constitucional 41/2003", disabled: false },
+    { value: "42", label: "Emenda Constitucional 42/2003", disabled: true },
+    { value: "43", label: "Emenda Constitucional 43/2003", disabled: true },
+  ]);
 });
 
 test("the generation advances only when the form state changes", () => {

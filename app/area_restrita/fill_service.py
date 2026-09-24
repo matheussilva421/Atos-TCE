@@ -371,6 +371,18 @@ class FillService:
         if process is None:
             self._block(request, "processo desapareceu durante o preenchimento")
             return
+        mismatch = self._identity_mismatch(process, result.get("identity"))
+        if mismatch:
+            self._block(request, mismatch)
+            return
+        generation_after = result.get("generation_after")
+        if (
+            not isinstance(generation_after, int)
+            or isinstance(generation_after, bool)
+            or generation_after < 1
+        ):
+            self._fail(request, "resultado de preenchimento sem generation_after válida")
+            return
 
         snapshot = request.get("form_snapshot")
         snapshot = dict(snapshot) if isinstance(snapshot, Mapping) else {}

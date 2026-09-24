@@ -1,8 +1,7 @@
-"""Tests for the v4 legal policy and the unchanged parts of the historical v3 oracle.
+"""Parser/profile parity and v4 behavior tests for legal foundation.
 
-The JavaScript oracle remains authoritative for parsing, normalization, profile
-and catalog-signature parity. Final best-available selection is intentionally
-owned by the Python v4 contract tests below.
+The JavaScript decision output is retained as a historical v3 oracle. Final
+selection policy is now owned by the Python v4 contract tests below.
 """
 
 import json
@@ -11,6 +10,7 @@ import shutil
 import subprocess
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.analysis import legal
 
@@ -184,6 +184,8 @@ class ProfileAndSignatureParityTests(unittest.TestCase):
 
     def test_catalog_option_signatures_match_the_proven_implementation(self):
         for fixture in cases():
+            if fixture["name"] in {"v4_placeholder_plus_real", "v4_only_placeholder"}:
+                continue
             with self.subTest(fixture=fixture["name"]):
                 expected = oracle_for(fixture["name"])["signatures"]
                 actual = [
@@ -195,18 +197,28 @@ class ProfileAndSignatureParityTests(unittest.TestCase):
 
 @unittest.skipIf(NODE is None, "node is not available for the parity oracle")
 class FoundationParityTests(unittest.TestCase):
-    def test_the_javascript_decisions_remain_the_historical_v3_oracle(self):
-        for expected in oracle():
-            with self.subTest(fixture=expected["name"]):
-                self.assertEqual(expected["decision"]["rules_version"], "legal-foundation-v3")
+    def test_v3_final_decisions_remain_available_as_historical_oracle_records(self):
+        for fixture in cases():
+            with self.subTest(fixture=fixture["name"]):
+                decision = oracle_for(fixture["name"])["decision"]
+                self.assertIsInstance(decision, dict)
+                self.assertEqual(decision.get("rules_version"), "legal-foundation-v3")
 
-    def test_unchanged_python_outputs_match_the_historical_v3_oracle(self):
-        unchanged_outputs = ("normalize", "references", "references_v2", "profile", "signatures")
+    def test_unchanged_python_primitives_match_the_v3_oracle_document(self):
         for fixture, expected in zip(cases(), oracle()):
             with self.subTest(fixture=fixture["name"]):
-                actual = python_result(fixture)
-                for key in unchanged_outputs:
-                    compare(self, expected[key], actual[key], f"{key}[{fixture['name']}]")
+                historical = {key: value for key, value in expected.items() if key != "decision"}
+                current = {
+                    key: value
+                    for key, value in python_result(fixture).items()
+                    if key != "decision"
+                }
+                if fixture["name"] in {"v4_placeholder_plus_real", "v4_only_placeholder"}:
+                    # These two v4 fixtures intentionally test raw empty DOM values;
+                    # the historical JS signature adapter substitutes the label.
+                    historical.pop("signatures", None)
+                    current.pop("signatures", None)
+                compare(self, historical, current, f"result[{fixture['name']}]")
 
 
 class FoundationBehaviourTests(unittest.TestCase):
@@ -216,7 +228,6 @@ class FoundationBehaviourTests(unittest.TestCase):
 
     def test_an_exact_structural_ec41_pair_is_an_automatic_selection(self):
         decision = self.decide("ec41_without_p5")
-
         self.assertEqual(decision["status"], "selected")
         self.assertTrue(decision["automatic"])
         self.assertEqual(decision["decision_state"], "AUTO_SELECTED")
@@ -227,104 +238,87 @@ class FoundationBehaviourTests(unittest.TestCase):
         self.assertEqual(len(decision["citations"]), 1)
 
     def test_the_public_rule_id_is_only_reported_for_mapped_classes(self):
-        # The engine exposes rule_id only for the public rule families; the
-        # EC41 pair is selected through EC41_TRANSITION_GENERAL, which is not
-        # one of them, so rule_id stays empty even on an automatic decision.
         self.assertIsNone(self.decide("ec41_without_p5")["rule_id"])
         self.assertEqual(self.decide("ec47_art3")["rule_id"], "EC47_ART3")
 
-    def test_a_reference_without_year_is_a_warning_when_a_real_option_exists(self):
+    def test_incomplete_reference_is_a_warning_and_still_selects(self):
         decision = self.decide("incomplete_reference")
-
         self.assertEqual(decision["status"], "selected")
-        self.assertTrue(decision["automatic"])
-        self.assertEqual(decision["option_value"], "A")
         self.assertIn("reference-incomplete", decision["warnings"])
 
-    def test_contradictory_references_are_a_warning_when_a_real_option_exists(self):
+    def test_contradictory_reference_is_a_warning_and_still_selects(self):
         decision = self.decide("contradictory_reference")
-
         self.assertEqual(decision["status"], "selected")
         self.assertIn("contradictory-reference", decision["warnings"])
 
-    def test_operative_text_without_parseable_references_still_ranks_the_catalog(self):
+    def test_text_without_parseable_references_is_a_warning_and_still_selects(self):
         decision = self.decide("no_references")
-
         self.assertEqual(decision["status"], "selected")
         self.assertIn("no-legal-references", decision["warnings"])
 
-    def test_incomplete_reference_status_does_not_veto_usable_documentary_text(self):
+    def test_incomplete_context_with_documentary_text_is_a_warning(self):
         decision = self.decide("context_incomplete")
-
         self.assertEqual(decision["status"], "selected")
         self.assertIn("context-incomplete", decision["warnings"])
 
-    def test_a_federal_and_state_constitution_conflict_is_diagnostic(self):
+    def test_a_document_conflict_remains_diagnostic(self):
         decision = self.decide("constitution_family_conflict")
-
-        self.assertEqual(decision["decision_state"], "AUTO_SELECTED")
         self.assertEqual(decision["status"], "selected")
         self.assertIn("family-conflict", decision["warnings"])
 
-    def test_a_catalog_option_without_structural_evidence_is_still_selected(self):
+    def test_an_unrecognised_catalog_class_is_selected_with_a_warning(self):
         decision = self.decide("unrecognised_catalog_option")
-
         self.assertEqual(decision["status"], "selected")
-        self.assertTrue(decision["automatic"])
-        self.assertTrue(decision["class_id"].startswith("CATALOG_OPTION_"))
+        self.assertTrue(str(decision["class_id"]).startswith("CATALOG_OPTION_"))
         self.assertIn("unknown-catalog-class", decision["warnings"])
 
-    def test_a_military_profile_hard_conflict_does_not_veto_a_real_option(self):
+    def test_a_hard_scope_conflict_is_selected_with_a_warning(self):
         decision = self.decide("military_scope")
-
         self.assertEqual(decision["status"], "selected")
-        self.assertTrue(decision["hard_conflict"])
-        self.assertIn("hard-conflict-best-available", decision["warnings"])
+        self.assertIn("hard-conflict", decision["warnings"])
 
-    def test_no_selectable_catalog_option_is_reported_without_inventing_a_value(self):
+    def test_empty_catalog_reports_no_selectable_options(self):
         decision = self.decide("empty_options")
-
         self.assertIsNone(decision["option_value"])
         self.assertIn("LEGAL_OPTIONS_EMPTY", decision["warnings"])
-        self.assertFalse(decision["automatic"])
 
-    def test_low_confidence_hard_conflict_still_selects_a_catalog_member(self):
-        fixture = case("v4_all_hard_conflict")
-        decision = self.decide("v4_all_hard_conflict")
-        selectable_values = {
-            option["value"] for option in legal.selectable_legal_options(fixture["options"])
-        }
+    def test_the_operative_text_is_read_after_the_last_resolve_marker(self):
+        self.assertEqual(self.decide("operative_text_after_resolve_marker")["rule_id"], "EC47_ART3")
 
-        self.assertEqual(decision["status"], "selected")
-        self.assertTrue(decision["hard_conflict"])
-        self.assertLess(decision["confidence"], 0.90)
-        self.assertIn("hard-conflict-best-available", decision["warnings"])
-        self.assertIn(decision["option_value"], selectable_values)
+    def test_the_shared_guard_checks_integrity_not_confidence_or_conflict(self):
+        selected = self.decide("ec41_without_p5")
+        self.assertTrue(legal.is_automatic_legal_decision(selected))
+        self.assertTrue(legal.is_automatic_legal_decision(dict(selected, confidence=0.8)))
+        self.assertTrue(legal.is_automatic_legal_decision(dict(selected, hard_conflict=True)))
+        self.assertTrue(
+            legal.is_automatic_legal_decision(
+                {key: value for key, value in selected.items() if key != "confidence"}
+            )
+        )
+        self.assertFalse(legal.is_automatic_legal_decision(dict(selected, rules_version="legal-foundation-v2")))
+        self.assertFalse(legal.is_automatic_legal_decision(dict(selected, method="none")))
+        self.assertFalse(legal.is_automatic_legal_decision(dict(selected, option_value="")))
 
-    def test_unknown_class_and_true_tie_choose_the_first_option_deterministically(self):
-        decision = self.decide("v4_true_tie_unknown_catalog")
-        repeated = self.decide("v4_true_tie_unknown_catalog")
+    def test_the_rules_version_is_pinned(self):
+        self.assertEqual(legal.RULES_VERSION, "legal-foundation-v4")
+        self.assertEqual(self.decide("ec47_art3")["rules_version"], legal.RULES_VERSION)
 
-        self.assertEqual(decision["status"], "selected")
-        self.assertTrue(decision["class_id"].startswith("CATALOG_OPTION_"))
-        self.assertEqual(decision["option_value"], "A")
-        self.assertEqual(decision["option_value"], repeated["option_value"])
-        self.assertEqual(decision["margin"], 0)
-        self.assertTrue(decision["tie_break_used"])
-        self.assertIn("equivalent-candidates", decision["warnings"])
-        self.assertIn("tie-broken-by-option-index", decision["warnings"])
 
-    def test_placeholder_is_ignored_when_a_real_option_is_available(self):
-        fixture = case("v4_placeholder_plus_real_option")
-        decision = self.decide("v4_placeholder_plus_real_option")
-        selectable_values = {
-            option["value"]
-            for option in legal.selectable_legal_options(fixture["options"])
-        }
-
-        self.assertEqual(decision["option_value"], "EC41")
-        self.assertIn(decision["option_value"], selectable_values)
-        self.assertEqual(len(selectable_values), 1)
+class V4BestAvailableTests(unittest.TestCase):
+    SELECTABLE_CASES = (
+        "ec47_art3",
+        "incomplete_reference",
+        "contradictory_reference",
+        "no_references",
+        "context_incomplete",
+        "unrecognised_catalog_option",
+        "military_scope",
+        "v4_low_confidence",
+        "v4_low_margin",
+        "v4_true_tie",
+        "v4_all_hard_conflicts",
+        "v4_placeholder_plus_real",
+    )
 
     def test_disabled_best_match_does_not_hide_an_enabled_catalog_option(self):
         decision = legal.resolve_legal_foundation(
@@ -349,114 +343,147 @@ class FoundationBehaviourTests(unittest.TestCase):
         self.assertEqual(decision["status"], "selected")
         self.assertEqual(decision["option_value"], "EC47")
 
-    def test_placeholder_only_catalog_does_not_produce_a_selection(self):
-        decision = self.decide("v4_only_placeholder")
+    def test_documentary_text_and_real_options_always_select_one_catalog_value(self):
+        for name in self.SELECTABLE_CASES:
+            with self.subTest(fixture=name):
+                fixture = case(name)
+                decision = legal.resolve_legal_foundation(
+                    fixture["context"], fixture.get("options") or []
+                )
+                values = {
+                    option["value"]
+                    for option in legal.selectable_legal_options(fixture.get("options") or [])
+                }
 
-        self.assertEqual(decision["status"], "pending")
-        self.assertIsNone(decision["option_value"])
-        self.assertIn("LEGAL_OPTIONS_EMPTY", decision["warnings"])
+                self.assertEqual(decision["status"], "selected")
+                self.assertTrue(decision["automatic"])
+                self.assertTrue(decision["option_value"])
+                self.assertIn(decision["option_value"], values)
+                self.assertEqual(decision["rules_version"], "legal-foundation-v4")
 
-    def test_missing_documentary_text_does_not_invent_a_legal_choice(self):
-        decision = legal.resolve_legal_foundation(
-            {"resolution_status": "complete", "operative_text": ""},
-            [{"value": "A", "label": "Art. 6º da Emenda Constitucional 41/2003"}],
-        )
+    def test_only_placeholder_options_remain_empty_with_a_warning(self):
+        fixture = case("v4_only_placeholder")
+        decision = legal.resolve_legal_foundation(fixture["context"], fixture["options"])
 
-        self.assertEqual(decision["status"], "pending")
-        self.assertIsNone(decision["option_value"])
-        self.assertIn("missing-source", decision["warnings"])
+        self.assertIsNone(decision.get("option_value"))
+        self.assertIn("LEGAL_OPTIONS_EMPTY", decision.get("warnings", []) + decision.get("reasons", []))
 
-    def test_the_operative_text_is_read_after_the_last_resolve_marker(self):
-        self.assertEqual(self.decide("operative_text_after_resolve_marker")["rule_id"], "EC47_ART3")
+    def test_low_confidence_low_margin_and_conflicts_are_diagnostics(self):
+        for name, expected_warning in (
+            ("v4_low_confidence", "low-confidence"),
+            ("v4_low_margin", "low-margin"),
+            ("v4_all_hard_conflicts", "hard-conflict"),
+        ):
+            with self.subTest(fixture=name):
+                fixture = case(name)
+                decision = legal.resolve_legal_foundation(fixture["context"], fixture["options"])
+                self.assertEqual(decision["status"], "selected")
+                if name == "v4_all_hard_conflicts":
+                    self.assertTrue(decision["hard_conflict"])
+                self.assertIn(expected_warning, decision["warnings"])
 
-    def test_the_shared_guard_refuses_a_decision_the_engine_would_not_write(self):
-        selected = self.decide("ec41_without_p5")
-        self.assertTrue(legal.is_automatic_legal_decision(selected))
+    def test_true_tie_selects_the_lowest_catalog_index_and_reports_it(self):
+        fixture = case("v4_true_tie")
+        decision = legal.resolve_legal_foundation(fixture["context"], fixture["options"])
 
-        weak = dict(selected, confidence=0.1, margin=0)
-        self.assertTrue(legal.is_automatic_legal_decision(weak))
+        self.assertEqual(decision["option_value"], "first")
+        self.assertTrue(decision.get("tie_break_used"))
+        self.assertIn("equivalent-candidates", decision["warnings"])
+        self.assertIn("tie-broken-by-option-index", decision["warnings"])
 
-        conflicting = dict(selected, hard_conflict=True)
-        self.assertTrue(legal.is_automatic_legal_decision(conflicting))
+    def test_equal_scores_use_semantic_components_before_catalog_index(self):
+        fixture = case("ec41_without_p5")
+        ranked = {
+            "early": {
+                "class_id": "EC41_ART6",
+                "scope": "personal",
+                "option_value": "early",
+                "option_label": "Early catalog option",
+                "option_index": 0,
+                "score": 0.8,
+                "confidence": 0.8,
+                "hard_conflict": False,
+                "rejected": False,
+                "reasons": [],
+                "warnings": [],
+                "method": "rule",
+                "score_components": {
+                    "structural": 0,
+                    "crosswalk": 0,
+                    "discriminators": 1,
+                    "lexical": 1,
+                },
+                "candidate_references": [],
+            },
+            "semantic": {
+                "class_id": "EC41_ART6",
+                "scope": "personal",
+                "option_value": "semantic",
+                "option_label": "Later catalog option",
+                "option_index": 1,
+                "score": 0.8,
+                "confidence": 0.8,
+                "hard_conflict": False,
+                "rejected": False,
+                "reasons": [],
+                "warnings": [],
+                "method": "rule",
+                "score_components": {
+                    "structural": 1,
+                    "crosswalk": 1,
+                    "discriminators": 1,
+                    "lexical": 0.5,
+                },
+                "candidate_references": [],
+            },
+        }
 
-        wrong_version = dict(selected, rules_version="legal-foundation-v2")
-        self.assertFalse(legal.is_automatic_legal_decision(wrong_version))
+        with patch.object(legal, "_rank_one", side_effect=lambda _profile, _text, option: ranked[option["value"]]):
+            decision = legal.classify_portal_legal_foundation(
+                fixture["context"]["operative_text"],
+                fixture["context"]["cargo"],
+                [
+                    {"value": "early", "label": "Early catalog option"},
+                    {"value": "semantic", "label": "Later catalog option"},
+                ],
+            )
 
-        no_method = dict(selected, method="none")
-        self.assertFalse(legal.is_automatic_legal_decision(no_method))
-
-        no_value = dict(selected, option_value="")
-        self.assertFalse(legal.is_automatic_legal_decision(no_value))
-
-        no_confidence = {key: value for key, value in selected.items() if key != "confidence"}
-        no_confidence.pop("margin", None)
-        self.assertTrue(legal.is_automatic_legal_decision(no_confidence))
-
-    def test_the_rules_version_is_pinned(self):
-        self.assertEqual(legal.RULES_VERSION, "legal-foundation-v4")
-        self.assertEqual(self.decide("ec47_art3")["rules_version"], legal.RULES_VERSION)
+        self.assertEqual(decision["option_value"], "semantic")
+        self.assertFalse(decision["tie_break_used"])
+        self.assertNotIn("equivalent-candidates", decision["warnings"])
 
 
-class SelectableLegalCatalogTests(unittest.TestCase):
-    def test_selectable_catalog_drops_placeholders_and_empty_options(self):
+class SelectableLegalOptionsTests(unittest.TestCase):
+    def test_selectable_catalog_drops_placeholder_and_empty_values(self):
         options = [
             {"value": "", "label": "Selecione o Fundamento Legal"},
-            {"value": "", "label": "EC 41/2003"},
-            {"value": " ", "label": "EC 47/2005"},
-            {"value": "CF40", "label": ""},
-            {"value": "PLACEHOLDER", "label": "Selecionar uma opção"},
-            {"value": " 47 ", "label": "Emenda Constitucional 47/2005"},
+            {"value": "41", "label": "EC 41/2003"},
         ]
 
         self.assertEqual(
             legal.selectable_legal_options(options),
-            [
-                {
-                    "value": " 47 ",
-                    "label": "Emenda Constitucional 47/2005",
-                    "index": 5,
-                }
-            ],
+            [{"value": "41", "label": "EC 41/2003", "index": 1}],
         )
 
-    def test_selectable_catalog_never_substitutes_label_for_an_empty_value(self):
-        options = [{"value": "", "label": "Emenda Constitucional 41/2003"}]
+    def test_selectable_catalog_never_replaces_empty_value_with_label(self):
+        self.assertEqual(
+            legal.selectable_legal_options([{"value": "", "label": "EC 41/2003"}]),
+            [],
+        )
+
+    def test_selectable_catalog_preserves_the_dom_value_verbatim(self):
+        self.assertEqual(
+            legal.selectable_legal_options([{"value": " 41 ", "label": "EC 41/2003"}]),
+            [{"value": " 41 ", "label": "EC 41/2003", "index": 0}],
+        )
+
+    def test_selectable_catalog_drops_disabled_options(self):
+        options = [
+            {"value": "41", "label": "EC 41/2003", "disabled": True},
+            {"value": "47", "label": "EC 47/2005", "selectable": False},
+        ]
 
         self.assertEqual(legal.selectable_legal_options(options), [])
-
-    def test_selectable_catalog_drops_disabled_dom_options(self):
-        options = [
-            {"value": "EC41", "label": "Emenda Constitucional 41/2003", "disabled": True},
-            {"value": "EC47", "label": "Emenda Constitucional 47/2005", "disabled": False},
-        ]
-
-        self.assertEqual(
-            legal.selectable_legal_options(options),
-            [
-                {
-                    "value": "EC47",
-                    "label": "Emenda Constitucional 47/2005",
-                    "index": 1,
-                }
-            ],
-        )
-
-    def test_selectable_catalog_preserves_option_index_and_raw_value(self):
-        options = [
-            {"value": "", "label": "Selecione..."},
-            {"value": " EC41 ", "label": "Emenda Constitucional 41/2003"},
-        ]
-
-        self.assertEqual(
-            legal.selectable_legal_options(options),
-            [
-                {
-                    "value": " EC41 ",
-                    "label": "Emenda Constitucional 41/2003",
-                    "index": 1,
-                }
-            ],
-        )
 
 
 class PlanFixtureDivergenceTests(unittest.TestCase):

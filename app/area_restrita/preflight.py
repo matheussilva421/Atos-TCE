@@ -83,27 +83,14 @@ def _control_options(control: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 def _resolve_option_value(control: Mapping[str, Any], proposal: str) -> str | None:
     """Map a proposal onto one of the current options, by value then by label."""
 
-    options = _control_options(control)
-    if not options:
-        return None
-    selectable: list[tuple[str, str]] = []
-    for option in options:
-        if option.get("disabled") is True:
-            continue
-        raw_value = "" if option.get("value") is None else str(option.get("value"))
-        raw_label = "" if option.get("label") is None else str(option.get("label"))
-        if not raw_value.strip() or not raw_label.strip():
-            continue
-        if PLACEHOLDER_PATTERN.match(normalize_legal_text(raw_label).strip()):
-            continue
-        selectable.append((raw_value, raw_label))
-    for value, _ in selectable:
-        if value == proposal:
-            return value
+    selectable = selectable_legal_options(_control_options(control))
+    for option in selectable:
+        if str(option.get("value") or "") == proposal:
+            return str(option["value"])
     wanted = compare_text(proposal)
-    for value, label in selectable:
-        if compare_text(label) == wanted:
-            return value
+    for option in selectable:
+        if compare_text(option.get("label")) == wanted:
+            return str(option["value"])
     return None
 
 
@@ -196,6 +183,9 @@ def build_fill_plan(
         control = _control(snapshot, name)
         if control is None:
             plan.warnings.append(f"controle ausente no formulário: {name}")
+            continue
+        if control.get("readable") is False:
+            plan.warnings.append(f"FIELD_READ_FAILED: {name}")
             continue
         if control.get("disabled") is True or control.get("readOnly") is True:
             plan.warnings.append(f"controle desabilitado ou somente leitura: {name}")

@@ -29,3 +29,7 @@ Regras:
 3. divergências de decisão final v3/v4 são intencionais; não altere o oracle v3
    para fazê-lo imitar a policy v4.
 
+3. The final decisions emitted by the harness are historical v3 results and do
+   not gate current selection policy. Python v4 tests own the best-available
+   choice contract. Parser, profile, normalization and catalog-signature parity
+   remain covered.

@@ -117,6 +117,16 @@ def _read_form_result_problem(payload: Mapping[str, Any]) -> str | None:
 
 
 def _fill_result_problem(payload: Mapping[str, Any]) -> str | None:
+    problem = _identity_problem(payload.get("identity"))
+    if problem:
+        return f"{problem} no resultado do preenchimento"
+    generation_after = payload.get("generation_after")
+    if (
+        not isinstance(generation_after, int)
+        or isinstance(generation_after, bool)
+        or generation_after < 1
+    ):
+        return "generation_after inválida no resultado do preenchimento"
     field_results = payload.get("field_results")
     if not isinstance(field_results, Mapping):
         return "field_results ausente no resultado do preenchimento"
