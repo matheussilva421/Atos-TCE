@@ -304,3 +304,10 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - TDD: dois contratos de porta falharam por função ausente; após a proteção, os dois passaram. Teste de integração local com o servidor ativo confirmou `occupied_port_guard=passed`, exit 2, sem segunda instância.
 - Root Python após a proteção: 638 executados, 637 passaram, 1 skip, 0 falhas. `verify-project.ps1`: 1.259 executados, 1.257 passaram, 2 skips, 0 falhas; todos os sete estágios passaram. `git diff --check` passou.
 - README documenta host/porta e manter ativa a aba autenticada do portal. O serviço atual permanece único/saudável no Chrome QA; backup temporário removido após `integrity_check=ok`.
+
+
+## Git closeout — launcher block (2026-09-24)
+
+- Implementation commit: `331a7e001dacc2d850007c872cdeef616d79507e` (`dev: launch Mesa inside QA Chrome`). `git push` succeeded from `f235b46` to `331a7e0`; elevated `git ls-remote origin refs/heads/codex/atos-tce-unified` returned the same full SHA.
+- The worktree was clean immediately after that push. The current handoff/ledger closeout update is being recorded separately.
+- The broad goal is intentionally not marked complete: Task 10, full Phase 0, Next Process Tasks 1–8, adversarial review, and standalone packaging remain open.

@@ -90,3 +90,9 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - Launcher hardening follow-up: test was red for a userinfo URL and an extra fragment parameter; strict loopback bootstrap validation now rejects both before CDP requests. Focused contract suite 17/17. After this change root Python passed 636 tests (635 pass, 1 skip); integrated verify-project passed 1,259 (1,257 pass, 2 skips), all seven stages green.
 
 - Duplicate-listener guard added after the live port collision: host must be `127.0.0.1`; an exclusive bind preflight refuses occupied Mesa ports before starting the server. RED/GREEN two tests passed, and a live CLI preflight against the current server returned exit 2 without creating another process. Final root Python 638/637 pass/1 skip; verify-project 1,259/1,257 pass/2 skips, all stages green.
+
+
+## Git closeout — launcher block
+
+- Commit `331a7e001dacc2d850007c872cdeef616d79507e` (`dev: launch Mesa inside QA Chrome`) pushed successfully from `f235b46`. Elevated `git ls-remote` returned the same full SHA.
+- Implementation block is published. The overall user goal remains active: 27/1,197 scan reconciliation, Best-Effort Task 10, Phase 0, Next Process, adversarial review, and standalone packaging are not complete.
