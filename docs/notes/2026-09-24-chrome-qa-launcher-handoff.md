@@ -1,7 +1,7 @@
 # Handoff — launcher do Chrome QA
 
 Data: 2026-09-24
-Status: implementação e gates concluídos; commit e push pendentes.
+Status: implementação, gates, commit e push concluídos.
 
 ## Objetivo e decisão
 
@@ -48,15 +48,12 @@ uma URL opcional.
 ## GitHub
 
 Checkout `codex/atos-tce-unified`, alinhado com `origin/codex/atos-tce-unified`
-antes desta alteração. Commit e push serão registrados no fechamento final.
+após o push. Commit da implementação e testes: `dd46dec`
+(`feat(qa): add Chrome QA launcher`), publicado na branch.
 
-## Retomada
+## Uso
 
-1. Revisar `git diff --check`, `git status` e o diff final.
-2. Fazer commit e push na branch atual; verificar SHA e sincronização com o
-   remoto e registrar esses dados neste handoff.
-
-Para uso manual: dê duplo clique em
+Para uso manual, dê duplo clique em
 `work/tce-extractor/Abrir-Chrome-QA.bat`. Para começar em outra página, passe a
 URL como primeiro argumento. Se a porta 9222 estiver ocupada, feche o processo
 que a usa e tente novamente.
