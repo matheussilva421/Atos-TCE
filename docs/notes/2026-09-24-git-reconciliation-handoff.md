@@ -82,12 +82,12 @@ este inventário não autoriza excluir `main`.
 - `python -m unittest discover -s tests -p test_cdp_fallback.py -q`: 22 passaram.
 - `python -m unittest discover -s tests -p test_compare_area_scans.py -q`: 14 passaram.
 - `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass
-  -File .\work\tce-extractor\verify-project.ps1` passou em uma execução:
-  1.258 executados, 1.256 aprovados, 0 falhas e 2 ignorados. Essa execução
-  antecedeu os dois últimos ajustes de assertions/fixture; repetir como gate
-  final depois da atualização deste handoff.
-- `git diff --check` passou no gate acima; executar também
-  `git diff origin/main...HEAD --check` no gate final.
+  -File .\work\tce-extractor\verify-project.ps1` passou após os ajustes
+  finais: 1.258 executados, 1.256 aprovados, 0 falhas e 2 ignorados. Os sete
+  estágios passaram: extensão 480/480; web 6/6; Python portable 6/6;
+  PowerShell 602/602; pacote 80 aprovados e 2 ignorados; automação 81/81;
+  diff 1/1.
+- `git diff --check` e `git diff origin/main...HEAD --check` passaram.
 
 ## Estado frente à SPEC e aos planos
 
@@ -118,8 +118,7 @@ este inventário não autoriza excluir `main`.
   remotas, publicar `codex/atos-tce-unified`, provar que cada commit está
   contido nela e mostrar a lista exata ao usuário. `main` nunca deve ser
   removida.
-- Próximos passos: repetir o verify gate final depois dos commits de teste e
-  documentação; confirmar árvore limpa; fazer push da branch unificada; provar
+- Próximos passos: fazer push da branch unificada; provar
   inclusão antes de mostrar e remover branches remotas temporárias; remover
   branches locais já incorporadas e os dois checkouts limpos em `.worktrees/`;
   registrar SHA e estado final neste handoff. O script local foi verificado e
