@@ -168,6 +168,27 @@ class ComparisonTests(CompareTestCase):
         self.assertFalse(report["equal"])
         self.assertIn("marker", report["context_differences"])
 
+    def test_dynamic_marker_count_label_does_not_change_marker_identity(self):
+        cdp = json.loads(json.dumps(CDP_PAYLOAD))
+        mesa = json.loads(json.dumps(MESA_PAYLOAD))
+        cdp["marker"] = {"label": "PROFESSOR - IPERN (1199)", "value": "5159"}
+        mesa["marker"] = {"label": "PROFESSOR - IPERN (1198)", "value": "5159"}
+
+        report = self.compare(cdp, mesa)
+
+        self.assertTrue(report["equal"], report)
+        self.assertNotIn("marker", report["context_differences"])
+
+    def test_an_incomplete_cdp_page_scan_cannot_pass(self):
+        cdp = json.loads(json.dumps(CDP_PAYLOAD))
+        cdp.update({"page": 40, "total_pages": 40, "pages_visited": 14})
+
+        report = self.compare(cdp, MESA_PAYLOAD)
+
+        self.assertFalse(report["equal"])
+        self.assertIn("cdp_incomplete", report["context_differences"])
+        self.assertEqual(report["coverage"]["cdp"], {"pages_visited": 14, "total_pages": 40})
+
     def test_the_scan_origin_is_reported_without_failing(self):
         report = self.compare(CDP_PAYLOAD, MESA_PAYLOAD)
 

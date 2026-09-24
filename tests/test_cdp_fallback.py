@@ -95,6 +95,42 @@ class CdpCommandTests(unittest.TestCase):
         self.assertIn("findNextPageControl", source)
         self.assertIn("area-snapshot.js", source)
 
+    def test_script_suppresses_the_websocket_connect_result(self):
+        source = (REPO_ROOT / "scripts" / "scan-area-cdp.ps1").read_text(encoding="utf-8")
+
+        self.assertRegex(source, r"\[void\]\s*\$socket\.ConnectAsync\(")
+
+    def test_script_refuses_to_emit_non_list_snapshots(self):
+        source = (REPO_ROOT / "scripts" / "scan-area-cdp.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("if ([string]$snapshot.role -ne 'list')", source)
+        self.assertIn("não está numa lista reconhecida", source)
+
+    def test_script_uses_allowlisted_legacy_pagination_and_checks_progress(self):
+        source = (REPO_ROOT / "scripts" / "scan-area-cdp.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("legacyPaginationPlan", source)
+        self.assertIn("submitLegacyPagination", source)
+        self.assertIn("a paginação não avançou", source)
+
+    def test_marker_continuity_uses_stable_value_not_dynamic_count_label(self):
+        source = (REPO_ROOT / "scripts" / "scan-area-cdp.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("function Get-MarkerSignature", source)
+        self.assertIn("$Marker.value", source)
+        self.assertIn("Get-MarkerSignature -Marker $pendingSnapshot.marker", source)
+
+    def test_script_requires_exact_page_progress_and_complete_coverage(self):
+        source = (REPO_ROOT / "scripts" / "scan-area-cdp.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("if ($lastPage -eq $ExpectedPage) { return $snapshot }", source)
+        self.assertIn("if ($pagesVisited -ne [int]$last.total_pages)", source)
+
+    def test_script_prefers_the_newest_page_even_when_the_last_page_is_shorter(self):
+        source = (REPO_ROOT / "scripts" / "scan-area-cdp.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("right.page - left.page || right.rows.length - left.rows.length", source)
+
     @unittest.skipUnless(shutil.which("powershell.exe"), "requires Windows PowerShell")
     def test_script_resolves_default_repo_root_after_parameter_binding(self):
         script = REPO_ROOT / "scripts" / "scan-area-cdp.ps1"
@@ -120,6 +156,34 @@ class CdpCommandTests(unittest.TestCase):
         output = (result.stdout + result.stderr).decode(errors="replace")
         self.assertNotIn("Split-Path", output)
         self.assertIn("DevToolsActivePort", output)
+
+    @unittest.skipUnless(shutil.which("powershell.exe"), "requires Windows PowerShell")
+    def test_script_can_resolve_websocket_from_an_explicit_cdp_port(self):
+        script = REPO_ROOT / "scripts" / "scan-area-cdp.ps1"
+        with TemporaryDirectory() as chrome_profile:
+            result = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(script),
+                    "-ChromeUserData",
+                    chrome_profile,
+                    "-CdpPort",
+                    "1",
+                ],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                timeout=15,
+            )
+
+        output = (result.stdout + result.stderr).decode(errors="replace")
+        self.assertNotIn("DevToolsActivePort", output)
+        self.assertIn("127.0.0.1:1/json/version", output)
 
 
 class CdpOutputTests(unittest.TestCase):

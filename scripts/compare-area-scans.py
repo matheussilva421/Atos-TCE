@@ -54,6 +54,31 @@ def _marker_of(payload: Mapping[str, Any]) -> dict[str, str]:
     }
 
 
+def _marker_identity(marker: Mapping[str, str]) -> tuple[str, str]:
+    """Prefer the stable option value; portal labels may embed live counts."""
+
+    value = str(marker.get("value") or "").strip()
+    if value:
+        return ("value", value)
+    label = " ".join(str(marker.get("label") or "").split()).casefold()
+    return ("label", label)
+
+
+def _cdp_coverage(payload: Mapping[str, Any]) -> dict[str, int] | None:
+    """Return page coverage when the CDP payload exposes it."""
+
+    total = payload.get("total_pages")
+    visited = payload.get("pages_visited", payload.get("page"))
+    try:
+        total_pages = int(total)
+        pages_visited = int(visited)
+    except (TypeError, ValueError):
+        return None
+    if total_pages < 1 or pages_visited < 0:
+        return None
+    return {"pages_visited": pages_visited, "total_pages": total_pages}
+
+
 def normalize_scan(payload: Mapping[str, Any], *, rows_field: str) -> dict[str, Any]:
     """Reduce one scan payload to what the gate compares."""
 
@@ -138,13 +163,17 @@ def compare_scans(cdp_payload: Mapping[str, Any], mesa_payload: Mapping[str, Any
     context_differences = []
     if cdp["scope"] != mesa["scope"]:
         context_differences.append("source_scope")
-    if cdp["marker"] != mesa["marker"]:
+    if _marker_identity(cdp["marker"]) != _marker_identity(mesa["marker"]):
         context_differences.append("marker")
+    coverage = _cdp_coverage(cdp_payload)
+    if coverage is not None and coverage["pages_visited"] != coverage["total_pages"]:
+        context_differences.append("cdp_incomplete")
 
     return {
         "origins": {"cdp": cdp["origin"], "mesa": mesa["origin"]},
         "scope": {"cdp": cdp["scope"], "mesa": mesa["scope"]},
         "marker": {"cdp": cdp["marker"], "mesa": mesa["marker"]},
+        "coverage": {"cdp": coverage},
         "counts": {"cdp": _counts(cdp["rows"]), "mesa": _counts(mesa["rows"])},
         "only_in_cdp": only_in_cdp,
         "only_in_mesa": only_in_mesa,
