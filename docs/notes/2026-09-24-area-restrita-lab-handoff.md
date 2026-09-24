@@ -237,3 +237,18 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - O login do portal e a sessão da Mesa são estados separados. Para prosseguir, o operador deve usar a janela/perfil de navegador em que o launcher oficial da Mesa abriu o bootstrap e confirmar que a Mesa restaura a sessão nesse perfil. Depois, acionar **Analisar Área Restrita** uma vez no dashboard dessa mesma sessão e informar quando concluir.
 - Não usar **Copiar sessão para outro Chrome**, não extrair/repassar token e não chamar diretamente o handler da extensão. Se a sessão oficial tiver expirado, iniciar novamente o launcher normal e concluir o bootstrap no navegador que ele abrir.
 - Após confirmação do operador, verificar apenas agregados da nova varredura, registrar o marcador sem alterá-lo e continuar Task 8/9. Best-Effort Task 10 ainda requer os cinco casos reais e um ato de teste escolhido pelo operador; Next Process continua bloqueado até Task 10 e Phase 0 completos.
+
+
+## Retomada — bootstrap da Mesa no Chrome QA (2026-09-24)
+
+- O Chrome DevTools MCP em `127.0.0.1:9222` mostra a aba autenticada da Área Restrita, a Mesa Local e a extensão `ATOS TCE — Ponte da Mesa` habilitada no mesmo Chrome QA. A Mesa respondia HTTP 200, mas a interface indicava `session_required`: a sessão da Mesa é própria e não é herdada do login do portal.
+- Auditoria somente leitura antes do reinício: SQLite `integrity_check=ok`; 0 jobs `PENDING`/`RUNNING`, 0 processos `ANALISANDO` e 0 comandos de extensão ativos. Permanecem 2 jobs `INTERRUPTED` com 1.273 itens `QUEUED`; esses estados históricos foram preservados.
+- O processo anterior da Mesa foi encerrado e o servidor oficial foi iniciado de novo com `python -m app.main --data-root data --no-browser`, numa janela PowerShell visível. Health voltou a HTTP 200, schema v7, 1.232 processos. A sessão ainda não foi estabelecida na aba QA.
+- O auto-review rejeitou o encaminhamento automatizado do token de bootstrap ao Chrome QA por script. A execução rejeitada não criou helper ou log transitório. Não contornar o bloqueio; o operador deve copiar localmente o URL de uso único da janela da Mesa para a barra de endereço do Chrome QA, sem enviá-lo no chat. Não usar `Copiar sessão para outro Chrome` nem ler/copiar cookies ou credenciais do portal.
+- Nenhum código/runtime foi alterado; não foram executados testes. A validação após reinício foi health HTTP 200 e `sessionRequired=true` na aba da Mesa. O portal permaneceu na própria aba autenticada; nenhum ato foi aberto.
+
+### Retomada necessária
+
+- Operador: colar localmente o URL mostrado pela janela PowerShell na barra de endereço do Chrome QA e aguardar o retorno ao dashboard da Mesa.
+- Depois da confirmação, verificar a sessão sem capturar dados pessoais, acionar uma vez **Analisar Área Restrita** pela interface oficial (ação de leitura autorizada) e conferir somente contagens agregadas. Continuar a reconciliação 1.198/1.197 e as fases pendentes do objetivo.
+- O servidor está em execução na porta 18743. Commit/push deste registro e validação final do estado Git ainda pendentes.
