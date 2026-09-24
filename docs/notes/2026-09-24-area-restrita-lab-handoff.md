@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
-**Estado:** Tasks 1–7 publicadas em `origin/codex/atos-tce-unified`; o commit Task 7 `35ef33d5c14c6dcbb53fa334adac04ee08a3a967` foi confirmado no remoto. MCP conectado ao Chrome dedicado e alvo provado por marcador cruzado; nenhum acesso ao portal.
+**Estado:** Tasks 1–7 publicadas em `origin/codex/atos-tce-unified`; o commit Task 7 `35ef33d5c14c6dcbb53fa334adac04ee08a3a967` foi confirmado no remoto. O operador informou login manual. Task 8 está em andamento: baseline L0 capturada e sanitizada; lista e frame de botões carregados. Interessado/formulário ainda não foram observados; a próxima transição prevista é Task 9 L1 e exige ato de teste autorizado pelo operador.
 
 ## Resumo
 
@@ -22,7 +22,12 @@
 - Portal Lab Task 6: criado o contrato versionado, JSON Schema e quatro fixtures com identidade fictícia. A paridade cobre os papéis emitidos pelo scanner, sentinelas de formulário, rotas/fontes existentes, frame irmão e a separação entre tela de botões e formulário. Nenhuma suposição de comportamento foi adicionada ao runtime.
 - Portal Lab Task 7: criado o skill `area-restrita` com sequência obrigatória A–M, limites L0/L1/L2/L3, regra contra timeout-first e dono único de seletores; criado `portal-states.md` e atualizadas as referências de segurança e workflow.
 - Os três testes de pressão foram repetidos após a mudança: timeout sem predicado estrutural foi bloqueado; frame/radio ambíguo parou em L0 e confirmou `extension/lib/area-snapshot.js` como dono único; clique final e leitura de corpo de resposta foram recusados, mantendo o clique manual com o operador.
-- Conexão MCP/CDP provada nesta sessão: o Chrome isolado foi iniciado como PID 2272, o checker confirmou `127.0.0.1:9222`, e um marcador `about:blank` temporário apareceu em `mcp__chrome_devtools__list_pages` e em `/json/list` do endpoint local. A aba de prova foi fechada; restou só a nova guia. Nenhum portal foi aberto e nenhum login ocorreu.
+- Conexão MCP/CDP provada nesta sessão: o Chrome isolado foi iniciado como PID 2272, o checker confirmou `127.0.0.1:9222`, e um marcador `about:blank` temporário apareceu em `mcp__chrome_devtools__list_pages` e em `/json/list` do endpoint local. A aba de prova foi fechada; restou só a nova guia.
+- Task 8 preflight: a origem canônica em `extension/lib/protocol.js` respondeu `401` ao GET de `/`; o Chrome mostrou `ERR_INVALID_AUTH_CREDENTIALS`. Só metadados de rede foram inspecionados; nenhum header/corpo foi lido, nenhuma credencial foi fornecida e nenhuma transição do portal foi executada. A janela dedicada foi trazida à frente para a operadora.
+- Task 8 L0 após o login informado pelo operador: página atual `/telaPrincipalMenu.asp`, `readyState=complete`. Captura estrutural recursiva confirmou quatro frames diretos e nove documentos/frame no total; a lista já estava carregada em `/SISTEMAS/Processo/ProcessonoSetor.asp` e o frame irmão de botões em `/botoesNOVO.asp`. A lista tinha 482 controles estruturais (110 hidden; valores nunca lidos) e o frame de botões 17 botões; nenhuma interação foi executada.
+- A baseline da página reportou 198 requests (197 GET, 1 OPTIONS; 196 status 200, 1 status 204, 1 status 206). Console: 7 linhas, 5 IDs de mensagem; não foi feita classificação de erro. Snapshot de acessibilidade: 1.023 linhas e 987 tokens `uid`; conteúdo bruto não foi exibido nem salvo no handoff.
+- Sanitização: `python .\scripts\portal-lab\sanitize-capture.py .\tmp\portal-lab\2026-09-24-task8-l0\raw\menu-structure.json .\tmp\portal-lab\2026-09-24-task8-l0\sanitized\menu-structure-verified.json` terminou com código 0; arquivo sanitizado local de 4.263 bytes. Capturas locais permanecem ignoradas pelo Git.
+- `portal-contract.json` e fixtures não foram alterados: as rotas observadas já constam no contrato; uma sessão não confirma sentinelas/seletores novos. A paridade existente passou 7/7. Interessado e formulário não estão na árvore atual; abrir Complementar Ato é L1 e não foi feito nesta etapa.
 
 ## Arquivos alterados
 
@@ -51,6 +56,8 @@
 - `.agents/skills/area-restrita/references/portal-states.md`
 - `.agents/skills/area-restrita/references/safety.md`
 - `.agents/skills/area-restrita/references/workflow.md`
+- `docs/notes/2026-09-24-area-restrita-lab-handoff.md`
+- `.superpowers/sdd/2026-09-24-area-restrita-reverse-engineering-plan/progress.md`
 - Este handoff.
 
 ## Testes e validações
@@ -59,6 +66,7 @@
 - RED: `python -m unittest tests.test_devtools_runtime_boundary.RuntimeBoundaryTests.test_raw_capture_is_ignored_and_sanitized_lab_sources_are_trackable -v` — falhou como esperado porque as fixtures sanitizadas eram ignoradas.
 - GREEN: `python -m unittest tests.test_devtools_runtime_boundary tests.test_packaging_contract -v` — 15 executados, 14 passaram, 0 falhas, 1 skip.
 - GREEN: `python -m unittest discover -s tests -p "test_*.py" -q` — 619 executados, 618 passaram, 0 falhas, 1 skip.
+- Task 8 gate integrado: `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1` — 1.259 executados, 1.257 passaram, 0 falhas, 2 skips; os 7 estágios passaram. `git diff --check` passou.
 - Task 2 RED: `python -m unittest tests.test_portal_lab_contract -v` — após corrigir o fixture HTTP, 5 falharam porque os scripts ainda não existiam.
 - Task 2 GREEN: `python -m unittest tests.test_portal_lab_contract -v` — 5 passaram.
 - Task 2 Python completo: `python -m unittest discover -s tests -p "test_*.py" -q` — 624 executados, 623 passaram, 0 falhas, 1 skip.
@@ -88,6 +96,10 @@
 - Task 7 gate integrado: `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1` — 1.259 executados, 1.257 passaram, 0 falhas, 2 skips; todos os sete estágios passaram.
 - Skill pressure tests: baseline independente de três cenários encontrou lacunas em timeout-first e ownership de seletores; após a mudança, 3/3 cenários passaram com as decisões seguras esperadas. Nenhum avaliador abriu browser nem alterou arquivos.
 - Conexão MCP/CDP: `Start-AtosChrome.ps1` iniciou PID 2272 no perfil `%LOCALAPPDATA%\Atos-TCE\Chrome-Debug`; `Test-CdpEndpoint.ps1 -Port 9222` passou e o marcador temporário foi encontrado nos dois lados e removido.
+- Preflight do portal: GET à origem canônica terminou em `ERR_INVALID_AUTH_CREDENTIALS`; metadados MCP mostraram um GET com status 401. Causa específica não confirmada; nenhuma tentativa de fornecer ou recuperar credenciais foi feita.
+- Task 8 sanitize: `python .\scripts\portal-lab\sanitize-capture.py .\tmp\portal-lab\2026-09-24-task8-l0\raw\menu-structure.json .\tmp\portal-lab\2026-09-24-task8-l0\sanitized\menu-structure-verified.json` — exit 0, saída de 4.263 bytes.
+- Task 8 paridade: `Push-Location extension; node --test tests/portal-contract.test.mjs; Pop-Location` — 7 testes, 7 passaram, 0 falhas, 0 skips.
+- Task 8 L0: leitura de páginas/frames, rede, console e snapshot concluída sem interação. Não houve captura de screenshot nem escrita de valores de formulário.
 
 ## Ambiente de laboratório observado
 
@@ -122,8 +134,9 @@
 
 ## Pendências e retomada
 
-1. Prosseguir Task 8 com observação real L0 somente depois da autenticação manual pela pessoa operadora.
-2. Prosseguir Tasks 9–12 em ordem; verificar os gates antes de L1/L2. Não implementar Próximo processo antes de Best-Effort Task 10 e Phase 0 estarem fechadas.
-3. Para qualquer alteração de runtime, exigir captura real sanitizada, contrato/fixture e teste RED antes da implementação.
+1. Task 8 L0 baseline está registrada; interessados/formulário não estavam abertos. Para continuar o mapeamento, o operador deve escolher um ato de teste autorizado. Depois, executar uma única transição L1 `LIST -> INTERESTED` conforme Task 9, capturar BEFORE/AFTER e não selecionar interessado nem preencher campos.
+2. Não guardar ou enviar no chat número de processo, nome, CPF ou valores de campos. O alvo deve ser escolhido pelo operador; a extensão não escolhe uma linha por posição.
+3. Prosseguir Tasks 9–12 em ordem; não implementar Próximo processo antes de Best-Effort Task 10 e Phase 0 estarem fechadas.
+4. Para qualquer alteração de runtime, exigir captura real sanitizada, contrato/fixture e teste RED antes da implementação.
 
-Nenhum login, submit, envio, finalize ou clique final foi automatizado. Chrome dedicado PID 2272 está aberto em nova guia para as tarefas seguintes. Runtime standalone e gates finais continuam pendentes.
+O login foi informado como manual pelo operador. Nenhum submit, envio, finalize ou clique final foi automatizado; nenhum campo foi preenchido. Chrome dedicado PID 2272 está em primeiro plano na página principal do portal. Runtime standalone e gates finais continuam pendentes.
