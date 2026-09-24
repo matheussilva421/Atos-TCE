@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
-**Estado:** baseline concluída; Portal Lab Task 1 validada e implementada no commit `6d809dc`; push pendente.
+**Estado:** baseline concluída; Portal Lab Task 1 validada, commitada e publicada. Implementação `6d809dc`; handoff `f0354f8`.
 
 ## Resumo
 
@@ -46,14 +46,13 @@
 ## GitHub
 
 - No início: branch sincronizada com `origin/codex/atos-tce-unified` em `c477026`.
-- Commit `6d809dc`: criado localmente; push ainda pendente.
+- `6d809dc` e `f0354f8` estão publicados em `origin/codex/atos-tce-unified`; HEAD remoto confirmado em `f0354f8b7efb5ca63fa6d4cbe5f98b27c6be900b`.
 
 ## Pendências e retomada
 
-1. Finalizar commit/push da Task 1 e registrar o SHA aqui.
-2. Executar Task 2 com teste RED/GREEN: Chrome dedicado, perfil externo em `%LOCALAPPDATA%`, CDP limitado a `127.0.0.1`, sem fechar Chrome pessoal nem remover perfil.
-3. Atualizar/verificar configuração MCP para conexão ao Chrome dedicado; `playwright-cli` já está instalado.
-4. Prosseguir Tasks 4–7: workflow CLI, captura estrutural, sanitizador, comparador, portal-contract/fixtures e skill.
-5. Só depois dos gates do laboratório abrir sessão supervisionada; concluir Best-Effort Task 10 e Phase 0 com observações reais antes de qualquer código de Próximo processo.
+1. Executar Task 2 com teste RED/GREEN: Chrome dedicado, perfil externo em `%LOCALAPPDATA%`, CDP limitado a `127.0.0.1`, sem fechar Chrome pessoal nem remover perfil.
+2. Atualizar/verificar configuração MCP para conexão ao Chrome dedicado; `playwright-cli` já está instalado.
+3. Prosseguir Tasks 4–7: workflow CLI, captura estrutural, sanitizador, comparador, portal-contract/fixtures e skill.
+4. Só depois dos gates do laboratório abrir sessão supervisionada; concluir Best-Effort Task 10 e Phase 0 com observações reais antes de qualquer código de Próximo processo.
 
 Nenhum submit, envio, finalize ou clique final foi automatizado. Runtime standalone e gates finais continuam pendentes.
