@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
-**Estado:** baseline concluída; Portal Lab Task 1 validada no worktree; commit/push ainda pendentes neste ponto.
+**Estado:** baseline concluída; Portal Lab Task 1 validada e implementada no commit `6d809dc`; push pendente.
 
 ## Resumo
 
@@ -10,6 +10,7 @@
 - Os oito documentos obrigatórios do pacote foram lidos integralmente e na ordem indicada. O caminho de spec referenciado pelo plano de implementação não existe; foi usada a cópia de design incluída no pacote.
 - Baseline: Python 616 testes (615 passaram, 1 skip); extensão 145/145; web 28/28; `verify-project.ps1` 1.259 executados (1.257 passaram, 0 falhas, 2 skips); `git diff --check` passou.
 - Portal Lab Task 1: o teste RED mostrou que o verificador aceitava diretórios, capturas e nomes de ferramentas do laboratório em ZIPs. O verificador agora recusa essas entradas; `.gitignore` distingue fontes/fixtures sanitizadas de capturas raw; foi adicionado teste de fronteira runtime.
+- Commit de implementação/contrato: `6d809dc` (`test: isolate portal lab from portable runtime`). O gate focado foi repetido após o commit e passou (15 testes, 1 skip).
 
 ## Arquivos alterados
 
@@ -45,7 +46,7 @@
 ## GitHub
 
 - No início: branch sincronizada com `origin/codex/atos-tce-unified` em `c477026`.
-- Commit e push de Task 1: pendentes.
+- Commit `6d809dc`: criado localmente; push ainda pendente.
 
 ## Pendências e retomada
 
