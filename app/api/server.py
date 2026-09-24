@@ -217,6 +217,11 @@ POST_ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/session/handoff"), "post_session_handoff", "mesa"),
     Route(re.compile(r"/api/v1/bridge/register"), "post_bridge_register", "public"),
     Route(re.compile(r"/api/v1/extension/commands"), "post_extension_command", "mesa"),
+    Route(
+        re.compile(r"/api/v1/extension/commands/(?P<command_id>\d+)/lease"),
+        "post_command_lease",
+        "extension",
+    ),
     Route(re.compile(r"/api/v1/extension/commands/(?P<command_id>\d+)/result"), "post_command_result", "extension"),
     Route(re.compile(r"/api/v1/area/scans"), "post_area_scan", "mesa"),
     Route(re.compile(r"/api/v1/area/analyze"), "post_area_analyze", "mesa"),
@@ -861,6 +866,23 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         self._send_json(
             {"command_id": command_id, "type": command_type, "state": "QUEUED"}, status=201
         )
+
+    def post_command_lease(self, command_id: str) -> None:
+        client_id = self._require_extension()
+        if client_id is None:
+            return
+        payload = self._read_json_body()
+        claim_token = str(payload.get("claim_token") or "")
+        if not claim_token:
+            self._send_json({"error": "invalid_lease_renewal"}, status=400)
+            return
+        renewed = self.mesa.store.renew_extension_command_lease(
+            int(command_id), client_id=client_id, claim_token=claim_token
+        )
+        if not renewed:
+            self._send_json({"error": "stale_command_lease"}, status=409)
+            return
+        self._send_json({"ok": True})
 
     def post_command_result(self, command_id: str) -> None:
         client_id = self._require_extension()

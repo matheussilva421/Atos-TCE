@@ -289,6 +289,21 @@ test("reportResult posts the result through the authenticated request", async ()
   assert.deepEqual(JSON.parse(fetchImpl.calls[0].body), { command_id: 9, ok: true, rows: [] });
 });
 
+test("renewCommandLease posts the current claim token through the authenticated request", async () => {
+  const { api, fetchImpl } = build({
+    data: pairedData(),
+    routes: [{ path: "/api/v1/extension/commands/9/lease", method: "POST", body: { ok: true } }],
+  });
+
+  const outcome = await api.renewCommandLease(9, "claim-token");
+
+  assert.equal(outcome.ok, true);
+  assert.equal(fetchImpl.calls[0].url, "http://127.0.0.1:18743/api/v1/extension/commands/9/lease");
+  assert.deepEqual(JSON.parse(fetchImpl.calls[0].body), { claim_token: "claim-token" });
+  assert.equal(fetchImpl.calls[0].headers.Authorization, "Bearer token-123");
+  assert.equal(fetchImpl.calls[0].headers["X-TCE-Client"], CLIENT_ID);
+});
+
 test("manual fill uses the authenticated request", async () => {
   const { api, fetchImpl } = build({
     data: pairedData(),

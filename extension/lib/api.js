@@ -208,6 +208,18 @@ export function createApi({
       };
     },
 
+    async renewCommandLease(commandId, claimToken) {
+      const response = await authenticatedRequest(
+        `/api/v1/extension/commands/${Number(commandId)}/lease`,
+        { method: "POST", body: { claim_token: claimToken } }
+      );
+      return {
+        ok: response.ok,
+        status: response.status,
+        error: response.ok ? null : response.error ?? "request_failed",
+      };
+    },
+
     async status() {
       const response = await authenticatedRequest("/api/v1/bridge/status");
       return {

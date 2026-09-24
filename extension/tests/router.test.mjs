@@ -36,6 +36,26 @@ test("a SCAN_AREA command returns the sanitized snapshot", async () => {
   assert.equal(result.source_scope, "sector_finalistic");
 });
 
+test("a SCAN_AREA command exposes a lease renewal tied to its current claim", async () => {
+  let renewalArgs;
+  const result = await executeCommand(
+    { id: 8, type: "SCAN_AREA", claim_token: "claim-token", payload: {} },
+    {
+      scanPortal: async (_payload, { renewLease }) => {
+        await renewLease();
+        return { source_scope: "sector_finalistic", marker: null, rows: [] };
+      },
+      renewLease: async (...args) => {
+        renewalArgs = args;
+        return { ok: true };
+      },
+    }
+  );
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(renewalArgs, [8, "claim-token"]);
+});
+
 test("a STATUS command reports readiness without touching the portal", async () => {
   let scanned = false;
 
@@ -222,6 +242,37 @@ test("scanAreaPages walks every page and de-duplicates rows", async () => {
     ["102390/2026", "102391/2026", "102392/2026"]
   );
   assert.equal(snapshot.source_scope, "sector_finalistic");
+});
+
+test("scanAreaPages renews its claim once per sanitized page checkpoint", async () => {
+  const pages = [
+    page([{ process_key: "102390/2026", interested_normalized: "pessoa exemplo" }], {
+      page: 1,
+      total_pages: 2,
+    }),
+    page([{ process_key: "102391/2026", interested_normalized: "outra pessoa" }], {
+      page: 2,
+      total_pages: 2,
+    }),
+  ];
+  const checkpoints = [];
+  let index = 0;
+
+  await scanAreaPages({
+    scanPage: async () => pages[Math.min(index, pages.length - 1)],
+    advancePage: async () => {
+      index += 1;
+      return true;
+    },
+    onPage: async ({ page: pageNumber, total_pages: totalPages }) => {
+      checkpoints.push({ page: pageNumber, total_pages: totalPages });
+    },
+  });
+
+  assert.deepEqual(checkpoints, [
+    { page: 1, total_pages: 2 },
+    { page: 2, total_pages: 2 },
+  ]);
 });
 
 test("scanAreaPages aborts when the portal keeps reporting the same page", async () => {

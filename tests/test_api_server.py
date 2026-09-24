@@ -586,6 +586,42 @@ class AreaAnalyzeFlowTests(ApiTestCase):
         )
         self.assertEqual(command["state"], "SUCCEEDED")
 
+    def test_extension_can_renew_a_claimed_scan_lease(self):
+        _opener, command_id = self.start_analyze()
+        extension_headers = self.register_extension()
+        _status, _headers, claimed = self.call_json(
+            "/api/v1/extension/commands/next", headers=extension_headers
+        )
+        claim_token = claimed["command"]["claim_token"]
+
+        status, _headers, renewed = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/lease",
+            method="POST",
+            headers=extension_headers,
+            body={"claim_token": claim_token},
+        )
+
+        self.assertEqual(status, 200, renewed)
+        self.assertTrue(renewed["ok"])
+
+    def test_another_extension_cannot_renew_a_claimed_scan_lease(self):
+        _opener, command_id = self.start_analyze()
+        owner = self.register_extension()
+        _status, _headers, claimed = self.call_json(
+            "/api/v1/extension/commands/next", headers=owner
+        )
+        other = self.register_extension("other-extension")
+
+        status, _headers, rejected = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/lease",
+            method="POST",
+            headers=other,
+            body={"claim_token": claimed["command"]["claim_token"]},
+        )
+
+        self.assertEqual(status, 409, rejected)
+        self.assertEqual(rejected["error"], "stale_command_lease")
+
     def test_analyze_route_requires_a_mesa_session(self):
         status, _headers, payload = self.call_json(
             "/api/v1/area/analyze", method="POST", headers=self.mesa_headers(), body={}

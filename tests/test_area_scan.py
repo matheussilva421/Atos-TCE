@@ -284,6 +284,57 @@ class ExtensionCommandTests(AreaScanTestCase):
         self.assertEqual(claim["attempt_count"], 1)
         self.assertGreater(claim["lease_expires_at"], claim["claimed_at"])
 
+    def test_a_live_claim_can_renew_its_lease(self):
+        command_id = self.store.create_extension_command("SCAN_AREA", {})
+        with mock.patch.object(
+            store_module,
+            "utc_after",
+            side_effect=["2099-01-01T00:00:00Z", "2099-01-02T00:00:00Z"],
+        ):
+            claim = self.store.claim_extension_command("extension-test")
+            renewed = self.store.renew_extension_command_lease(
+                command_id,
+                client_id="extension-test",
+                claim_token=claim["claim_token"],
+            )
+
+        self.assertTrue(renewed)
+        self.assertEqual(
+            self.store.get_extension_command(command_id)["lease_expires_at"],
+            "2099-01-02T00:00:00Z",
+        )
+
+    def test_a_lease_cannot_be_renewed_by_another_client_or_stale_token(self):
+        command_id = self.store.create_extension_command("SCAN_AREA", {})
+        claim = self.store.claim_extension_command("extension-test")
+
+        self.assertFalse(
+            self.store.renew_extension_command_lease(
+                command_id,
+                client_id="other-client",
+                claim_token=claim["claim_token"],
+            )
+        )
+        self.assertFalse(
+            self.store.renew_extension_command_lease(
+                command_id,
+                client_id="extension-test",
+                claim_token="stale-token",
+            )
+        )
+
+    def test_an_expired_claim_cannot_renew_its_lease(self):
+        command_id = self.store.create_extension_command("SCAN_AREA", {})
+        with mock.patch.object(store_module, "COMMAND_LEASE_SECONDS", -1.0):
+            claim = self.store.claim_extension_command("extension-test")
+            renewed = self.store.renew_extension_command_lease(
+                command_id,
+                client_id="extension-test",
+                claim_token=claim["claim_token"],
+            )
+
+        self.assertFalse(renewed)
+
     def test_a_dead_worker_does_not_hold_the_command_forever(self):
         command_id = self.store.create_extension_command("SCAN_AREA", {})
         with mock.patch.object(store_module, "COMMAND_LEASE_SECONDS", 0.0):

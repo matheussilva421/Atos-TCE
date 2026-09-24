@@ -121,7 +121,12 @@ export async function executeCommand(command, dependencies = {}) {
     return { command_id: commandId, ok: true, status: "ready" };
   }
   if (type === COMMAND_TYPES.SCAN_AREA) {
-    const snapshot = await dependencies.scanPortal(command.payload ?? {});
+    const snapshot = await dependencies.scanPortal(command.payload ?? {}, {
+      renewLease:
+        typeof dependencies.renewLease === "function"
+          ? () => dependencies.renewLease(command.id, command.claim_token)
+          : null,
+    });
     return { ...snapshot, command_id: commandId, ok: true };
   }
   if (type === COMMAND_TYPES.OPEN_ACT) {
@@ -156,7 +161,12 @@ export async function executeCommand(command, dependencies = {}) {
  * snapshot. The scan also stops at the reported last page, at the page cap or
  * when the portal cannot advance.
  */
-export async function scanAreaPages({ scanPage, advancePage, maxPages = MAX_SCAN_PAGES }) {
+export async function scanAreaPages({
+  scanPage,
+  advancePage,
+  onPage,
+  maxPages = MAX_SCAN_PAGES,
+}) {
   const rows = [];
   const seen = new Set();
   let frozen = null;
@@ -182,6 +192,9 @@ export async function scanAreaPages({ scanPage, advancePage, maxPages = MAX_SCAN
       if (seen.has(key)) continue;
       seen.add(key);
       rows.push(row);
+    }
+    if (typeof onPage === "function") {
+      await onPage({ page: observed.page, total_pages: observed.total_pages });
     }
     if (!(frozen.page < frozen.total_pages)) break;
     if (index >= maxPages) {
@@ -325,7 +338,7 @@ export function installRouter({
     return false;
   }
 
-  async function scanPortal() {
+  async function scanPortal(_payload = {}, { renewLease } = {}) {
     const frame = await findListFrame();
     return scanAreaPages({
       scanPage: async () => {
@@ -359,6 +372,13 @@ export function installRouter({
           }
         }
         return false;
+      },
+      onPage: async () => {
+        if (typeof renewLease !== "function") return;
+        const renewed = await renewLease();
+        if (renewed?.ok !== true) {
+          throw new Error("o lease do comando de varredura expirou ou mudou de responsável");
+        }
       },
     });
   }
@@ -509,7 +529,15 @@ export function installRouter({
 
       let result;
       try {
-        result = await executeCommand(outcome.command, { scanPortal, openAct, readForm, fillForm });
+        result = await executeCommand(outcome.command, {
+          scanPortal,
+          openAct,
+          readForm,
+          fillForm,
+          ...(typeof api.renewCommandLease === "function"
+            ? { renewLease: (commandId, claimToken) => api.renewCommandLease(commandId, claimToken) }
+            : {}),
+        });
       } catch (error) {
         result = {
           command_id: outcome.command.id,

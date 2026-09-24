@@ -835,6 +835,37 @@ class Store:
             )
         return self._decode_command(claimed)
 
+    def renew_extension_command_lease(
+        self, command_id: int, *, client_id: str, claim_token: str
+    ) -> bool:
+        """Extend a live claim without allowing stale workers to regain ownership."""
+
+        if not claim_token:
+            return False
+        now = utc_now()
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT state, client_id, claim_token, lease_expires_at "
+                "FROM extension_commands WHERE id = ?",
+                (int(command_id),),
+            ).fetchone()
+            if row is None or row["state"] != "CLAIMED":
+                return False
+            if str(row["client_id"] or "") != str(client_id):
+                return False
+            current_token = str(row["claim_token"] or "")
+            if not current_token or not hmac.compare_digest(current_token, str(claim_token)):
+                return False
+            if not row["lease_expires_at"] or row["lease_expires_at"] <= now:
+                return False
+            cursor = connection.execute(
+                "UPDATE extension_commands SET lease_expires_at = ? "
+                "WHERE id = ? AND state = 'CLAIMED' AND client_id = ? "
+                "AND claim_token = ? AND lease_expires_at > ?",
+                (utc_after(COMMAND_LEASE_SECONDS), int(command_id), client_id, claim_token, now),
+            )
+            return cursor.rowcount == 1
+
     @staticmethod
     def _release_expired_leases(connection: sqlite3.Connection, now: str) -> None:
         """Requeue, or give up on, every claim whose lease already expired."""
