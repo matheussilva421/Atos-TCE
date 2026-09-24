@@ -141,3 +141,33 @@
 4. Para qualquer alteração de runtime, exigir captura real sanitizada, contrato/fixture e teste RED antes da implementação.
 
 O login foi informado como manual pelo operador. Nenhum submit, envio, finalize ou clique final foi automatizado; nenhum campo foi preenchido. Chrome dedicado PID 2272 está em primeiro plano na página principal do portal. Runtime standalone e gates finais continuam pendentes.
+
+## Atualização incremental — extensão instalada e fila segura (2026-09-24)
+
+### Resumo e evidências
+
+- O operador forneceu capturas do portal e do painel da extensão. A tela mostra a lista de processos com total 1.197; o painel mostra Área Restrita detectada e, após a Mesa subir, Mesa conectada. Nenhum identificador de processo ou nome foi copiado para este handoff.
+- `chrome-devtools list_extensions` confirma `ATOS TCE — Ponte da Mesa` v0.1.0 habilitada no Chrome ligado ao CDP. A aba do portal e o service worker dessa extensão estão no mesmo Chrome DevTools alvo. Não reinstalar.
+- Snapshot do side panel após iniciar o serviço: “Mesa conectada”, “Área Restrita detectada” e “Nenhum formulário de ato aberto”. Nenhum registro foi selecionado e nenhum formulário foi preenchido.
+- Mesa em `127.0.0.1:18743`: `/api/v1/health` respondeu HTTP 200. O serviço permanece rodando, iniciado com o launcher normal; a abertura automática do dashboard ocorreu no navegador padrão e não apareceu como aba no alvo Chrome do MCP.
+- Auditoria somente leitura de `data/atos-tce.db`: antes da inicialização, 22 comandos, sem `QUEUED` ou `CLAIMED` (3 `OPEN_ACT` e 14 `SCAN_AREA` falhos; 5 `SCAN_AREA` concluídos). Após a inicialização: 17 falhos, 5 concluídos, nenhum pendente/reivindicado; zero jobs `PENDING`/`RUNNING` e zero processos `ANALISANDO`.
+- Nenhum `SCAN_AREA` novo foi enfileirado nesta retomada. A lista ainda não foi lida por uma varredura viva; o total 1.197 visto na captura ainda precisa ser reconciliado com a Mesa.
+
+### Sessão e limite atual
+
+- A extensão tem registro bearer próprio, mas a interface da Mesa usa sessão HttpOnly separada para ações que criam comandos. O painel conectado não prova que o dashboard no perfil CDP tem essa sessão.
+- O launcher abriu o fluxo de bootstrap no navegador padrão; não foi possível confirmar essa sessão no perfil Chrome controlado pelo MCP.
+- A revisão automática rejeitou, antes da execução, um helper que reiniciaria a Mesa e enviaria o token bootstrap temporário ao Chrome via endpoint CDP. Motivo informado: repasse de credencial fora da autorização expressa; a sessão deve ser autorizada diretamente pela interface. Nenhum helper foi criado; o agente não extraiu nem reutilizou o token (o launcher executou apenas seu bootstrap normal no navegador padrão), e nenhum reinício adicional ocorreu.
+
+### Retomada
+
+1. No navegador onde a Mesa abriu pelo launcher, abrir o dashboard local e concluir a sessão pela própria interface. Se a sessão já estiver aberta, usar o botão **Analisar Área Restrita** uma vez; esse comando apenas lê a página e persiste o snapshot local.
+2. Avisar quando a análise terminar. Então verificar o resultado agregado e sanitizado na base local, sem expor conteúdo de processos; registrar marcador e contagens segundo a política do Portal Lab.
+3. Continuar Task 8/9 em ordem. Não abrir ato, selecionar interessado, preencher campo ou clicar em ação final sem ato de teste autorizado pelo operador.
+
+### Arquivos, validação e Git
+
+- Fonte/runtime: nenhum arquivo alterado. A atualização deste documento será a única alteração versionada deste bloco. Logs de erro temporários ficam em `tmp/portal-lab/` (ignorados pelo Git); não contêm token na saída capturada.
+- Testes: nenhum teste executado nesta retomada; não houve mudança de comportamento no código. A verificação do serviço, do side panel e da fila foi somente leitura.
+- Git antes desta atualização: `codex/atos-tce-unified`, HEAD `47b25e9` (`docs: record portal lab push verification status`), sincronizado no tracking local com `origin/codex/atos-tce-unified`; revalidar status após o commit deste handoff.
+- GitHub: pendente publicar o commit desta atualização; não afirmar push antes de verificar.
