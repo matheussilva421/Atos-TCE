@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
-**Estado:** Tasks 1–4 publicadas. Task 5 implementada e validada; commit/push pendente. O gate de conexão MCP continua aguardando recarga do cliente.
+**Estado:** Tasks 1–5 concluídas localmente. Task 5 está no commit `c8cd3d0`; dois pushes receberam HTTP 500 do GitHub, portanto a publicação está pendente. O gate de conexão MCP continua aguardando recarga do cliente.
 
 ## Resumo
 
@@ -90,12 +90,12 @@
 - Até Task 2, `6d809dc`, `f0354f8`, `777cab2`, `9d5a248` e `03afec2` estavam publicados em `origin/codex/atos-tce-unified`.
 - `298cac1`, `d95b228` e `c3b2f42` estão publicados.
 - `1a5250b`, `afd6fb4` e os fechamentos da Task 4 `022acee` estão publicados em `origin/codex/atos-tce-unified`; `022acee` era o HEAD local/remoto antes da Task 5.
-- Task 5: implementação e testes estão validados localmente; commit/push ainda pendentes.
+- Task 5: implementação e testes validados; commit local `c8cd3d0` (`dev: add sanitized portal structure capture`). Dois pushes foram rejeitados pelo GitHub com `Internal Server Error`; remoto ainda não confirmado.
 
 ## Pendências e retomada
 
 1. Recarregar o cliente MCP e provar que as ferramentas estão ligadas a `127.0.0.1:9222`; não iniciar login enquanto essa prova falhar.
-2. Publicar Task 5 após revisar o diff.
+2. Reconciliar e publicar `c8cd3d0` quando o GitHub aceitar push.
 3. Continuar Tasks 6–7: contrato/fixtures e skill, em sequência e com TDD.
 4. Depois dos gates locais e de provar a conexão MCP ao Chrome dedicado, iniciar observação supervisionada L0; concluir observações reais antes de qualquer alteração no runtime.
 
