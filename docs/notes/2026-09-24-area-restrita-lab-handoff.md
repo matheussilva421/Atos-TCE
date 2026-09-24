@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
-**Estado:** Tasks 1–2 publicadas. Task 3 config/política estão no commit local `298cac1`; gate de conexão ao Chrome dedicado aguarda recarga do processo MCP em execução.
+**Estado:** Tasks 1–2 publicadas. Task 3 config/política (`298cac1`) e handoff (`d95b228`) publicados; gate de conexão ao Chrome dedicado aguarda recarga do processo MCP em execução.
 
 ## Resumo
 
@@ -69,13 +69,12 @@
 
 - No início: branch sincronizada com `origin/codex/atos-tce-unified` em `c477026`.
 - Até Task 2, `6d809dc`, `f0354f8`, `777cab2`, `9d5a248` e `03afec2` estavam publicados em `origin/codex/atos-tce-unified`.
-- `298cac1` está commitado localmente; push e atualização final deste handoff pendentes.
+- `298cac1` e `d95b228` estão publicados; HEAD local e remoto foi confirmado em `d95b228` antes desta atualização do handoff.
 
 ## Pendências e retomada
 
-1. Publicar `298cac1` e a atualização final deste handoff.
-2. Recarregar o cliente MCP e provar que as ferramentas estão ligadas a `127.0.0.1:9222`; não iniciar login enquanto essa prova falhar.
-3. Prosseguir Tasks 4–7: workflow CLI, captura estrutural, sanitizador, comparador, portal-contract/fixtures e skill.
-4. Só depois dos gates do laboratório abrir sessão supervisionada; concluir Best-Effort Task 10 e Phase 0 com observações reais antes de qualquer código de Próximo processo.
+1. Recarregar o cliente MCP e provar que as ferramentas estão ligadas a `127.0.0.1:9222`; não iniciar login enquanto essa prova falhar.
+2. Prosseguir Tasks 4–7: workflow CLI, captura estrutural, sanitizador, comparador, portal-contract/fixtures e skill.
+3. Só depois dos gates do laboratório abrir sessão supervisionada; concluir Best-Effort Task 10 e Phase 0 com observações reais antes de qualquer código de Próximo processo.
 
 Nenhum login, submit, envio, finalize ou clique final foi automatizado. Chrome dedicado PID 2800 continua aberto para as tarefas seguintes. Runtime standalone e gates finais continuam pendentes.
