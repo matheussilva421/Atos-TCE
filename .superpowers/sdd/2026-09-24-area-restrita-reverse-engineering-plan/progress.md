@@ -35,7 +35,7 @@ Base: `c477026ce887cd4ac066b869d73e0e8049e8864d` on `codex/atos-tce-unified`; cl
 - Task 4: complete and published (`1a5250b`, handoff `afd6fb4`); package-boundary gate is green.
 - Task 5: implementation and gates published in `c8cd3d0`; handoff in `3fb664f`. Full project gate: 1,259 executed, 1,257 passed, 0 failed, 2 skipped. Full Python suite: 632 run, 631 passed, 1 skipped. Two initial push attempts hit GitHub Internal Server Error; a later combined push succeeded. No real portal capture. MCP target reload remains pending.
 - Task 6: published in `f9d62b4`; contract, schema, four synthetic fixtures, README, and parity test complete. Contract tests 7/7; extension 152/152; Portal Lab 13/13; full Python 632 run (1 skip); integrated verify-project 1,259 run (2 skips). No runtime changed. Local and remote SHA verified equal and checkout clean.
-- Task 7: implemented and validated locally; commit/push closeout pending. See current session entry below.
+- Task 7: complete and published in commit `35ef33d5c14c6dcbb53fa334adac04ee08a3a967`; remote branch SHA confirmed equal.
 - Tasks 8–12: not started.
 Task 1: complete (commits c477026..6d809dc, tests: python -m unittest tests.test_devtools_runtime_boundary tests.test_packaging_contract -v → OK (skipped=1))
 Task 2: complete and published (`777cab2`, handoff `9d5a248`). RED: 5 behavior tests failed because both scripts were absent; GREEN: 5/5 passed. Full Python: 624 run, 623 passed, 1 skipped. verify-project: 1,259 executed, 1,257 passed, 0 failed, 2 skipped; all seven stages passed. Manual: Chrome PID 2800, private profile at %LOCALAPPDATA%\Atos-TCE\Chrome-Debug, CDP bound to 127.0.0.1:9222 and checker passed. No portal login or interaction. MCP tools are loaded, but connection to PID 2800 is not yet proven.
@@ -52,4 +52,4 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - Three independent pressure scenarios first exposed timeout-first and selector ownership gaps; after the update, all three decisions met the expected safety boundaries. No evaluator edited files or accessed a browser.
 - Focused gate `python -m unittest tests.test_devtools_runtime_boundary tests.test_packaging_contract -v`: 15 run, 14 pass, 0 fail, 1 skip (portable ZIP absent).
 - Integrated `verify-project.ps1`: 1,259 executed, 1,257 passed, 0 failed, 2 skips; all seven stages passed. `git diff --check` passed before the latest handoff update; rerun before commit.
-- Pending: rerun `git diff --check`, commit/push Task 7, then Task 8 real L0 observation. Human login is required. Do not begin production Next Process runtime before Task 10 and Phase 0 are closed.
+- Task 7 commit `35ef33d5c14c6dcbb53fa334adac04ee08a3a967` was pushed; `git ls-remote origin refs/heads/codex/atos-tce-unified` returned the same SHA. Pending: Task 8 real L0 observation after human login. Do not begin production Next Process runtime before Task 10 and Phase 0 are closed.

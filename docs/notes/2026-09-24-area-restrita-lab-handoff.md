@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
-**Estado:** Tasks 1–6 publicadas em `origin/codex/atos-tce-unified` até `f9d62b4`; Task 7 implementada e validada localmente. MCP conectado ao Chrome dedicado e alvo provado por marcador cruzado; nenhum acesso ao portal. Commit/push da Task 7 pendentes neste closeout.
+**Estado:** Tasks 1–7 publicadas em `origin/codex/atos-tce-unified`; o commit Task 7 `35ef33d5c14c6dcbb53fa334adac04ee08a3a967` foi confirmado no remoto. MCP conectado ao Chrome dedicado e alvo provado por marcador cruzado; nenhum acesso ao portal.
 
 ## Resumo
 
@@ -118,12 +118,12 @@
 - `1a5250b`, `afd6fb4` e os fechamentos da Task 4 `022acee` estão publicados em `origin/codex/atos-tce-unified`; `022acee` era o HEAD local/remoto antes da Task 5.
 - Task 5: implementação e testes validados no commit `c8cd3d0` (`dev: add sanitized portal structure capture`), com handoff `3fb664f`. Duas tentativas iniciais de push receberam `Internal Server Error`; a publicação foi aceita no push seguinte junto com Task 6.
 - Task 6: contrato, schema, fixtures, teste de paridade e README publicados em `f9d62b4` (`test: codify Area Restrita portal contract`). `git status` confirmou checkout limpo e `git ls-remote` confirmou SHA `f9d62b4` no remoto.
+- Task 7: commit `35ef33d5c14c6dcbb53fa334adac04ee08a3a967` (`dev: add Area Restrita reverse engineering skill`) publicado. `git ls-remote origin refs/heads/codex/atos-tce-unified` retornou o mesmo SHA.
 
 ## Pendências e retomada
 
-1. Fazer commit/push da Task 7 e confirmar o estado de `origin/codex/atos-tce-unified`.
-2. Prosseguir Task 8 com observação real L0 somente depois da autenticação manual pela pessoa operadora.
-3. Prosseguir Tasks 9–12 em ordem; verificar os gates antes de L1/L2. Não implementar Próximo processo antes de Best-Effort Task 10 e Phase 0 estarem fechadas.
-4. Para qualquer alteração de runtime, exigir captura real sanitizada, contrato/fixture e teste RED antes da implementação.
+1. Prosseguir Task 8 com observação real L0 somente depois da autenticação manual pela pessoa operadora.
+2. Prosseguir Tasks 9–12 em ordem; verificar os gates antes de L1/L2. Não implementar Próximo processo antes de Best-Effort Task 10 e Phase 0 estarem fechadas.
+3. Para qualquer alteração de runtime, exigir captura real sanitizada, contrato/fixture e teste RED antes da implementação.
 
 Nenhum login, submit, envio, finalize ou clique final foi automatizado. Chrome dedicado PID 2272 está aberto em nova guia para as tarefas seguintes. Runtime standalone e gates finais continuam pendentes.
