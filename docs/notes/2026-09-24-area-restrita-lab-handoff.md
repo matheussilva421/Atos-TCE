@@ -220,3 +220,20 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - Único passo necessário para prosseguir: operador abrir a Mesa no navegador padrão iniciado pelo launcher, autorizar a sessão pela interface e acionar **Analisar Área Restrita** uma vez. A página portal permanece na rota principal autenticada; nenhum ato foi selecionado.
 - Os gates automatizados completos continuam verdes conforme a atualização acima. Task 10 real, `SCAN_PAGE` via Mesa, reconciliação 1.198/1.197, Phase 0 e Next Process permanecem incompletos.
 - Fazer commit e push deste registro, depois conferir `git status` e SHA remoto.
+
+
+## Retomada — MCP 9222 ativo, sessão Mesa ainda ausente (2026-09-24)
+
+- O objetivo em `goal-objective.md` foi relido antes de continuar. Branch canônica confirmada: `codex/atos-tce-unified`; HEAD e `origin` estavam em `c2f22b753304bf140349943cf6d5f267bf67ce89` no início deste bloco.
+- Chrome DevTools MCP responde ao Chrome dedicado em `127.0.0.1:9222` (Chrome 153). A lista de páginas contém a aba autenticada do portal, o painel da extensão e o service worker da extensão. `list_extensions` confirma `ATOS TCE — Ponte da Mesa` v0.1.0 habilitada. Não reinstalar.
+- O serviço Mesa responde HTTP 200 em `/api/v1/health`. O painel informa “Mesa conectada”, “Área Restrita detectada” e nenhum formulário aberto. **Abrir Mesa** pelo painel abriu o dashboard no mesmo Chrome.
+- O dashboard exibe os totais salvos do último scan, mas indica que não foi analisado nesta sessão. A primeira tentativa de clique expirou; auditoria confirmou que não havia criado comando nem scan. Após selecionar a aba e atualizar o alvo de acessibilidade, o clique no botão oficial **Analisar Área Restrita** foi aceito e a interface respondeu `session_required`.
+- Auditoria SQLite somente leitura após a tentativa: sem comandos `QUEUED`/`CLAIMED`, sem jobs `PENDING`/`RUNNING` e sem processos `ANALISANDO`; permanecem 5 scans históricos. O scan mais recente continua sendo o antigo, com 1.198 vistos (482 precisam complementar, 716 já complementados). Nenhum scan novo foi salvo. A captura do operador mostra 1.197 na lista; o delta permanece sem reconciliação. Nenhum marcador vivo foi confirmado.
+- Não foi aberto processo, formulário ou interessado; nenhum campo foi preenchido e nenhum clique final ocorreu. Nenhuma captura bruta nova foi criada neste bloco e nenhum dado pessoal foi copiado para o handoff.
+- Nenhum arquivo de runtime foi alterado e nenhum teste foi executado neste bloco. A baseline verde anterior continua sendo a última baseline; `git diff --check` passou nesta atualização. Commit/push deste adendo ainda pendentes.
+
+### Retomada necessária
+
+- O login do portal e a sessão da Mesa são estados separados. Para prosseguir, o operador deve usar a janela/perfil de navegador em que o launcher oficial da Mesa abriu o bootstrap e confirmar que a Mesa restaura a sessão nesse perfil. Depois, acionar **Analisar Área Restrita** uma vez no dashboard dessa mesma sessão e informar quando concluir.
+- Não usar **Copiar sessão para outro Chrome**, não extrair/repassar token e não chamar diretamente o handler da extensão. Se a sessão oficial tiver expirado, iniciar novamente o launcher normal e concluir o bootstrap no navegador que ele abrir.
+- Após confirmação do operador, verificar apenas agregados da nova varredura, registrar o marcador sem alterá-lo e continuar Task 8/9. Best-Effort Task 10 ainda requer os cinco casos reais e um ato de teste escolhido pelo operador; Next Process continua bloqueado até Task 10 e Phase 0 completos.
