@@ -136,4 +136,8 @@
 - Serviço de preenchimento: `python -m unittest tests.test_fill_service -q` — 64/64 passou.
 - `git diff --check` passou antes da atualização deste handoff.
 - Uma execução de `verify-project.ps1` em sandbox executou 952 testes/validações: 947 passaram, 3 falharam e 2 foram ignorados. Os três erros foram de permissão ao criar fixtures temporárias em `work/tmp` e pastas de staging `.extension-staging-*`; não foram falhas de assertion funcionais. O gate amplo segue pendente de execução completa com as escritas temporárias permitidas.
-- A correção TDD de identidade/generation será registrada em commit separado após estes testes focalizados verdes; nenhuma alegação de gate completo é feita aqui.
+- A correção TDD de identidade/generation foi commitada como `16c7608` depois do RED/ GREEN e das suítes focalizadas.
+- Suíte Python completa da raiz (`python -m unittest discover -s tests -p 'test_*.py' -q`): 599 executados, 598 passaram, 0 falharam, 1 skip.
+- Extensão (`npm test --prefix extension`): 141/141 passaram. Web (`node --test app/web/tests/*.test.mjs`): 24/24 passaram.
+- `verify-project.ps1` ainda sem PASS completo: a execução sem elevação falhou ao criar fixtures/staging temporários; as tentativas elevadas foram interrompidas antes do resumo final. Nos logs da última execução, extensão 480/480, web 6/6, Python portable 6/6 e os três primeiros scripts PowerShell (151 assertions aprovadas, 0 falhas e 1 skip) passaram. O restante do gate continua pendente.
+- Nenhuma alegação de `verify-project.ps1` integralmente verde é feita neste handoff.
