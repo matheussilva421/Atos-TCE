@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
-**Estado:** Tasks 1–6 publicadas em `origin/codex/atos-tce-unified` até `f9d62b4`; HEAD local e remoto foram confirmados iguais e o checkout estava limpo. O gate de conexão MCP continua aguardando recarga do cliente.
+**Estado:** Tasks 1–6 publicadas em `origin/codex/atos-tce-unified` até `f9d62b4`; Task 7 implementada e validada localmente. MCP conectado ao Chrome dedicado e alvo provado por marcador cruzado; nenhum acesso ao portal. Commit/push da Task 7 pendentes neste closeout.
 
 ## Resumo
 
@@ -20,6 +20,9 @@
 - Commit Task 4: `1a5250b` (`docs: define Playwright portal investigation workflow`).
 - Portal Lab Task 5: criados `capture-structure.js`, `sanitize-capture.py` e `compare-captures.py`. A captura não lê `.value`; o sanitizador usa allowlist, remove query strings/segredos, classifica texto e rejeita CPF/processo/token residual, inclusive processo percent-encoded; o comparador sanitiza ambos os arquivos e gera deltas estruturais determinísticos.
 - Portal Lab Task 6: criado o contrato versionado, JSON Schema e quatro fixtures com identidade fictícia. A paridade cobre os papéis emitidos pelo scanner, sentinelas de formulário, rotas/fontes existentes, frame irmão e a separação entre tela de botões e formulário. Nenhuma suposição de comportamento foi adicionada ao runtime.
+- Portal Lab Task 7: criado o skill `area-restrita` com sequência obrigatória A–M, limites L0/L1/L2/L3, regra contra timeout-first e dono único de seletores; criado `portal-states.md` e atualizadas as referências de segurança e workflow.
+- Os três testes de pressão foram repetidos após a mudança: timeout sem predicado estrutural foi bloqueado; frame/radio ambíguo parou em L0 e confirmou `extension/lib/area-snapshot.js` como dono único; clique final e leitura de corpo de resposta foram recusados, mantendo o clique manual com o operador.
+- Conexão MCP/CDP provada nesta sessão: o Chrome isolado foi iniciado como PID 2272, o checker confirmou `127.0.0.1:9222`, e um marcador `about:blank` temporário apareceu em `mcp__chrome_devtools__list_pages` e em `/json/list` do endpoint local. A aba de prova foi fechada; restou só a nova guia. Nenhum portal foi aberto e nenhum login ocorreu.
 
 ## Arquivos alterados
 
@@ -44,6 +47,10 @@
 - `devtools/area-restrita/fixtures/form.json`
 - `devtools/area-restrita/fixtures/buttons.json`
 - `extension/tests/portal-contract.test.mjs`
+- `.agents/skills/area-restrita/SKILL.md`
+- `.agents/skills/area-restrita/references/portal-states.md`
+- `.agents/skills/area-restrita/references/safety.md`
+- `.agents/skills/area-restrita/references/workflow.md`
 - Este handoff.
 
 ## Testes e validações
@@ -77,15 +84,19 @@
 - Task 6 Portal Lab: `python -m unittest tests.test_portal_lab_contract -v` — 13 passaram, 0 falhas.
 - Task 6 Python completo da raiz: `python -m unittest discover -s tests -p "test_*.py" -q` — 632 executados, 631 passaram, 0 falhas, 1 skip.
 - Gate integrado: `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1` — 1.259 executados, 1.257 passaram, 0 falhas, 2 skips; todos os sete estágios passaram.
+- Task 7 gate focado: `python -m unittest tests.test_devtools_runtime_boundary tests.test_packaging_contract -v` — 15 executados, 14 passaram, 0 falhas, 1 skip (ZIP portátil ausente neste checkout).
+- Task 7 gate integrado: `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1` — 1.259 executados, 1.257 passaram, 0 falhas, 2 skips; todos os sete estágios passaram.
+- Skill pressure tests: baseline independente de três cenários encontrou lacunas em timeout-first e ownership de seletores; após a mudança, 3/3 cenários passaram com as decisões seguras esperadas. Nenhum avaliador abriu browser nem alterou arquivos.
+- Conexão MCP/CDP: `Start-AtosChrome.ps1` iniciou PID 2272 no perfil `%LOCALAPPDATA%\Atos-TCE\Chrome-Debug`; `Test-CdpEndpoint.ps1 -Port 9222` passou e o marcador temporário foi encontrado nos dois lados e removido.
 
 ## Ambiente de laboratório observado
 
 - Chrome instalado: `153.0.8010.53`.
 - `playwright-cli` disponível, versão `0.1.13`.
 - Ferramentas Chrome DevTools MCP, incluindo `install_extension` e `list_extensions`, aparecem nesta sessão.
-- Chrome dedicado continua aberto: PID 2800; a porta responde em `127.0.0.1:9222`.
+- Chrome dedicado iniciado nesta retomada: PID 2272; perfil `%LOCALAPPDATA%\Atos-TCE\Chrome-Debug`; a porta responde em `127.0.0.1:9222`.
 - Playwright CLI 0.1.13 e skill local instalados; snapshot gerado está em caminho `.playwright-cli/` ignorado pelo Git.
-- O MCP DevTools está instalado e enabled. A configuração global foi atualizada; o processo de ferramentas já carregado nesta sessão ainda não adotou o novo alvo. O shell isolado usa `CodexSandboxOffline`; consultas à configuração global do usuário exigem elevação.
+- O MCP DevTools já estava instalado e ativo; não foi reinstalado. As ferramentas MCP do app conectaram ao CDP alvo e a correspondência foi provada pelo marcador. `codex mcp get chrome-devtools` não encontra esse nome no registro do CLI, embora as ferramentas estejam disponíveis nesta sessão.
 - Não houve login, observação do portal real, preenchimento ou clique final.
 
 ## Decisões
@@ -97,7 +108,7 @@
 - `portal-contract.json` é oráculo documental/de teste, não configuração de runtime. `transitioning` e `ambiguous` são vocabulário permitido, mas não são emitidos pelo scanner atual.
 - `.agents/skills/playwright-cli/` é uma instalação local do fornecedor, ignorada no Git; a skill/referências próprias em `.agents/skills/area-restrita/` continuam versionáveis.
 - Trabalho permanece na branch canônica solicitada; nenhum branch paralelo foi criado.
-- As ferramentas MCP desta sessão ainda apontam para outro Chrome mesmo após editar a configuração. Reiniciar/reconectar o cliente MCP e repetir a prova do alvo antes de qualquer login.
+- O launcher iniciou o perfil dedicado depois de o endpoint estar inativo; a conexão atual foi provada no mesmo CDP. Repetir a prova do alvo se o Chrome ou a sessão MCP forem reiniciados.
 
 ## GitHub
 
@@ -110,9 +121,9 @@
 
 ## Pendências e retomada
 
-1. Recarregar o cliente MCP e provar que as ferramentas estão ligadas a `127.0.0.1:9222`; não iniciar login enquanto essa prova falhar.
-2. Continuar Task 7: criar o skill e completar as referências de estados, segurança e workflow com validação automatizada.
-3. Prosseguir Tasks 8–12 em ordem. Antes de abrir portal real, satisfazer os gates locais e provar a conexão MCP com o Chrome dedicado.
+1. Fazer commit/push da Task 7 e confirmar o estado de `origin/codex/atos-tce-unified`.
+2. Prosseguir Task 8 com observação real L0 somente depois da autenticação manual pela pessoa operadora.
+3. Prosseguir Tasks 9–12 em ordem; verificar os gates antes de L1/L2. Não implementar Próximo processo antes de Best-Effort Task 10 e Phase 0 estarem fechadas.
 4. Para qualquer alteração de runtime, exigir captura real sanitizada, contrato/fixture e teste RED antes da implementação.
 
-Nenhum login, submit, envio, finalize ou clique final foi automatizado. Chrome dedicado PID 2800 continua aberto para as tarefas seguintes. Runtime standalone e gates finais continuam pendentes.
+Nenhum login, submit, envio, finalize ou clique final foi automatizado. Chrome dedicado PID 2272 está aberto em nova guia para as tarefas seguintes. Runtime standalone e gates finais continuam pendentes.
