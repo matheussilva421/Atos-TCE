@@ -131,6 +131,7 @@
 - Task 5: implementação e testes validados no commit `c8cd3d0` (`dev: add sanitized portal structure capture`), com handoff `3fb664f`. Duas tentativas iniciais de push receberam `Internal Server Error`; a publicação foi aceita no push seguinte junto com Task 6.
 - Task 6: contrato, schema, fixtures, teste de paridade e README publicados em `f9d62b4` (`test: codify Area Restrita portal contract`). `git status` confirmou checkout limpo e `git ls-remote` confirmou SHA `f9d62b4` no remoto.
 - Task 7: commit `35ef33d5c14c6dcbb53fa334adac04ee08a3a967` (`dev: add Area Restrita reverse engineering skill`) publicado. `git ls-remote origin refs/heads/codex/atos-tce-unified` retornou o mesmo SHA.
+- Task 8 L0 handoff: commit `90d61eb` (`docs: record authenticated portal L0 baseline`); `git push origin codex/atos-tce-unified` retornou sucesso e informou atualização `9598871..90d61eb`. O tracking local ficou em `90d61ebe989af59426cecba5deb5650b73fc445e`; duas consultas `git ls-remote` posteriores não conectaram à porta 443, então a SHA remota não pôde ser revalidada diretamente.
 
 ## Pendências e retomada
 
