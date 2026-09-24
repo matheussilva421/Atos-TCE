@@ -105,21 +105,32 @@ este inventário não autoriza excluir `main`.
 
 ## Worktrees, GitHub e retomada
 
-- `git worktree list` no repositório principal mostrou somente a worktree raiz.
-- Foram encontrados dois checkouts reais em `.worktrees/`, ambos limpos e em
-  clone Git separado: `atos-tce-baseline` em `e7ff1dd` (branch best-effort,
-  mesmos 20 commits já mesclados) e `atos-tce-navigation-discovery` em
-  `b1d41e8` (sem commits exclusivos; apesar do nome, não continha os commits de
-  discovery). Verificar seus estados novamente antes de removê-los.
+- `git worktree list` no repositório principal agora mostra somente a worktree
+  raiz de `codex/atos-tce-unified`.
+- Foram removidos os dois checkouts temporários em `.worktrees/`: o clone
+  `atos-tce-baseline` (HEAD `e7ff1dd`, limpo, 20 commits preservados na canônica)
+  e o checkout linked `atos-tce-navigation-discovery` (HEAD `b1d41e8`, limpo,
+  sem commits exclusivos). O `work/tmp` do clone base estava vazio; os demais
+  itens ignorados eram apenas caches `__pycache__`.
 - Os diretórios sob `C:\Users\slvma\.codex\worktrees` eram marcadores sem
   checkout Git ativo (um contém uma pasta de outro projeto); não foram tratados
   como worktrees deste repositório nem removidos.
-- Ainda não houve push nem exclusão de refs remotas. Antes de excluir refs
-  remotas, publicar `codex/atos-tce-unified`, provar que cada commit está
-  contido nela e mostrar a lista exata ao usuário. `main` nunca deve ser
-  removida.
-- Próximos passos: fazer push da branch unificada; provar
-  inclusão antes de mostrar e remover branches remotas temporárias; remover
-  branches locais já incorporadas e os dois checkouts limpos em `.worktrees/`;
-  registrar SHA e estado final neste handoff. O script local foi verificado e
-  continua preservado pela ref privada e pela regra específica de ignore.
+- O push de `codex/atos-tce-unified` foi confirmado por fetch remoto em
+  `14fbe3c18725267cda710f1945fa341beffe60e7`. Depois da prova de ancestralidade
+  (`rev-list <ref> --not HEAD` = 0 para cada uma), foram removidas as refs
+  remotas `codex/mesa-local-refactor` e `codex/best-effort-form-filling`.
+- Foram removidas as branches locais temporárias `codex/mesa-local-refactor`,
+  `codex/atos-tce-best-effort-v4` e
+  `codex/next-process-navigation-discovery`. A última precisou de `git branch
+  -D`: `-d` comparava com `origin/main`, mas o tip `0b69926` tinha zero commits
+  fora da canônica publicada. `main` foi preservada.
+- A lista local final deve conter somente `main` e `codex/atos-tce-unified`; a
+  lista remota deve conter somente `main` e `codex/atos-tce-unified` (além de
+  `origin/HEAD -> origin/main`). O SHA final, após este registro de fechamento,
+  deve ser lido com `git rev-parse HEAD` e publicado como atualização fast-forward.
+- O piloto local continua com o hash/blob preservado e a exceção específica no
+  `.gitignore`. Retomada: escolher primeiro os próximos passos da Phase 0
+  (resolver delta de uma identidade, observar `SCAN_PAGE`/marcador bruto e
+  completar a baseline pós-conclusão manual); não iniciar Tasks 1–8 nem qualificar
+  envio real até atender esses gates. M2 continua sem scan real completo; a nota
+  pede não repetir as 40 páginas sem solicitação do usuário.
