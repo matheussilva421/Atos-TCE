@@ -1493,7 +1493,16 @@ class FillOrchestrationTests(ApiTestCase):
         fill_command = self.claim()
         self.assertEqual(fill_command["type"], "FILL_FORM")
 
-        status, _headers, posted = self.report_raw(fill_command["id"], {"ok": True})
+        # Satisfy the identity/generation checks so this case isolates the
+        # missing field-level reread that the test is intended to guard.
+        status, _headers, posted = self.report_raw(
+            fill_command["id"],
+            {
+                "ok": True,
+                "identity": dict(FILL_IDENTITY),
+                "generation_after": 5,
+            },
+        )
 
         self.assertEqual(status, 400, posted)
         self.assertEqual(posted["error"], "invalid_result")

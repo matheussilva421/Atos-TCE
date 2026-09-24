@@ -108,9 +108,12 @@ test("acquisition tells the operator to prepare e-Contas before downloading", ()
 });
 
 test("fill completion renders changed, preserved and review counts", () => {
-  assert.ok(source.includes("summary.changed.length"));
-  assert.ok(source.includes("summary.preserved.length"));
-  assert.ok(source.includes("summary.unresolved.length"));
+  assert.match(source, /const changed = Array\.isArray\(summary\.changed\)/u);
+  assert.match(source, /const preserved = Array\.isArray\(summary\.preserved\)/u);
+  assert.match(source, /const unresolved = Array\.isArray\(summary\.unresolved\)/u);
+  assert.match(source, /countLabel\(changed\.length/u);
+  assert.match(source, /countLabel\(preserved\.length/u);
+  assert.match(source, /countLabel\(unresolved\.length/u);
   assert.ok(source.includes("Confira o formulário e conclua manualmente no portal"));
 });
 
@@ -129,7 +132,8 @@ test("a PRONTO process retains the fill action for retry regardless of prior req
 });
 
 test("fill summary survives the detail refresh and never adds a submit action", () => {
-  assert.ok(source.includes("renderFillStatus(refreshedStatus, lastRequest)"));
-  assert.ok(source.includes("function renderFillSummary"));
+  assert.match(source, /state\.fillResults\[processId\] = request/u);
+  assert.match(source, /if \(state\.fillResults\[process\.id\]\) renderFillSummary\(state\.fillResults\[process\.id\]\)/u);
+  assert.match(source, /function renderFillSummary\(request\)/u);
   assert.doesNotMatch(source + page, /id="(?:submit|send|finalize|complement-act)"/iu);
 });
