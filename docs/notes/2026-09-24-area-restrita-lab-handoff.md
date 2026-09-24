@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
-**Estado:** baseline concluída; Portal Lab Task 1 validada, commitada e publicada. Implementação `6d809dc`; handoff `f0354f8`.
+**Estado:** baseline concluída; Portal Lab Task 1 publicada e Task 2 implementada, validada e pronta para commit/push.
 
 ## Resumo
 
@@ -11,6 +11,7 @@
 - Baseline: Python 616 testes (615 passaram, 1 skip); extensão 145/145; web 28/28; `verify-project.ps1` 1.259 executados (1.257 passaram, 0 falhas, 2 skips); `git diff --check` passou.
 - Portal Lab Task 1: o teste RED mostrou que o verificador aceitava diretórios, capturas e nomes de ferramentas do laboratório em ZIPs. O verificador agora recusa essas entradas; `.gitignore` distingue fontes/fixtures sanitizadas de capturas raw; foi adicionado teste de fronteira runtime.
 - Commit de implementação/contrato: `6d809dc` (`test: isolate portal lab from portable runtime`). O gate focado foi repetido após o commit e passou (15 testes, 1 skip).
+- Portal Lab Task 2: criada inicialização de Chrome isolado e validação HTTP/CDP loopback. O perfil foi criado fora do repositório em `%LOCALAPPDATA%\Atos-TCE\Chrome-Debug`; Chrome PID 2800 permaneceu aberto. `netstat` confirmou `127.0.0.1:9222` em LISTENING, e o checker retornou `CDP_ENDPOINT_OK`.
 
 ## Arquivos alterados
 
@@ -18,6 +19,10 @@
 - `packaging/verify-package.ps1`
 - `tests/test_packaging_contract.py`
 - `tests/test_devtools_runtime_boundary.py`
+- `scripts/portal-lab/Start-AtosChrome.ps1`
+- `scripts/portal-lab/Test-CdpEndpoint.ps1`
+- `devtools/area-restrita/README.md`
+- `tests/test_portal_lab_contract.py`
 - Este handoff.
 
 ## Testes e validações
@@ -26,6 +31,11 @@
 - RED: `python -m unittest tests.test_devtools_runtime_boundary.RuntimeBoundaryTests.test_raw_capture_is_ignored_and_sanitized_lab_sources_are_trackable -v` — falhou como esperado porque as fixtures sanitizadas eram ignoradas.
 - GREEN: `python -m unittest tests.test_devtools_runtime_boundary tests.test_packaging_contract -v` — 15 executados, 14 passaram, 0 falhas, 1 skip.
 - GREEN: `python -m unittest discover -s tests -p "test_*.py" -q` — 619 executados, 618 passaram, 0 falhas, 1 skip.
+- Task 2 RED: `python -m unittest tests.test_portal_lab_contract -v` — após corrigir o fixture HTTP, 5 falharam porque os scripts ainda não existiam.
+- Task 2 GREEN: `python -m unittest tests.test_portal_lab_contract -v` — 5 passaram.
+- Task 2 Python completo: `python -m unittest discover -s tests -p "test_*.py" -q` — 624 executados, 623 passaram, 0 falhas, 1 skip.
+- Gate completo: `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1` — 1.259 executados, 1.257 passaram, 0 falhas, 2 skips; os 7 estágios passaram.
+- Gate manual local: `Start-AtosChrome.ps1` iniciou o Chrome visível no perfil isolado; `Test-CdpEndpoint.ps1 -Port 9222` validou o endpoint; `netstat -ano -p tcp` confirmou bind em `127.0.0.1`.
 - O runtime de `app/`, `extension/` e `START.cmd` não ganhou dependência do laboratório. Nenhum código de navegação/preenchimento foi alterado.
 
 ## Ambiente de laboratório observado
@@ -42,17 +52,19 @@
 - O teste textual de dependência varre apenas os componentes distribuídos (`app/`, `extension/`, `START.cmd`). `packaging/` é verificado por comportamento, pois precisa conter os nomes proibidos para rejeitá-los.
 - O plano de exemplo MCP será alinhado a `--browser-url=http://127.0.0.1:9222`, `--categoryExtensions`, `--no-usage-statistics` e `--no-performance-crux`; Chrome 153 atende ao requisito de versão indicado pelo CLI instalado.
 - Trabalho permanece na branch canônica solicitada; nenhum branch paralelo foi criado.
+- O MCP DevTools está instalado e suas ferramentas aparecem nesta sessão. `list_pages` mostrou `about:blank`, mas ainda não foi provado que o servidor MCP esteja conectado ao PID 2800/porta 9222; fazer essa prova na Task 3 antes de login.
 
 ## GitHub
 
 - No início: branch sincronizada com `origin/codex/atos-tce-unified` em `c477026`.
-- `6d809dc` e `f0354f8` estão publicados em `origin/codex/atos-tce-unified`; HEAD remoto confirmado em `f0354f8b7efb5ca63fa6d4cbe5f98b27c6be900b`.
+- `6d809dc` e `f0354f8` estão publicados em `origin/codex/atos-tce-unified`; HEAD remoto confirmado em `f0354f8b7efb5ca63fa6d4cbe5f98b27c6be900b` antes da Task 2.
+- A implementação Task 2 e este handoff ainda aguardam commit/push.
 
 ## Pendências e retomada
 
-1. Executar Task 2 com teste RED/GREEN: Chrome dedicado, perfil externo em `%LOCALAPPDATA%`, CDP limitado a `127.0.0.1`, sem fechar Chrome pessoal nem remover perfil.
-2. Atualizar/verificar configuração MCP para conexão ao Chrome dedicado; `playwright-cli` já está instalado.
+1. Fazer commit/push do Task 2 e do handoff.
+2. Task 3: adicionar exemplo MCP seguro e provar conexão do MCP ao Chrome dedicado em `127.0.0.1:9222`; não reinstalar o MCP.
 3. Prosseguir Tasks 4–7: workflow CLI, captura estrutural, sanitizador, comparador, portal-contract/fixtures e skill.
 4. Só depois dos gates do laboratório abrir sessão supervisionada; concluir Best-Effort Task 10 e Phase 0 com observações reais antes de qualquer código de Próximo processo.
 
-Nenhum submit, envio, finalize ou clique final foi automatizado. Runtime standalone e gates finais continuam pendentes.
+Nenhum login, submit, envio, finalize ou clique final foi automatizado. Chrome dedicado continua aberto para as tarefas seguintes. Runtime standalone e gates finais continuam pendentes.
