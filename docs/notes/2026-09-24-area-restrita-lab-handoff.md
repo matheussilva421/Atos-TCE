@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
-**Estado:** baseline concluída; Portal Lab Task 1 publicada e Task 2 implementada, validada e pronta para commit/push.
+**Estado:** baseline concluída; Portal Lab Tasks 1–2 implementadas e validadas. Task 2 commit local `777cab2`; push pendente.
 
 ## Resumo
 
@@ -12,6 +12,7 @@
 - Portal Lab Task 1: o teste RED mostrou que o verificador aceitava diretórios, capturas e nomes de ferramentas do laboratório em ZIPs. O verificador agora recusa essas entradas; `.gitignore` distingue fontes/fixtures sanitizadas de capturas raw; foi adicionado teste de fronteira runtime.
 - Commit de implementação/contrato: `6d809dc` (`test: isolate portal lab from portable runtime`). O gate focado foi repetido após o commit e passou (15 testes, 1 skip).
 - Portal Lab Task 2: criada inicialização de Chrome isolado e validação HTTP/CDP loopback. O perfil foi criado fora do repositório em `%LOCALAPPDATA%\Atos-TCE\Chrome-Debug`; Chrome PID 2800 permaneceu aberto. `netstat` confirmou `127.0.0.1:9222` em LISTENING, e o checker retornou `CDP_ENDPOINT_OK`.
+- Commit Task 2: `777cab2` (`dev: add isolated Chrome portal lab`).
 
 ## Arquivos alterados
 
@@ -58,11 +59,11 @@
 
 - No início: branch sincronizada com `origin/codex/atos-tce-unified` em `c477026`.
 - `6d809dc` e `f0354f8` estão publicados em `origin/codex/atos-tce-unified`; HEAD remoto confirmado em `f0354f8b7efb5ca63fa6d4cbe5f98b27c6be900b` antes da Task 2.
-- A implementação Task 2 e este handoff ainda aguardam commit/push.
+- `777cab2` está commitado localmente; push ainda pendente.
 
 ## Pendências e retomada
 
-1. Fazer commit/push do Task 2 e do handoff.
+1. Publicar `777cab2` e o commit de atualização deste handoff.
 2. Task 3: adicionar exemplo MCP seguro e provar conexão do MCP ao Chrome dedicado em `127.0.0.1:9222`; não reinstalar o MCP.
 3. Prosseguir Tasks 4–7: workflow CLI, captura estrutural, sanitizador, comparador, portal-contract/fixtures e skill.
 4. Só depois dos gates do laboratório abrir sessão supervisionada; concluir Best-Effort Task 10 e Phase 0 com observações reais antes de qualquer código de Próximo processo.
