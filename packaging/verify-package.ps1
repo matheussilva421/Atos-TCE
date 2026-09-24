@@ -23,7 +23,18 @@ $forbiddenPrefixes = @(
     'outputs/',
     'versions/',
     'work/',
-    'logs/'
+    'logs/',
+    'tmp/portal-lab/'
+)
+$forbiddenPathSegments = @(
+    'devtools',
+    '.agents',
+    '.playwright-cli',
+    'node_modules'
+)
+$forbiddenNameMarkers = @(
+    'chrome-devtools-mcp',
+    'playwright-cli'
 )
 $forbiddenSuffixes = @(
     '.pdf',
@@ -315,6 +326,17 @@ try {
         foreach ($prefix in $forbiddenPrefixes) {
             if ($lower.StartsWith($prefix)) {
                 [void]$forbidden.Add("prefixo proibido ${prefix}: $name")
+            }
+        }
+        foreach ($segment in $forbiddenPathSegments) {
+            $escapedSegment = [regex]::Escape($segment)
+            if ($lower -match "(^|/)$escapedSegment(/|$)") {
+                [void]$forbidden.Add("segmento de desenvolvimento proibido ${segment}: $name")
+            }
+        }
+        foreach ($marker in $forbiddenNameMarkers) {
+            if ($lower.Contains($marker)) {
+                [void]$forbidden.Add("ferramenta de desenvolvimento proibida ${marker}: $name")
             }
         }
         foreach ($suffix in $forbiddenSuffixes) {

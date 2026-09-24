@@ -57,6 +57,11 @@ FORBIDDEN_PREFIXES = (
     "Versions/",
     "work/",
     "logs/",
+    "devtools/",
+    ".agents/",
+    ".playwright-cli/",
+    "node_modules/",
+    "tmp/portal-lab/",
 )
 
 BASE_FILES = {
@@ -214,6 +219,22 @@ class VerifierContractTests(unittest.TestCase):
                 archive = make_package(self.tmp / f"forbidden-{index}.zip", entries)
                 result = self.verify(archive, "-AllowMissingRuntime", "-SkipSmoke")
                 self.assertNotEqual(result.returncode, 0)
+
+    def test_rejects_portal_lab_and_agent_tool_artifacts(self):
+        cases = (
+            {"devtools/area-restrita/portal-contract.json": b"{}"},
+            {".agents/skills/area-restrita/SKILL.md": b"# skill\n"},
+            {"extras/node_modules/chrome-devtools-mcp/package.json": b"{}"},
+            {".playwright-cli/state.json": b"{}"},
+            {"tmp/portal-lab/raw/capture.json": b"{}"},
+            {"tools/playwright-cli.cmd": b"@echo off\n"},
+            {"vendor/chrome-devtools-mcp.exe": b"binary"},
+        )
+        for index, entries in enumerate(cases):
+            with self.subTest(entries=entries):
+                archive = make_package(self.tmp / f"lab-{index}.zip", entries)
+                result = self.verify(archive, "-AllowMissingRuntime", "-SkipSmoke")
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_rejects_missing_required_entries(self):
         base = dict(BASE_FILES)

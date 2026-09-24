@@ -88,6 +88,28 @@
 # clone would run a different download engine than the one reviewed here.
 !app/econtas/runtime/
 !app/econtas/runtime/**
+
+# Portal Lab is development-only. Version only sanitized tools/contracts;
+# keep raw captures and local Playwright state private.
+!/devtools/
+!/devtools/area-restrita/
+!/devtools/area-restrita/README.md
+!/devtools/area-restrita/*.json
+!/devtools/area-restrita/fixtures/
+!/devtools/area-restrita/fixtures/*.json
+!/.agents/
+!/.agents/skills/
+!/.agents/skills/area-restrita/
+!/.agents/skills/area-restrita/SKILL.md
+!/.agents/skills/area-restrita/references/
+!/.agents/skills/area-restrita/references/*.md
+!/scripts/portal-lab/
+!/scripts/portal-lab/*.ps1
+!/scripts/portal-lab/*.py
+!/scripts/portal-lab/*.js
+/tmp/portal-lab/
+/.playwright-cli/
+
 **/dados-locais/
 **/acervo-tce/
 **/backups-acervo/
