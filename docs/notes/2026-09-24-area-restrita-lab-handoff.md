@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
-**Estado:** Tasks 1–3 publicadas; o gate de conexão MCP aguarda recarga do cliente. Task 4 workflow implementado e validado; commit/push pendente.
+**Estado:** Tasks 1–3 publicadas; o gate de conexão MCP aguarda recarga do cliente. Task 4 commit local `1a5250b`; push pendente.
 
 ## Resumo
 
@@ -17,6 +17,7 @@
 - Gate de conexão Task 3: as ferramentas MCP ativas continuaram ligadas a outro Chrome depois da atualização global. O marcador temporário em `about:blank` não apareceu em `/json/list` na porta 9222. A aba foi restaurada para `about:blank`; snapshot confirmou página vazia e network não encontrou requisições. Nenhum portal foi aberto.
 - Commit Task 3 (artefatos locais): `298cac1` (`dev: configure safe Chrome DevTools MCP`).
 - Portal Lab Task 4: instalado localmente o skill oficial do Playwright CLI (0.1.13) e criado workflow restrito. Attach CDP a `127.0.0.1:9222`, snapshot de `chrome://new-tab-page/` e `detach` passaram; o Chrome permaneceu aberto. A skill vendorizada em `.agents/skills/playwright-cli/` fica ignorada, assim como o snapshot `.playwright-cli/`.
+- Commit Task 4: `1a5250b` (`docs: define Playwright portal investigation workflow`).
 
 ## Arquivos alterados
 
@@ -30,7 +31,6 @@
 - `devtools/area-restrita/chrome-devtools-mcp.example.json`
 - `.agents/skills/area-restrita/references/safety.md`
 - `.agents/skills/area-restrita/references/workflow.md`
-- `tests/test_devtools_runtime_boundary.py`
 - `tests/test_portal_lab_contract.py`
 - Este handoff.
 
@@ -79,12 +79,12 @@
 
 - No início: branch sincronizada com `origin/codex/atos-tce-unified` em `c477026`.
 - Até Task 2, `6d809dc`, `f0354f8`, `777cab2`, `9d5a248` e `03afec2` estavam publicados em `origin/codex/atos-tce-unified`.
-- `298cac1`, `d95b228` e `c3b2f42` estão publicados; HEAD local/remoto estava em `c3b2f42` antes das mudanças da Task 4.
-- Arquivos Task 4 e atualização deste handoff aguardam commit/push.
+- `298cac1`, `d95b228` e `c3b2f42` estão publicados; HEAD remoto estava em `c3b2f42` antes da Task 4.
+- `1a5250b` está commitado localmente; push e atualização deste handoff pendentes.
 
 ## Pendências e retomada
 
-1. Commitar/publicar Task 4 e este handoff.
+1. Publicar `1a5250b` e a atualização deste handoff.
 2. Recarregar o cliente MCP e provar que as ferramentas estão ligadas a `127.0.0.1:9222`; não iniciar login enquanto essa prova falhar.
 3. Prosseguir Tasks 5–7: captura estrutural, sanitizador, comparador, portal-contract/fixtures e skill.
 4. Só depois dos gates do laboratório abrir sessão supervisionada; concluir Best-Effort Task 10 e Phase 0 com observações reais antes de qualquer código de Próximo processo.
