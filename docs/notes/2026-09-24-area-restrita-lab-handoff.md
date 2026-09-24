@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
-**Estado:** Tasks 1–6 concluídas localmente. Task 5 e seu handoff estão nos commits locais `c8cd3d0` e `3fb664f`; os dois pushes tentados receberam HTTP 500. Task 6 aguarda commit/push. O gate de conexão MCP continua aguardando recarga do cliente.
+**Estado:** Tasks 1–6 publicadas em `origin/codex/atos-tce-unified` até `f9d62b4`; HEAD local e remoto foram confirmados iguais e o checkout estava limpo. O gate de conexão MCP continua aguardando recarga do cliente.
 
 ## Resumo
 
@@ -105,14 +105,14 @@
 - Até Task 2, `6d809dc`, `f0354f8`, `777cab2`, `9d5a248` e `03afec2` estavam publicados em `origin/codex/atos-tce-unified`.
 - `298cac1`, `d95b228` e `c3b2f42` estão publicados.
 - `1a5250b`, `afd6fb4` e os fechamentos da Task 4 `022acee` estão publicados em `origin/codex/atos-tce-unified`; `022acee` era o HEAD local/remoto antes da Task 5.
-- Task 5: implementação e testes validados; commit local `c8cd3d0` (`dev: add sanitized portal structure capture`) e handoff local `3fb664f`. Dois pushes foram rejeitados pelo GitHub com `Internal Server Error`; remoto ainda não confirmado.
-- Task 6: contrato, schema, fixtures, teste de paridade e README validados localmente; commit/push pendentes.
+- Task 5: implementação e testes validados no commit `c8cd3d0` (`dev: add sanitized portal structure capture`), com handoff `3fb664f`. Duas tentativas iniciais de push receberam `Internal Server Error`; a publicação foi aceita no push seguinte junto com Task 6.
+- Task 6: contrato, schema, fixtures, teste de paridade e README publicados em `f9d62b4` (`test: codify Area Restrita portal contract`). `git status` confirmou checkout limpo e `git ls-remote` confirmou SHA `f9d62b4` no remoto.
 
 ## Pendências e retomada
 
 1. Recarregar o cliente MCP e provar que as ferramentas estão ligadas a `127.0.0.1:9222`; não iniciar login enquanto essa prova falhar.
-2. Reconciliar/publicar os commits locais `c8cd3d0` e `3fb664f` quando o GitHub aceitar push; incluir Task 6 no próximo push.
-3. Publicar Task 6 depois de revisar o diff e continuar Task 7 com TDD.
-4. Depois dos gates locais e de provar a conexão MCP ao Chrome dedicado, iniciar observação supervisionada L0; concluir observações reais antes de qualquer alteração no runtime.
+2. Continuar Task 7: criar o skill e completar as referências de estados, segurança e workflow com validação automatizada.
+3. Prosseguir Tasks 8–12 em ordem. Antes de abrir portal real, satisfazer os gates locais e provar a conexão MCP com o Chrome dedicado.
+4. Para qualquer alteração de runtime, exigir captura real sanitizada, contrato/fixture e teste RED antes da implementação.
 
 Nenhum login, submit, envio, finalize ou clique final foi automatizado. Chrome dedicado PID 2800 continua aberto para as tarefas seguintes. Runtime standalone e gates finais continuam pendentes.
