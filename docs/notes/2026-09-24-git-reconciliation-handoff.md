@@ -18,7 +18,10 @@ final do portal foi acionado.
   em `1fea9c77b1e2d521e8ff2c289ca5e7cf3c6c970f`.
 - Blob preservado do piloto local: `refs/codex/preservation/atos-tce-live-pilot-2026-09-24`
   em `a3c89803fb9858a2300773664c3cc27ca2e45d26`. O arquivo
-  `work/tce-extractor/.codex-live-pilot.py` permanece local e fora do Git.
+  `work/tce-extractor/.codex-live-pilot.py` permanece local e fora do Git;
+  seu SHA-256 continua igual ao snapshot. Uma exceção específica em
+  `.gitignore` mantém apenas esse script local fora do status, sem ocultar os
+  demais arquivos Python do extrator.
 - Snapshot isolado das seis alterações seguras M2:
   `refs/codex/preservation/atos-tce-m2-safe-2026-09-24` em
   `709cef509c20a603a7c48a9db4747237261479bc`; esse conteúdo foi incorporado.
@@ -115,9 +118,9 @@ este inventário não autoriza excluir `main`.
   remotas, publicar `codex/atos-tce-unified`, provar que cada commit está
   contido nela e mostrar a lista exata ao usuário. `main` nunca deve ser
   removida.
-- Próximos passos: repetir o verify gate final; excluir o script local apenas
-  da visibilidade de `git status` por regra privada em `.git/info/exclude`
-  (sem mover, apagar ou versionar); confirmar árvore limpa; atualizar este
-  handoff; push da branch unificada; provar inclusão; remover branches e os
-  dois checkouts temporários; registrar SHA, branches/worktrees restantes e
-  resultado final.
+- Próximos passos: repetir o verify gate final depois dos commits de teste e
+  documentação; confirmar árvore limpa; fazer push da branch unificada; provar
+  inclusão antes de mostrar e remover branches remotas temporárias; remover
+  branches locais já incorporadas e os dois checkouts limpos em `.worktrees/`;
+  registrar SHA e estado final neste handoff. O script local foi verificado e
+  continua preservado pela ref privada e pela regra específica de ignore.
