@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
-**Estado:** Tasks 1–4 publicadas. O gate de conexão MCP da Task 3 aguarda recarga do cliente; Task 5 em início.
+**Estado:** Tasks 1–4 publicadas. Task 5 implementada e validada; commit/push pendente. O gate de conexão MCP continua aguardando recarga do cliente.
 
 ## Resumo
 
@@ -18,6 +18,7 @@
 - Commit Task 3 (artefatos locais): `298cac1` (`dev: configure safe Chrome DevTools MCP`).
 - Portal Lab Task 4: instalado localmente o skill oficial do Playwright CLI (0.1.13) e criado workflow restrito. Attach CDP a `127.0.0.1:9222`, snapshot de `chrome://new-tab-page/` e `detach` passaram; o Chrome permaneceu aberto. A skill vendorizada em `.agents/skills/playwright-cli/` fica ignorada, assim como o snapshot `.playwright-cli/`.
 - Commit Task 4: `1a5250b` (`docs: define Playwright portal investigation workflow`).
+- Portal Lab Task 5: criados `capture-structure.js`, `sanitize-capture.py` e `compare-captures.py`. A captura não lê `.value`; o sanitizador usa allowlist, remove query strings/segredos, classifica texto e rejeita CPF/processo/token residual, inclusive processo percent-encoded; o comparador sanitiza ambos os arquivos e gera deltas estruturais determinísticos.
 
 ## Arquivos alterados
 
@@ -31,6 +32,9 @@
 - `devtools/area-restrita/chrome-devtools-mcp.example.json`
 - `.agents/skills/area-restrita/references/safety.md`
 - `.agents/skills/area-restrita/references/workflow.md`
+- `scripts/portal-lab/capture-structure.js`
+- `scripts/portal-lab/sanitize-capture.py`
+- `scripts/portal-lab/compare-captures.py`
 - `tests/test_portal_lab_contract.py`
 - Este handoff.
 
@@ -53,6 +57,11 @@
 - Task 3 GREEN: `python -m unittest tests.test_portal_lab_contract -v` — 7 passaram.
 - Task 3 Python completo: `python -m unittest discover -s tests -p "test_*.py" -q` — 626 executados, 625 passaram, 0 falhas, 1 skip.
 - Gate completo: `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1` — 1.259 executados, 1.257 passaram, 0 falhas, 2 skips; os 7 estágios passaram.
+- Task 5 RED inicial: 5 contratos falharam porque os três utilitários ainda não existiam. REDs adicionais apontaram que o comparador omitiria conteúdo de frames novos, o sanitizador sobrescrevia saída existente e o scanner não detectava processo percent-encoded; todos foram corrigidos.
+- Task 5 GREEN: `python -m unittest tests.test_portal_lab_contract -v` — 13 testes passaram; o caso percent-encoded também passou após a correção.
+- Task 5 Python completo: `python -m unittest discover -s tests -p "test_*.py" -q` — 632 executados, 631 passaram, 0 falhas, 1 skip.
+- Gate completo final: `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1` — 1.259 executados, 1.257 passaram, 0 falhas, 2 skips; todos os sete estágios passaram.
+- Não houve captura de portal real; os testes usam valores sintéticos, Node VM e arquivos temporários.
 - O runtime de `app/`, `extension/` e `START.cmd` não ganhou dependência do laboratório. Nenhum código de navegação/preenchimento foi alterado.
 
 ## Ambiente de laboratório observado
@@ -79,14 +88,15 @@
 
 - No início: branch sincronizada com `origin/codex/atos-tce-unified` em `c477026`.
 - Até Task 2, `6d809dc`, `f0354f8`, `777cab2`, `9d5a248` e `03afec2` estavam publicados em `origin/codex/atos-tce-unified`.
-- `298cac1`, `d95b228` e `c3b2f42` estão publicados; HEAD remoto estava em `c3b2f42` antes da Task 4.
-- `1a5250b` e o handoff `afd6fb4` foram publicados; HEAD local/remoto estava em `afd6fb4` antes desta atualização.
+- `298cac1`, `d95b228` e `c3b2f42` estão publicados.
+- `1a5250b`, `afd6fb4` e os fechamentos da Task 4 `022acee` estão publicados em `origin/codex/atos-tce-unified`; `022acee` era o HEAD local/remoto antes da Task 5.
+- Task 5: implementação e testes estão validados localmente; commit/push ainda pendentes.
 
 ## Pendências e retomada
 
 1. Recarregar o cliente MCP e provar que as ferramentas estão ligadas a `127.0.0.1:9222`; não iniciar login enquanto essa prova falhar.
-2. Prosseguir Task 5: captura estrutural, sanitizador fail-closed e comparador.
-3. Continuar Tasks 6–7: contrato/fixtures e skill.
-4. Só depois dos gates do laboratório abrir sessão supervisionada; concluir Best-Effort Task 10 e Phase 0 com observações reais antes de qualquer código de Próximo processo.
+2. Publicar Task 5 após revisar o diff.
+3. Continuar Tasks 6–7: contrato/fixtures e skill, em sequência e com TDD.
+4. Depois dos gates locais e de provar a conexão MCP ao Chrome dedicado, iniciar observação supervisionada L0; concluir observações reais antes de qualquer alteração no runtime.
 
 Nenhum login, submit, envio, finalize ou clique final foi automatizado. Chrome dedicado PID 2800 continua aberto para as tarefas seguintes. Runtime standalone e gates finais continuam pendentes.

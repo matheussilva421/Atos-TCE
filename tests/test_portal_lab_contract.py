@@ -1,11 +1,13 @@
 """Behavioral contracts for the isolated Chrome/CDP development lab."""
 
 from contextlib import contextmanager
+import importlib.util
 import json
 import os
 from pathlib import Path
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -17,6 +19,9 @@ LAUNCHER = REPO_ROOT / "scripts" / "portal-lab" / "Start-AtosChrome.ps1"
 CDP_CHECKER = REPO_ROOT / "scripts" / "portal-lab" / "Test-CdpEndpoint.ps1"
 MCP_CONFIG = REPO_ROOT / "devtools" / "area-restrita" / "chrome-devtools-mcp.example.json"
 MCP_SAFETY = REPO_ROOT / ".agents" / "skills" / "area-restrita" / "references" / "safety.md"
+SANITIZER = REPO_ROOT / "scripts" / "portal-lab" / "sanitize-capture.py"
+STRUCTURE_CAPTURE = REPO_ROOT / "scripts" / "portal-lab" / "capture-structure.js"
+CAPTURE_COMPARATOR = REPO_ROOT / "scripts" / "portal-lab" / "compare-captures.py"
 
 
 def powershell_env() -> dict:
@@ -211,6 +216,231 @@ class McpConfigContractTests(unittest.TestCase):
         for item in required:
             with self.subTest(item=item):
                 self.assertIn(item, policy)
+
+
+class CaptureSanitizerContractTests(unittest.TestCase):
+    def load_sanitizer(self):
+        self.assertTrue(SANITIZER.is_file(), f"missing sanitizer: {SANITIZER.relative_to(REPO_ROOT)}")
+        spec = importlib.util.spec_from_file_location("portal_lab_sanitizer", SANITIZER)
+        self.assertIsNotNone(spec)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_sanitizer_removes_private_values_and_url_query(self):
+        raw = {
+            "url": "https://portal/ComplementarAto.asp?cpf=12345678900",
+            "cookies": [{"name": "ASPSESSIONID", "value": "secret"}],
+            "fields": [{"id": "txtMatricula", "value": "12345"}],
+            "text": "MARIA DA SILVA 012.345.678-90 processo 123456/2026",
+        }
+
+        clean = self.load_sanitizer().sanitize_capture(raw)
+        blob = json.dumps(clean, ensure_ascii=False)
+
+        for forbidden in (
+            "12345678900",
+            "secret",
+            "12345",
+            "MARIA DA SILVA",
+            "012.345.678-90",
+            "123456/2026",
+            "ASPSESSIONID",
+            "cpf=",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, blob)
+        self.assertEqual(clean["url"], "https://portal/ComplementarAto.asp")
+        self.assertIn("textClass", clean)
+
+    def test_sanitizer_preserves_only_structural_control_metadata(self):
+        raw = {
+            "route": "/ComplementarAto.asp?processo=123456/2026",
+            "readyState": "complete",
+            "framePath": [{"tag": "iframe", "id": "frmMain", "name": "main"}],
+            "controls": [
+                {
+                    "tag": "select",
+                    "id": "cmbInteressado",
+                    "name": "interessado",
+                    "type": "select-one",
+                    "disabled": False,
+                    "readOnly": False,
+                    "optionCount": 4,
+                    "value": "MARIA DA SILVA",
+                }
+            ],
+            "sentinels": ["FORM_COMPLEMENTAR"],
+            "childFrameCount": 1,
+            "headers": {"Authorization": "Bearer private-token"},
+            "storage": {"access_token": "private-token"},
+        }
+
+        clean = self.load_sanitizer().sanitize_capture(raw)
+
+        self.assertEqual(clean["route"], "/ComplementarAto.asp")
+        self.assertEqual(clean["readyState"], "complete")
+        self.assertEqual(clean["framePath"], [{"tag": "iframe", "id": "frmMain", "name": "main"}])
+        self.assertEqual(
+            clean["controls"],
+            [
+                {
+                    "tag": "select",
+                    "id": "cmbInteressado",
+                    "name": "interessado",
+                    "type": "select-one",
+                    "disabled": False,
+                    "readOnly": False,
+                    "optionCount": 4,
+                }
+            ],
+        )
+        self.assertEqual(clean["sentinels"], ["FORM_COMPLEMENTAR"])
+        self.assertEqual(clean["childFrameCount"], 1)
+        self.assertNotIn("headers", clean)
+        self.assertNotIn("storage", clean)
+
+    def test_sanitizer_fails_closed_when_identifiers_or_tokens_survive(self):
+        sanitizer = self.load_sanitizer()
+        for key, value in (
+            ("id", "123.456.789-00"),
+            ("name", "123456/2026"),
+            ("id", "Bearer abcdefghijklmnop"),
+            ("url", "https://portal/123456%2F2026"),
+        ):
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                raw = {"url": value} if key == "url" else {"controls": [{"tag": "input", key: value}]}
+                sanitizer.sanitize_capture(raw)
+
+    def test_sanitizer_cli_preserves_existing_output_unless_force_is_explicit(self):
+        self.assertTrue(SANITIZER.is_file(), "missing sanitizer CLI")
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "raw.json"
+            destination = Path(directory) / "sanitized.json"
+            source.write_text(json.dumps({"url": "https://portal/list.asp?cpf=12345678900"}), encoding="utf-8")
+            destination.write_text("preserve-existing-output", encoding="utf-8")
+
+            refused = subprocess.run(
+                [sys.executable, str(SANITIZER), str(source), str(destination)],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertEqual(destination.read_text(encoding="utf-8"), "preserve-existing-output")
+
+            forced = subprocess.run(
+                [sys.executable, str(SANITIZER), "--force", str(source), str(destination)],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertEqual(forced.returncode, 0, forced.stderr)
+            clean = destination.read_text(encoding="utf-8")
+            self.assertNotIn("12345678900", clean)
+            self.assertIn("https://portal/list.asp", clean)
+
+
+class StructureCaptureContractTests(unittest.TestCase):
+    def test_capture_reads_structure_without_accessing_control_values(self):
+        self.assertTrue(STRUCTURE_CAPTURE.is_file(), "missing structural capture script")
+        harness = r"""
+const fs = require('node:fs');
+const vm = require('node:vm');
+const input = {tagName: 'INPUT', id: 'txtMatricula', name: 'matricula', type: 'text', disabled: false, readOnly: false};
+const select = {tagName: 'SELECT', id: 'cmbInteressado', name: 'interessado', type: 'select-one', disabled: false, readOnly: true, options: [{}, {}, {}]};
+Object.defineProperty(input, 'value', {get() { throw new Error('input value was accessed'); }});
+Object.defineProperty(select, 'value', {get() { throw new Error('select value was accessed'); }});
+const window = {location: {pathname: '/ComplementarAto.asp'}, frameElement: null};
+window.top = window;
+const document = {
+  readyState: 'complete',
+  querySelectorAll(selector) { return selector === 'iframe,frame' ? [{}, {}] : [input, select]; }
+};
+const result = vm.runInNewContext(fs.readFileSync(process.argv[1], 'utf8'), {window, document});
+process.stdout.write(JSON.stringify(result));
+"""
+        result = subprocess.run(
+            ["node", "-e", harness, str(STRUCTURE_CAPTURE)],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        capture = json.loads(result.stdout)
+        self.assertEqual(capture["route"], "/ComplementarAto.asp")
+        self.assertEqual(capture["readyState"], "complete")
+        self.assertEqual(capture["framePath"], [])
+        self.assertEqual(capture["childFrameCount"], 2)
+        self.assertEqual(capture["sentinels"], [])
+        self.assertEqual(capture["controls"][0]["id"], "txtMatricula")
+        self.assertEqual(capture["controls"][1]["optionCount"], 3)
+        self.assertNotIn("value", result.stdout)
+
+
+class CaptureComparisonContractTests(unittest.TestCase):
+    def test_comparator_reports_frame_route_sentinel_control_and_state_deltas(self):
+        self.assertTrue(CAPTURE_COMPARATOR.is_file(), "missing capture comparator")
+        before = {
+            "frames": [
+                {
+                    "route": "/lista.asp",
+                    "readyState": "complete",
+                    "framePath": ["top"],
+                    "sentinels": ["LISTA"],
+                    "controls": [
+                        {"tag": "input", "id": "filtro", "type": "text", "disabled": False, "readOnly": False, "optionCount": 0}
+                    ],
+                }
+            ]
+        }
+        after = {
+            "frames": [
+                {
+                    "route": "/ComplementarAto.asp",
+                    "readyState": "interactive",
+                    "framePath": ["top"],
+                    "sentinels": ["FORMULARIO"],
+                    "controls": [
+                        {"tag": "select", "id": "interessado", "type": "select-one", "disabled": False, "readOnly": False, "optionCount": 3}
+                    ],
+                },
+                {
+                    "route": "/ComplementarAto.asp",
+                    "readyState": "complete",
+                    "framePath": ["top", "botoes"],
+                    "sentinels": ["ACOES"],
+                    "controls": [],
+                },
+            ]
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            before_path = Path(directory) / "before.json"
+            after_path = Path(directory) / "after.json"
+            before_path.write_text(json.dumps(before), encoding="utf-8")
+            after_path.write_text(json.dumps(after), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(CAPTURE_COMPARATOR), str(before_path), str(after_path)],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        delta = json.loads(result.stdout)
+        self.assertEqual(len(delta["framesAdded"]), 1)
+        self.assertEqual(delta["framesRemoved"], [])
+        self.assertEqual(len(delta["routesChanged"]), 1)
+        self.assertEqual(delta["sentinelsAdded"], [{"framePath": ["top"], "sentinel": "FORMULARIO"}, {"framePath": ["top", "botoes"], "sentinel": "ACOES"}])
+        self.assertEqual(delta["sentinelsRemoved"], [{"framePath": ["top"], "sentinel": "LISTA"}])
+        self.assertEqual(len(delta["controlsAdded"]), 1)
+        self.assertEqual(len(delta["controlsRemoved"]), 1)
+        self.assertEqual(len(delta["readyStateChanges"]), 1)
 
 
 if __name__ == "__main__":

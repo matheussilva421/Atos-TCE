@@ -62,3 +62,33 @@ o workflow restrito em
 `.agents/skills/area-restrita/references/workflow.md` para anexar ao Chrome
 dedicado, observar snapshots e encerrar com `detach`. O CLI e seus artefatos
 locais não entram no runtime nem no pacote portátil.
+
+## Capturas estruturais
+
+`scripts/portal-lab/capture-structure.js` é uma expressão para executar no
+contexto da página. Ela coleta somente rota sem query, estado do documento,
+caminho do frame, atributos estruturais dos controles, sentinelas vazias e
+quantidade de frames filhos; nunca lê valores dos controles.
+
+Guarde a captura bruta em `tmp/portal-lab/<sessao>/raw/` e crie também a pasta
+`sanitized/` da sessão. Para criar uma cópia sanitizada e comparar duas
+observações:
+
+```powershell
+python .\scripts\portal-lab\sanitize-capture.py `
+  .\tmp\portal-lab\<sessao>\raw\before.json `
+  .\tmp\portal-lab\<sessao>\sanitized\before.json
+
+python .\scripts\portal-lab\sanitize-capture.py `
+  .\tmp\portal-lab\<sessao>\raw\after.json `
+  .\tmp\portal-lab\<sessao>\sanitized\after.json
+
+python .\scripts\portal-lab\compare-captures.py `
+  .\tmp\portal-lab\<sessao>\sanitized\before.json `
+  .\tmp\portal-lab\<sessao>\sanitized\after.json
+```
+
+O sanitizador recusa sobrescrever uma saída existente sem `--force`, elimina
+cookies/headers/storage e valores, remove query strings e rejeita saída com
+padrões residuais de identificador ou token. Arquivos brutos, sanitizados e
+diffs continuam fora do Git.
