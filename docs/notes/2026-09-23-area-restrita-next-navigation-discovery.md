@@ -77,3 +77,29 @@ Três medições manuais somente de navegação, desde clique na ação da linha
 - O valor bruto do `<option>` não foi obtido: a avaliação DOM do frame não ficou acessível pela ferramenta de browser desta sessão. Não se infere o valor salvo no scan como valor vivo.
 - A porta `127.0.0.1:18743` segue sem listener, portanto não há Mesa ativa para ler `SCAN_PAGE`. O Chrome DevTools MCP/extensão também não está disponível nesta sessão; nenhuma rota alternativa de inspeção interna do Chrome foi tentada.
 - O bloqueio de Phase 0 permanece: falta abrir a Mesa/painel atual da extensão e observar um caso de retorno após conclusão manual supervisionada. Nenhum botão de conclusão foi acionado.
+
+## Retomada na branch unificada — 24/09/2026
+
+### Git e referências lidas
+
+- `git fetch origin --prune` concluiu após repetir com permissão para atualizar `.git/FETCH_HEAD`.
+- Checkout limpo em `codex/atos-tce-unified`, rastreando `origin/codex/atos-tce-unified`, no SHA `b937b99ab9a160d821f23f0a24348579a9d6ca60`; não foi criada branch nem worktree.
+- A SPEC, os dois planos canônicos e os handoffs foram lidos antes de qualquer alteração. As três cópias na raiz têm o mesmo conteúdo semântico dos arquivos canônicos após decodificar a cópia CP850 apenas para comparação; não substituem a SPEC canônica.
+- Nenhum código de produção foi alterado. A implementação de navegação continua não iniciada.
+
+### Estado local observado
+
+- No começo desta retomada, não havia listener em `127.0.0.1:18743` nem aba do portal no Chrome `Matheus`.
+- A Mesa foi iniciada com o banco existente (`python -m app.main --data-root data --port 18743`), PID `18296`. `GET /api/v1/health` respondeu HTTP 200. A tela informou API v1, schema v7, 1.232 processos locais e os contadores salvos de 1.198 vistos, 482 pendentes e 716 concluídos.
+- O botão **Analisar Área Restrita** não foi acionado; nenhum scan completo foi iniciado.
+- O banco, lido em modo SQLite read-only, confirma que o scan mais recente é o id 5, de `2026-09-21T18:39:27Z`, com 1.198 itens, marcador salvo `PROFESSOR - IPERN (1198)` / value bruto `5159`, 482 pendentes e 716 concluídos. Isso continua sendo evidência salva, não o marcador vivo atual.
+- `data/logs/area-compare.json` contém uma comparação anterior de uma página com 30 itens contra os 1.198 itens salvos; não determina a causa do delta global. `fotografia-area-restrita-1227.json` tem 1.227 linhas e outro formato de identidade (`interested_key`), por isso não foi usado como scan compatível para reconciliar o delta.
+- A navegação para `https://novaarearestrita.tce.rn.gov.br` no Chrome `Matheus` retornou `net::ERR_BLOCKED_BY_CLIENT`. Não houve nova tentativa por outro navegador nem contorno do bloqueio. Não foi obtido `SCAN_PAGE` vivo, e o valor bruto do marcador atual continua sem confirmação.
+
+### Gate e retomada
+
+- Phase 0 permanece aberta: delta 1.198/1.197 sem causa, `SCAN_PAGE` vivo ausente e baseline após conclusão/revisão manual ainda não observada. A amostra histórica de páginas 9–10 não fecha esses gates.
+- Não clicar em **Analisar Área Restrita** para substituir o snapshot de página, não iniciar Tasks 1–8 e não inferir que a ordem é segura com base apenas no scan salvo.
+- A Mesa local está aberta no Chrome para continuação. Próximo passo: operador abrir a Área Restrita autenticada no perfil `Matheus`, manter o marcador normal selecionado e abrir o painel da extensão. Se o bloqueio do navegador persistir, a intervenção deve ser resolver o acesso pelo fluxo normal do operador; a automação não deve contorná-lo. Depois, obter somente o `SCAN_PAGE` vivo e comparar identidades anonimizadas com o scan salvo.
+- Após esses dados, ainda será necessária a validação supervisionada em que o operador faz manualmente o clique final em um processo controlado; então medir o retorno/estado posterior. Nenhum clique final foi feito nesta retomada.
+- Testes: nenhum executado nesta retomada; não houve alteração de código. Handoff atualizado; commit/push desta atualização devem ser registrados após a validação documental.
