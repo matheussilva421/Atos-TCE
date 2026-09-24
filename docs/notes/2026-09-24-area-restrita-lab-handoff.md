@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
-**Estado:** Tasks 1–2 publicadas. Task 3: configuração e política implementadas; gate de conexão ao Chrome dedicado aguarda recarga do processo MCP em execução.
+**Estado:** Tasks 1–2 publicadas. Task 3 config/política estão no commit local `298cac1`; gate de conexão ao Chrome dedicado aguarda recarga do processo MCP em execução.
 
 ## Resumo
 
@@ -15,6 +15,7 @@
 - Commit Task 2: `777cab2` (`dev: add isolated Chrome portal lab`).
 - Portal Lab Task 3: adicionados o exemplo MCP com `--browser-url=http://127.0.0.1:9222`, categoria de extensões e flags de privacidade, além da política L0/L1/L2. A entrada global já instalada foi atualizada, sem reinstalar o pacote; `codex mcp get chrome-devtools` confirmou todos os argumentos.
 - Gate de conexão Task 3: as ferramentas MCP ativas continuaram ligadas a outro Chrome depois da atualização global. O marcador temporário em `about:blank` não apareceu em `/json/list` na porta 9222. A aba foi restaurada para `about:blank`; snapshot confirmou página vazia e network não encontrou requisições. Nenhum portal foi aberto.
+- Commit Task 3 (artefatos locais): `298cac1` (`dev: configure safe Chrome DevTools MCP`).
 
 ## Arquivos alterados
 
@@ -68,11 +69,11 @@
 
 - No início: branch sincronizada com `origin/codex/atos-tce-unified` em `c477026`.
 - Até Task 2, `6d809dc`, `f0354f8`, `777cab2`, `9d5a248` e `03afec2` estavam publicados em `origin/codex/atos-tce-unified`.
-- As mudanças da Task 3 e este handoff aguardam commit/push.
+- `298cac1` está commitado localmente; push e atualização final deste handoff pendentes.
 
 ## Pendências e retomada
 
-1. Commitar/publicar os artefatos da Task 3 e este handoff.
+1. Publicar `298cac1` e a atualização final deste handoff.
 2. Recarregar o cliente MCP e provar que as ferramentas estão ligadas a `127.0.0.1:9222`; não iniciar login enquanto essa prova falhar.
 3. Prosseguir Tasks 4–7: workflow CLI, captura estrutural, sanitizador, comparador, portal-contract/fixtures e skill.
 4. Só depois dos gates do laboratório abrir sessão supervisionada; concluir Best-Effort Task 10 e Phase 0 com observações reais antes de qualquer código de Próximo processo.
