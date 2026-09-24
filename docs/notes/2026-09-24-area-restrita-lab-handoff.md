@@ -211,3 +211,12 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - A interface que pode ter recebido a sessão pelo bootstrap automático é o navegador padrão aberto pelo launcher normal. Retomada manual: usar esse navegador/aba, não a aba do perfil de laboratório; se estiver autenticado, acionar **Analisar Área Restrita** uma vez e avisar quando terminar. Se aparecer `session_required`, parar e solicitar nova sessão pelo bootstrap oficial, sem transportar token via DevTools.
 - Nenhuma alteração em código/runtime e nenhum teste adicional após a baseline verde registrada acima. `git diff --check` passou antes deste adendo.
 - A branch continua em `codex/atos-tce-unified`. Fazer commit/push deste handoff e verificar SHA/status ao encerrar.
+
+
+## Retomada — Portal Lab aguardando sessão Mesa oficial (2026-09-24)
+
+- Foi tentada uma chamada DevTools direta ao handler de conteúdo `SCAN_PAGE`, com saída limitada a estrutura/contagens/marcador e destino local ignorado. O auto-review rejeitou antes da execução: leitura de página autenticada e gravação de captura fora do fluxo Mesa autenticado. A ferramenta determinou que a continuação use o workflow de scan autorizado pela sessão Mesa; nenhuma alternativa direta será tentada.
+- Verificação posterior: health Mesa HTTP 200, 0 comandos `QUEUED`/`CLAIMED` e zero arquivos de captura bruta na nova pasta temporária. A recusa não gravou dados, não navegou o portal e não alterou a base.
+- Único passo necessário para prosseguir: operador abrir a Mesa no navegador padrão iniciado pelo launcher, autorizar a sessão pela interface e acionar **Analisar Área Restrita** uma vez. A página portal permanece na rota principal autenticada; nenhum ato foi selecionado.
+- Os gates automatizados completos continuam verdes conforme a atualização acima. Task 10 real, `SCAN_PAGE` via Mesa, reconciliação 1.198/1.197, Phase 0 e Next Process permanecem incompletos.
+- Fazer commit e push deste registro, depois conferir `git status` e SHA remoto.
