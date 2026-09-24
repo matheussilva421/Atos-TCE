@@ -45,6 +45,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
 
         self.assertTrue(ignored("tmp/portal-lab/raw/capture.json"))
         self.assertTrue(ignored(".playwright-cli/state.json"))
+        self.assertTrue(ignored(".agents/skills/playwright-cli/SKILL.md"))
         self.assertFalse(ignored("devtools/area-restrita/fixtures/list-page.json"))
         self.assertFalse(ignored(".agents/skills/area-restrita/SKILL.md"))
         self.assertFalse(ignored("scripts/portal-lab/capture-structure.js"))

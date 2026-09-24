@@ -103,6 +103,8 @@
 !/.agents/skills/area-restrita/SKILL.md
 !/.agents/skills/area-restrita/references/
 !/.agents/skills/area-restrita/references/*.md
+# This vendor skill is installed locally by playwright-cli and is not project source.
+/.agents/skills/playwright-cli/
 !/scripts/portal-lab/
 !/scripts/portal-lab/*.ps1
 !/scripts/portal-lab/*.py

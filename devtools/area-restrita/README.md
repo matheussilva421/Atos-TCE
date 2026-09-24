@@ -53,3 +53,12 @@ novos argumentos e repita a confirmação do alvo antes de qualquer sessão real
 Uma conexão bem-sucedida ao CDP comprova somente a disponibilidade local do
 navegador. Não comprova autenticação, comportamento do portal, qualificação de
 envio ou conclusão da tarefa.
+
+## Playwright CLI
+
+O CLI é uma ferramenta somente de desenvolvimento. Instale a skill oficial no
+workspace com `playwright-cli install --skills=agents` quando necessário e use
+o workflow restrito em
+`.agents/skills/area-restrita/references/workflow.md` para anexar ao Chrome
+dedicado, observar snapshots e encerrar com `detach`. O CLI e seus artefatos
+locais não entram no runtime nem no pacote portátil.
