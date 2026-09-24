@@ -1,5 +1,42 @@
 # M2 CDP comparison handoff — 2026-09-23
 
+## Current status — live comparison attempt
+
+M2 remains **incomplete**. The user asked to reuse existing evidence and not
+repeat the 40-page portal scan. The complete page-level CDP payload is not
+available locally, so do not describe M2 as passed.
+
+Available comparison report: `data/logs/area-compare.json`, timestamped
+2026-09-23 08:38. It compares a first-page CDP sample of 30 rows with the latest
+extension scan of 1,198 rows. Scope and stable marker ID match
+(`sector_finalistic`, marker value `5159`); the 30 overlapping rows have no
+classification or act-ID mismatches. The sample omitted 1,168 Mesa rows, so
+`equal` is false and this is only a partial check.
+
+A later scanner attempt briefly produced an aggregate for pages 27–40: 14 of 40
+pages, 419 unique rows (176 pending, 243 completed), same scope and marker
+value. Its row-level JSON was overwritten when a subsequent attempt started;
+the counts cannot be compared against the Mesa scan. That later attempt exposed
+two scanner defects: it accepted page 27 while waiting to reset to page 1, then
+mistook reaching page 40 for complete coverage; it also treated the changing
+count in the marker label (1198→1199) as a marker change despite stable value
+5159. The user stopped a new full scan and explicitly asked not to repeat it.
+The Chrome portal was left on page 1; its manually selected marker value is
+still 5159.
+
+The scanner now waits for the exact expected page, verifies consecutive page
+numbers and requires `pagesVisited == total_pages`. Marker continuity uses the
+stable option value, falling back to the label only when no value exists. The
+comparator applies the same marker identity rule and reports/rejects incomplete
+CDP page coverage. These changes have focused regression tests.
+
+Do not start another full scan unless the user requests resuming M2. To resume,
+confirm the user wants the long portal traversal, ensure the authenticated QA
+tab still has the intended human-selected marker, run the command in section 6
+of `2026-09-21-guia-reexecucao-testes-mesa-local.md`, and compare only after the
+scanner exits 0 and writes the full JSON. The latest persisted extension scan
+remains ID 5: 1,198 rows (482 pending, 716 completed), marker value 5159.
+
 ## Result
 
 The failed comparison came from two sequential issues in the command path:

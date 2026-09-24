@@ -106,17 +106,17 @@ Start-Process -FilePath $chrome -ArgumentList @(
     '--no-first-run',
     '--no-default-browser-check'
 )
-$portFile = Join-Path $qaProfile 'DevToolsActivePort'
+$cdpEndpoint = 'http://127.0.0.1:9222/json/version'
+$browserVersion = $null
 $deadline = (Get-Date).AddSeconds(15)
-while ((-not (Test-Path -LiteralPath $portFile)) -and ((Get-Date) -lt $deadline)) {
-    Start-Sleep -Milliseconds 250
+while ((-not $browserVersion) -and ((Get-Date) -lt $deadline)) {
+    try { $browserVersion = Invoke-RestMethod -Uri $cdpEndpoint -TimeoutSec 2 }
+    catch { Start-Sleep -Milliseconds 250 }
 }
-if (-not (Test-Path -LiteralPath $portFile)) {
+if (-not $browserVersion) {
     throw "Chrome QA não iniciou CDP. Confirme se a janela abriu: $qaProfile"
 }
-$port = Get-Content -LiteralPath $portFile -TotalCount 1
-Invoke-RestMethod -Uri "http://127.0.0.1:$port/json/version" -TimeoutSec 5 |
-    Select-Object Browser, 'Protocol-Version'
+$browserVersion | Select-Object Browser, 'Protocol-Version'
 ```
 
 O Chrome QA abre sem URL para que você cole nela a URL da Mesa/START.cmd na
@@ -166,10 +166,9 @@ Com o portal autenticado no Chrome QA:
 
 ```powershell
 $qaProfile = "$env:LOCALAPPDATA\AtosTCE\perfil-qa-20260921"
-if (-not (Test-Path -LiteralPath (Join-Path $qaProfile 'DevToolsActivePort'))) {
-    throw "Chrome QA não está ativo com depuração remota neste perfil: $qaProfile"
-}
-powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\scripts\scan-area-cdp.ps1 -ChromeUserData $qaProfile 1> data\logs\area-cdp.json 2> data\logs\area-cdp-diagnostics.log
+Invoke-RestMethod -Uri 'http://127.0.0.1:9222/json/version' -TimeoutSec 5 |
+    Select-Object Browser, 'Protocol-Version'
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\scripts\scan-area-cdp.ps1 -ChromeUserData $qaProfile -CdpPort 9222 -MaxPages 50 -NavigationWaitMs 600000 1> data\logs\area-cdp.json 2> data\logs\area-cdp-diagnostics.log
 if ($LASTEXITCODE -ne 0) {
     Get-Content -LiteralPath data\logs\area-cdp-diagnostics.log
     throw 'A varredura CDP falhou; não compare um arquivo de saída incompleto.'
@@ -177,9 +176,15 @@ if ($LASTEXITCODE -ne 0) {
 Get-Content data\logs\area-cdp-diagnostics.log
 ```
 
-O JSON do scanner fica em `area-cdp.json` e o diagnóstico em
-`area-cdp-diagnostics.log`; o script exige `DevToolsActivePort` no perfil
-informado.
+O endpoint fixo `9222/json/version` é a verificação de CDP; um Chrome iniciado
+com porta fixa pode não criar `DevToolsActivePort`. A varredura percorre todas
+as páginas sequencialmente (o portal atual tem 40 páginas) e só emite JSON
+depois de confirmar cobertura completa. Pode levar alguns minutos. Se falhar,
+não compare o arquivo vazio ou parcial. O diagnóstico fica em
+`area-cdp-diagnostics.log`. O comparador rejeita cobertura incompleta e usa o
+valor estável do marcador; o contador que aparece no rótulo pode variar durante
+a navegação.
+
 Depois compare com a última varredura persistida:
 
 O PowerShell 5.1 pode gravar a saída redirecionada como UTF-16LE; o comparador
@@ -188,11 +193,12 @@ detecta o BOM e também aceita JSON UTF-8.
 ```powershell
 python scripts/compare-area-scans.py --cdp-json data\logs\area-cdp.json --db data\atos-tce.db --json data\logs\area-compare.json
 if ($LASTEXITCODE -ne 0) { throw 'M2 não passou; confira area-compare.json.' }
-Get-Content data\logs\area-compare.json
 ```
 
-M2 passa somente com código de saída `0` e `"equal": true`, no mesmo marcador,
-escopo e conjunto de processos. Divergência bloqueia o avanço.
+M2 passa somente com código de saída `0`, `"equal": true`, cobertura CDP
+completa, mesmo valor de marcador, escopo e conjunto de processos. Divergência
+bloqueia o avanço. O relatório fica em `area-compare.json`; evite despejar suas
+linhas de processos no terminal.
 
 ## 7. Gate M3 — aquisição real limitada
 
