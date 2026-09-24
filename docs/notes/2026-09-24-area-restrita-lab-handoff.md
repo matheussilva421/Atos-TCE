@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
-**Estado:** baseline concluída; Portal Lab Tasks 1–2 implementadas e validadas. Task 2 commit local `777cab2`; push pendente.
+**Estado:** baseline concluída; Portal Lab Tasks 1–2 implementadas, validadas e publicadas. Chrome dedicado permanece aberto para a Task 3.
 
 ## Resumo
 
@@ -58,13 +58,12 @@
 ## GitHub
 
 - No início: branch sincronizada com `origin/codex/atos-tce-unified` em `c477026`.
-- `6d809dc` e `f0354f8` estão publicados em `origin/codex/atos-tce-unified`; HEAD remoto confirmado em `f0354f8b7efb5ca63fa6d4cbe5f98b27c6be900b` antes da Task 2.
-- `777cab2` está commitado localmente; push ainda pendente.
+- `6d809dc`, `f0354f8`, `777cab2` e `9d5a248` estão publicados em `origin/codex/atos-tce-unified`.
+- HEAD local e remoto confirmados iguais em `9d5a2481ac0fc689bd8fc981c8692ad59ffb98c0`; branch limpa, ahead/behind `0/0`.
 
 ## Pendências e retomada
 
-1. Publicar `777cab2` e o commit de atualização deste handoff.
-2. Task 3: adicionar exemplo MCP seguro e provar conexão do MCP ao Chrome dedicado em `127.0.0.1:9222`; não reinstalar o MCP.
+1. Task 3: adicionar exemplo MCP seguro e provar conexão do MCP ao Chrome dedicado em `127.0.0.1:9222`; não reinstalar o MCP.
 3. Prosseguir Tasks 4–7: workflow CLI, captura estrutural, sanitizador, comparador, portal-contract/fixtures e skill.
 4. Só depois dos gates do laboratório abrir sessão supervisionada; concluir Best-Effort Task 10 e Phase 0 com observações reais antes de qualquer código de Próximo processo.
 
