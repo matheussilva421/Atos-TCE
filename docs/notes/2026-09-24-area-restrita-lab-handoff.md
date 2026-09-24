@@ -171,3 +171,34 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - Testes: nenhum teste executado nesta retomada; não houve mudança de comportamento no código. A verificação do serviço, do side panel e da fila foi somente leitura.
 - Git antes desta atualização: `codex/atos-tce-unified`, HEAD `47b25e9` (`docs: record portal lab push verification status`), sincronizado no tracking local com `origin/codex/atos-tce-unified`; revalidar status após o commit deste handoff.
 - GitHub: pendente publicar o commit desta atualização; não afirmar push antes de verificar.
+
+
+## Retomada — branch revalidada e baseline completa (2026-09-24)
+
+### Evidência e testes
+
+- Releitura integral do objetivo atual em `C:\Users\slvma\.codex\attachments\8a102f72-d19e-4bb7-8d65-90895d11475d\goal-objective.md` antes de prosseguir. O escopo completo permanece ativo.
+- `git fetch origin codex/atos-tce-unified` confirmou o remoto no mesmo SHA local `7f2fe4c7707fe6a0bb65d238d2af581f80679f2b`; a branch canônica estava limpa antes desta atualização.
+- `python -m unittest discover -s tests -p 'test_*.py' -q`: 632 executados, 631 passaram, 0 falharam, 1 skip.
+- `npm test --prefix extension`: 152 executados, 152 passaram, 0 falharam, 0 skips.
+- `node --test app/web/tests/*.test.mjs`: 28 executados, 28 passaram, 0 falharam, 0 skips. O Node emitiu aviso `MODULE_TYPELESS_PACKAGE_JSON` para `app/web/pdf-viewer.js`; os testes passaram.
+- `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1`: 7 estágios passaram; 1.259 executados, 1.257 passaram, 0 falharam, 2 skips. Inclui extensão (480), web (6), Python portable (6), PowerShell (603), pacote/auditoria (82, 2 skips), automação (81) e `git diff --check` (1).
+
+### Estado externo revalidado
+
+- A página autenticada permanece na rota principal do portal; o estado carregado tem quatro frames. Nenhuma linha foi aberta.
+- O side panel da extensão mostra Mesa conectada, Área Restrita detectada e nenhum formulário aberto. Mesa health HTTP 200.
+- Consulta SQLite em `mode=ro`: 0 comandos `QUEUED`/`CLAIMED`, 0 jobs `PENDING`/`RUNNING`, 0 processos `ANALISANDO`. Nenhuma varredura viva foi enfileirada.
+- O browser que recebeu o bootstrap pelo launcher padrão não aparece nas abas que CUA ou Chrome DevTools MCP conseguem controlar. A sessão HttpOnly da Mesa nesse browser, portanto, não está demonstrada no perfil de laboratório do MCP.
+- Nenhuma alteração em `app/`, `extension/` ou lógica de runtime. Nenhum teste real Best-Effort foi executado; não houve alvo de ato indicado.
+
+### Bloqueios e retomada
+
+- O auto-review rejeitou o transporte do token bootstrap para a aba DevTools por helper local; a tentativa foi rejeitada antes de executar e não será contornada. A sessão precisa ser concluída pela interface da Mesa no navegador que abriu pelo launcher.
+- Próximo passo: no dashboard aberto pelo launcher, concluir/confirmar a sessão e acionar uma vez **Analisar Área Restrita**. Informar quando terminar para leitura agregada/sanitizada da varredura.
+- Best-Effort Task 10 ainda exige os cinco casos jurídicos e o caso parcial supervisionados; operador também precisa indicar ato autorizado para observar interessado, formulário, retorno e resultado da conclusão manual. Não preencher nem acionar o clique final sem esse contexto.
+- A implementação de Próximo processo permanece bloqueada até Task 10 e Phase 0 terem evidência real completa.
+
+### Git
+
+- Commit publicado anterior: `7f2fe4c` (`docs: record Mesa extension connection state`). Este adendo registra a baseline recém-executada; fazer commit/push e revalidar o SHA ao concluir este bloco.
