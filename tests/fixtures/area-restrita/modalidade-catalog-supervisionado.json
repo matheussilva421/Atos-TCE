@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-09-24",
+  "source": "supervised_live_portal_form",
+  "proposal": "Aposentadoria voluntária",
+  "options": [
+    { "value": "", "label": "Selecione a Modalidade" },
+    { "value": "9", "label": "Aposentadoria por invalidez" },
+    { "value": "10", "label": "Aposentadoria compulsória" },
+    { "value": "11", "label": "Aposentadoria proporcional ao tempo de contribuição" },
+    { "value": "12", "label": "Aposentadoria voluntária por tempo de contribuição com proventos integrais" },
+    { "value": "13", "label": "Aposentadoria voluntária por tempo de serviço com proventos integrais" },
+    { "value": "14", "label": "Aposentadoria proporcional ao tempo de serviço" },
+    { "value": "15", "label": "Transferência ex offício para a reserva remunerada" },
+    { "value": "16", "label": "Reforma" },
+    { "value": "17", "label": "Revisão de Benefício" },
+    { "value": "18", "label": "Transferência a pedido para a reserva remunerada" },
+    { "value": "21", "label": "Aposentadoria Especial com fundamento na LC nº 51/1985" },
+    { "value": "31", "label": "Aposentadoria Especial com fundamento no art. 57 da Lei nº 8.213/91" }
+  ]
+}

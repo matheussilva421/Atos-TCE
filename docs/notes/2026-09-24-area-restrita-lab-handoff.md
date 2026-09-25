@@ -341,3 +341,22 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 2. Executar os cinco casos reais da Task 10 e o caso parcial A/B/C; parar para revisão humana antes de qualquer clique final.
 3. Fechar Phase 0 inteira; só então iniciar Next Process Tasks 1–8, seguida da revisão adversarial, gates finais e pacote standalone.
 4. Publicar este bloco no GitHub após conferir status/SHA. Não reutilizar o marcador bruto nem imprimir linhas/IDs de processo.
+
+## Modalidade obrigatória e retomada da Phase 0 — 2026-09-24
+
+- A proposta de modalidade da Task 10 não era um valor literal do catálogo ativo do portal; por isso o resolver antigo deixava o campo obrigatório pendente. Implementado mapeamento para a opção selecionável de maior correspondência textual. Empates e baixa margem ficam registrados como avisos no snapshot; catálogo vazio, controle indisponível ou sem opção selecionável continua bloqueando o campo.
+- TDD: fixture sanitizada do catálogo supervisionado e testes de seleção/tie-break e conflito; RED inicial por ausência de `modality_decision`/valor mapeado, GREEN após a implementação. Regressão focada `python -m unittest tests.test_fill_service -q`: 71/71.
+- Revalidação ao vivo, sem identidade no artefato: no caso fraco, o filler alterou apenas `modalidade`, preservou cinco campos e deixou `mandatory_satisfied=true`; selecionou uma opção existente do catálogo (valor interno 12), com empate/margem zero e aviso de revisão. A DOM reread confirmou a seleção. Estado local ficou `PREENCHIDO`; nenhum botão final foi acionado e nenhum ato foi submetido.
+- Gates pós-alteração: suíte Python raiz 644 (643 passou, 1 skip); extensão 155/155; web 28/28 (aviso ESM já conhecido); extrator suplementar 528 (519 passou, 9 skips; avisos HTTP/CLI esperados); `verify-project.ps1` 1.259 (1.257 passou, 2 skips, 0 falhas; sete estágios verdes); `git diff --check` passou.
+- Phase 0: confirmação anterior de intervalo/paginação e marcador permanece privada. A comparação da ordem item a item de uma página (60 linhas contendo referências/nome) foi rejeitada pelo auto-review por inspecionar em lote dados pessoais do portal; não repetida nem contornada. Resultado atual: intervals/contagens agregadas conhecidos, mas ordem scan/lista ainda não fechada.
+- Medição de navegação de um alvo exato não concluiu: tentativa DOM aguardou 15 s sem formulário visível; tentativa subsequente não encontrou a ação exata. Não foi repetida com seleção por posição ou aproximação. Captura posterior da lista e uma observação de estado pós-clique manual também permanecem pendentes.
+- Estado live rechecado por estrutura: o Chrome QA continua no portal e a Mesa permanece autenticada; há um formulário de ato visível. Mantive a aba/formulário aberto para preservar os campos preenchidos que ainda não foram concluídos manualmente; não naveguei para a lista nem cliquei em ação final.
+- Próximo Processo segue bloqueado pelo gate da Phase 0. Não abrir produção de Tasks 1–8 até obter ordem, baseline de navegação e estado pós-conclusão manual. O operador deve executar o clique final **Complementar Ato**; a automação só observa o resultado depois.
+- Estado Git nesta atualização: branch canônica, alterações locais em `app/area_restrita/preflight.py`, `app/area_restrita/fill_service.py`, `tests/test_fill_service.py`, fixture sanitizada, este handoff e o ledger SDD; HEAD `9b9cbe3f76fbb46ac214131c09618576ce32a136`. Consulta `git ls-remote` falhou por indisponibilidade de rede para `github.com`; ainda sem commit/push deste bloco.
+
+### Retomada
+
+1. Confirmar o diff da regra de modalidade e seus avisos; atualizar este handoff e o ledger SDD antes de qualquer commit.
+2. Retomar somente observações estruturais e agregadas da Phase 0; não repetir a leitura em lote rejeitada.
+3. Não clicar automaticamente em **Complementar Ato**; solicitar ao operador a ação final quando os demais gates estiverem prontos.
+4. Depois de Phase 0 fechada, implementar Tasks 1–8 de Próximo Processo; então fazer revisão adversarial independente, gates finais e smoke do pacote portátil.

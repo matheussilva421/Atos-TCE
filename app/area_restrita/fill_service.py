@@ -343,6 +343,7 @@ class FillService:
                 "preserved": plan.preserved,
                 "warnings": plan.warnings,
                 "legal_decision": plan.legal_decision,
+                "modality_decision": plan.modality_decision,
                 "stale_generation_retries": int(
                     (request.get("form_snapshot") or {}).get("stale_generation_retries", 0)
                     if isinstance(request.get("form_snapshot"), Mapping)

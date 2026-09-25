@@ -1,5 +1,6 @@
 """Tests for the Mesa fill-request state machine (M5 Task 1)."""
 
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -307,6 +308,9 @@ class ManualFillRequestTests(FillRequestTestCase):
         self.assertEqual(request["process_id"], process_id)
         # The preflight replaced the raw snapshot with the authorized plan.
         self.assertEqual(request["form_snapshot"]["plan"]["cargo"], "Professor")
+        self.assertEqual(
+            request["form_snapshot"]["modality_decision"]["option_value"], "VOLUNTARIA"
+        )
 
     def test_zero_matches_block(self):
         self.make_process()
@@ -888,6 +892,36 @@ class PreflightTests(unittest.TestCase):
 
         self.assertEqual(plan.fields["modalidade"], "APOS")
 
+    def test_live_portal_modality_catalog_selects_the_best_real_option_and_reports_tie(self):
+        fixture_path = (
+            Path(__file__).parent
+            / "fixtures"
+            / "area-restrita"
+            / "modalidade-catalog-supervisionado.json"
+        )
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+        snapshot = form_snapshot(
+            fields={"modalidade": {"value": "", "options": fixture["options"]}}
+        )
+
+        plan = build_fill_plan(
+            process_payload(modalidade=fixture["proposal"]), snapshot
+        )
+
+        self.assertEqual(plan.fields["modalidade"], "12")
+        self.assertTrue(plan.modality_decision["automatic"])
+        self.assertEqual(
+            plan.modality_decision["option_label"], fixture["options"][4]["label"]
+        )
+        self.assertTrue(plan.modality_decision["tie_break_used"])
+        self.assertEqual(plan.modality_decision["margin"], 0)
+        self.assertTrue(
+            any(
+                "modalidade" in warning and "tie-broken-by-option-index" in warning
+                for warning in plan.warnings
+            )
+        )
+
     def test_a_disabled_ordinary_select_option_is_reported_as_unavailable(self):
         snapshot = form_snapshot(
             fields={
@@ -921,9 +955,15 @@ class PreflightTests(unittest.TestCase):
 
         plan = build_fill_plan(process_payload(), snapshot)
 
-        self.assertNotIn("modalidade", plan.fields)
+        self.assertEqual(plan.fields["modalidade"], "OUTRA")
+        self.assertTrue(plan.modality_decision["hard_conflict"])
         self.assertIn("cargo", plan.fields)
-        self.assertTrue(any("modalidade" in warning and "opção" in warning.lower() for warning in plan.warnings))
+        self.assertTrue(
+            any(
+                "modalidade" in warning and "hard-conflict" in warning
+                for warning in plan.warnings
+            )
+        )
 
     def test_a_readonly_mandatory_control_warns_and_other_fields_continue(self):
         snapshot = form_snapshot(fields={"cargo": {"value": "", "readOnly": True, "options": []}})

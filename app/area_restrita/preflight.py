@@ -7,6 +7,7 @@ warnings for that field, while an unsafe or stale target blocks the request.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -24,6 +25,32 @@ from ..core.identity import normalize_interested
 
 ALLOWED_FIELDS: tuple[str, ...] = MANDATORY_FIELDS + OPTIONAL_FIELDS
 SELECT_FIELDS = frozenset({"modalidade", "fundamento_legal"})
+_MODALITY_STOP_WORDS = frozenset(
+    {
+        "a",
+        "ao",
+        "as",
+        "com",
+        "da",
+        "das",
+        "de",
+        "do",
+        "dos",
+        "e",
+        "em",
+        "na",
+        "nas",
+        "no",
+        "nos",
+        "o",
+        "os",
+        "para",
+        "por",
+        "aposentadoria",
+        "beneficio",
+        "modalidade",
+    }
+)
 
 
 class FillBlocked(RuntimeError):
@@ -42,6 +69,7 @@ class FillPlan:
     fields: dict[str, str] = field(default_factory=dict)
     preserved: dict[str, str] = field(default_factory=dict)
     legal_decision: dict[str, Any] | None = None
+    modality_decision: dict[str, Any] | None = None
     warnings: list[str] = field(default_factory=list)
 
 
@@ -80,18 +108,105 @@ def _control_options(control: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return [option for option in options if isinstance(option, Mapping)]
 
 
-def _resolve_option_value(control: Mapping[str, Any], proposal: str) -> str | None:
-    """Map a proposal onto one of the current options, by value then by label."""
+def _modality_tokens(value: Any) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", compare_text(value))
+        if token not in _MODALITY_STOP_WORDS
+    }
 
-    selectable = selectable_legal_options(_control_options(control))
-    for option in selectable:
-        if str(option.get("value") or "") == proposal:
-            return str(option["value"])
-    wanted = compare_text(proposal)
-    for option in selectable:
-        if compare_text(option.get("label")) == wanted:
-            return str(option["value"])
-    return None
+
+def _modality_decision(
+    control: Mapping[str, Any], proposal: str
+) -> dict[str, Any]:
+    """Select the best current modality option, keeping uncertainty visible."""
+
+    options = selectable_legal_options(_control_options(control))
+    if not options:
+        return {
+            "status": "pending",
+            "decision_state": "REVIEW_REQUIRED",
+            "automatic": False,
+            "option_value": None,
+            "option_label": None,
+            "method": "none",
+            "confidence": 0.0,
+            "margin": 0.0,
+            "hard_conflict": False,
+            "tie_break_used": False,
+            "warnings": ["MODALITY_OPTIONS_EMPTY"],
+        }
+
+    proposal_tokens = _modality_tokens(proposal)
+    ranked: list[dict[str, Any]] = []
+    for option in options:
+        value = str(option["value"])
+        label = str(option["label"])
+        exact = value == proposal or compare_text(label) == compare_text(proposal)
+        option_tokens = _modality_tokens(label)
+        overlap = proposal_tokens & option_tokens
+        coverage = 1.0 if exact else (
+            len(overlap) / len(proposal_tokens) if proposal_tokens else 0.0
+        )
+        precision = 1.0 if exact else (
+            len(overlap) / len(option_tokens) if option_tokens else 0.0
+        )
+        score = 1.0 if exact else 0.8 * coverage + 0.2 * precision
+        ranked.append(
+            {
+                "option_value": value,
+                "option_label": label,
+                "index": int(option.get("index") or 0),
+                "score": round(score, 6),
+                "coverage": round(coverage, 6),
+                "precision": round(precision, 6),
+                "hard_conflict": not exact and not overlap,
+                "exact": exact,
+            }
+        )
+
+    ranked.sort(
+        key=lambda item: (
+            -item["score"],
+            -item["coverage"],
+            -item["precision"],
+            item["index"],
+        )
+    )
+    best = ranked[0]
+    second = ranked[1] if len(ranked) > 1 else None
+    margin = round(best["score"] - second["score"], 6) if second else best["score"]
+    equivalence_key = (best["score"], best["coverage"], best["precision"])
+    equivalent = [
+        item
+        for item in ranked
+        if (item["score"], item["coverage"], item["precision"]) == equivalence_key
+    ]
+    warnings: list[str] = []
+    if len(equivalent) > 1:
+        warnings.extend(["equivalent-candidates", "tie-broken-by-option-index"])
+    if best["score"] < 0.9:
+        warnings.append("low-confidence")
+    if margin < 0.12:
+        warnings.append("low-margin")
+    if best["hard_conflict"]:
+        warnings.append("hard-conflict")
+    if not proposal_tokens:
+        warnings.append("no-modality-signals")
+
+    return {
+        "status": "selected",
+        "decision_state": "AUTO_SELECTED",
+        "automatic": True,
+        "option_value": best["option_value"],
+        "option_label": best["option_label"],
+        "method": "exact" if best["exact"] else "catalog-token-overlap",
+        "confidence": best["score"],
+        "margin": margin,
+        "hard_conflict": best["hard_conflict"],
+        "tie_break_used": len(equivalent) > 1,
+        "warnings": list(dict.fromkeys(warnings)),
+    }
 
 
 def _is_selected_placeholder(control: Mapping[str, Any], current: str) -> bool:
@@ -211,12 +326,22 @@ def build_fill_plan(
             if legal_value is not None:
                 plan.fields[name] = legal_value
             continue
-        if name in SELECT_FIELDS:
-            resolved = _resolve_option_value(control, proposal)
-            if resolved is None:
-                plan.warnings.append(f"opção indisponível no catálogo atual: {name}")
-                continue
-            plan.fields[name] = resolved
+        if name == "modalidade":
+            decision = _modality_decision(control, proposal)
+            plan.modality_decision = decision
+            chosen = decision.get("option_value")
+            if decision.get("automatic") is True and chosen is not None:
+                selectable_values = {
+                    option["value"] for option in selectable_legal_options(_control_options(control))
+                }
+                if str(chosen) in selectable_values:
+                    plan.fields[name] = str(chosen)
+                else:
+                    plan.warnings.append("modalidade: valor resolvido não pertence ao catálogo atual")
+            else:
+                plan.warnings.append("opção indisponível no catálogo atual: modalidade")
+            for warning in decision.get("warnings") or []:
+                plan.warnings.append(f"modalidade: {warning}")
             continue
         plan.fields[name] = proposal
     return plan
