@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
-**Estado:** Portal Lab e scan live de 1.197 itens concluídos e publicados na branch unificada. Best-Effort Task 10 segue incompleta; a Phase 0 do Próximo Processo segue aberta; Tasks 1–8 de Próximo Processo ainda não começaram. A rechecagem live mais recente encontrou a etapa de busca por processo, sem ato-alvo aberto. O contrato agora documenta essa variante da rota como `unknown`; runtime não mudou.
+**Estado:** Portal Lab Tasks 1–7 concluídas; Task 8 parcial e Task 9 parcial após um preenchimento supervisionado em formulário controlado. O scan live de 1.197 itens foi concluído e a diferença histórica 1.198/atual foi reconciliada por escopos de marcador distintos. Best-Effort Task 10 continua incompleta; Phase 0 segue aberta; Próximo Processo Tasks 1–8 ainda não começaram. Último estado live registrado em 25/09: formulário de teste preenchido e relido, mantido aberto para o operador; nenhuma interação live foi feita depois desse registro.
 
 ## Resumo
 
@@ -427,7 +427,7 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - Verificação integrada `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1` — 1.259 executados, 1.257 passaram, 0 falharam, 2 skips; os sete estágios passaram, incluindo `git diff --check`. O teste web emitiu apenas o aviso Node `MODULE_TYPELESS_PACKAGE_JSON`; a suíte suplementar imprimiu avisos de depreciação/HTTP previstos em fixtures.
 - A reconciliação agregada já registrada para 1.198 histórico vs 1.197 atual concluiu que os scans eram de marcadores diferentes: 1.196 chaves compartilhadas, 2 somente no histórico (já complementadas) e 1 somente no atual. Nenhuma identidade foi copiada para este handoff.
 - O estágio de pacote teve dois skips porque não existe ZIP distribuído `dist` neste checkout; não rodei build prematuro. Sem interação ao vivo, a ordem portal/lista, retorno após conclusão manual e baseline end-to-end continuam sem evidência suficiente.
-- Estado atualizado: Portal Lab Tasks 1–8 concluídas; Task 9, os demais casos da Task 10 (incluindo o cenário parcial A/B/C), Phase 0, Next Process Tasks 1–8, revisão adversarial e pacote standalone permanecem pendentes. O caso preenchido em 25/09 é composto e não valida separadamente cada classe legal. Nenhum submit, assinatura, tramitação ou clique final ocorreu.
+- Estado atualizado: Portal Lab Tasks 1–7 concluídas; Tasks 8–9 parciais; Best-Effort Task 10 continua incompleta, assim como Portal Lab Tasks 10–12 e Next Process Phase 0/Tasks 1–8. A suíte integrada pulou duas verificações de ZIP porque não há distribuição `dist` neste checkout. Nenhum pacote foi construído nesta retomada. O caso preenchido em 25/09 é composto e não valida separadamente cada classe legal. Nenhum submit, assinatura, tramitação ou clique final ocorreu.
 
 ### Próxima retomada
 
