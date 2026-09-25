@@ -436,19 +436,22 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 3. Fechar a ordem scan/lista, navegação end-to-end, retorno após conclusão manual e baseline restante da Phase 0.
 4. Só então implementar Next Process, executar revisão final e gerar/verificar o ZIP standalone. O clique **Complementar Ato** continua exclusivamente manual.
 
-## Preparação de processos via e-Contas — 2026-09-25 (análise em andamento)
+## Preparação de processos via e-Contas — 2026-09-25 (concluída localmente)
 
-- A pedido do operador, usei apenas a sessão autenticada do e-Contas em “Meus Processos”; não interagi com a Área Restrita nem com abas da Mesa no Chrome.
-- Coleta concluída: 61 processos, 1.187 PDFs, zero falhas/duplicatas. Os nomes de interessados foram associados localmente à chave canônica de cada processo; os dados permanecem em `data/` ignorado pelo Git.
-- O dry-run do importador validou 61 processos/1.187 documentos e 0 erros. Um aviso informa que não há manifesto global de documentos; os metadados de título, evento e contagem de páginas foram lidos, mas a classificação não veio preenchida.
-- Antes de importar, foi criado `data/snapshots/atos-tce-before-econtas-2026-09-25.db`; `PRAGMA quick_check` retornou `ok` e o backup contém 1.233 processos. Não havia colisões nem jobs ativos.
-- Importação local concluída: 61 processos e 1.187 documentos na Mesa, todos `DOWNLOADED`, nenhum interessado desconhecido, sem erros. O banco passou de 1.233 para 1.294 processos. O relatório registrou 1.187 hardlinks e zero cópias fallback.
-- A análise foi enfileirada somente para os 61 novos processos pelo `AnalysisService`. No último checkpoint: 1 concluído, 60 pendentes/em fila e zero itens falhos; o worker seguia ativo. Nenhum formulário foi preenchido ou finalizado.
-- Nenhum código foi alterado ou teste executado nesta etapa operacional. Git continua na branch `codex/atos-tce-unified`; handoff/ledger deste bloco ainda precisam de commit e push.
+- Usei apenas a sessão autenticada do e-Contas em “Meus Processos”; não interagi com a Área Restrita nem com abas da Mesa no Chrome.
+- Coleta/importação: 61 processos, 1.187 PDFs, zero falhas/duplicatas. Os interessados foram associados localmente às linhas correspondentes; os dados permanecem sob `data/`, ignorado pelo Git.
+- O import dry-run validou 61 processos/1.187 documentos e zero erros. O aviso sobre ausência do manifesto global de documentos permanece não bloqueante.
+- A análise acelerada inicial terminou sem erro de job, mas não preencheu campos. Diagnóstico: o índice temporário precisava preservar o caminho físico de cada PDF no contexto do adaptador. A correção anexou `absolute_path` validado ao índice de 61 processos/1.187 documentos; as SHA-256 do índice coincidiram com as linhas canônicas do banco.
+- Validação de uma amostra pelo `AnalysisService` oficial: texto nativo usado em 17 PDFs, zero OCR na amostra, seis campos encontrados e um ausente; a Mesa calculou `PRONTO`.
+- Reanálise final pelo `AnalysisService`: job `COMPLETED`, 61/61 itens `ANALISADO`, zero falhas. Estado canônico: 50 `PRONTO`, 11 `REVISAR`. Foram persistidos 371 campos nas 53 linhas cujo bloco de interessado correspondeu exatamente: 312 valores encontrados, 59 ausentes, zero conflitos.
+- Dos 11 em revisão, oito não tiveram correspondência exata entre o interessado extraído e a linha local; os campos desses blocos foram descartados pelo normalizador fail-closed. Os três restantes têm seis pendências obrigatórias no total: modalidade (2), fundamento legal (2), cargo (1), data de nascimento (1). Gênero segue opcional e está ausente em 53 linhas.
+- O relatório legado marca os 61 resultados como `partial` porque alguns campos opcionais/pendentes existem; para prontidão de preenchimento, prevalecem os estados e campos canônicos da Mesa (`50 PRONTO`, `11 REVISAR`).
+- Backup anterior à reanálise corrigida: `data/snapshots/atos-tce-before-corrected-econtas-analysis-2026-09-25.db`; publicação anterior preservada em `data/snapshots/atos-tce-before-corrected-econtas-publication-2026-09-25.json`. `PRAGMA quick_check` após a execução retornou `ok`.
+- Nenhum formulário foi preenchido, submetido ou finalizado. Nenhum código mudou e testes não foram executados nesta etapa operacional. `git diff --check` passou; a atualização documental precisa de commit/push.
 
 ### Retomada
 
-1. Não iniciar outra coleta nem reenfileirar o lote. Consultar os 61 jobs de análise já criados no banco `data/atos-tce.db` e deixar o worker terminar.
-2. Registrar apenas contagens/status agregados, sem nomes, CPFs ou chaves de processo. Conferir os campos extraídos e pendências na Mesa local.
-3. Quando a análise acabar, atualizar este handoff e o ledger SDD, verificar `git status`/`git diff --check`, fazer commit e push.
-4. A Área Restrita continua fora deste trabalho e o goal global segue incompleto; retomar seus gates somente quando o operador liberar a sessão.
+1. Os 50 processos `PRONTO` estão preparados na Mesa local; revisar manualmente os 11 `REVISAR`, em especial os oito sem correspondência exata de interessado. Não transferir dados entre interessados por aproximação.
+2. A análise usa texto nativo primeiro; OCR é fallback apenas quando falta texto nativo útil. A amostra confirmou leitura nativa sem OCR.
+3. Nenhuma ação foi feita na Área Restrita e o goal global segue incompleto. Retomar Task 10/Phase 0 e demais gates somente quando o operador liberar a sessão; o clique **Complementar Ato** permanece manual.
+4. Branch `codex/atos-tce-unified`; verificar o estado final do commit/push deste handoff antes de continuar.

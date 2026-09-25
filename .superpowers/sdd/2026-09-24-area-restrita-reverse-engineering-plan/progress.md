@@ -176,5 +176,9 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 
 - Sem uso da Área Restrita, o operador autorizou baixar e preparar os processos visíveis em “Meus Processos” no e-Contas.
 - Coleta/importação validadas: 61 processos, 1.187 PDFs, zero erros; backup SQLite íntegro criado antes da importação. A Mesa registra todos como `DOWNLOADED` e nenhum com interessado desconhecido.
-- Análise restrita a esse lote está em execução. Último checkpoint agregado: 1/61 concluído, 0 falhas. Não alterar estados do portal nem reenfileirar.
-- Esta preparação não fecha os gates de Task 10/Phase 0 nem autoriza iniciar Next Process. Atualizar o status depois que o worker concluir.
+- A primeira execução acelerada terminou os 61 jobs sem erro, mas os campos ficaram vazios. A causa operacional foi a resolução incompleta dos caminhos dos PDFs ao reutilizar o índice temporário; o índice corrigido carregou `absolute_path` validado para os 1.187 arquivos e conferiu paridade SHA-256 com o banco.
+- Amostra oficial da Mesa: 17 PDFs lidos por texto nativo, sem OCR; 6 campos encontrados, um ausente; estado `PRONTO`.
+- Reanálise final oficial: job `COMPLETED`, 61/61 `ANALISADO`, zero falhas. Estados canônicos: 50 `PRONTO`, 11 `REVISAR`; 312 valores encontrados, 59 campos ausentes, zero conflitos. 8 linhas ficaram sem campos porque o interessado extraído não correspondeu exatamente; 3 linhas correspondentes permanecem `REVISAR` por seis pendências obrigatórias (modalidade 2, fundamento legal 2, cargo 1, data de nascimento 1). Gênero é opcional.
+- Backup antes da reanálise: `data/snapshots/atos-tce-before-corrected-econtas-analysis-2026-09-25.db`; publicação anterior preservada ao lado. Banco final: `PRAGMA quick_check=ok`.
+- Nenhuma ação de portal, preenchimento ou finalização. Sem alteração de código e sem testes nesta etapa operacional. Esta preparação não fecha Task 10/Phase 0 nem autoriza iniciar Next Process.
+- Handoff `docs/notes/2026-09-24-area-restrita-lab-handoff.md` atualizado; validar diff, commit e push. Goal global permanece incompleto enquanto faltarem gates reais da Área Restrita.
