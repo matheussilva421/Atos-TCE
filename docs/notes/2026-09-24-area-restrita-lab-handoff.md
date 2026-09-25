@@ -563,3 +563,32 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - No grupo EC 41/2003, 204/204 decisões foram `AUTO_SELECTED`, confiança >=0.90 e sem hard conflict; 146/204 tiveram `low-margin`, e 47/204 `contradictory-reference`. No grupo EC 47/2005, 18/18 tiveram confiança >=0.90, sem hard conflict e sem warnings do resolver. No grupo CF art. 40, 4/4 tiveram confiança >=0.90 e sem hard conflict, mas todos mostraram `low-margin`; um teve empate e dois opção de classe desconhecida.
 - O campo `fundamento_legal` do ato já preenchido é composto e não substitui a validação isolada de nenhuma classe. A triagem ajuda a selecionar a próxima amostra quando a sessão for liberada; não autoriza preencher outro ato nem a usar uma saída de baixa confiança como conclusão jurídica.
 - Próximo passo live ainda depende de preservar o formulário atual para revisão. Após liberação do operador, retomar um caso por vez pela identidade do formulário e pelo fluxo oficial da extensão. O clique final continua manual.
+
+## Continuação supervisionada — caso EC 47/2005 e gates locais — 2026-09-25
+
+### Task 10 — segunda amostra ao vivo
+
+- O operador autorizou escolher um processo do marcador PROFESSOR - IPERN cuja ação observada fosse `Complementar Ato`, comparar processo/interessado e preencher/reler sem finalizar.
+- O alvo foi selecionado a partir do scan vivo 8. O estado local era `PRONTO`, `needs_complement=1`; o scan registrava `PRECISA_COMPLEMENTAR` e ação `Complementar Ato`. A linha da Área Restrita tinha um interessado; a chave composta do processo e o interessado coincidiram exatamente com o registro local. Identificadores pessoais foram mantidos fora deste handoff.
+- A extensão detectou o formulário correto depois que a aba autenticada da Área Restrita foi trazida para frente (`select_page(..., bringToFront=true)`). Enquanto outra aba estava em primeiro plano, o painel dizia “Nenhum formulário de ato aberto” e mantinha o botão desabilitado.
+- O preenchimento ocorreu pelo botão oficial `Preencher formulário atual`. A solicitação terminou `PREENCHIDO`, modo `manual`, `error=null`. O processo continua `needs_complement=1` no estado local e a ação final no formulário permaneceu visível e intocada.
+- `legal-foundation-v4`: `AUTO_SELECTED`, classe `EC47_ART3`, regra `EC47_ART3`, opção do portal “Civil - Artigo 3º, incisos I a III e parágrafo único, da Emenda Constitucional nº 47/2005”, confiança 0,980556, margem 0,204365, sem conflito rígido e sem aviso do resolvedor legal.
+- Modalidade: `AUTO_SELECTED` por `catalog-token-overlap`, confiança 0,84, margem 0, conflito rígido falso; candidatos equivalentes e desempate presentes, com avisos de baixa confiança/margem/equivalência. Revisão humana continua necessária.
+- Seis campos mudaram (`cargo`, `data_nascimento`, `data_publicacao_doe`, `fundamento_legal`, `matricula`, `modalidade`); seis readbacks coincidiram com a proposta. `preserved=[]`, `unresolved=[]`, `mandatory_satisfied=true`; o resumo do filler reportou zero warnings. Gênero e conclusão da análise permaneceram nos placeholders por falta de proposta local. A releitura acessível confirmou as opções legais e de modalidade selecionadas.
+- Esta é uma amostra isolada EC 47/2005. Não fecha Task 10: continuam pendentes ECE/RN 20/2020 não literal, EC 41/2003, CF art. 40, correspondência fraca e a validação parcial A/B/C. O caso composto EC 41 + EC 47 anterior continua sendo evidência composta, não substitui os casos separados.
+
+### Baseline depois da fixture estrutural
+
+- `python -m unittest discover -s tests -p 'test_*.py' -q`: 645 executados, 644 passaram, 0 falharam, 1 skip.
+- `npm test --prefix extension`: 157/157 passaram.
+- `node --test app/web/tests/*.test.mjs`: 28/28 passaram; apenas aviso Node `MODULE_TYPELESS_PACKAGE_JSON`.
+- `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1`: 1.259 executados, 1.257 passaram, 0 falharam, 2 skips; os sete estágios passaram. Os skips de pacote são a auditoria/smoke de ZIP `dist` inexistente neste checkout. `git diff --check` passou.
+- Em `work/tce-extractor`: `python -m unittest discover -s . -p 'test_*.py' -q`: 528 executados, 519 passaram, 0 falharam, 9 skips. Avisos deprecation/HTTP e uso de `argparse` vieram de fixtures/subprocessos; o comando terminou com `OK`.
+- Nenhum código/runtime mudou nesta continuação. Não foi construído ZIP.
+
+### Navegação e estado para retomada
+
+- O botão superior `Consultar Processo` executa `postaDadosFormEcontas()` e não filtra a lista da Área Restrita. O filtro correto da lista é `Filtrar Resultado` → `Número do Processo` → `Consultar`. A aba e-Contas foi restaurada para “Meus Processos” após a consulta de navegação.
+- A forma final permanece exclusivamente manual. Não houve `Complementar Ato`, submit, assinatura ou tramitação automáticos.
+- Git antes deste adendo: branch `codex/atos-tce-unified`, HEAD `848d0bb2dc9694e537ec4d734e98176442c13550`, igual ao remoto e árvore limpa. O adendo precisa ser commitado e enviado após revisão.
+- Próximos passos: (1) continuar as amostras supervisionadas Task 10, uma identidade exata por vez e pelo fluxo da extensão; (2) preservar/reler cada formulário preparado; (3) obter revisão/clique final manual do operador para observar a transição e medir a baseline da Phase 0; (4) cobrir interessado múltiplo, fechar os itens restantes da Phase 0 e só então iniciar Tasks 1–8 de Próximo processo; (5) executar gates finais, revisão adversarial e ZIP standalone.
