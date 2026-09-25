@@ -63,7 +63,9 @@ function formDocument(formFixture, fields = formFixture.field_ids) {
     buildFormDocument({ processKey: formFixture.process_key, fields: values }),
     formFixture.route
   );
-  const root = documentRef.getElementById(formFixture.root_id);
+  const root = documentRef.getElementById("complementarAtoForm");
+  if (formFixture.root_id !== "complementarAtoForm") root.setAttribute("id", formFixture.root_id);
+  if (formFixture.root_name) root.setAttribute("name", formFixture.root_name);
   addPersonRadio(root, formFixture.interested_normalized, {
     checked: true,
     name: formFixture.interested_radio_name,
@@ -143,6 +145,26 @@ test("the sanitized FORM fixture is recognized by both scanner and form reader",
     formReader.readForm(documentRef).identity.interestedNormalized,
     current.interested_normalized
   );
+});
+
+test("the live sanitized FORM structure records its legacy form root and remains readable", () => {
+  const observed = fixture("live-form-structure.json");
+  const current = fixture("form.json");
+  const documentRef = formDocument({
+    ...current,
+    root_id: observed.form.id,
+    root_name: observed.form.name,
+  });
+
+  assert.equal(observed.state, "form");
+  assert.ok(observed.route.endsWith("/ComplementarAto.asp"));
+  assert.deepEqual(observed.framePath, ["iframe#iframeOBJ", "frame#form"]);
+  assert.deepEqual(observed.form, { id: "Form1", name: "form1", method: "POST", controlCount: 26 });
+  assert.equal(observed.childFrameCount, 0);
+  assert.equal(contract().states.form.root_id, observed.form.id);
+  assert.equal(documentRef.getElementById(observed.form.id).getAttribute("name"), "form1");
+  assert.equal(formReader.hasIdentityAnchors(documentRef), true);
+  assert.equal(formReader.readForm(documentRef).identity.processKey, current.process_key);
 });
 
 test("the BUTTONS fixture is classified as buttons and cannot be mistaken for a form", () => {

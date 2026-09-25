@@ -1,0 +1,252 @@
+{
+  "fixture_version": 1,
+  "state": "form",
+  "route": "/SISTEMAS/PROCESSO/ComplementarAto.asp",
+  "readyState": "complete",
+  "framePath": [
+    "iframe#iframeOBJ",
+    "frame#form"
+  ],
+  "form": {
+    "id": "Form1",
+    "name": "form1",
+    "method": "POST",
+    "controlCount": 26
+  },
+  "controls": [
+    {
+      "tag": "input",
+      "id": "oculto",
+      "name": "oculto",
+      "type": "hidden",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "id": "hideTipo",
+      "name": "hideTipo",
+      "type": "hidden",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "id": "hidePosicao",
+      "name": "hidePosicao",
+      "type": "hidden",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "id": "hideNome",
+      "name": "hideNome",
+      "type": "hidden",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "id": "hideDocumento",
+      "name": "hideDocumento",
+      "type": "hidden",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "id": "hiddenDataDOE",
+      "name": "hiddenDataDOE",
+      "type": "hidden",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "id": "hideModalidade",
+      "name": "hideModalidade",
+      "type": "hidden",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "id": "hiddenmatricula",
+      "name": "hiddenmatricula",
+      "type": "hidden",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "id": "hiddenCargo",
+      "name": "hiddenCargo",
+      "type": "hidden",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "id": "hideMostraTela3",
+      "name": "hideMostraTela3",
+      "type": "hidden",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "id": "hideIdRegistroAto",
+      "name": "hideIdRegistroAto",
+      "type": "hidden",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "id": "txtNumeroProcesso",
+      "name": "txtNumeroProcesso",
+      "type": "text",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "id": "txtAnoProcesso",
+      "name": "txtAnoProcesso",
+      "type": "text",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "name": "escolha",
+      "type": "radio",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "select",
+      "id": "txtModalidade",
+      "name": "txtModalidade",
+      "type": "select-one",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 13
+    },
+    {
+      "tag": "select",
+      "id": "txtFundamentoLegal",
+      "name": "txtFundamentoLegal",
+      "type": "select-one",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 35
+    },
+    {
+      "tag": "input",
+      "id": "txtDataDOE",
+      "name": "txtDataDOE",
+      "type": "text",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "textarea",
+      "id": "txtCargo",
+      "name": "txtCargo",
+      "type": "textarea",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "id": "txtMatricula",
+      "name": "txtMatricula",
+      "type": "text",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "id": "txtDataNascimento",
+      "name": "txtDataNascimento",
+      "type": "text",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "select",
+      "id": "txtGenero",
+      "name": "txtGenero",
+      "type": "select-one",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 3
+    },
+    {
+      "tag": "input",
+      "id": "txtValorMensalParcelaRegular",
+      "name": "txtValorMensalParcelaRegular",
+      "type": "text",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "id": "txtRendaMensalBeneficio",
+      "name": "txtRendaMensalBeneficio",
+      "type": "text",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "id": "txtProjecaoAnualDespesa",
+      "name": "txtProjecaoAnualDespesa",
+      "type": "text",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "id": "txtCompensacaoPrevidenciaria",
+      "name": "txtCompensacaoPrevidenciaria",
+      "type": "text",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "select",
+      "id": "txtConclusaoAnalise",
+      "name": "txtConclusaoAnalise",
+      "type": "select-one",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 8
+    }
+  ],
+  "childFrameCount": 0
+}

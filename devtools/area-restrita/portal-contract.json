@@ -11,7 +11,7 @@
     },
     "form": {
       "runtime_roles": ["form"],
-      "root_id": "complementarAtoForm",
+      "root_id": "Form1",
       "identity_sentinel_ids": ["txtNumeroProcesso", "txtAnoProcesso"],
       "field_ids": [
         "txtModalidade",

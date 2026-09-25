@@ -207,3 +207,10 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - Decisão legal `legal-foundation-v4`: opção composta EC 41/2003 + EC 47/2005, confidence 0.776190, margin 0.001190, sem hard conflict, avisos low-confidence/low-margin. Decisão de modalidade: confidence 0.84, margin 0, candidatos equivalentes desempataram por índice; o select foi relido preenchido. Gênero e conclusão permaneceram sem seleção; gênero não tinha proposta.
 - Caso registrado como observação live para revisão, não como aprovação jurídica. Formulário continua aberto; clique final não executado. Esta tentativa cobre apenas um caso composto. Task 10, Phase 0 e Next Process permanecem incompletas/bloqueadas na ordem do objetivo.
 - Nenhum código alterado ou teste executado nesta atualização operacional. Handoff detalhado no documento `docs/notes/2026-09-24-area-restrita-lab-handoff.md`.
+
+## 2026-09-25 — fixture estrutural live do FORM
+
+- Capturado e sanitizado o frame FORM visível via Chrome DevTools MCP: rota ComplementarAto, frame path `iframe#iframeOBJ` → `frame#form`, estado complete, 26 controles, sem valores.
+- O portal real usa root de formulário `Form1`/`form1`, não o id anteriormente presumido `complementarAtoForm`. Atualizei o contrato e fixtures; o leitor já reconhece o formulário pelas âncoras de processo/`closest("form")`, então não houve mudança de runtime.
+- Criada fixture allowlisted `devtools/area-restrita/fixtures/live-form-structure.json`; nova cobertura passou por RED esperado (arquivo ausente) e GREEN. Contrato focado 9/9; extensão 157/157; sanitizador da fixture e `git diff --check` passaram.
+- O preenchimento supervisionado do ato atual permanece aberto, sem ação final. Task 10 e Phase 0 seguem sem os casos isolados/multi-interessado/pós-conclusão; Tasks de Próximo Processo continuam bloqueadas.
