@@ -62,9 +62,15 @@ CAPTURE_KEYS = {
     "route",
     "readyState",
     "framePath",
+    "frameBox",
     "controls",
+    "forms",
     "sentinels",
     "childFrameCount",
+    "tableRows",
+    "controlCount",
+    "radioCount",
+    "selectCount",
     "frames",
     "pages",
     "metadata",
@@ -190,6 +196,57 @@ def _sanitize_sentinel(value: object):
     return None
 
 
+def _sanitize_frame_box(value: object):
+    if not isinstance(value, dict):
+        return None
+    result = {}
+    for name in ("id", "name"):
+        safe = _identifier(value.get(name))
+        if safe is not None:
+            result[name] = safe
+    hidden = value.get("hidden")
+    if isinstance(hidden, bool):
+        result["hidden"] = hidden
+    display = value.get("display")
+    if isinstance(display, str) and display.casefold() in {
+        "none",
+        "block",
+        "inline",
+        "inline-block",
+        "table",
+        "table-row",
+        "table-cell",
+        "flex",
+        "grid",
+    }:
+        result["display"] = display.casefold()
+    visibility = value.get("visibility")
+    if isinstance(visibility, str) and visibility.casefold() in {"visible", "hidden", "collapse"}:
+        result["visibility"] = visibility.casefold()
+    for name in ("width", "height"):
+        item = value.get(name)
+        if isinstance(item, int) and not isinstance(item, bool) and 0 <= item <= 10000:
+            result[name] = item
+    return result or None
+
+
+def _sanitize_form(value: object):
+    if not isinstance(value, dict):
+        return None
+    result = {}
+    for name in ("id", "name"):
+        safe = _identifier(value.get(name))
+        if safe is not None:
+            result[name] = safe
+    method = value.get("method")
+    if isinstance(method, str) and method.strip().upper() in {"GET", "POST", "DIALOG"}:
+        result["method"] = method.strip().upper()
+    count = value.get("controlCount")
+    if isinstance(count, int) and not isinstance(count, bool) and 0 <= count <= 10000:
+        result["controlCount"] = count
+    return result or None
+
+
 def _sanitize_metadata(value: object):
     if not isinstance(value, dict):
         return None
@@ -231,11 +288,20 @@ def _sanitize_capture(value: object, depth: int):
             frame_path = _sanitize_frame_path(item)
             if frame_path is not None:
                 result["framePath"] = frame_path
+        elif normalized == "framebox":
+            frame_box = _sanitize_frame_box(item)
+            if frame_box:
+                result["frameBox"] = frame_box
         elif normalized == "controls" and isinstance(item, list):
             if len(item) > MAX_COLLECTION_ITEMS:
                 raise ValueError("controls collection is too large")
             controls = [_sanitize_control(control) for control in item]
             result["controls"] = [control for control in controls if control is not None]
+        elif normalized == "forms" and isinstance(item, list):
+            if len(item) > 256:
+                raise ValueError("forms collection is too large")
+            forms = [_sanitize_form(form) for form in item]
+            result["forms"] = [form for form in forms if form is not None]
         elif normalized == "sentinels" and isinstance(item, list):
             if len(item) > MAX_COLLECTION_ITEMS:
                 raise ValueError("sentinels collection is too large")
@@ -244,6 +310,15 @@ def _sanitize_capture(value: object, depth: int):
         elif normalized == "childframecount":
             if isinstance(item, int) and not isinstance(item, bool) and 0 <= item <= 10000:
                 result["childFrameCount"] = item
+        elif normalized in {"tablerows", "controlcount", "radiocount", "selectcount"}:
+            if isinstance(item, int) and not isinstance(item, bool) and 0 <= item <= 10000:
+                canonical_name = {
+                    "tablerows": "tableRows",
+                    "controlcount": "controlCount",
+                    "radiocount": "radioCount",
+                    "selectcount": "selectCount",
+                }[normalized]
+                result[canonical_name] = item
         elif normalized in {"frames", "pages"} and isinstance(item, list):
             if len(item) > MAX_COLLECTION_ITEMS:
                 raise ValueError(f"{normalized} collection is too large")

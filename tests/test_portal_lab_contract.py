@@ -417,6 +417,56 @@ class CaptureSanitizerContractTests(unittest.TestCase):
         self.assertNotIn("headers", clean)
         self.assertNotIn("storage", clean)
 
+    def test_sanitizer_preserves_frame_visibility_and_form_counts_only(self):
+        raw = {
+            "route": "/ComplementarAto.asp",
+            "framePath": [
+                {"tag": "iframe", "id": "iframeOBJ", "name": "iframe4", "index": 4},
+                {"tag": "iframe", "id": "form", "name": "form", "index": 0},
+            ],
+            "frameBox": {
+                "id": "form",
+                "name": "form",
+                "hidden": False,
+                "display": "block",
+                "visibility": "visible",
+                "width": 1397,
+                "height": 565,
+                "value": "must never persist",
+            },
+            "forms": [
+                {"id": "Form1", "name": "form1", "method": "post", "controlCount": 26, "value": "private"}
+            ],
+            "tableRows": 21,
+            "controlCount": 26,
+            "radioCount": 1,
+            "selectCount": 4,
+        }
+
+        clean = self.load_sanitizer().sanitize_capture(raw)
+
+        self.assertEqual(
+            clean["frameBox"],
+            {
+                "id": "form",
+                "name": "form",
+                "hidden": False,
+                "display": "block",
+                "visibility": "visible",
+                "width": 1397,
+                "height": 565,
+            },
+        )
+        self.assertEqual(
+            clean["forms"],
+            [{"id": "Form1", "name": "form1", "method": "POST", "controlCount": 26}],
+        )
+        self.assertEqual(clean["tableRows"], 21)
+        self.assertEqual(clean["controlCount"], 26)
+        self.assertEqual(clean["radioCount"], 1)
+        self.assertEqual(clean["selectCount"], 4)
+        self.assertNotIn("value", json.dumps(clean))
+
     def test_sanitizer_fails_closed_when_identifiers_or_tokens_survive(self):
         sanitizer = self.load_sanitizer()
         for key, value in (

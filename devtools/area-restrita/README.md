@@ -125,8 +125,14 @@ diffs continuam fora do Git.
 `portal-contract.json` é o contrato documental e oráculo dos testes; o runtime
 continua usando os leitores em `extension/lib/area-snapshot.js` e
 `extension/content/detect-form.js`. `transitioning` e `ambiguous` fazem parte do
-vocabulário permitido, mas o scanner atual não os emite. Os quatro arquivos em
-`fixtures/` usam somente identidades fictícias.
+vocabulário permitido, mas o scanner atual não os emite. Fixtures de teste usam
+identidades fictícias; fixtures `live-*` guardam somente estrutura sanitizada.
+
+`fixtures/live-frame-tree.json` registra uma observação L0 de 2026-09-25: um
+frame de lista e três documentos de formulário coexistiam no tab; somente um
+formulário tinha área visível, enquanto dois irmãos antigos tinham largura e
+altura zero. A captura não contém valores, nomes ou identidades. Ela documenta
+a visibilidade observada e não prova uma transição de navegação.
 
 Execute a verificação de paridade com:
 

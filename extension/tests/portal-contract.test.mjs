@@ -167,6 +167,19 @@ test("the live sanitized FORM structure records its legacy form root and remains
   assert.equal(formReader.readForm(documentRef).identity.processKey, current.process_key);
 });
 
+test("the live frame tree distinguishes one visible form from stale sibling documents", () => {
+  const observed = fixture("live-frame-tree.json");
+  const forms = observed.frames.filter((frame) => frame.route.endsWith("/ComplementarAto.asp"));
+  const visibleForms = forms.filter((frame) => frame.frameBox.width > 0 && frame.frameBox.height > 0);
+
+  assert.equal(forms.length, 3);
+  assert.equal(visibleForms.length, 1);
+  assert.equal(visibleForms[0].framePath[0].name, "iframe4");
+  assert.equal(visibleForms[0].forms[0].controlCount, 26);
+  assert.ok(forms.filter((frame) => frame.frameBox.width === 0).length >= 2);
+  assert.equal(Object.hasOwn(visibleForms[0].forms[0], "value"), false);
+});
+
 test("the BUTTONS fixture is classified as buttons and cannot be mistaken for a form", () => {
   const current = fixture("buttons.json");
   assert.ok(contract().states.buttons.sentinels.includes(`[data-action=${current.data_action}]`));
