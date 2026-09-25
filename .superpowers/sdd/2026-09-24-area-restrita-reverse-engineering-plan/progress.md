@@ -214,3 +214,9 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - O portal real usa root de formulário `Form1`/`form1`, não o id anteriormente presumido `complementarAtoForm`. Atualizei o contrato e fixtures; o leitor já reconhece o formulário pelas âncoras de processo/`closest("form")`, então não houve mudança de runtime.
 - Criada fixture allowlisted `devtools/area-restrita/fixtures/live-form-structure.json`; nova cobertura passou por RED esperado (arquivo ausente) e GREEN. Contrato focado 9/9; extensão 157/157; sanitizador da fixture e `git diff --check` passaram.
 - O preenchimento supervisionado do ato atual permanece aberto, sem ação final. Task 10 e Phase 0 seguem sem os casos isolados/multi-interessado/pós-conclusão; Tasks de Próximo Processo continuam bloqueadas.
+
+## 2026-09-25 — triagem offline dos atos pendentes
+
+- Análise local dos 312 registros `PRONTO` pendentes do scan 8 contra as opções estruturais salvas do catálogo: 204 referências EC41/2003, 83 EC20/2020, 18 EC47/2005, 4 CF art.40, 3 fora desses padrões. É filtro de texto, não validação.
+- EC20/2020 mostrou alta incerteza (33 hard-conflict, 77 low-confidence, 78 low-margin em 83); só 5/83 combinaram confiança >=0.90 e sem conflito. EC41: 204/204 >=0.90 sem conflito, 146 low-margin e 47 referências contraditórias. EC47: 18/18 >=0.90, sem conflito/avisos. CF40: 4/4 >=0.90 sem conflito, os quatro low-margin.
+- Nenhum outro ato foi aberto. O formulário live atual foi preservado para revisão; não usar esses agregados como confirmação jurídica nem como autorização para preparar outro.
