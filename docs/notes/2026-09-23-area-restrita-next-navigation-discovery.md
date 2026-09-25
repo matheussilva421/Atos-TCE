@@ -3,7 +3,7 @@
 **Data:** 2026-09-23
 **Branch:** `codex/next-process-navigation-discovery`
 **Base:** `b1d41e848c39cb61947b011501925c40f86793fb` (`origin/main`)
-**Estado:** Phase 0 parcial; Task 1 continua bloqueada até resolver os itens pendentes ao final.
+**Estado atualizado em 2026-09-25:** Phase 0 continua parcial; o `SCAN_PAGE` completo da extensão está registrado localmente. O delta agregado 1.198→1.197 e a estabilidade recente da ordem foram reavaliados; Task 1 segue bloqueada por gates reais pós-conclusão/manual, caso multi-interessado, timings e conferência explícita da fronteira atual.
 
 Esta nota registra apenas evidência da sessão real. Nenhum código de navegação foi alterado. Identidades de processos/interessados foram comparadas localmente por hash composto e não são registradas aqui.
 
@@ -104,3 +104,15 @@ Três medições manuais somente de navegação, desde clique na ação da linha
 - Após esses dados, ainda será necessária a validação supervisionada em que o operador faz manualmente o clique final em um processo controlado; então medir o retorno/estado posterior. Nenhum clique final foi feito nesta retomada.
 - Testes: nenhum executado nesta retomada, pois não houve alteração de código; os gates finais ainda não foram rodados.
 - `git diff --check` passou. O checkpoint documental foi commitado como `dfe8187` e enviado em fast-forward para `origin/codex/atos-tce-unified`.
+
+## Revalidação live — 2026-09-25
+
+- Após login manual no Chrome QA, o CDP loopback `127.0.0.1:9222` mostrou a Mesa, a página autenticada do portal e a extensão ATOS TCE. A lista de processos estava visível em um único frame antes do scan; nenhum formulário de ato estava aberto.
+- A Mesa iniciou o scan oficial `SCAN_AREA`. O comando aguardou a extensão até recarregar a mesma página da lista, necessário para reinjetar o content script; após isso, o scan terminou pela extensão MV3. Não foi usado o modo de compatibilidade ou chamada direta ao handler. A aba voltou ao shell de navegação, sem input de senha e sem formulário de ato.
+- Scan local id 8: origem `extension`, escopo `sector_finalistic`, 1.197 itens; 354 `PRECISA_COMPLEMENTAR`, 843 `ATO_COMPLEMENTADO`, zero ambíguos/bloqueados/não encontrados. O valor bruto vivo do marcador foi lido pelo scanner e comparado no banco privado; não o copiamos para este documento nem para fixtures.
+- Reconciliação do id 5 (1.198) com o id 8 (1.197): o valor do marcador é igual; o rótulo visível muda somente com o sufixo numérico da contagem. Há 1.196 identidades compostas compartilhadas, 2 apenas no antigo e 1 apenas no atual; os três exclusivos são itens `ATO_COMPLEMENTADO`, portanto o saldo é -1. Nos compartilhados, 128 mudaram de pendente para complementado e nenhum mudou no sentido inverso. O histórico não registra o evento que retirou/adicionou individualmente os três itens; as identidades foram mantidas apenas na base local.
+- Os scans completos ids 7 e 8 (ambos 1.197) têm o mesmo conjunto, a mesma ordem integral e as mesmas classificações. O id 5 antigo e o id 8 atual compartilham 1.196 itens, dos quais 1.181 permanecem na mesma subsequência relativa; 15 estão fora de ordem e 32 mudaram de rank entre os scans separados por dias. Isso é compatível com alterações na fila ao longo do tempo; não demonstra que uma varredura individual embaralhe suas páginas.
+- Revisão da SPEC: a Mesa seleciona pela ordem do snapshot e a extensão recebe identidade exata (processo+interessado); nenhum componente usa posição de linha como identidade. Alvo que desaparece precisa falhar sem selecionar substituto. A implementação continua bloqueada até a Phase 0 fechar; o comportamento fail-closed não elimina os cenários stale da validação final.
+- Evidência anterior de lista: páginas 9–10 tinham 30/30 identidades em ordem relativa contínua através da fronteira. Ainda falta uma captura sanitizada explícita da fronteira no estado atual; o schema persistido da Mesa mantém a sequência final, não um registro por página de `page/total_pages`.
+- Continua pendente: (1) observar após uma conclusão manual de ato controlado, medindo retorno e três tempos de baseline; (2) mapear interessado múltiplo em caso controlado; (3) ligar o resultado pós-clique à transição de frames e fechar a nota. O clique final continua exclusivamente do operador. Nenhum ato foi aberto, preenchido ou submetido nesta revalidação.
+- Nenhuma alteração de runtime ou teste foi feita por esta observação. Os gates gerais foram repetidos em `verify-project.ps1` (1.259 executados, 1.257 passaram, 0 falharam, 2 skips) e na suíte Python suplementar (528 executados, 519 passaram, 0 falharam, 9 skips); não há fixture nova a partir do scan. O adendo de handoff correlato registra os SHA e o push mais recentes.
