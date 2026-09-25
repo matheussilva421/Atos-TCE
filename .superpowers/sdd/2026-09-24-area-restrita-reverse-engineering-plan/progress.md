@@ -198,3 +198,12 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - Intermediários criados exclusivamente para esta montagem foram removidos após a validação; o runtime cache fixado permanece local para builds futuros. Nenhum PDF, banco ou ZIP privado foi staged.
 - GitHub: o handoff e o progresso foram publicados em `origin/codex/atos-tce-unified` e a SHA remota foi conferida após o push. ZIP e dataset permanecem somente locais/ignorados.
 - Esta é uma entrega operacional para o lote solicitado, não fecha o Goal maior: Task 9/10 e Next Process Phase 0 continuam pendentes; Next Process Tasks 1–8 seguem bloqueadas até Task 10 + Phase 0. Revisão adversarial e gate final do Goal continuam pendentes. Para retomar, o operador libera novamente a Área Restrita; seguir a ordem do plano e manter o clique final manual.
+
+## 2026-09-25 — um preenchimento live após autorização específica
+
+- O operador autorizou comparar e preencher/reler somente o ato pendente já aberto, mantendo a ação final manual. CDP `127.0.0.1:9222` respondeu `CDP_ENDPOINT_OK`; a enumeração de processos Windows foi negada pelo sistema e não foi usada para interferir no Chrome.
+- Identidade do processo/ano/interessado conferida uma única vez entre o formulário e o registro preparado `PRONTO` do scan 8; um radio exato foi selecionado. O filler foi acionado somente pelo botão oficial da extensão.
+- `FILL_FORM` `SUCCEEDED`, request `PREENCHIDO`, seis campos changed e seis releituras iguais às propostas; zero preserved/unresolved, zero avisos da extensão, `mandatory_satisfied=true`.
+- Decisão legal `legal-foundation-v4`: opção composta EC 41/2003 + EC 47/2005, confidence 0.776190, margin 0.001190, sem hard conflict, avisos low-confidence/low-margin. Decisão de modalidade: confidence 0.84, margin 0, candidatos equivalentes desempataram por índice; o select foi relido preenchido. Gênero e conclusão permaneceram sem seleção; gênero não tinha proposta.
+- Caso registrado como observação live para revisão, não como aprovação jurídica. Formulário continua aberto; clique final não executado. Esta tentativa cobre apenas um caso composto. Task 10, Phase 0 e Next Process permanecem incompletas/bloqueadas na ordem do objetivo.
+- Nenhum código alterado ou teste executado nesta atualização operacional. Handoff detalhado no documento `docs/notes/2026-09-24-area-restrita-lab-handoff.md`.
