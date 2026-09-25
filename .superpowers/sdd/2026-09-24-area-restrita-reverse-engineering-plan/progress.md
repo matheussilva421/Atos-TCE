@@ -136,3 +136,10 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - A leitura L0 adicional do frame LIST oculto retornou somente página 12 de 40 (campo e seleção renderizada concordam; área 0x0). É estado de DOM oculto, não chamada SCAN_PAGE atual nem prova de ordem; não foram lidas linhas ou marcador.
 - Handoff atualizado em `docs/notes/2026-09-24-area-restrita-lab-handoff.md`. Próximo gate live requer um ato de teste controlado aberto no Chrome QA. Clique final continua manual.
 - Commit `dac886ae5ee7de2f2f5070bd92766a30447693de` (`test: document live process chooser state`) e fechamento documental `b307f3352b0324bf6f8163a99a6a3f2b93c11e01` foram enviados a `origin/codex/atos-tce-unified`; `git ls-remote` retornou `b307f3352b0324bf6f8163a99a6a3f2b93c11e01`. Esta atualização de estado será publicada no commit documental seguinte.
+
+## Continuação: revalidação do alvo live — 2026-09-24
+
+- Branch limpa em `fd2fd8965fda4dfcfebd4526675ece8e3790e3c1`; CDP loopback continua ativo. A aba visível segue na busca de processo sem ato controlado aberto.
+- Cinco cópias ocultas do formulário legal têm frame zero-size e rádio marcado; não se leu nenhum valor/identidade. `isVisibleForm` já descarta esses frames e a suíte cobre o caso. Runtime permanece inalterado.
+- O frame LIST oculto mantém somente metadado numérico 12/40; isso não é uma chamada SCAN_PAGE atual nem prova de ordem. Não usar frames ocultos para Task 9/10.
+- Aguardando o ato controlado visível no Chrome QA para continuar as validações reais supervisionadas. Nenhum submit ou clique final foi executado.

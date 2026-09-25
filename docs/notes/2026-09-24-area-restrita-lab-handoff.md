@@ -375,3 +375,11 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - Task 10 continua aguardando os cinco casos jurídicos reais e o caso parcial A/B/C; o caso live fraco já registrado anteriormente validou somente a seleção de modalidade, com aviso de revisão. Phase 0 continua sem comparação de ordem, retorno após conclusão manual e caso multi-interessado observado. Nenhum código de Próximo Processo foi iniciado.
 - Para retomar os gates live, abrir um ato de teste controlado no Chrome QA (sem enviar número ou nome no chat) e deixar a tela pronta para a observação supervisionada. O clique final **Complementar Ato** permanece exclusivamente manual.
 - Git: commit `dac886ae5ee7de2f2f5070bd92766a30447693de` (`test: document live process chooser state`) e o fechamento documental `b307f3352b0324bf6f8163a99a6a3f2b93c11e01` foram enviados a `origin/codex/atos-tce-unified`; `git ls-remote` confirmou `b307f3352b0324bf6f8163a99a6a3f2b93c11e01`. Esta observação numérica será incluída no commit documental seguinte.
+
+## Revalidação do alvo pendente — 2026-09-24
+
+- O objetivo foi relido integralmente antes da retomada. Branch `codex/atos-tce-unified` está limpa em `fd2fd8965fda4dfcfebd4526675ece8e3790e3c1`; CDP segue ativo em `127.0.0.1:9222`.
+- A tela visível segue sendo a busca de processo; não há ato de teste aberto na moldura visível. Cinco frames `ComplementarAto.asp` de área zero contêm sentinelas de formulário jurídico e um rádio marcado, mas todos os controles estão ocultos. Nenhum valor, identidade ou texto de pessoa/processo foi consultado.
+- O detector `isVisibleForm` já rejeita documentos dentro de frame zero-size; `detectDocumentRole` classifica a busca visível como `unknown`. Os testes `a form inside a zero-size frame is rejected` e `the live process chooser route stays unknown...` cobrem as duas proteções; nenhuma alteração de runtime ou nova suíte foi necessária.
+- A consulta numérica do frame LIST segue em 12/40 e área zero; ela é estado DOM oculto, não uma chamada `SCAN_PAGE` atual. Não usar esse frame nem os formulários ocultos como alvo de Task 9/10.
+- O operador ainda não abriu um ato controlado no Chrome QA. O próximo passo dependente continua sendo deixar um ato escolhido na etapa visível de interessado/formulário, sem enviar número ou nome no chat; a ação final permanece manual.
