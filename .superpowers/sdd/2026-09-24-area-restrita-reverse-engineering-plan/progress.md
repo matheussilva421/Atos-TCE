@@ -152,3 +152,19 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - O clique **Consultar** foi rejeitado pelo auto-review porque enviaria busca de possível processo real sem evidência de alvo controlado. A consulta não foi enviada; rechecagem confirmou estado inalterado.
 - Para continuar Task 9/10 e Phase 0, o operador precisa confirmar sem identificadores que o alvo já preenchido é controlado/autorizado, ou substituí-lo no Chrome QA por um ato de teste controlado. Não enviar número/nome no chat. Clique final permanece manual.
 - Sem este gate, não iniciar código de Próximo Processo; revisão adversarial e packaging final seguem depois das fases obrigatórias.
+
+## 2026-09-25 — pausa após preenchimento supervisionado
+
+- Operador confirmou alvo controlado e autorizou preenchimento/releitura. Painel oficial executou uma requisição manual: estado Mesa `PREENCHIDO`, comando `FILL_FORM` `SUCCEEDED`.
+- `modalidade` e fundamento legal foram selecionados; seis campos foram `changed` e relidos iguais à proposta, sem campos preservados ou pendentes obrigatórios. A decisão de modalidade teve confidence 0,84, margin 0, hard conflict false e desempate; a decisão legal teve confidence 0,9794, margin 0,0091, hard conflict false, com avisos de referência contraditória e margem baixa.
+- O status é local da Mesa. Formulário continua aberto, **Complementar Ato** não foi clicado e nada foi submetido. Código inalterado; nenhuma suíte executada nesta retomada.
+- Usuário precisa utilizar a Área Restrita: deixar o Chrome QA como está. Retomar pelos casos Task 10 restantes e Phase 0; não começar Next Process antes dos gates.
+
+## 2026-09-25 — continuação offline e baseline atual
+
+- A pedido do operador, não interagi com Chrome/Área Restrita depois do preenchimento supervisionado. Li integralmente os oito documentos obrigatórios do pacote, na ordem indicada pelo objetivo. Nenhum código/runtime foi alterado.
+- Baseline no HEAD `5cacb09efd018435b087c838b4e7e62ee7b5eaae`, branch `codex/atos-tce-unified` (local tracking igual a origin; 90 commits à frente de `main`): raiz Python 644 run, 643 pass, 0 fail, 1 skip; extensão 156/156; web 28/28; suíte `work/tce-extractor` 528 run, 519 pass, 0 fail, 9 skips.
+- `work/tce-extractor/verify-project.ps1`: 1.259 executados, 1.257 pass, 0 fail, 2 skips; sete estágios verdes, inclusive pacote/auditoria e diff check.
+- O scan atual de 1.197 e a contagem histórica 1.198 já foram reconciliados nas evidências anteriores: os scans tinham marcadores diferentes; 1.196 chaves eram compartilhadas, duas existiam só no histórico e uma só no atual. O handoff público não contém chaves/identidades.
+- Portal Lab Tasks 1–8 seguem concluídas; Task 9, Task 10 completa, Phase 0, Next Process Tasks 1–8, revisão final e ZIP standalone continuam pendentes. A suíte integrada pulou duas verificações de ZIP porque não há distribuição `dist` neste checkout. Nenhum pacote foi construído nesta retomada.
+- Retomada: após a Área Restrita estar liberada para o operador, continuar Task 9/10 e as medições Phase 0; não iniciar Next Process antes de fechar Task 10 + Phase 0. O clique final permanece manual.

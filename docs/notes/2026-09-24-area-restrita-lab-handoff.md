@@ -393,3 +393,45 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - Não houve submissão da consulta nem transição. Rechecagem depois da rejeição confirmou a busca ainda preenchida, nenhum campo legal visível, e `READ_CURRENT_FORM` retornou `FORM_NOT_AVAILABLE` sem formulário/identidade.
 - Retomar quando o operador confirmar, sem enviar identificadores, que o alvo preenchido é um ato controlado autorizado; ou substituir a busca por um ato controlado no próprio Chrome QA e avisar. Só então continuar Task 9/10. Clique final continua manual.
 - Task 10, Phase 0 e Next Process Tasks 1–8 continuam abertas; sem ato controlado não há gate real para avançar. Nenhum código runtime foi alterado.
+
+## Retomada live — formulário reconhecido; preenchimento aguardando confirmação — 2026-09-25
+
+- No Chrome QA conectado ao CDP loopback, a aba ativa continua sendo a Área Restrita. Leitura L0 da árvore encontrou 13 frames, um único frame visível em `ComplementarAto.asp`, um formulário visível e um interessado marcado. A extensão respondeu a `READ_FORM` em exatamente um frame, com âncoras de identidade e os sete campos esperados. Nenhum valor, nome, CPF ou referência foi salvo neste handoff.
+- O painel da extensão passou a reconhecer o formulário e habilitar **Preencher formulário atual**. Uma tentativa de acionar esse botão foi rejeitada pelo auto-review: o preenchimento pode criar uma requisição persistente na Mesa, e faltava confirmar que este registro específico é um alvo controlado de teste. O clique não foi executado; não houve requisição de preenchimento nem alteração de campos. A ação final **Complementar Ato** segue intocada.
+- O operador respondeu “eu autorizo”; a confirmação específica sobre o ato atualmente aberto ser um caso de teste controlado foi solicitada separadamente e está pendente. Não contornar a rejeição por API, script ou fluxo indireto. Após a resposta, só retomar pelo painel oficial se o gate estiver satisfeito; caso contrário, preservar o formulário e aguardar um alvo de teste controlado.
+- Uma aba temporária da página do painel criada para diagnóstico foi fechada. O painel original continua disponível. Nenhum código/runtime foi alterado e nenhum teste foi executado nesta atualização; os últimos gates de código permanecem os registrados nas seções anteriores.
+- Task 10 e Phase 0 continuam abertas; implementação de Próximo Processo, revisão adversarial e packaging final permanecem bloqueados pelos gates anteriores. Próximas observações seguras: continuar Phase 0 somente com leituras estruturais/agregadas que não exijam navegar para fora do formulário nem comparar em lote identidades pessoais.
+
+## Handoff de pausa — validação supervisionada de preenchimento — 2026-09-25
+
+- O operador confirmou que o ato atualmente aberto era um caso de teste controlado e autorizou preencher e reler, sem finalizar. O painel oficial reconheceu um único formulário e a extensão encontrou identidade válida em um frame visível.
+- O botão **Preencher formulário atual** foi acionado uma vez pelo painel. A Mesa registrou uma requisição manual em `PREENCHIDO`; houve um único comando `FILL_FORM`, concluído como `SUCCEEDED`. A confirmação do backend verificou identidade e a releitura campo a campo.
+- Resultado sanitizado: `modalidade` selecionada como “Aposentadoria voluntária por tempo de contribuição com proventos integrais” (confidence 0,84; margin 0; hard conflict false; desempate por índice; avisos de baixa confiança/margem e candidatos equivalentes). `fundamento_legal` selecionado como “Civil - Artigo 6º, incisos I a IV e artigo 7º, ambos da Emenda Constitucional nº 41/2003 c/c o artigo 40, § 5º, Constituição Federal e artigo 2º da Emenda Constitucional nº 47/2005” (confidence 0,9794; margin 0,0091; hard conflict false; avisos `contradictory-reference` e `low-margin`).
+- Campos `changed` e relidos com valor igual à proposta: `cargo`, `data_nascimento`, `data_publicacao_doe`, `fundamento_legal`, `matricula`, `modalidade`. `preserved=[]`, `unresolved=[]`, `mandatory_satisfied=true`. `genero` continuou no placeholder; não foi marcado como pendência obrigatória.
+- O estado `PREENCHIDO` é local da Mesa e prova o preenchimento do formulário de teste; não prova conclusão no portal. O ato segue aberto para uso do operador. **Complementar Ato** não foi acionado, nenhuma submissão/assinatura/tramitação ocorreu e o agente não navegou para fora do formulário.
+- Este caso é uma evidência composta (EC 41/2003 + art. 40, § 5º + EC 47/2005), não substitui a validação individual de cada classe jurídica. Task 10 ainda exige os demais casos e o caso parcial A/B/C. Phase 0 permanece incompleta; Next Process Tasks 1–8 continuam bloqueadas até esses gates fecharem.
+- Nenhum código foi alterado. Não executei testes nesta retomada; os últimos resultados de regressão estão registrados acima. Não foi criado artefato bruto nem fixture com dados do portal.
+
+### Retomada
+
+1. Como o operador precisa usar a Área Restrita agora, mantenha esta aba e o formulário como estão; não recarregue, feche ou navegue para a lista.
+2. Quando retomar a automação, conferir na Mesa os avisos do preenchimento (a modalidade teve empate/margem zero e a decisão legal reportou referência contraditória/margem baixa), sem repetir o preenchimento deste ato.
+3. Continuar Task 10 nos casos restantes, usando somente alvos de teste controlados e registrando opções, decisões, campos, releitura e estado documental sem PII.
+4. Prosseguir com as observações L0/Phase 0 pendentes; deixar qualquer clique final **Complementar Ato** exclusivamente para o operador.
+
+## Continuação offline — baseline e gates ainda abertos — 2026-09-25
+
+- A pedido do operador, não interagi com Chrome/Área Restrita depois do preenchimento supervisionado. O formulário/aba permanecem para uso do operador. Li os oito documentos obrigatórios do pacote na ordem especificada antes de retomar análise.
+- Branch `codex/atos-tce-unified`, HEAD `5cacb09efd018435b087c838b4e7e62ee7b5eaae`; branch local alinhada ao `origin/codex/atos-tce-unified` no momento da conferência e 90 commits à frente de `main`. Nenhum arquivo de código/runtime mudou.
+- Baseline executada: `python -m unittest discover -s tests -p 'test_*.py' -q` — 644 testes, 643 passaram, 0 falharam, 1 skip; `npm test --prefix extension` — 156/156; `node --test app/web/tests/*.test.mjs` — 28/28; `python -m unittest discover -s . -p 'test_*.py' -q` em `work/tce-extractor` — 528 testes, 519 passaram, 0 falharam, 9 skips.
+- Verificação integrada `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1` — 1.259 executados, 1.257 passaram, 0 falharam, 2 skips; os sete estágios passaram, incluindo `git diff --check`. O teste web emitiu apenas o aviso Node `MODULE_TYPELESS_PACKAGE_JSON`; a suíte suplementar imprimiu avisos de depreciação/HTTP previstos em fixtures.
+- A reconciliação agregada já registrada para 1.198 histórico vs 1.197 atual concluiu que os scans eram de marcadores diferentes: 1.196 chaves compartilhadas, 2 somente no histórico (já complementadas) e 1 somente no atual. Nenhuma identidade foi copiada para este handoff.
+- O estágio de pacote teve dois skips porque não existe ZIP distribuído `dist` neste checkout; não rodei build prematuro. Sem interação ao vivo, a ordem portal/lista, retorno após conclusão manual e baseline end-to-end continuam sem evidência suficiente.
+- Estado atualizado: Portal Lab Tasks 1–8 concluídas; Task 9, os demais casos da Task 10 (incluindo o cenário parcial A/B/C), Phase 0, Next Process Tasks 1–8, revisão adversarial e pacote standalone permanecem pendentes. O caso preenchido em 25/09 é composto e não valida separadamente cada classe legal. Nenhum submit, assinatura, tramitação ou clique final ocorreu.
+
+### Próxima retomada
+
+1. Manter o Chrome QA intacto enquanto o operador utiliza a Área Restrita.
+2. Quando puder liberar a sessão, completar Task 9/10 com alvo controlado e observação supervisionada; registrar opções, decisão, releitura e estados sem PII.
+3. Fechar a ordem scan/lista, navegação end-to-end, retorno após conclusão manual e baseline restante da Phase 0.
+4. Só então implementar Next Process, executar revisão final e gerar/verificar o ZIP standalone. O clique **Complementar Ato** continua exclusivamente manual.
