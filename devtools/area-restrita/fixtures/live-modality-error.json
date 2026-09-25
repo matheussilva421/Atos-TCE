@@ -1,0 +1,41 @@
+{
+  "fixture_version": 1,
+  "state": "unknown",
+  "route": "/SISTEMAS/Processo/ComplementarAto.asp",
+  "observed_distinct_pending_records": 2,
+  "form": {
+    "root_id": "Form1",
+    "root_name": "form1",
+    "control_count": 15,
+    "present_sentinels": [
+      "txtNumeroProcesso",
+      "txtAnoProcesso",
+      "txtModalidade"
+    ],
+    "missing_sentinels": [
+      "txtFundamentoLegal",
+      "txtDataDOE",
+      "txtCargo",
+      "txtMatricula",
+      "txtDataNascimento",
+      "txtGenero"
+    ]
+  },
+  "modality_option": {
+    "select_id": "txtModalidade",
+    "option_count": 2,
+    "placeholder_selected": true,
+    "error": "Microsoft VBScript runtime error '800a005e' Invalid use of Null: 'Cint' /SISTEMAS/PROCESSO/ComplementarAto.asp, line 773",
+    "line": 773
+  },
+  "extension": {
+    "form_detected": false,
+    "fill_enabled": false
+  },
+  "outcome": {
+    "fill_request_created": false,
+    "fields_written": 0,
+    "fields_reread": 0,
+    "final_action_clicked": false
+  }
+}

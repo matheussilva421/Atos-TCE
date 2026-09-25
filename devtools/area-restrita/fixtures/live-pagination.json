@@ -1,0 +1,43 @@
+{
+  "fixture_version": 1,
+  "state": "list",
+  "route": "/SISTEMAS/Processo/ProcessonoSetor.asp",
+  "marker": {
+    "label": "PROFESSOR - IPERN (1197)",
+    "raw_value": "5159"
+  },
+  "page_window": {
+    "start": 1,
+    "end": 30,
+    "total": 1197
+  },
+  "pagination": {
+    "table_id": "tbprocPag",
+    "select_name": "pagina",
+    "current_page": 1,
+    "page_count": 40,
+    "first_option": "1",
+    "last_option": "40",
+    "next_label": "Próxima >",
+    "last_label": "Última >>"
+  },
+  "list_table": {
+    "id": "tbproc01",
+    "dom_rows": 121,
+    "canonical_process_rows": 30
+  },
+  "next_page_window": {
+    "start": 31,
+    "end": 60,
+    "total": 1197,
+    "canonical_process_rows": 30,
+    "duplicate_composite_identities": 0
+  },
+  "scan_page_observation": {
+    "reported_total_pages": 100249,
+    "reported_canonical_rows": 1,
+    "reported_skipped_rows": 4,
+    "error": "paginação incoerente: página 1 depois de 1",
+    "diagnosis": "numeric result-row links may be mistaken for page controls"
+  }
+}

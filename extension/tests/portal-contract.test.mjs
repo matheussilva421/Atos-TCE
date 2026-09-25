@@ -222,3 +222,55 @@ test("known routes and the list/buttons sibling-frame relation are explicit", ()
     assert.ok(routes[current.route].allowed_roles.includes(current.state), name);
   }
 });
+
+test("the live pagination fixture records the actual page window and scan mismatch", () => {
+  const observed = fixture("live-pagination.json");
+
+  assert.equal(observed.state, "list");
+  assert.ok(contract().routes["ProcessonoSetor.asp"].allowed_roles.includes(observed.state));
+  assert.equal(observed.marker.raw_value, "5159");
+  assert.equal(observed.page_window.total, 1197);
+  assert.equal(observed.pagination.page_count, 40);
+  assert.equal(observed.page_window.end, 30);
+  assert.equal(observed.next_page_window.start, 31);
+  assert.equal(observed.next_page_window.duplicate_composite_identities, 0);
+  assert.equal(observed.scan_page_observation.reported_total_pages, 100249);
+  assert.notEqual(observed.scan_page_observation.reported_total_pages, observed.pagination.page_count);
+  assert.equal(Object.hasOwn(observed, "process_keys"), false);
+  assert.equal(Object.hasOwn(observed, "interested_names"), false);
+});
+
+test("the live modality server error remains an incomplete unknown form", () => {
+  const observed = fixture("live-modality-error.json");
+  const formSpec = contract().states.form;
+
+  assert.equal(observed.state, "unknown");
+  assert.ok(contract().routes["ComplementarAto.asp"].allowed_roles.includes(observed.state));
+  assert.equal(observed.form.control_count, 15);
+  assert.deepEqual(observed.form.present_sentinels, [
+    "txtNumeroProcesso",
+    "txtAnoProcesso",
+    "txtModalidade",
+  ]);
+  assert.deepEqual(observed.form.missing_sentinels, [
+    "txtFundamentoLegal",
+    "txtDataDOE",
+    "txtCargo",
+    "txtMatricula",
+    "txtDataNascimento",
+    "txtGenero",
+  ]);
+  assert.deepEqual(
+    observed.form.missing_sentinels,
+    [...new Set([...formSpec.identity_sentinel_ids, ...formSpec.field_ids])]
+      .filter((id) => !observed.form.present_sentinels.includes(id)),
+  );
+  assert.match(observed.modality_option.error, /800a005e/u);
+  assert.equal(observed.modality_option.line, 773);
+  assert.equal(observed.extension.form_detected, false);
+  assert.equal(observed.extension.fill_enabled, false);
+  assert.equal(observed.outcome.fields_written, 0);
+  assert.equal(observed.outcome.final_action_clicked, false);
+  assert.equal(Object.hasOwn(observed, "process_key"), false);
+  assert.equal(Object.hasOwn(observed, "interested_name"), false);
+});
