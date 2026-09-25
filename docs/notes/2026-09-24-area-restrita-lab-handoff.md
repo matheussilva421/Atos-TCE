@@ -443,7 +443,7 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - Best-Effort Task 10 segue incompleta: os casos jurídicos individuais restantes e o teste parcial A/B/C precisam de alvo controlado e validação supervisionada. Não reutilizar a aprovação do ato preenchido anteriormente para outros atos.
 - Phase 0 segue incompleta: além da investigação de ordem acima, faltam o caso multi-interessado e a observação do resultado/retorno depois que o operador concluir manualmente um ato controlado. O agente nunca clica em **Complementar Ato**.
 - Próximos passos: (1) revisar a ordenação/discrepância dos itens anonimizados sem exportar identidade; (2) rodar `work/tce-extractor/verify-project.ps1` e atualizar o status do Git; (3) publicar o código e este handoff; (4) fechar Task 10 e Phase 0 antes de criar a branch de produção Next Process; (5) seguir Tasks 1–8, revisão adversarial, gates finais e pacote standalone conforme o goal.
-- Git ao iniciar este checkpoint: branch `codex/atos-tce-unified`, HEAD `c39572deff6516c1ba9c57b13c263b8034e00a27`, sincronizada com `origin`. O fix de empacotamento e este adendo ainda não estão commitados/pushados.
+- Git antes da publicação: branch `codex/atos-tce-unified`, HEAD `c39572deff6516c1ba9c57b13c263b8034e00a27`, sincronizada com `origin`. O checkpoint foi commitado como `7a259e5670581a0ba94378053f900f20b0c18e7b` (`fix: package the CDP compatibility scanner`) e enviado ao remoto; `git ls-remote` confirmou o mesmo SHA e a árvore ficou limpa. Esta correção de status é o adendo documental de fechamento do push.
 
 ## Continuação offline — baseline e gates ainda abertos — 2026-09-25
 
