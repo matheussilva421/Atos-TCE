@@ -141,5 +141,7 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 
 - Branch limpa em `fd2fd8965fda4dfcfebd4526675ece8e3790e3c1`; CDP loopback continua ativo. A aba visível segue na busca de processo sem ato controlado aberto.
 - Cinco cópias ocultas do formulário legal têm frame zero-size e rádio marcado; não se leu nenhum valor/identidade. `isVisibleForm` já descarta esses frames e a suíte cobre o caso. Runtime permanece inalterado.
+- A extensão foi consultada via `READ_CURRENT_FORM` e respondeu `FORM_NOT_AVAILABLE`, sem retornar formulário ou identidade.
 - O frame LIST oculto mantém somente metadado numérico 12/40; isso não é uma chamada SCAN_PAGE atual nem prova de ordem. Não usar frames ocultos para Task 9/10.
 - Aguardando o ato controlado visível no Chrome QA para continuar as validações reais supervisionadas. Nenhum submit ou clique final foi executado.
+- O registro anterior foi publicado no commit `481a797f2b2a7e70ab1e275bb0a678eb016ebfeb` e confirmado no remoto. Esta evidência será publicada no commit documental seguinte.
