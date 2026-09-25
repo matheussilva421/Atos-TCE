@@ -67,6 +67,14 @@ test("fill warnings identify the field and the reason", () => {
   assert.match(source, /fill-warnings/u);
 });
 
+test("a sidepanel fill result is rendered when process detail is reopened", () => {
+  const detail = source.slice(source.indexOf("function renderDetail(process)"));
+  const body = detail.slice(0, detail.indexOf("function archivePanel"));
+
+  assert.match(body, /const fillResult = state\.fillResults\[process\.id\] \|\| process\.latest_fill_request/u);
+  assert.match(body, /if \(fillResult\) renderFillSummary\(fillResult\)/u);
+});
+
 test("the fill action remains available according to PRONTO process status", () => {
   const panel = source.slice(source.indexOf("function fillPanel"));
   const body = panel.slice(0, panel.indexOf("function refreshTabBar"));
@@ -133,7 +141,7 @@ test("a PRONTO process retains the fill action for retry regardless of prior req
 
 test("fill summary survives the detail refresh and never adds a submit action", () => {
   assert.match(source, /state\.fillResults\[processId\] = request/u);
-  assert.match(source, /if \(state\.fillResults\[process\.id\]\) renderFillSummary\(state\.fillResults\[process\.id\]\)/u);
+  assert.match(source, /state\.fillResults\[process\.id\] \|\| process\.latest_fill_request/u);
   assert.match(source, /function renderFillSummary\(request\)/u);
   assert.doesNotMatch(source + page, /id="(?:submit|send|finalize|complement-act)"/iu);
 });

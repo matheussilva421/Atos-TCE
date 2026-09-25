@@ -233,6 +233,45 @@ class ProcessRouteTests(ApiTestCase):
         self.assertEqual(payload["fields"][0]["evidence"]["method"], "text")
         self.assertEqual(payload["events"][0]["event_type"], "analysis_finished")
 
+    def test_process_detail_exposes_latest_fill_summary_and_review_warnings(self):
+        self.store.create_fill_request(
+            self.process_id,
+            state="ERRO",
+            mode="manual",
+            form_snapshot={"operation_warnings": ["older warning"]},
+        )
+        latest_id = self.store.create_fill_request(
+            self.process_id,
+            state="PREENCHIDO",
+            mode="manual",
+            form_snapshot={
+                "identity": {"processKey": "private identity"},
+                "summary": {
+                    "changed": ["fundamento_legal"],
+                    "preserved": [],
+                    "unresolved": [],
+                    "warnings": [],
+                    "mandatory_satisfied": True,
+                },
+                "operation_warnings": ["fundamento_legal: hard-conflict", "fundamento_legal: low-margin"],
+            },
+        )
+
+        payload = self.get_json(f"/api/v1/processes/{self.process_id}")
+
+        self.assertIn("latest_fill_request", payload)
+        latest = payload["latest_fill_request"]
+        self.assertEqual(latest["id"], latest_id)
+        self.assertEqual(latest["state"], "PREENCHIDO")
+        self.assertEqual(latest["mode"], "manual")
+        self.assertEqual(latest["summary"]["changed"], ["fundamento_legal"])
+        self.assertEqual(
+            latest["warnings"],
+            ["fundamento_legal: hard-conflict", "fundamento_legal: low-margin"],
+        )
+        self.assertNotIn("form_snapshot", latest)
+        self.assertNotIn("identity", latest)
+
     def test_unknown_process_is_404(self):
         self.assertEqual(self.status_of("/api/v1/processes/4242"), 404)
 

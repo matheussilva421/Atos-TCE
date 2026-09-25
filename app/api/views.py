@@ -80,7 +80,28 @@ def process_list_payload(
 def process_detail_payload(store: Store, process_id: int) -> dict[str, Any] | None:
     """Return one process with documents, fields and workflow history."""
 
-    return store.get_process(process_id)
+    process = store.get_process(process_id)
+    if process is None:
+        return None
+    request = store.latest_fill_request(process_id)
+    if request is None:
+        process["latest_fill_request"] = None
+        return process
+
+    snapshot = request.get("form_snapshot")
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    summary = snapshot.get("summary")
+    warnings = snapshot.get("operation_warnings")
+    process["latest_fill_request"] = {
+        "id": int(request["id"]),
+        "state": str(request["state"]),
+        "mode": str(request["mode"]),
+        "error": request.get("error"),
+        "summary": dict(summary) if isinstance(summary, dict) else None,
+        "warnings": list(warnings) if isinstance(warnings, list) else [],
+        "updated_at": request.get("updated_at"),
+    }
+    return process
 
 
 def storage_payload(store: Store, data_root: Path) -> dict[str, Any]:

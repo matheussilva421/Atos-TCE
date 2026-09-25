@@ -768,6 +768,16 @@ class Store:
             ).fetchone()
         return self._decode_fill_request(row) if row is not None else None
 
+    def latest_fill_request(self, process_id: int) -> dict[str, Any] | None:
+        """Return the newest fill request for one process, if any."""
+
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM portal_fill_requests WHERE process_id = ? ORDER BY id DESC LIMIT 1",
+                (int(process_id),),
+            ).fetchone()
+        return self._decode_fill_request(row) if row is not None else None
+
     def list_fill_requests(
         self, *, process_id: int | None = None, state: str | None = None
     ) -> list[dict[str, Any]]:

@@ -671,7 +671,8 @@ async function loadPdfjs() {
       archivePanel(process),
       (tabs[state.tab] || tabs.dados)()
     );
-    if (state.fillResults[process.id]) renderFillSummary(state.fillResults[process.id]);
+    const fillResult = state.fillResults[process.id] || process.latest_fill_request;
+    if (fillResult) renderFillSummary(fillResult);
     refreshTabBar();
   }
 
@@ -727,6 +728,7 @@ async function loadPdfjs() {
   }
 
   function fillPanel(process) {
+    const fillResult = state.fillResults[process.id] || process.latest_fill_request;
     const panel = element("div", { className: "fill-panel" }, [
       element("button", {
         className: "primary",
@@ -749,7 +751,7 @@ async function loadPdfjs() {
     } else {
       button.hidden = true;
     }
-    if (process.status !== "PRONTO" && !state.fillResults[process.id]) {
+    if (process.status !== "PRONTO" && !fillResult) {
       panel.hidden = true;
       return panel;
     }
