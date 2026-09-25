@@ -435,3 +435,20 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 2. Quando puder liberar a sessão, completar Task 9/10 com alvo controlado e observação supervisionada; registrar opções, decisão, releitura e estados sem PII.
 3. Fechar a ordem scan/lista, navegação end-to-end, retorno após conclusão manual e baseline restante da Phase 0.
 4. Só então implementar Next Process, executar revisão final e gerar/verificar o ZIP standalone. O clique **Complementar Ato** continua exclusivamente manual.
+
+## Preparação de processos via e-Contas — 2026-09-25 (análise em andamento)
+
+- A pedido do operador, usei apenas a sessão autenticada do e-Contas em “Meus Processos”; não interagi com a Área Restrita nem com abas da Mesa no Chrome.
+- Coleta concluída: 61 processos, 1.187 PDFs, zero falhas/duplicatas. Os nomes de interessados foram associados localmente à chave canônica de cada processo; os dados permanecem em `data/` ignorado pelo Git.
+- O dry-run do importador validou 61 processos/1.187 documentos e 0 erros. Um aviso informa que não há manifesto global de documentos; os metadados de título, evento e contagem de páginas foram lidos, mas a classificação não veio preenchida.
+- Antes de importar, foi criado `data/snapshots/atos-tce-before-econtas-2026-09-25.db`; `PRAGMA quick_check` retornou `ok` e o backup contém 1.233 processos. Não havia colisões nem jobs ativos.
+- Importação local concluída: 61 processos e 1.187 documentos na Mesa, todos `DOWNLOADED`, nenhum interessado desconhecido, sem erros. O banco passou de 1.233 para 1.294 processos. O relatório registrou 1.187 hardlinks e zero cópias fallback.
+- A análise foi enfileirada somente para os 61 novos processos pelo `AnalysisService`. No último checkpoint: 1 concluído, 60 pendentes/em fila e zero itens falhos; o worker seguia ativo. Nenhum formulário foi preenchido ou finalizado.
+- Nenhum código foi alterado ou teste executado nesta etapa operacional. Git continua na branch `codex/atos-tce-unified`; handoff/ledger deste bloco ainda precisam de commit e push.
+
+### Retomada
+
+1. Não iniciar outra coleta nem reenfileirar o lote. Consultar os 61 jobs de análise já criados no banco `data/atos-tce.db` e deixar o worker terminar.
+2. Registrar apenas contagens/status agregados, sem nomes, CPFs ou chaves de processo. Conferir os campos extraídos e pendências na Mesa local.
+3. Quando a análise acabar, atualizar este handoff e o ledger SDD, verificar `git status`/`git diff --check`, fazer commit e push.
+4. A Área Restrita continua fora deste trabalho e o goal global segue incompleto; retomar seus gates somente quando o operador liberar a sessão.

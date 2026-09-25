@@ -171,3 +171,10 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - O scan atual de 1.197 e a contagem histórica 1.198 já foram reconciliados nas evidências anteriores: os scans tinham marcadores diferentes; 1.196 chaves eram compartilhadas, duas existiam só no histórico e uma só no atual. O handoff público não contém chaves/identidades.
 - Portal Lab Tasks 1–8 seguem concluídas; Task 9, Task 10 completa, Phase 0, Next Process Tasks 1–8, revisão final e ZIP standalone continuam pendentes. A suíte integrada pulou duas verificações de ZIP porque não há distribuição `dist` neste checkout. Nenhum pacote foi construído nesta retomada.
 - Retomada: após a Área Restrita estar liberada para o operador, continuar Task 9/10 e as medições Phase 0; não iniciar Next Process antes de fechar Task 10 + Phase 0. O clique final permanece manual.
+
+## 2026-09-25 — preparação offline por e-Contas
+
+- Sem uso da Área Restrita, o operador autorizou baixar e preparar os processos visíveis em “Meus Processos” no e-Contas.
+- Coleta/importação validadas: 61 processos, 1.187 PDFs, zero erros; backup SQLite íntegro criado antes da importação. A Mesa registra todos como `DOWNLOADED` e nenhum com interessado desconhecido.
+- Análise restrita a esse lote está em execução. Último checkpoint agregado: 1/61 concluído, 0 falhas. Não alterar estados do portal nem reenfileirar.
+- Esta preparação não fecha os gates de Task 10/Phase 0 nem autoriza iniciar Next Process. Atualizar o status depois que o worker concluir.
