@@ -234,6 +234,10 @@ test("the live pagination fixture records the actual page window and scan mismat
   assert.equal(observed.page_window.end, 30);
   assert.equal(observed.next_page_window.start, 31);
   assert.equal(observed.next_page_window.duplicate_composite_identities, 0);
+  assert.equal(observed.saved_scan_comparison.scan_id, 8);
+  assert.equal(observed.saved_scan_comparison.page1_matches_saved_order, true);
+  assert.equal(observed.saved_scan_comparison.page2_matches_saved_order, true);
+  assert.equal(observed.saved_scan_comparison.first_60_match_saved_order, true);
   assert.equal(observed.scan_page_observation.reported_total_pages, 100249);
   assert.notEqual(observed.scan_page_observation.reported_total_pages, observed.pagination.page_count);
   assert.equal(Object.hasOwn(observed, "process_keys"), false);

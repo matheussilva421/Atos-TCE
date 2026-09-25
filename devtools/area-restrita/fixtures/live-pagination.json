@@ -33,6 +33,14 @@
     "canonical_process_rows": 30,
     "duplicate_composite_identities": 0
   },
+  "saved_scan_comparison": {
+    "scan_id": 8,
+    "saved_total": 1197,
+    "page1_matches_saved_order": true,
+    "page2_matches_saved_order": true,
+    "first_60_match_saved_order": true,
+    "comparison": "SHA-256 of process key and normalized interested name; digests not persisted"
+  },
   "scan_page_observation": {
     "reported_total_pages": 100249,
     "reported_canonical_rows": 1,

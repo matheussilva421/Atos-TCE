@@ -136,10 +136,12 @@ a visibilidade observada e não prova uma transição de navegação.
 
 `fixtures/live-pagination.json` registra a lista viva do marcador PROFESSOR -
 IPERN: 1.197 itens em 40 páginas, com 30 linhas canônicas por página. A leitura
-direta de `SCAN_PAGE` reportou 100.249 páginas, um item canônico e quatro linhas
-ignoradas antes de falhar por repetição da página 1. Links numéricos dos
-resultados parecem contaminar a leitura de paginação; essa é uma hipótese para
-investigar por captura → fixture → teste, sem aumentar retries.
+dos primeiros 60 itens, comparada por hashes apenas em memória, corresponde à
+mesma ordem do scan salvo id 8. A leitura direta de `SCAN_PAGE` reportou
+100.249 páginas, um item canônico e quatro linhas ignoradas antes de falhar por
+repetição da página 1. Links numéricos dos resultados parecem contaminar a
+leitura de paginação; essa é uma hipótese para investigar por captura → fixture
+→ teste, sem aumentar retries.
 
 `fixtures/live-modality-error.json` registra duas tentativas isoladas em atos
 pendentes. A página do portal substituiu as opções de modalidade por um erro
