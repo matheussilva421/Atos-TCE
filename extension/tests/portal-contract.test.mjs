@@ -157,15 +157,32 @@ test("the BUTTONS fixture is classified as buttons and cannot be mistaken for a 
   assert.equal(formReader.readForm(documentRef), null);
 });
 
+test("the live process chooser route stays unknown and is not read as the legal form", () => {
+  const current = fixture("process-chooser.json");
+  const documentRef = setRoute(new FakeDocument({ screen: "unknown" }), current.route);
+  for (const control of current.controls) {
+    documentRef.body.append(
+      new FakeElement(control.tag, {
+        id: control.id ?? "",
+        attrs: { name: control.name ?? "", type: control.type ?? "" },
+      })
+    );
+  }
+
+  assert.equal(snapshot.scan(documentRef).role, "unknown");
+  assert.equal(formReader.readForm(documentRef), null);
+  assert.ok(contract().routes[current.route].allowed_roles.includes(current.state));
+});
+
 test("known routes and the list/buttons sibling-frame relation are explicit", () => {
   const routes = contract().routes;
 
   assert.deepEqual(Object.keys(routes).sort(), ["ComplementarAto.asp", "ProcessonoSetor.asp", "botoesNOVO.asp"]);
-  assert.deepEqual(routes["ComplementarAto.asp"].allowed_roles, ["interested", "form"]);
+  assert.deepEqual(routes["ComplementarAto.asp"].allowed_roles, ["interested", "form", "unknown"]);
   assert.equal(routes["botoesNOVO.asp"].frame_relation.relative_to, "ProcessonoSetor.asp");
   assert.equal(routes["botoesNOVO.asp"].frame_relation.relation, "sibling");
 
-  for (const name of ["list-page.json", "interested.json", "form.json", "buttons.json"]) {
+  for (const name of ["list-page.json", "interested.json", "form.json", "buttons.json", "process-chooser.json"]) {
     const current = fixture(name);
     assert.ok(routes[current.route].allowed_roles.includes(current.state), name);
   }

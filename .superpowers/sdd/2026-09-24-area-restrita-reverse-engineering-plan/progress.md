@@ -126,3 +126,12 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - A Mesa mostra os avisos do resolver: API serializa os `operation_warnings` em `warnings`, consumidos pelo painel `#fill-warnings`; teste web de avisos e suíte 28/28 passaram.
 - Next Process Tasks 1–8 continuam bloqueadas até Phase 0 fechar. O clique final **Complementar Ato** é exclusivamente manual. Revisão adversarial final e package smoke continuam pendentes.
 - GitHub: commit `bd4d29079e598a1c23ddca8280cbcdb4f02d9f1f` (`fix: always select a portal modality`) publicado em `codex/atos-tce-unified`; `git ls-remote` confirmou o SHA remoto idêntico.
+
+## Atualização: busca de processo na rota ComplementarAto — 2026-09-24
+
+- Rechecagem pelo Chrome DevTools MCP: CDP confirmado em `127.0.0.1:9222`; a única moldura visível da rota `ComplementarAto.asp` é uma busca de processo (dois inputs de texto e um rádio). Cinco molduras antigas/ocultas têm área zero; a moldura da lista também não está visível. Nenhum valor de entrada, linha, nome ou referência foi lido.
+- O `area-snapshot.js` já ignora frames sem área e classifica a busca como `unknown`; sem alteração de runtime. A variante real da rota estava ausente do contrato, então foi incluída como papel permitido `unknown` com fixture estrutural sanitizada `process-chooser.json`.
+- TDD do contrato: RED por `unknown` ausente em `allowed_roles`; GREEN após atualização. `node --test tests/portal-contract.test.mjs`: 8/8; `npm test --prefix extension`: 156/156; captura sanitizada versus fixture: paridade de 3 controles. Verificador `verify-project.ps1`: 1.259 executados, 1.257 aprovados, 0 falhas, 2 skips; 7 estágios verdes, incluindo pacote; `git diff --check` verde.
+- Task 10: continuam pendentes os cinco casos jurídicos reais e o caso parcial A/B/C; o registro anterior de caso fraco cobre somente a escolha da modalidade. Phase 0 segue sem ato de teste selecionado nesta sessão, observação pós-conclusão manual e ordem de lista comparada. Tasks 1–8 de Próximo Processo não começaram.
+- Handoff atualizado em `docs/notes/2026-09-24-area-restrita-lab-handoff.md`. Próximo gate live requer um ato de teste controlado aberto no Chrome QA. Clique final continua manual.
+- `git ls-remote origin refs/heads/codex/atos-tce-unified` não conectou a `github.com:443` nesta sessão; SHA remoto não revalidado após o próximo commit.

@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
-**Estado:** Tasks 1–7 publicadas em `origin/codex/atos-tce-unified`. Task 8 está em andamento: Mesa autenticada no Chrome QA e scan real via extensão salvo com 27 itens (24 concluídos, 3 pendentes); a lista completa informada pelo portal tem 1.197 itens e ainda não foi reconciliada. Best-Effort Task 10 e Next Process Phase 0 seguem abertos; Tasks 9–12 e Próximo Processo não foram implementadas nesta retomada.
+**Estado:** Portal Lab e scan live de 1.197 itens concluídos e publicados na branch unificada. Best-Effort Task 10 segue incompleta; a Phase 0 do Próximo Processo segue aberta; Tasks 1–8 de Próximo Processo ainda não começaram. A rechecagem live mais recente encontrou a etapa de busca por processo, sem ato-alvo aberto. O contrato agora documenta essa variante da rota como `unknown`; runtime não mudou.
 
 ## Resumo
 
@@ -363,3 +363,14 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 2. Retomar somente observações estruturais e agregadas da Phase 0; não repetir a leitura em lote rejeitada.
 3. Não clicar automaticamente em **Complementar Ato**; solicitar ao operador a ação final quando os demais gates estiverem prontos.
 4. Depois de Phase 0 fechada, implementar Tasks 1–8 de Próximo Processo; então fazer revisão adversarial independente, gates finais e smoke do pacote portátil.
+
+## Rechecagem live: busca de processo e contrato — 2026-09-24
+
+- O checker confirmou `CDP_ENDPOINT_OK` em `127.0.0.1:9222`. Na aba autenticada do portal, a estrutura atual contém um frame visível na rota `ComplementarAto.asp`; seus únicos controles visíveis são duas caixas de busca (número/ano) e um rádio. Há também cinco frames da mesma rota com área `0x0`, contendo controles ocultos; o frame da lista também está sem área visível. Valores de campos, linhas, nomes e referências não foram lidos.
+- O estado atual é busca de processo, não um ato aberto. Nenhum processo foi escolhido, nenhum campo foi preenchido e a navegação não foi alterada durante esta observação.
+- `extension/lib/area-snapshot.js::isVisibleDocument` já descarta documentos de frames sem área; `detectDocumentRole` classifica a tela de busca como `unknown` e não a trata como formulário jurídico. Não houve mudança no runtime.
+- Captura estrutural limitada aos controles visíveis foi salva em `tmp/portal-lab/2026-09-24-process-chooser/raw/process-chooser.json`; o sanitizador passou e gerou o artefato em `tmp/portal-lab/2026-09-24-process-chooser/sanitized/process-chooser.json`. Ambos ficam ignorados pelo Git.
+- Adicionada fixture sanitizada `devtools/area-restrita/fixtures/process-chooser.json`, sem valores de entrada, e ampliado `portal-contract.json` para permitir `unknown` em `ComplementarAto.asp`. RED: teste falhou porque o contrato excluía esse estado. GREEN: suíte focada do contrato, 8/8; paridade captura-fixture passou para os três controles visíveis. Suíte completa da extensão: 156/156. Verificador integrado `verify-project.ps1`: 1.259 executados, 1.257 aprovados, 0 falhas, 2 skips; os sete estágios passaram, incluindo auditoria de pacote; `git diff --check` passou.
+- Task 10 continua aguardando os cinco casos jurídicos reais e o caso parcial A/B/C; o caso live fraco já registrado anteriormente validou somente a seleção de modalidade, com aviso de revisão. Phase 0 continua sem comparação de ordem, retorno após conclusão manual e caso multi-interessado observado. Nenhum código de Próximo Processo foi iniciado.
+- Para retomar os gates live, abrir um ato de teste controlado no Chrome QA (sem enviar número ou nome no chat) e deixar a tela pronta para a observação supervisionada. O clique final **Complementar Ato** permanece exclusivamente manual.
+- Git local estava em `ba0cd31f0b804f36a3f5089879fc30026546dca8`. A consulta `git ls-remote` falhou nesta sessão por indisponibilidade de conexão com `github.com:443`; confirmar o SHA remoto depois do commit deste bloco.

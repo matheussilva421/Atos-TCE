@@ -45,7 +45,7 @@
       "allowed_roles": ["list"]
     },
     "ComplementarAto.asp": {
-      "allowed_roles": ["interested", "form"]
+      "allowed_roles": ["interested", "form", "unknown"]
     },
     "botoesNOVO.asp": {
       "allowed_roles": ["buttons"],

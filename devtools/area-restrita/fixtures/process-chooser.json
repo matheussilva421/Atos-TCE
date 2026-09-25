@@ -1,0 +1,35 @@
+{
+  "fixture_version": 1,
+  "state": "unknown",
+  "route": "ComplementarAto.asp",
+  "readyState": "complete",
+  "framePath": ["frame#form"],
+  "controls": [
+    {
+      "tag": "input",
+      "id": "txtNumeroProcesso",
+      "name": "txtNumeroProcesso",
+      "type": "text",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "id": "txtAnoProcesso",
+      "name": "txtAnoProcesso",
+      "type": "text",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    },
+    {
+      "tag": "input",
+      "name": "escolha",
+      "type": "radio",
+      "disabled": false,
+      "readOnly": false,
+      "optionCount": 0
+    }
+  ]
+}
