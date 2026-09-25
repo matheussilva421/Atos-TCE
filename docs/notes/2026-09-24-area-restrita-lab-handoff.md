@@ -419,6 +419,32 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 3. Continuar Task 10 nos casos restantes, usando somente alvos de teste controlados e registrando opções, decisões, campos, releitura e estado documental sem PII.
 4. Prosseguir com as observações L0/Phase 0 pendentes; deixar qualquer clique final **Complementar Ato** exclusivamente para o operador.
 
+## Continuação do goal — scan vivo e fronteira do pacote — 2026-09-25
+
+### Scan oficial da Área Restrita
+
+- O alvo MCP foi revalidado no Chrome QA pelo CDP loopback `127.0.0.1:9222`; a Mesa, o portal autenticado e a extensão oficial estavam presentes. Antes do scan, a estrutura mostrava um único frame de lista visível e nenhum formulário de ato.
+- A primeira solicitação pela Mesa aguardou a extensão. Como não havia formulário aberto, recarreguei uma vez a mesma página do portal para reinjetar o content script. A Mesa então concluiu a solicitação pelo fluxo `SCAN_AREA`/`SCAN_PAGE` da extensão; não usei o modo de compatibilidade nem leitura direta do handler.
+- Scan mais recente: id 8, origem `extension`, escopo `sector_finalistic`, 1.197 itens. Contagens: 354 `PRECISA_COMPLEMENTAR`, 843 `ATO_COMPLEMENTADO`, zero ambíguos, bloqueados ou não encontrados. A lista ficou no shell de navegação depois do recarregamento; o frame de lista não está selecionado neste momento.
+- Comparação do scan 8 com o scan completo anterior id 7: ambos 1.197 itens; mesmas identidades, mesma ordem, mesmas classificações e mesmo marcador. Isso confirma estabilidade entre as duas observações mais recentes.
+- Reconciliação do scan antigo id 5 (1.198) com o id 8 (1.197): mesmo valor bruto do marcador; o rótulo exibido difere somente pelo sufixo numérico da contagem. Portanto, a anotação anterior de que os marcadores eram diferentes estava incorreta; ela comparou rótulos que incluem a contagem. Chaves compostas anonimizadas: 1.196 compartilhadas, 2 somente no scan antigo e 1 somente no atual; os três exclusivos já estavam classificados como `ATO_COMPLEMENTADO`, resultando em delta líquido de -1. Os dois itens antigos estavam na página 38, posições 27–28; o item atual, na página 1, posição 1. A causa operacional da entrada/saída desses três itens não foi identificada.
+- Comparação de ordem entre id 5 e id 8: 1.181 das 1.196 chaves compartilhadas formam a mesma subsequência relativa; 15 aparecem fora de ordem e 32 mudaram de rank. A ordem recente id 7→8 é idêntica, mas a ordem histórica→atual não é estável o bastante para fechar o gate de ordenação. Investigar esse drift antes de aceitar a SPEC de Próximo Processo.
+- Nenhum formulário foi aberto/preenchido e nenhum ato foi submetido, assinado ou tramitado. A autenticação permaneceu no navegador e nenhuma credencial foi lida.
+
+### Correção da fronteira do pacote portátil
+
+- Revisão do endpoint `/api/v1/area/analyze-cdp` encontrou que `app/area_restrita/cdp_fallback.py` resolve `scripts/scan-area-cdp.ps1` na raiz do pacote, mas o builder copiava somente `app/`, `extension/`, `START.cmd` e `README.md`. O pacote portátil quebraria o botão de compatibilidade.
+- Alterações locais: `packaging/build-portable.ps1` agora inclui somente `scripts/scan-area-cdp.ps1`; `packaging/verify-package.ps1` exige essa entrada; `tests/test_packaging_contract.py` cobre builder e verificador, sem incluir o restante da árvore de desenvolvimento.
+- Gates executados: `npm test --prefix extension` — 156 passaram, 0 falharam; `python -m unittest tests.test_packaging_contract -v` — 14 executados, 13 passaram, 0 falharam, 1 skip porque `dist/Atos-TCE-portable.zip` não existe neste checkout. O verificador integrado `work/tce-extractor/verify-project.ps1` executou 1.259 testes, 1.257 passaram, 0 falharam, 2 skips; as sete etapas passaram. A suíte suplementar `python -m unittest discover -s . -p 'test_*.py' -q`, em `work/tce-extractor`, executou 528 testes, 519 passaram, 0 falharam, 9 skips. `git diff --check` passou. A suíte suplementar emitiu avisos de depreciação/HTTP vindos dos testes de fixture e terminou exit 0.
+
+### Estado e retomada
+
+- Este checkpoint corrigiu a interpretação do delta 1.198/1.197, confirmou um `SCAN_PAGE` completo atual pelo fluxo oficial e detectou drift de ordem histórica que ainda impede fechar Phase 0.
+- Best-Effort Task 10 segue incompleta: os casos jurídicos individuais restantes e o teste parcial A/B/C precisam de alvo controlado e validação supervisionada. Não reutilizar a aprovação do ato preenchido anteriormente para outros atos.
+- Phase 0 segue incompleta: além da investigação de ordem acima, faltam o caso multi-interessado e a observação do resultado/retorno depois que o operador concluir manualmente um ato controlado. O agente nunca clica em **Complementar Ato**.
+- Próximos passos: (1) revisar a ordenação/discrepância dos itens anonimizados sem exportar identidade; (2) rodar `work/tce-extractor/verify-project.ps1` e atualizar o status do Git; (3) publicar o código e este handoff; (4) fechar Task 10 e Phase 0 antes de criar a branch de produção Next Process; (5) seguir Tasks 1–8, revisão adversarial, gates finais e pacote standalone conforme o goal.
+- Git ao iniciar este checkpoint: branch `codex/atos-tce-unified`, HEAD `c39572deff6516c1ba9c57b13c263b8034e00a27`, sincronizada com `origin`. O fix de empacotamento e este adendo ainda não estão commitados/pushados.
+
 ## Continuação offline — baseline e gates ainda abertos — 2026-09-25
 
 - A pedido do operador, não interagi com Chrome/Área Restrita depois do preenchimento supervisionado. O formulário/aba permanecem para uso do operador. Li os oito documentos obrigatórios do pacote na ordem especificada antes de retomar análise.

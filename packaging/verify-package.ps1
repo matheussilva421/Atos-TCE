@@ -56,7 +56,8 @@ $requiredEntries = @(
     'app/core/store.py',
     'extension/manifest.json',
     'START.cmd',
-    'README.md'
+    'README.md',
+    'scripts/scan-area-cdp.ps1'
 )
 $runtimeRequiredEntries = @(
     'runtime-manifest.json',

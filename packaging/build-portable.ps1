@@ -231,6 +231,10 @@ try {
     Copy-Tree -SourcePath (Join-Path $RepositoryRoot 'extension') -DestinationPath (Join-Path $packageStaging 'extension') -Label 'extension' -ExcludedDirectoryNames $sourceExcludedDirectories -ExcludedFileSuffixes $sourceExcludedSuffixes -ForbiddenFileSuffixes $sourceForbiddenSuffixes
     Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'START.cmd') -Destination (Join-Path $packageStaging 'START.cmd') -Force
     Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'README.md') -Destination (Join-Path $packageStaging 'README.md') -Force
+    # The Mesa compatibility endpoint resolves this single read-only scanner
+    # from the repository/package root; do not copy the development scripts tree.
+    [IO.Directory]::CreateDirectory((Join-Path $packageStaging 'scripts')) | Out-Null
+    Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'scripts\scan-area-cdp.ps1') -Destination (Join-Path $packageStaging 'scripts\scan-area-cdp.ps1') -Force
 
     if (-not $SkipRuntime) {
         Copy-Tree -SourcePath (Join-Path $runtimeStagingRoot 'runtime') -DestinationPath (Join-Path $packageStaging 'runtime') -Label 'runtime' -ForbiddenFileSuffixes $privateOnlySuffixes

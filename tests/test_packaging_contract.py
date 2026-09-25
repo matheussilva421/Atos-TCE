@@ -73,6 +73,7 @@ BASE_FILES = {
     ).encode("utf-8"),
     "START.cmd": b"@echo off\r\npython -m app.main %*\r\n",
     "README.md": b"# Atos TCE\n",
+    "scripts/scan-area-cdp.ps1": b"# shared read-only Area Restrita scanner\n",
     "licenses/README.md": b"# Licencas\n",
 }
 
@@ -81,6 +82,7 @@ REQUIRED_ENTRIES = (
     "extension/manifest.json",
     "START.cmd",
     "README.md",
+    "scripts/scan-area-cdp.ps1",
 )
 
 
@@ -246,6 +248,16 @@ class VerifierContractTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("START.cmd", result.stderr + result.stdout)
 
+    def test_rejects_package_missing_the_cdp_compatibility_scanner(self):
+        base = dict(BASE_FILES)
+        base.pop("scripts/scan-area-cdp.ps1")
+        archive = make_package(self.tmp / "sem-scanner.zip", base=base)
+
+        result = self.verify(archive, "-AllowMissingRuntime", "-SkipSmoke")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scripts/scan-area-cdp.ps1", result.stderr + result.stdout)
+
     def test_verifies_every_runtime_file_against_the_runtime_manifest(self):
         payload = b"runtime payload"
 
@@ -294,6 +306,16 @@ class BuilderContractTests(unittest.TestCase):
         self.assertTrue(any(name.startswith("extension/") for name in names))
         self.assertIn("START.cmd", names)
         self.assertIn("README.md", names)
+        self.assertIn("scripts/scan-area-cdp.ps1", names)
+        with zipfile.ZipFile(destination) as handle:
+            self.assertEqual(
+                handle.read("scripts/scan-area-cdp.ps1"),
+                (REPO_ROOT / "scripts" / "scan-area-cdp.ps1").read_bytes(),
+            )
+        self.assertEqual(
+            [name for name in names if name.startswith("scripts/")],
+            ["scripts/scan-area-cdp.ps1"],
+        )
         self.assertFalse(any(name.lower().endswith(".pdf") for name in names))
         self.assertFalse(any("__pycache__" in name for name in names))
         for prefix in FORBIDDEN_PREFIXES:
@@ -346,6 +368,7 @@ class RealPackageContractTests(unittest.TestCase):
             self.assertTrue(any(name.startswith("app/") for name in names))
             self.assertTrue(any(name.startswith("extension/") for name in names))
             self.assertTrue(any(name.startswith("runtime/") for name in names))
+            self.assertIn("scripts/scan-area-cdp.ps1", names)
             self.assertFalse(any(name.lower().endswith(".pdf") for name in names))
             for prefix in FORBIDDEN_PREFIXES:
                 self.assertFalse(any(name.startswith(prefix) for name in names), prefix)
