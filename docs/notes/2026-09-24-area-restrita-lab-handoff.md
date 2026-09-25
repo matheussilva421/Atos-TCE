@@ -352,7 +352,7 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - Medição de navegação de um alvo exato não concluiu: tentativa DOM aguardou 15 s sem formulário visível; tentativa subsequente não encontrou a ação exata. Não foi repetida com seleção por posição ou aproximação. Captura posterior da lista e uma observação de estado pós-clique manual também permanecem pendentes.
 - Estado live rechecado por estrutura: o Chrome QA continua no portal e a Mesa permanece autenticada; há um formulário de ato visível. Mantive a aba/formulário aberto para preservar os campos preenchidos que ainda não foram concluídos manualmente; não naveguei para a lista nem cliquei em ação final.
 - Próximo Processo segue bloqueado pelo gate da Phase 0. Não abrir produção de Tasks 1–8 até obter ordem, baseline de navegação e estado pós-conclusão manual. O operador deve executar o clique final **Complementar Ato**; a automação só observa o resultado depois.
-- Estado Git nesta atualização: branch canônica, alterações locais em `app/area_restrita/preflight.py`, `app/area_restrita/fill_service.py`, `tests/test_fill_service.py`, fixture sanitizada, este handoff e o ledger SDD; HEAD `9b9cbe3f76fbb46ac214131c09618576ce32a136`. Consulta `git ls-remote` falhou por indisponibilidade de rede para `github.com`; ainda sem commit/push deste bloco.
+- GitHub: commit `bd4d29079e598a1c23ddca8280cbcdb4f02d9f1f` (`fix: always select a portal modality`) publicado na branch `codex/atos-tce-unified`; `git ls-remote` confirmou o mesmo SHA. As alterações de código, fixture, testes e handoff/ledger estão nesse commit.
 
 ### Retomada
 
