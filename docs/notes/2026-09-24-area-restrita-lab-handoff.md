@@ -385,3 +385,11 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - A consulta numérica do frame LIST segue em 12/40 e área zero; ela é estado DOM oculto, não uma chamada `SCAN_PAGE` atual. Não usar esse frame nem os formulários ocultos como alvo de Task 9/10.
 - O operador ainda não abriu um ato controlado no Chrome QA. O próximo passo dependente continua sendo deixar um ato escolhido na etapa visível de interessado/formulário, sem enviar número ou nome no chat; a ação final permanece manual.
 - O handoff desta revalidação foi publicado no commit `481a797f2b2a7e70ab1e275bb0a678eb016ebfeb`, confirmado por `git ls-remote`; esta observação `READ_CURRENT_FORM` será incluída no próximo commit documental.
+
+## Consulta não enviada: revisão automática — 2026-09-24
+
+- A busca visível agora tem os campos número/ano preenchidos; seus valores não foram lidos. A tela ainda é o chooser em `ComplementarAto.asp`, sem sentinelas de campos legais visíveis.
+- Uma tentativa de acionar o único controle visível **Consultar** foi rejeitada pela revisão automática porque enviaria a consulta preenchida, poderia abrir dados pessoais de um processo real e não havia evidência confiável de que o alvo fosse um ato controlado.
+- Não houve submissão da consulta nem transição. Rechecagem depois da rejeição confirmou a busca ainda preenchida, nenhum campo legal visível, e `READ_CURRENT_FORM` retornou `FORM_NOT_AVAILABLE` sem formulário/identidade.
+- Retomar quando o operador confirmar, sem enviar identificadores, que o alvo preenchido é um ato controlado autorizado; ou substituir a busca por um ato controlado no próprio Chrome QA e avisar. Só então continuar Task 9/10. Clique final continua manual.
+- Task 10, Phase 0 e Next Process Tasks 1–8 continuam abertas; sem ato controlado não há gate real para avançar. Nenhum código runtime foi alterado.

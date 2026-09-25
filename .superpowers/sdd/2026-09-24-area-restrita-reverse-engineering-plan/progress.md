@@ -145,3 +145,10 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - O frame LIST oculto mantém somente metadado numérico 12/40; isso não é uma chamada SCAN_PAGE atual nem prova de ordem. Não usar frames ocultos para Task 9/10.
 - Aguardando o ato controlado visível no Chrome QA para continuar as validações reais supervisionadas. Nenhum submit ou clique final foi executado.
 - O registro anterior foi publicado no commit `481a797f2b2a7e70ab1e275bb0a678eb016ebfeb` e confirmado no remoto. Esta evidência será publicada no commit documental seguinte.
+
+## Gate de ato controlado — consulta bloqueada — 2026-09-24
+
+- Campos número/ano do chooser visível estão preenchidos, sem ler valores; não há sentinelas legais visíveis. A extensão segue retornando `FORM_NOT_AVAILABLE`.
+- O clique **Consultar** foi rejeitado pelo auto-review porque enviaria busca de possível processo real sem evidência de alvo controlado. A consulta não foi enviada; rechecagem confirmou estado inalterado.
+- Para continuar Task 9/10 e Phase 0, o operador precisa confirmar sem identificadores que o alvo já preenchido é controlado/autorizado, ou substituí-lo no Chrome QA por um ato de teste controlado. Não enviar número/nome no chat. Clique final permanece manual.
+- Sem este gate, não iniciar código de Próximo Processo; revisão adversarial e packaging final seguem depois das fases obrigatórias.
