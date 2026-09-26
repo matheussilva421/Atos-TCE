@@ -955,3 +955,10 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - Não houve clique em portal, navegação de processo, preenchimento ou ação final. A tentativa única já autorizada do botão oficial de análise segue com resposta `session_required`; não repetir nem usar rota alternativa.
 - Git no início desta tarefa: branch `codex/atos-tce-unified`, HEAD publicado `b14e565`. Task 4 está no working tree, aguardando revisão e commit. Próxima etapa imediata: rever diff/contrato, commit `feat: navigate back to portal queue safely` e push apenas para a branch unificada.
 - Pendências: Tasks 5–8, Best-Effort Task 10, validação supervisionada, revisão adversarial, gates finais e ZIP standalone. Clique final permanece humano.
+
+### Fechamento e publicação da Task 4
+
+- Commit `9472d2a` (`feat: navigate back to portal queue safely`) foi criado e o push para `origin/codex/atos-tce-unified` foi aceito (`b14e565..9472d2a`). HEAD local: `9472d2acda17eedb4161d8d77f941a979e0b1f98`.
+- Validações preservadas: testes focais 82/82, extensão 180/180, `node --check extension/content/navigate.js` e `git diff --check` passaram. Nenhuma interação live com processo/ato ocorreu.
+- Próxima ação: começar Task 5 em TDD; criar primeiro testes RED para botão Próximo Processo e para manter a identidade do formulário confirmado enquanto o formulário some. O backend continua sendo a autoridade para a fila e a identidade atual.
+- O scan oficial autorizado foi executado uma única vez e retornou `session_required`; não repetir e não contornar por outra interface.

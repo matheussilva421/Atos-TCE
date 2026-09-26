@@ -355,3 +355,9 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - Testes: `node --test extension/tests/navigate.test.mjs extension/tests/router.test.mjs` — 82/82; `npm test --prefix extension` — 180/180; `node --check extension/content/navigate.js`; `git diff --check`.
 - Nenhuma navegação live nem edição de processo/ato. Análise oficial única permanece recusada com `session_required`; não repetir.
 - Task 4 code e handoff estão no working tree; HEAD remoto anterior `b14e565`. Após revisar diff, commit/push e registrar SHA, começar Task 5: botão Próximo Processo no side panel.
+
+### Publicação confirmada — 2026-09-26
+
+- Task 4 publicada em `9472d2a` (`feat: navigate back to portal queue safely`); `git push origin codex/atos-tce-unified` aceito, atualização `b14e565..9472d2a`.
+- Handoff de publicação: `docs/notes/2026-09-24-area-restrita-lab-handoff.md`. Próximo trabalho: Task 5, TDD do botão Próximo Processo no side panel e persistência da identidade confirmada durante a transição.
+- Scan Área Restrita autorizado foi tentado uma vez e retornou `session_required`; não repetir nem usar rota alternativa. Nenhum processo/ato foi alterado; ação final permanece manual.
