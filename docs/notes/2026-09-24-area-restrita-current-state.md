@@ -4,15 +4,17 @@
 
 Este bloco é a fonte de estado atual; os registros abaixo são cronológicos e podem conter estados antigos.
 
-- Branch única: `codex/atos-tce-unified`; último commit funcional publicado: `b3e12846fada07b30b29dad3b63aa6851f289572` (Task 6), push aceito em `origin/codex/atos-tce-unified`.
-- Phase 0 foi encerrada por equivalência de evidências, conforme a decisão registrada adiante. Tasks 1–6 de Próximo Processo estão implementadas e publicadas.
+- Branch única: `codex/atos-tce-unified`; implementação das Tasks 1–6 publicada em `b3e12846fada07b30b29dad3b63aa6851f289572`. A cobertura da Task 7 (`be79ff7`) foi enviada e o push para `origin/codex/atos-tce-unified` foi aceito; este handoff atualizado aguarda publicação.
+- Phase 0 foi encerrada por equivalência de evidências, conforme a decisão registrada adiante. Tasks 1–7 de Próximo Processo estão implementadas ou cobertas por testes.
 - Task 4 retorna pelo único link nativo observado (`A.tabs-inner`, rótulo exato), após confirmar a identidade atual; não altera o marcador e recusa controles ausentes ou ambíguos.
 - Task 5 acrescenta “Próximo processo →” ao painel; conserva a identidade atual em memória, encaminha somente os dois campos compostos pelo service worker e aguarda a releitura exata do destino antes de declarar pronto. Timeout após aceite mantém a ação bloqueada para evitar duplicatas e instrui conferência manual.
 - Task 6 acrescenta a ação à Mesa; envia o ID do processo selecionado, acompanha o comando autenticado e muda o detalhe selecionado somente após `SUCCEEDED` com `next_act_ready`/formulário. Não chama o endpoint de preenchimento.
+- Task 7 reutilizou os testes de identidade lembrada, marcador divergente, paginação cross-page, alvo stale, frames ambíguos e foco já adicionados nas Tasks 4–6; acrescentou a asserção de que fim da fila não cria comando de extensão. Suítes focais: Python 108/108, extensão 88/88 + estado do painel 9/9.
+- Captura estrutural L0 read-only está em `dados-locais/portal-lab/area-restrita-structural-L0-2026-09-26.json`, ignorada pelo Git; registra somente metadados de estrutura, sem texto, valores de campos, cookies ou tráfego. Não é uma nova análise da lista nem substitui `SCAN_PAGE`.
 - O usuário autorizou uma execução do botão oficial de análise. A tentativa retornou `session_required`; não houve varredura nova persistida. Não repetir nem buscar a mesma leitura por outra interface.
 - Task 5 passou os testes focais, suíte completa da extensão e gates gerais; a validação de navegação live continua pendente porque o scan autorizado respondeu `session_required`.
 - Task 6 passou UI 31/31, API/web 102/102 e gate integrado 1.260 executados, 1.258 aprovados, 0 falhas e 2 skips.
-- Best-Effort Task 10, Tasks 7–8, validação supervisionada, revisão adversarial e pacote standalone seguem pendentes. O clique final permanece manual.
+- Task 8, Best-Effort Task 10, validação supervisionada, revisão adversarial e pacote standalone seguem pendentes. O clique final permanece manual.
 
 ## Git
 

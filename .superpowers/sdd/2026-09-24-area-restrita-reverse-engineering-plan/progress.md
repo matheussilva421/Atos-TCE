@@ -381,3 +381,11 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - Nenhuma navegação live ou alteração de processo/ato; clique final manual. O scan oficial foi tentado uma vez nesta retomada e retornou `session_required`; não repetir nem contornar.
 - Commit `b3e1284` (`ui: add next-process action to Mesa`) e push confirmados (`39f8aec..b3e1284`).
 - Próxima tarefa: Task 7, testes RED para paginação cross-page, alvo stale, ambiguidade de frames e foco. Task 8, validação supervisionada, revisão adversarial e ZIP standalone permanecem pendentes.
+
+## Task 7 — navegação segura e fim da fila (2026-09-26)
+
+- Cobertura já existente foi conferida para identidade atual preservada durante a transição, marcador divergente, alvo cross-page, alvo stale sem fallback, frames ambíguos e ativação da aba do formulário exato. Não foram duplicados testes nem alterado runtime.
+- Acrescentada asserção ao teste de API de fim da fila para provar que nenhum comando de extensão é enfileirado. Commit de teste `be79ff7` (`test: harden next-process navigation`) foi enviado; push aceito para `origin/codex/atos-tce-unified` (`f78dcf0..be79ff7`).
+- GREEN: Python focal 108/108; extensão roteador/navegação/wiring 88/88; estado do painel 9/9; `git diff --check` verde.
+- Captura estrutural L0 autorizada está em `dados-locais/portal-lab/area-restrita-structural-L0-2026-09-26.json`, sob diretório ignorado, somente metadados e sem valores/texto. Não substitui a análise de lista; a tentativa oficial anterior retornou `session_required` e não foi repetida.
+- Próximo: Task 8 e validação supervisionada; Task 10, revisão adversarial, gates finais e pacote standalone continuam pendentes. Clique final humano.

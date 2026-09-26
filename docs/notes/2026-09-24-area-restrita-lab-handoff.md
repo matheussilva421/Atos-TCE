@@ -983,3 +983,13 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - Nenhuma navegação live, preenchimento ou ação final ocorreu. Scan oficial autorizado já retornou `session_required` em tentativa única; não repetir nem consultar os mesmos dados por outro caminho.
 - Commit `b3e1284` (`ui: add next-process action to Mesa`) foi enviado; push aceito (`39f8aec..b3e1284`).
 - Próximo passo: Task 7, reforçar casos cross-page, alvo stale, frames ambíguos e foco, começando por testes RED. Best-Effort Task 10, Task 8, validação supervisionada, revisão adversarial e pacote standalone seguem pendentes.
+
+## Task 7 — endurecimento da navegação e cobertura de fim da fila (2026-09-26)
+
+- A revisão encontrou cobertura já existente para os cinco focos: o painel preserva a última identidade confirmada durante a ausência temporária do formulário; o roteador recusa marcador divergente sem restaurá-lo; a navegação abre alvo exato em página posterior; alvo stale retorna `TARGET_NOT_FOUND` sem selecionar linha vizinha; frames de formulário ambíguos falham fechados. O foco ativa a aba que contém o formulário relido com a identidade exata. Esses casos foram reutilizados, sem duplicar testes nem mudar produção.
+- A lacuna restante era a resposta de fim de fila não provar ausência de comando. `tests/test_api_server.py` agora verifica também que `get_extension_command(1)` permanece `None`.
+- Testes: `python -m unittest tests.test_navigation_service tests.test_api_server -v` — 108/108; `node --test extension/tests/router.test.mjs extension/tests/navigate.test.mjs extension/tests/sidepanel-wiring.test.mjs` — 88/88; `node --test extension/tests/sidepanel-state.test.mjs` — 9/9; `git diff --check` passou.
+- O teste foi commitado como `be79ff7` (`test: harden next-process navigation`). Nenhum código de produção mudou nesta tarefa.
+- Captura estrutural L0 autorizada e somente leitura: `dados-locais/portal-lab/area-restrita-structural-L0-2026-09-26.json` está em pasta ignorada. Contém metadados de frames/forms/controles, sem texto de página, valores de campos, cookies, armazenamento, tráfego ou screenshots. Não foi feita outra análise de lista; `SCAN_PAGE` continua sem retry após `session_required`.
+- Nenhum processo/ato foi aberto, preenchido ou alterado nesta tarefa; clique final permanece manual. Captura não fecha a validação supervisionada da navegação.
+- Próxima tarefa: Task 8, preparar a matriz supervisionada de navegação quando o alvo exato e o estado necessário estiverem disponíveis; depois revisão adversarial, gates finais e ZIP standalone.
