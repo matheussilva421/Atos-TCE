@@ -345,5 +345,5 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - RED/GREEN API: `python -m unittest tests.test_api_server.NextActRouteTests -q` — 7/7; suíte API completa `python -m unittest tests.test_api_server -q` — 100/100. Uma resposta só confirma o comando com `next_act_ready`, tela `form` e identidade composta igual ao alvo enfileirado.
 - Ação de próxima navegação não chama filler nem finaliza ato. Sem leitura live de processo durante os testes.
 - O usuário autorizou uma tentativa do botão oficial “Analisar Área Restrita”; executada uma vez na Mesa Local. Resultado `session_required`; nenhum novo scan foi persistido. Não repetir nem substituir a rota.
-- Código/handoff ainda no working tree; branch `codex/atos-tce-unified`, HEAD publicado `5510362`. Commit/push do Task 3 pendentes após revisão e `git diff --check`.
-- Próxima retomada: concluir review estático, commit/push do Task 3; iniciar Task 4 com RED dos handlers `RETURN_TO_LIST` em `extension/content/navigate.js`, sem interagir com o portal até a validação supervisionada prevista.
+- Task 3 commit `9231c19` foi enviado com sucesso a `origin/codex/atos-tce-unified`. `git ls-remote` adicional falhou por indisponibilidade de conexão a `github.com:443`; o push aceito e o tracking local ficaram alinhados.
+- Próxima retomada: iniciar Task 4 com RED dos handlers `RETURN_TO_LIST` em `extension/content/navigate.js`, sem interagir com o portal até a validação supervisionada prevista.
