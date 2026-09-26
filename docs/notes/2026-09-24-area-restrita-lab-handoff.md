@@ -896,3 +896,15 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - Identidades anonimizadas por HMAC, ordem e diferenças estão em `tmp/portal-lab/2026-09-26-phase0-authorized/sanitized/historical-reconciliation.json`; a chave local está em `raw/identity-hmac.key`. Esses arquivos são ignorados pelo Git. Nenhum valor identificável foi exibido ou adicionado a docs.
 - Essa comparação histórica explica a tentativa de 27 e descreve a variação das contagens; não valida ainda os três itens exclusivos contra a lista viva atual. D2 segue parcial por causa da rejeição de `SCAN_PAGE` pelo auto-review. Não tentei outra interface para a mesma leitura.
 - GitHub: launcher QA publicado em `e0beda3`; esta captura e reconciliação publicadas em `810d727`, com SHA remota verificada. Os arquivos privados em `tmp/` não foram versionados; nenhum teste foi executado nesta reconciliação read-only.
+
+## 2026-09-26 — baseline completo na retomada após autorização L0
+
+- O usuário confirmou autorização para persistir a captura estrutural L0. Ela já está salva somente nos diretórios ignorados `tmp/portal-lab/2026-09-26-phase0-authorized/{raw,sanitized}/`; nada desses dados foi adicionado ao Git.
+- Baseline da raiz: `python -m unittest discover -s tests -p "test_*.py" -q` — 647 executados, 646 aprovados, 0 falhas, 1 skip.
+- Extensão: `npm test --prefix extension` — 160 aprovados, 0 falhas.
+- Web: `node --test app/web/tests/*.test.mjs` — 29 aprovados, 0 falhas. Permanece o aviso `MODULE_TYPELESS_PACKAGE_JSON` para `app/web/pdf-viewer.js`.
+- Projeto: `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1` — 1.260 verificações, 1.258 aprovadas, 0 falhas, 2 skips; os sete estágios passaram, incluindo `git diff --check`.
+- Nenhum código de produção foi alterado. Não houve nova leitura da lista autenticada, seleção de processo, abertura/preenchimento de ato ou clique final nesta execução.
+- A autorização para a captura estrutural foi atendida; o `SCAN_PAGE` continua sem execução porque o auto-review bloqueou a leitura das linhas autenticadas que contêm processos e interessados. Não usar outra rota para obter os mesmos dados. D1/D2, Best-Effort Task 10 e Phase 0 permanecem incompletas; Next Process Tasks 1–8 seguem atrás do hard gate.
+- Estado antes desta atualização documental: branch `codex/atos-tce-unified`, HEAD local e remoto `e9df490ef8840b1bb7a50e9ea257d1eac2280070`, checkout limpo. O `.git` está disponível somente para leitura neste ambiente; commit/push desta atualização dependem de permissão de escrita no banco Git.
+- Retomada: preservar a fronteira do auto-review. Continuar somente com tarefas offline independentes até haver um caminho aprovado para a leitura necessária; não começar Next Process Tasks 1–8 antes do fechamento documentado de Task 10 e Phase 0.
