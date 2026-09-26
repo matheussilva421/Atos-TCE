@@ -153,6 +153,8 @@ async function loadPdfjs() {
   const state = {
     items: [],
     selectedId: null,
+    nextProcessRunning: false,
+    nextProcessNeedsReview: false,
     query: "",
     status: "",
     acquisitionRunning: false,
@@ -164,6 +166,94 @@ async function loadPdfjs() {
   };
 
   const numberFormat = new Intl.NumberFormat("pt-BR");
+
+  function updateNextProcessButton() {
+    const button = document.getElementById("next-process");
+    if (!button) return;
+    button.disabled =
+      !state.selectedId || state.nextProcessRunning || state.nextProcessNeedsReview;
+  }
+
+  async function startNextProcess() {
+    const button = document.getElementById("next-process");
+    const status = document.getElementById("next-process-status");
+    if (!state.selectedId || state.nextProcessRunning || state.nextProcessNeedsReview || !button || !status) return;
+
+    const processId = state.selectedId;
+    const numericProcessId = Number(processId);
+    if (!Number.isSafeInteger(numericProcessId) || numericProcessId <= 0) {
+      status.textContent = "Selecione um processo válido na lista.";
+      return;
+    }
+
+    state.nextProcessRunning = true;
+    updateNextProcessButton();
+    status.textContent = "Solicitando o próximo processo…";
+    let responseReceived = false;
+    let commandAccepted = false;
+
+    try {
+      const created = await postJson("/api/v1/portal/next-act", { process_id: numericProcessId });
+      responseReceived = true;
+      if (created.end_of_queue === true) {
+        status.textContent = "Fim da fila";
+        return;
+      }
+
+      commandAccepted = true;
+      const commandId = Number(created.command_id);
+      const targetProcessId = Number(created.target_process_id);
+      if (
+        !Number.isSafeInteger(commandId) || commandId <= 0 ||
+        !Number.isSafeInteger(targetProcessId) || targetProcessId <= 0
+      ) {
+        state.nextProcessNeedsReview = true;
+        status.textContent = "A Mesa aceitou a solicitação, mas não confirmou o destino. Confira o portal antes de repetir.";
+        return;
+      }
+
+      status.textContent = "Abrindo próximo…";
+      const deadline = Date.now() + 300000;
+      let ticks = 0;
+      for (;;) {
+        await sleep(1000);
+        const command = await getJson(`/api/v1/extension/commands/${commandId}`);
+        if (command.state === "SUCCEEDED") {
+          const result = command.result;
+          if (result?.action !== "next_act_ready" || result?.screen !== "form") {
+            state.nextProcessNeedsReview = true;
+            status.textContent = "A conclusão não confirmou o formulário. Confira o portal antes de repetir.";
+            break;
+          }
+          await selectProcess(targetProcessId);
+          status.textContent = result.identity?.processKey
+            ? `Formulário pronto: ${result.identity.processKey}`
+            : "Formulário pronto";
+          break;
+        }
+        if (command.state === "FAILED") {
+          status.textContent = `A navegação falhou: ${command.error || command.result?.error || "erro na extensão"}`;
+          commandAccepted = false;
+          break;
+        }
+        ticks += 1;
+        if (ticks === 4) {
+          status.textContent = "Aguardando a extensão (Chrome QA aberto e conectado)…";
+        }
+        if (Date.now() > deadline) {
+          state.nextProcessNeedsReview = true;
+          status.textContent = "A solicitação não foi confirmada em 5 minutos. Verifique o portal antes de repetir.";
+          break;
+        }
+      }
+    } catch (error) {
+      status.textContent = `Não foi possível abrir o próximo processo: ${error.message}`;
+      if (commandAccepted || !responseReceived) state.nextProcessNeedsReview = true;
+    } finally {
+      state.nextProcessRunning = false;
+      updateNextProcessButton();
+    }
+  }
 
   function element(tag, options = {}, children = []) {
     const node = document.createElement(tag);
@@ -875,6 +965,9 @@ async function loadPdfjs() {
   async function selectProcess(processId) {
     state.selectedId = processId;
     state.detail = null;
+    updateNextProcessButton();
+    const nextStatus = document.getElementById("next-process-status");
+    if (nextStatus && !state.nextProcessRunning) nextStatus.textContent = "";
     state.viewer = { documentId: null, page: 1, pageCount: 1, scale: 1.5, rotation: 0, rects: [] };
     document.getElementById("pdf-viewer").hidden = true;
     document.getElementById("viewer-caption").textContent = "";
@@ -887,6 +980,8 @@ async function loadPdfjs() {
       host.replaceChildren(
         element("p", { className: "error-note", text: `Falha ao abrir o processo: ${error.message}` })
       );
+    } finally {
+      updateNextProcessButton();
     }
   }
 
@@ -915,6 +1010,8 @@ async function loadPdfjs() {
     document.getElementById("analyze-area").addEventListener("click", analyzeArea);
     document.getElementById("analyze-area-cdp").addEventListener("click", analyzeAreaCdp);
     document.getElementById("download-pending").addEventListener("click", startAcquisition);
+    document.getElementById("next-process").addEventListener("click", startNextProcess);
+    updateNextProcessButton();
 
     for (const button of document.querySelectorAll("#detail-tabs button")) {
       button.addEventListener("click", () => {

@@ -280,6 +280,14 @@ main {
   margin-bottom: 14px;
 }
 
+.next-process-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 0 12px;
+}
+
 .detail section {
   margin-top: 16px;
 }
@@ -395,6 +403,11 @@ button.ghost {
   background: #fff;
   color: var(--accent);
   cursor: pointer;
+}
+
+button.ghost:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .tabs {

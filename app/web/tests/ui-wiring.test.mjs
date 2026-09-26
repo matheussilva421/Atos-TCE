@@ -145,3 +145,29 @@ test("fill summary survives the detail refresh and never adds a submit action", 
   assert.match(source, /function renderFillSummary\(request\)/u);
   assert.doesNotMatch(source + page, /id="(?:submit|send|finalize|complement-act)"/iu);
 });
+
+test("the Mesa exposes a disabled next-process action and live status text", () => {
+  assert.match(page, /id="next-process"[^>]*disabled/u);
+  assert.match(page, /Próximo processo →/u);
+  assert.match(page, /id="next-process-status"[^>]*aria-live="polite"/u);
+});
+
+test("the Mesa requests by selected process and selects only the confirmed target", () => {
+  const start = source.indexOf("async function startNextProcess");
+  assert.notEqual(start, -1, "the Mesa owns a dedicated next-process action");
+  const end = source.indexOf("\n  function element", start);
+  const body = source.slice(start, end === -1 ? undefined : end);
+
+  assert.match(body, /const processId = state\.selectedId/u);
+  assert.match(body, /const numericProcessId = Number\(processId\)/u);
+  assert.match(body, /postJson\("\/api\/v1\/portal\/next-act",\s*\{\s*process_id: numericProcessId\s*\}\)/u);
+  assert.match(body, /end_of_queue/u);
+  assert.match(body, /Abrindo próximo…/u);
+  assert.match(body, /const commandId = Number\(created\.command_id\)/u);
+  assert.match(body, /\/api\/v1\/extension\/commands\/\$\{commandId\}/u);
+  assert.match(body, /command\.state === "SUCCEEDED"/u);
+  assert.match(body, /const targetProcessId = Number\(created\.target_process_id\)/u);
+  assert.match(body, /selectProcess\(targetProcessId\)/u);
+  assert.match(body, /Formulário pronto/u);
+  assert.doesNotMatch(body, /\/api\/v1\/processes\/[^`]*\/fill/u);
+});
