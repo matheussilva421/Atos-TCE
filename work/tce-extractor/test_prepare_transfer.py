@@ -19,7 +19,38 @@ sys.path.insert(0, str(APP_ROOT))
 from prepare_transfer import TransferBusyError, prepare_transfer  # noqa: E402
 
 
+def _unlink_marker_with_retry(marker: Path, *, deadline: float) -> None:
+    while marker.exists():
+        try:
+            marker.unlink()
+            return
+        except PermissionError:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise
+            time.sleep(min(0.01, remaining))
+
+
 class PrepareTransferTests(unittest.TestCase):
+    def test_drain_marker_removal_retries_transient_windows_lock(self):
+        with TemporaryDirectory() as temporary:
+            marker = Path(temporary) / "collector.json"
+            marker.write_text('{"pid":1}', encoding="utf-8")
+            original_unlink = Path.unlink
+            attempts = {"count": 0}
+
+            def fail_first_unlink(path, *args, **kwargs):
+                if path == marker and attempts["count"] == 0:
+                    attempts["count"] += 1
+                    raise PermissionError(13, "sharing violation", str(path))
+                return original_unlink(path, *args, **kwargs)
+
+            with patch.object(Path, "unlink", fail_first_unlink):
+                _unlink_marker_with_retry(marker, deadline=time.monotonic() + 1)
+
+            self.assertEqual(attempts["count"], 1)
+            self.assertFalse(marker.exists())
+
     def test_embedded_cli_loads_sibling_packager_without_script_directory_on_sys_path(self):
         with TemporaryDirectory() as temporary:
             app = Path(temporary) / "app"
@@ -61,18 +92,29 @@ class PrepareTransferTests(unittest.TestCase):
 
             def drain_after_pause_request():
                 request = bridge / "transfer-request.json"
-                deadline = time.monotonic() + 1
+                deadline = time.monotonic() + 2
                 while not request.exists() and time.monotonic() < deadline:
                     time.sleep(0.01)
-                marker.unlink()
+                if request.exists():
+                    _unlink_marker_with_retry(marker, deadline=deadline)
 
-            worker = threading.Thread(target=drain_after_pause_request)
+            worker_errors = []
+
+            def capture_worker_error():
+                try:
+                    drain_after_pause_request()
+                except Exception as error:
+                    worker_errors.append(error)
+
+            worker = threading.Thread(target=capture_worker_error)
             worker.start()
             try:
-                result = prepare_transfer(package, root / "transfer.zip", timeout_seconds=1)
+                result = prepare_transfer(package, root / "transfer.zip", timeout_seconds=3)
             finally:
                 worker.join(timeout=2)
 
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(worker_errors, [])
             self.assertTrue(Path(result["path"]).exists())
             self.assertFalse((bridge / "transfer-request.json").exists())
 
