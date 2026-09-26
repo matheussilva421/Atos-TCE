@@ -388,4 +388,13 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - Acrescentada asserção ao teste de API de fim da fila para provar que nenhum comando de extensão é enfileirado. Commit de teste `be79ff7` (`test: harden next-process navigation`) foi enviado; push aceito para `origin/codex/atos-tce-unified` (`f78dcf0..be79ff7`).
 - GREEN: Python focal 108/108; extensão roteador/navegação/wiring 88/88; estado do painel 9/9; `git diff --check` verde.
 - Captura estrutural L0 autorizada está em `dados-locais/portal-lab/area-restrita-structural-L0-2026-09-26.json`, sob diretório ignorado, somente metadados e sem valores/texto. Não substitui a análise de lista; a tentativa oficial anterior retornou `session_required` e não foi repetida.
-- Próximo: Task 8 e validação supervisionada; Task 10, revisão adversarial, gates finais e pacote standalone continuam pendentes. Clique final humano.
+- Registro anterior ao fechamento offline: Task 8 e validação supervisionada ainda estavam pendentes. O checkpoint abaixo é o estado mais recente. Clique final humano.
+
+## Next Process Tasks 8 — checkpoint 2026-09-26
+
+- Offline work closed: adversarial P2 on HTTP 409 `next_act_refused` fixed with TDD in local commit `13f0503`; web suite 32/32.
+- Final automated gates: Python 662 exit 0; extension 190/190; web 32/32; integrated verifier 1,260 executed / 1,258 passed / 0 failed / 2 skipped; actual portable ZIP contract 14/14.
+- Standalone ZIP rebuilt and smoke-verified: 516 entries, pinned runtime 430 files, health OK, SHA-256 `216f10546370c1215ee0aef6554b397c33b4c562fa4b46bf98409b8c47f55627`. ZIP remains ignored/local.
+- User authorized L0 structural persistence; capture remains under ignored `dados-locais/portal-lab/` and contains structure metadata only.
+- Live Task 8 remains NOT_RUN: MCP/CDP target mismatch; the one official scan attempt returned `session_required`. Do not retry or bypass. No process/act changed. Manual final click remains out of automation.
+- Next: commit/push the hotfix and handoffs; reconcile MCP with the dedicated Chrome QA CDP session; only then perform one supervised exact-target transition and timing comparison. Task 10 and overall goal remain incomplete.

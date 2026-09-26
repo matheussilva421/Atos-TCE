@@ -1,8 +1,17 @@
 # Estado atual canônico — 2026-09-24
 
-## Retomada atual — 2026-09-26
+## Retomada final — 2026-09-26
 
-Este bloco é a fonte de estado atual; os registros abaixo são cronológicos e podem conter estados antigos.
+- A autorização do usuário para persistir a captura estrutural L0 foi atendida somente em `dados-locais/portal-lab/area-restrita-structural-L0-2026-09-26.json`, ignorado pelo Git; conteúdo estrutural sem texto ou valores.
+- Revisão adversarial de Next Process apontou uma recusa 409 `next_act_refused` que travava novas tentativas. Corrigida sob TDD em `app/web/app.js` e `app/web/tests/ui-wiring.test.mjs`; commit `13f0503` está local e aguarda push junto com este handoff.
+- Gates após correção: Python raiz 662 executados, exit 0; extensão 190/190; web 32/32; `verify-project.ps1` 1.260 executados, 1.258 aprovados, 0 falhas, 2 skips; contrato do pacote 14/14.
+- ZIP standalone foi reconstruído e verificado: 516 entradas, runtime pinado com 430 arquivos, smoke `status: ok`; SHA-256 `216f10546370c1215ee0aef6554b397c33b4c562fa4b46bf98409b8c47f55627`, artefato ignorado em `dist/Atos-TCE-portable.zip`.
+- Task 8 ainda parcial: MCP/CDP continua sem prova de estar conectado ao Chrome QA correto; a única análise oficial autorizada retornou `session_required` e não será repetida nem contornada. Matriz real e comparação pareada de tempo seguem `NOT_RUN`. Task 10 também continua pendente; goal não concluído.
+- Próxima retomada: publicar commit `13f0503` e este checkpoint; reconectar MCP ao Chrome QA dedicado em `127.0.0.1:9222`, confirmar abas da Área Restrita e Mesa por metadados, depois executar somente uma transição supervisionada no alvo exato e registrar releitura/timing. Clique final de Complementar Ato segue humano.
+
+## Histórico anterior ao fechamento offline — 2026-09-26
+
+O bloco “Retomada final” acima é o estado vigente e supersede este registro cronológico anterior.
 
 - Branch única: `codex/atos-tce-unified`; implementação das Tasks 1–6 publicada em `b3e12846fada07b30b29dad3b63aa6851f289572`. A cobertura da Task 7 (`be79ff7`) foi enviada e o push para `origin/codex/atos-tce-unified` foi aceito; este handoff atualizado aguarda publicação.
 - Phase 0 foi encerrada por equivalência de evidências, conforme a decisão registrada adiante. Tasks 1–7 de Próximo Processo estão implementadas ou cobertas por testes.

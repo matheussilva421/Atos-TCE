@@ -1,7 +1,16 @@
 # Área Restrita Portal Lab — handoff incremental
 
+## Continuação — 2026-09-26, fechamento offline
+
+- O usuário autorizou persistir a captura estrutural L0; ela foi salva apenas no diretório ignorado `dados-locais/portal-lab/`, sem texto da página, valores, cookies, storage, rede ou screenshot. Nenhuma leitura da lista nem análise oficial adicional foi feita.
+- Task 8 de Next Process está parcial. MCP lista páginas do portal, mas `127.0.0.1:9222` expõe só alvo de extensão; não há prova de que sejam a sessão Chrome QA. A execução oficial anterior respondeu `session_required`; não repetir nem contornar. Navegação portal-real e timing continuam pendentes.
+- Revisão adversarial encontrou e levou a correção TDD do tratamento HTTP 409 `next_act_refused`, commit `13f0503` (local, push pendente). Teste web 32/32; contrato do ZIP real 14/14; gate integrado 1.260/1.258/0/2; extensão 190/190.
+- ZIP reconstruído após a correção: `dist/Atos-TCE-portable.zip`, 516 entradas, runtime 430 arquivos, smoke OK; SHA-256 `216f10546370c1215ee0aef6554b397c33b4c562fa4b46bf98409b8c47f55627`. Artefato ignorado, sem dados locais.
+- Próximo passo: publicar `13f0503` e os handoffs; depois reconciliar MCP/Chrome QA e concluir somente a matriz live autorizada. Task 10 e goal seguem incompletos; ação final Complementar Ato é sempre manual.
+
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
+**Nota:** O parágrafo de estado abaixo é histórico (25/09); a seção “Continuação — 2026-09-26” acima é a retomada vigente e o supersede.
 **Estado atualizado em 2026-09-25:** Portal Lab Tasks 1–7 concluídas; Tasks 8–9 parciais após um preenchimento supervisionado em formulário controlado. A varredura oficial atual id 8 contou 1.197 itens e os scans ids 7–8 repetiram a mesma ordem. A comparação com o scan id 5 corrigiu a hipótese de marcador diferente: o valor foi o mesmo e o rótulo mudou apenas pelo sufixo da contagem; a diferença de identidade é 2 itens concluídos que saíram e 1 concluído que entrou. Best-Effort Task 10 permanece incompleta; Phase 0 segue aberta por faltar a validação final manual, baseline após conclusão, caso multi-interessado e conferência atual explícita da fronteira de página. Próximo Processo Tasks 1–8 não começaram. O Chrome QA voltou ao shell de navegação após a reinjeção; não há formulário aberto.
 
 ## Resumo
