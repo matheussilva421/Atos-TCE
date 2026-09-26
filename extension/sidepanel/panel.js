@@ -5,7 +5,20 @@
  */
 
 import { MESA_ORIGIN, MESSAGE_TYPES, PORTAL_ORIGIN } from "../lib/protocol.js";
-import { describeMesaStatus } from "./state.js";
+import {
+  describeMesaStatus,
+  describeNextActOutcome,
+  hasFormIdentity,
+  matchesFormIdentity,
+  pollForTargetForm,
+  retainLastConfirmedIdentity,
+} from "./state.js";
+
+let lastConfirmedFormIdentity = null;
+let currentFormAvailable = false;
+let nextActInProgress = false;
+let acceptedNextTarget = null;
+let nextActFeedback = null;
 
 function setState(elementId, dotId, text, tone) {
   const label = document.getElementById(elementId);
@@ -37,8 +50,10 @@ async function refresh() {
     const mesa = await refreshMesa();
     await refreshPortal();
     await refreshCurrentForm();
-    diagnostic.className = "";
-    diagnostic.textContent = mesa.diagnostic ?? "A conexão automática está sendo estabelecida.";
+    if (!nextActFeedback) {
+      diagnostic.className = "";
+      diagnostic.textContent = mesa.diagnostic ?? "A conexão automática está sendo estabelecida.";
+    }
   } catch (error) {
     diagnostic.className = "error";
     diagnostic.textContent = `Falha ao consultar o estado: ${error?.message ?? error}`;
@@ -51,28 +66,54 @@ async function refresh() {
  */
 async function refreshCurrentForm() {
   const info = document.getElementById("form-info");
-  const button = document.getElementById("fill-current");
   try {
-    const response = await globalThis.chrome.runtime.sendMessage({ type: "READ_CURRENT_FORM" });
-    if (response?.ok && response.form) {
+    const response = await globalThis.chrome.runtime.sendMessage({ type: MESSAGE_TYPES.READ_CURRENT_FORM });
+    lastConfirmedFormIdentity = retainLastConfirmedIdentity(lastConfirmedFormIdentity, response);
+    currentFormAvailable = response?.ok === true && hasFormIdentity(response.form?.identity);
+    if (currentFormAvailable) {
       info.textContent = `Processo atual: ${response.form.identity.processKey} — ${response.form.identity.interestedNormalized}`;
-      button.disabled = false;
+      if (matchesFormIdentity(response.form.identity, acceptedNextTarget)) {
+        acceptedNextTarget = null;
+        setNextActFeedback(`Formulário pronto: ${response.form.identity.processKey}`);
+      }
+      updateActionButtons();
       return response.form;
     }
-    info.textContent = "Nenhum formulário de ato aberto.";
-    button.disabled = true;
+    info.textContent = hasFormIdentity(lastConfirmedFormIdentity)
+      ? "Nenhum formulário aberto; a última identidade confirmada foi mantida."
+      : "Nenhum formulário de ato aberto.";
+    updateActionButtons();
     return null;
   } catch {
     info.textContent = "Abra a Área Restrita autenticada para o modo manual.";
-    button.disabled = true;
+    currentFormAvailable = false;
+    updateActionButtons();
     return null;
   }
+}
+
+function updateActionButtons() {
+  const fillButton = document.getElementById("fill-current");
+  const nextButton = document.getElementById("next-process");
+  if (fillButton) fillButton.disabled = !currentFormAvailable || nextActInProgress || Boolean(acceptedNextTarget);
+  if (nextButton) {
+    nextButton.disabled =
+      !hasFormIdentity(lastConfirmedFormIdentity) || nextActInProgress || Boolean(acceptedNextTarget);
+  }
+}
+
+function setNextActFeedback(message, isError = false) {
+  nextActFeedback = message;
+  const diagnostic = document.getElementById("diagnostic");
+  diagnostic.className = isError ? "error" : "";
+  diagnostic.textContent = message;
 }
 
 document.getElementById("fill-current").addEventListener("click", async () => {
   const diagnostic = document.getElementById("diagnostic");
   const button = document.getElementById("fill-current");
   button.disabled = true;
+  nextActFeedback = null;
   diagnostic.className = "";
   diagnostic.textContent = "Enviando o formulário atual para a Mesa…";
   try {
@@ -97,6 +138,56 @@ document.getElementById("fill-current").addEventListener("click", async () => {
     diagnostic.textContent = `Falha ao preencher: ${error?.message ?? error}`;
   } finally {
     await refreshCurrentForm();
+  }
+});
+
+document.getElementById("next-process").addEventListener("click", async () => {
+  if (nextActInProgress || acceptedNextTarget || !hasFormIdentity(lastConfirmedFormIdentity)) return;
+
+  nextActInProgress = true;
+  updateActionButtons();
+  setNextActFeedback("Abrindo próximo…");
+
+  try {
+    const response = await globalThis.chrome.runtime.sendMessage({
+      type: MESSAGE_TYPES.REQUEST_NEXT_ACT,
+      payload: { identity: lastConfirmedFormIdentity },
+    });
+    const outcome = describeNextActOutcome(response);
+    if (outcome.state === "end_of_queue") {
+      setNextActFeedback(outcome.message);
+      return;
+    }
+    if (outcome.state !== "opening") {
+      setNextActFeedback(`Não foi possível abrir o próximo processo: ${outcome.code}`, true);
+      return;
+    }
+
+    acceptedNextTarget = outcome.targetIdentity;
+    updateActionButtons();
+    const form = await pollForTargetForm({
+      readCurrentForm: () =>
+        globalThis.chrome.runtime.sendMessage({ type: MESSAGE_TYPES.READ_CURRENT_FORM }),
+      targetIdentity: outcome.targetIdentity,
+    });
+    if (form) {
+      lastConfirmedFormIdentity = retainLastConfirmedIdentity(lastConfirmedFormIdentity, { ok: true, form });
+      currentFormAvailable = true;
+      document.getElementById("form-info").textContent =
+        `Processo atual: ${form.identity.processKey} — ${form.identity.interestedNormalized}`;
+      acceptedNextTarget = null;
+      setNextActFeedback(`Formulário pronto: ${form.identity.processKey}`);
+    } else {
+      setNextActFeedback(
+        "A Mesa aceitou a solicitação, mas o formulário alvo não foi confirmado. Confira a Área Restrita antes de tentar novamente.",
+        true,
+      );
+    }
+  } catch (error) {
+    setNextActFeedback(`Falha ao abrir o próximo processo: ${error?.message ?? error}`, true);
+  } finally {
+    nextActInProgress = false;
+    updateActionButtons();
   }
 });
 

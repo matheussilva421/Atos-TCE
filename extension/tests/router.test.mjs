@@ -907,6 +907,63 @@ test("the router sends manual fill through its Mesa API", async () => {
   assert.deepEqual(received, form);
 });
 
+test("the router forwards only the current composed identity for next-process", async () => {
+  const chromeApi = fakeChrome();
+  let received = null;
+  installRouter({
+    api: {
+      requestNextAct: async (identity) => {
+        received = identity;
+        return { ok: true, status: 201, payload: { command_id: 9 } };
+      },
+      nextCommand: async () => ({ ok: true, command: null }),
+      reportResult: async () => {},
+    },
+    chromeApi,
+  });
+
+  const response = await sendRuntime(chromeApi, {
+    type: MESSAGE_TYPES.REQUEST_NEXT_ACT,
+    payload: {
+      identity: {
+        processKey: "current/2026",
+        interestedNormalized: "pessoa atual",
+        target_identity: { processKey: "forged/2026", interestedNormalized: "forjada" },
+      },
+    },
+  });
+
+  assert.equal(response.ok, true);
+  assert.deepEqual(received, {
+    processKey: "current/2026",
+    interestedNormalized: "pessoa atual",
+  });
+});
+
+test("the router refuses next-process requests without both current identity fields", async () => {
+  const chromeApi = fakeChrome();
+  let requestCount = 0;
+  installRouter({
+    api: {
+      requestNextAct: async () => {
+        requestCount += 1;
+        return { ok: true };
+      },
+      nextCommand: async () => ({ ok: true, command: null }),
+      reportResult: async () => {},
+    },
+    chromeApi,
+  });
+
+  const response = await sendRuntime(chromeApi, {
+    type: MESSAGE_TYPES.REQUEST_NEXT_ACT,
+    payload: { identity: { processKey: "current/2026" } },
+  });
+
+  assert.deepEqual(response, { ok: false, error: "current_identity_required" });
+  assert.equal(requestCount, 0);
+});
+
 test("the router registers a slow recovery alarm", () => {
   const chromeApi = fakeChrome();
 

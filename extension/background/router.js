@@ -864,6 +864,26 @@ export function installRouter({
         .catch((error) => sendResponse({ ok: false, status: 0, error: String(error?.message ?? error) }));
       return true;
     }
+    if (message?.type === MESSAGE_TYPES.REQUEST_NEXT_ACT) {
+      const identity = message.payload?.identity;
+      if (
+        typeof identity?.processKey !== "string" ||
+        !identity.processKey.trim() ||
+        typeof identity?.interestedNormalized !== "string" ||
+        !identity.interestedNormalized.trim()
+      ) {
+        sendResponse({ ok: false, error: "current_identity_required" });
+        return false;
+      }
+      api
+        .requestNextAct({
+          processKey: identity.processKey,
+          interestedNormalized: identity.interestedNormalized,
+        })
+        .then((outcome) => sendResponse(outcome))
+        .catch((error) => sendResponse({ ok: false, status: 0, error: String(error?.message ?? error) }));
+      return true;
+    }
     if (message?.type === MESSAGE_TYPES.READ_CURRENT_FORM) {
       readCurrentForm()
         .then((outcome) => sendResponse(outcome))

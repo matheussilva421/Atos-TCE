@@ -21,3 +21,14 @@ test("the sidepanel delegates Mesa operations to the service worker", () => {
   assert.match(source, /MESSAGE_TYPES\.MESA_STATUS/u);
   assert.match(source, /MESSAGE_TYPES\.REQUEST_MANUAL_FILL/u);
 });
+
+test("the sidepanel offers next-process navigation after a form identity is known", () => {
+  assert.match(page, /<button[^>]+id="next-process"[^>]+disabled[^>]*>Próximo processo →<\/button>/iu);
+  assert.match(source, /MESSAGE_TYPES\.REQUEST_NEXT_ACT/u);
+  assert.match(source, /lastConfirmedFormIdentity/u);
+});
+
+test("the sidepanel never includes a target identity in its request", () => {
+  assert.match(source, /payload:\s*\{\s*identity:\s*lastConfirmedFormIdentity\s*\}/u);
+  assert.doesNotMatch(source, /target_identity\s*:/u);
+});
