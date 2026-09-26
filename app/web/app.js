@@ -247,8 +247,14 @@ async function loadPdfjs() {
         }
       }
     } catch (error) {
-      status.textContent = `Não foi possível abrir o próximo processo: ${error.message}`;
-      if (commandAccepted || !responseReceived) state.nextProcessNeedsReview = true;
+      const isDefinitiveRefusal =
+        error?.status === 409 && error?.payload?.error === "next_act_refused";
+      status.textContent = isDefinitiveRefusal
+        ? "A análise está desatualizada ou o alvo deixou de ser único. Atualize a Área Restrita e tente novamente."
+        : `Não foi possível abrir o próximo processo: ${error.message}`;
+      if (commandAccepted || (!responseReceived && !isDefinitiveRefusal)) {
+        state.nextProcessNeedsReview = true;
+      }
     } finally {
       state.nextProcessRunning = false;
       updateNextProcessButton();
@@ -305,7 +311,10 @@ async function loadPdfjs() {
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
       const detail = payload && (payload.detail || payload.error);
-      throw new Error(detail ? String(detail) : `${response.status} ${response.statusText}`);
+      const error = new Error(detail ? String(detail) : `${response.status} ${response.statusText}`);
+      error.status = response.status;
+      error.payload = payload;
+      throw error;
     }
     return payload || {};
   }

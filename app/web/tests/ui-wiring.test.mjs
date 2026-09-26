@@ -171,3 +171,18 @@ test("the Mesa requests by selected process and selects only the confirmed targe
   assert.match(body, /Formulário pronto/u);
   assert.doesNotMatch(body, /\/api\/v1\/processes\/[^`]*\/fill/u);
 });
+
+test("a coded next-process refusal remains retryable and asks for a fresh analysis", () => {
+  const start = source.indexOf("async function startNextProcess");
+  const end = source.indexOf("\n  function element", start);
+  const body = source.slice(start, end === -1 ? undefined : end);
+
+  assert.ok(source.includes("error.status = response.status"), "postJson preserves the HTTP status");
+  assert.ok(source.includes("error.payload = payload"), "postJson preserves the refusal code");
+  assert.ok(
+    body.includes('error?.status === 409 && error?.payload?.error === "next_act_refused"'),
+    "the Mesa recognizes a definitive next-act refusal"
+  );
+  assert.ok(body.includes("!isDefinitiveRefusal"), "a refusal does not trip the uncertain-result lock");
+  assert.ok(body.includes("Atualize a Área Restrita e tente novamente"), "the operator gets a retry instruction");
+});
