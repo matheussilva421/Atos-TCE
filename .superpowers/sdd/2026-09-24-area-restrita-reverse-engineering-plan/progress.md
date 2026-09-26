@@ -316,3 +316,10 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - HMACs de identidade e comparações ficam em `tmp/portal-lab/2026-09-26-phase0-authorized/sanitized/historical-reconciliation.json`; a chave HMAC fica na pasta `raw/`. Nenhum nome ou número de processo foi incluído em relatório versionado.
 - D2 está melhor caracterizada, mas não fechada: a leitura atual foi rejeitada pelo auto-review e os três itens exclusivos ainda não foram validados contra uma observação viva autorizada. Task 10 e D1/D3–D6 permanecem pendentes.
 - Git/GitHub: o launcher QA foi publicado em `e0beda3`; a captura L0 e a reconciliação histórica foram publicadas em `810d727`, com `origin/codex/atos-tce-unified` verificado nesse SHA. Nenhum arquivo de `tmp/` foi versionado.
+
+## 2026-09-26 — Phase 0 encerrada por evidência equivalente
+
+- Decisão conforme objetivo atualizado: iniciar Next Process Tasks 1–8 usando os scans completos reais consecutivos (ordem/classificações estáveis), reconciliação 1198/1197 e do scan parcial, paginação observada, retorno nativo com marcador preservado, frames/transições reais, identidade composta/releitura e timings registrados. Referência principal: `docs/notes/2026-09-23-area-restrita-next-navigation-discovery.md`.
+- `SCAN_PAGE` adicional terminou em `session_required`; não foi repetido nem substituído por outra interface. Falta de exemplo multi-interessado e de transição após clique final manual não impede a seleção segura: a navegação deve recusar identidade ausente/ambígua/stale ou contexto divergente, sem fallback; clique final segue humano.
+- O commit documental residual `423b6b4` foi cherry-picked isoladamente como `f44f45c`; patch-id idêntico e único commit exclusivo comprovados. A branch remota residual foi removida conforme o objetivo.
+- Phase 0 encerrada; Best-Effort Task 10 e o Goal geral continuam pendentes. Próximo passo imediato: TDD da NavigationService (RED -> implementação mínima -> GREEN), sem iniciar outra leitura autenticada.

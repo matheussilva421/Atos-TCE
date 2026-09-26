@@ -3,7 +3,7 @@
 **Data:** 2026-09-23
 **Branch:** `codex/next-process-navigation-discovery`
 **Base:** `b1d41e848c39cb61947b011501925c40f86793fb` (`origin/main`)
-**Estado atualizado em 2026-09-25:** Phase 0 continua parcial; o `SCAN_PAGE` completo da extensão está registrado localmente. O delta agregado 1.198→1.197 e a estabilidade recente da ordem foram reavaliados; Task 1 segue bloqueada por gates reais pós-conclusão/manual, caso multi-interessado, timings e conferência explícita da fronteira atual.
+**Estado atualizado em 2026-09-26:** Phase 0 foi encerrada por equivalência de evidências reais suficientes para as invariantes de navegação. A validação pós-clique manual e um caso multi-interessado seguem fora desta decisão; o clique final continua humano e ambiguidades devem falhar fechadas.
 
 Esta nota registra apenas evidência da sessão real. Nenhum código de navegação foi alterado. Identidades de processos/interessados foram comparadas localmente por hash composto e não são registradas aqui.
 
@@ -142,3 +142,13 @@ Três medições manuais somente de navegação, desde clique na ação da linha
 - Para Task 10, dois processos que a Mesa marcava `PRONTO` e `PRECISA_COMPLEMENTAR` foram consultados individualmente. Em ambos, processo e único interessado visíveis coincidiram com o registro da Mesa; após selecionar o interessado e usar `Consultar`, o portal retornou `Microsoft VBScript runtime error '800a005e' Invalid use of Null: 'Cint'` na linha 773 no lugar das opções de modalidade. A página ficou com 15 controles e seis sentinelas obrigatórias ausentes.
 - O painel da extensão permaneceu em “Nenhum formulário de ato aberto”, com o preenchimento desabilitado. Não foi criada solicitação de preenchimento, não houve escrita ou releitura do filler e o botão final não foi acionado. O estado do navegador foi restaurado à lista do marcador, sem filtros de número/ano, na página 2.
 - Fixtures sem identidades ou valores: `live-pagination.json` e `live-modality-error.json`. A falha idêntica em dois registros sugere problema no lado do portal/catálogo, não prova um erro de proposta jurídica. Task 10 continua sem validação; Phase 0 continua pendente de ordem versus scan salvo, conclusão manual observada, baseline pós-conclusão e interessado múltiplo.
+
+## Decisão do gate — Phase 0 encerrada por equivalência (2026-09-26)
+
+**Decisão:** iniciar as Tasks 1–8 de Próximo Processo. O `SCAN_PAGE` adicional foi recusado/bloqueado nesta sessão (`session_required`); não tentamos outra interface para obter a mesma leitura. Ele não é hard gate porque evidências reais equivalentes já demonstram as invariantes necessárias:
+
+- scans completos oficiais consecutivos de 1.197 itens mantêm o mesmo conjunto, ordem e classificação; a reconciliação histórica 1.198→1.197 e o scan parcial de 27 itens estão explicados na reconciliação privada e no handoff, sem identidades no Git;
+- páginas observadas coincidem com a ordem persistida, incluindo travessia de fronteira; o retorno nativo à lista preserva página e marcador;
+- a transição de lista para formulário foi observada com frames distintos, interessado exato e releitura da identidade final; há medições reais de navegação e retorno.
+
+A validação posterior ao clique manual e um exemplo multi-interessado não mudam a regra de seleção: a Mesa escolhe pelo snapshot ordenado e a extensão recebe identidade composta explícita. A implementação deve recusar alvo ausente, ambíguo, stale ou com contexto divergente; nunca escolher linha vizinha, posição visual ou fazer wrap. Este fechamento libera a implementação de navegação; não conclui Best-Effort Task 10 nem o Goal geral. O botão final **Complementar Ato** permanece exclusivamente manual.

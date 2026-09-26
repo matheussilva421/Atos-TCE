@@ -96,3 +96,7 @@ Reexecutar esses gates no HEAD atual antes de qualquer nova implementação.
 - alvo ambíguo não pode ser escolhido por ordem de frame;
 - valores de select devem pertencer ao catálogo atual;
 - o clique final de **Complementar Ato** continua manual.
+
+## Atualização de gate — 2026-09-26
+
+Phase 0 está **encerrada por equivalência de evidências reais**, conforme decisão e justificativa em `2026-09-23-area-restrita-next-navigation-discovery.md`. O scan vivo adicional desta sessão retornou `session_required`; não foi buscado por outra interface. Scans completos anteriores, ordem observada entre páginas, reconciliação, preservação de marcador/retorno nativo e releitura da identidade são suficientes para iniciar a implementação com guardas fail-closed. O pós-clique manual e um caso multi-interessado não são hard gates para esta navegação; qualquer ambiguidade/stale deve recusar alvo. Best-Effort Task 10 permanece pendente e o clique final permanece humano.
