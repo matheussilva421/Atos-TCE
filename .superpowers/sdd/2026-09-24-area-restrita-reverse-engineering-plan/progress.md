@@ -323,3 +323,10 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - `SCAN_PAGE` adicional terminou em `session_required`; não foi repetido nem substituído por outra interface. Falta de exemplo multi-interessado e de transição após clique final manual não impede a seleção segura: a navegação deve recusar identidade ausente/ambígua/stale ou contexto divergente, sem fallback; clique final segue humano.
 - O commit documental residual `423b6b4` foi cherry-picked isoladamente como `f44f45c`; patch-id idêntico e único commit exclusivo comprovados. A branch remota residual foi removida conforme o objetivo.
 - Phase 0 encerrada; Best-Effort Task 10 e o Goal geral continuam pendentes. Próximo passo imediato: TDD da NavigationService (RED -> implementação mínima -> GREEN), sem iniciar outra leitura autenticada.
+
+## Task 1 — resolver de próximo alvo (2026-09-26)
+
+- Implementada `NavigationService.next_target`: usa somente a ordem `area_scan_items`, não ordena chaves, não faz wrap, exige scan mais recente/completo e contexto presente, valida a identidade composta do atual e dos alvos, escolhe somente `PRONTO` + `PRECISA_COMPLEMENTAR`, e retorna marcador/scope exatamente como gravados. Ausente, ambíguo, antigo ou incoerente gera `NavigationError` com código sem dados de processo.
+- TDD: primeiro RED por módulo ausente; depois, REDs para preservar o marcador literal e recusar contexto divergente/ausente no processo atual e no destino. Oito testes novos; teste focal final `python -m unittest tests.test_navigation_service tests.test_store tests.test_fill_service tests.test_api_server -q` — 191/191 aprovados.
+- Gates finais: Python raiz 655 executados, 654 aprovados, 0 falhas, 1 skip; extensão 160/160; web 29/29; `verify-project.ps1` 1.260 executados, 1.258 aprovados, 0 falhas, 2 skips, sete estágios verdes; suíte complementar do extrator 529 executados, 520 aprovados, 0 falhas, 9 skips (sem alterações no legado); `git diff --check` passou.
+- Nenhuma navegação, abertura de ato, preenchimento ou ação final foi executada nesta Task 1. Próximo passo: Task 2, uma requisição Mesa para preparar e enfileirar o alvo explícito.

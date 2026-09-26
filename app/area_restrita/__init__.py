@@ -19,4 +19,6 @@ AREA_CLASSIFICATIONS = (
     "BLOQUEADO",
 )
 
-__all__ = ["PORTAL_ROLES", "AREA_CLASSIFICATIONS"]
+from .navigation_service import NavigationError, NavigationService
+
+__all__ = ["PORTAL_ROLES", "AREA_CLASSIFICATIONS", "NavigationError", "NavigationService"]
