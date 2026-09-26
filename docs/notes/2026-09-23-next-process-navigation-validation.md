@@ -7,7 +7,7 @@
 ## Implementação e gates automatizados
 
 - Branch: `codex/atos-tce-unified`.
-- Navegação implementada nas Tasks 1–7. Commits publicados: `be79ff7` (teste) e `a6f7572` (handoff). Correção pós-revisão `13f0503` trata recusas HTTP 409 `next_act_refused` como retryable sem abrir o bloqueio de incerteza; commit local até o fechamento deste handoff.
+- Navegação implementada nas Tasks 1–7. Commits publicados: `be79ff7` (teste), `a6f7572` (handoff), `13f0503` (correção pós-revisão) e `c9e0428` (handoff final). O push foi aceito em `origin/codex/atos-tce-unified`, de `a6f7572` até `c9e0428`.
 - `python -m unittest discover -s tests -p "test_*.py" -q`: 662 executados, 661 aprovados, 0 falhas, 1 skip.
 - `npm test --prefix extension`: 190/190.
 - `node --test app/web/tests/*.test.mjs`: 32/32 após a correção de recusas 409.
@@ -57,3 +57,4 @@
 - `python -m unittest tests.test_packaging_contract -v`: 14 testes aprovados, 0 falhas.
 - O ZIP foi refeito depois de `13f0503` e passou tanto `packaging/verify-package.ps1` quanto o teste de allowlist do pacote real. Artefato local ignorado: `dist/Atos-TCE-portable.zip`.
 - Task 8 permanece parcial; Task 10 e o goal geral não estão concluídos enquanto faltarem validação supervisionada real e comparação de tempo. O clique final permanece manual.
+- Estado Git ao fechar: branch canônica publicada em `c9e0428`; captura L0 e ZIP continuam locais/ignorados.
