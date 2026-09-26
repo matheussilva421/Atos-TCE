@@ -128,6 +128,8 @@ class NavigationService:
                 return {
                     "current_identity": _identity_of(current),
                     "target_identity": _identity_of(target),
+                    "current_process_id": int(current["id"]),
+                    "target_process_id": target_id,
                     "scan_id": scan_id,
                     "source_scope": source_scope,
                     "marker": {"label": marker_label, "value": marker_value},

@@ -1,7 +1,8 @@
 """Loopback HTTP server that exposes the Mesa to its own web UI and to the
 trusted thin Chrome/Edge extension.
 
-Three route families exist and never share credentials:
+Route families normally use separate credentials; the next-act endpoint is an
+intentional dual-auth route shared by the Mesa and its registered extension:
 
 ``public``
     read-only Mesa routes (health, processes, storage, documents) plus the
@@ -12,6 +13,10 @@ Three route families exist and never share credentials:
 ``extension``
     routes used by the registered adapter; they require the bearer token plus
     ``X-TCE-Client`` and only answer Chrome/Edge extension origins.
+``/api/v1/portal/next-act``
+    accepts either the same-origin Mesa session with a local process id or the
+    registered extension credentials with the current composite identity. The
+    backend alone resolves the next target.
 
 There is deliberately no generic file route: PDFs are reachable solely through
 ``/api/v1/documents/<id>/pdf``, and the path is always resolved from SQLite and
@@ -32,7 +37,12 @@ from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from ..core.store import Store
-from ..area_restrita import AREA_CLASSIFICATIONS, PORTAL_ROLES
+from ..area_restrita import (
+    AREA_CLASSIFICATIONS,
+    NavigationError,
+    NavigationService,
+    PORTAL_ROLES,
+)
 from ..area_restrita import cdp_fallback
 from ..area_restrita.fill_service import (
     OPEN_ACT_ACTIONS,
@@ -65,7 +75,9 @@ MAX_BODY_BYTES = 8 * 1024 * 1024
 
 #: Command types the Mesa may queue for the thin extension. There is never a
 #: submit type: the final completion click stays with the operator.
-ALLOWED_COMMAND_TYPES = frozenset({"STATUS", "SCAN_AREA", "OPEN_ACT", "READ_FORM", "FILL_FORM"})
+ALLOWED_COMMAND_TYPES = frozenset(
+    {"STATUS", "SCAN_AREA", "OPEN_ACT", "OPEN_NEXT_ACT", "READ_FORM", "FILL_FORM"}
+)
 
 
 def _scan_result_problem(payload: Mapping[str, Any]) -> str | None:
@@ -244,6 +256,7 @@ POST_ROUTES: tuple[Route, ...] = (
         "mesa",
     ),
     Route(re.compile(r"/api/v1/portal/manual-form"), "post_manual_form", "mesa"),
+    Route(re.compile(r"/api/v1/portal/next-act"), "post_next_act", "extension"),
 )
 
 
@@ -283,6 +296,7 @@ class MesaServer(ThreadingHTTPServer):
         self._analysis: AnalysisService | None = None
         self._fill: FillService | None = None
         self._archive: ArchiveManager | None = None
+        self._navigation: NavigationService | None = None
 
     @property
     def analysis(self) -> AnalysisService:
@@ -299,6 +313,14 @@ class MesaServer(ThreadingHTTPServer):
         if self._fill is None:
             self._fill = FillService(self.store)
         return self._fill
+
+    @property
+    def navigation(self) -> NavigationService:
+        """The backend-owned selector for the next exact portal target."""
+
+        if self._navigation is None:
+            self._navigation = NavigationService(self.store)
+        return self._navigation
 
     @property
     def archive(self) -> ArchiveManager:
@@ -733,6 +755,65 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         request = self.mesa.store.get_fill_request(request_id) or {}
         self._send_json(
             {"fill_request_id": request_id, "state": request.get("state"), "mode": "manual"}, status=201
+        )
+
+    def post_next_act(self) -> None:
+        """Resolve and queue one exact next-process navigation request."""
+
+        mesa_session = self._require_session(silent=True)
+        extension_client = None if mesa_session else self._require_extension()
+        if not mesa_session and extension_client is None:
+            return
+
+        payload = self._read_json_body()
+        if mesa_session:
+            if set(payload) != {"process_id"}:
+                self._send_json({"error": "invalid_next_act_request"}, status=400)
+                return
+            process_id = payload.get("process_id")
+            if isinstance(process_id, bool) or not isinstance(process_id, int) or process_id <= 0:
+                self._send_json({"error": "invalid_next_act_request"}, status=400)
+                return
+            resolver_args = {"process_id": process_id}
+        else:
+            if set(payload) != {"identity"} or not isinstance(payload.get("identity"), Mapping):
+                self._send_json({"error": "invalid_next_act_request"}, status=400)
+                return
+            resolver_args = {"identity": payload["identity"]}
+
+        try:
+            resolved = self.mesa.navigation.next_target(**resolver_args)
+        except NavigationError as error:
+            self._send_json(
+                {"error": "next_act_refused", "detail": error.code}, status=409
+            )
+            return
+
+        if resolved is None:
+            self._send_json({"ok": True, "end_of_queue": True})
+            return
+
+        current_identity = resolved["current_identity"]
+        target_identity = resolved["target_identity"]
+        current_key = ("processKey", "interestedNormalized")
+        command_payload = {
+            "current_identity": {key: current_identity[key] for key in current_key},
+            "target_identity": {key: target_identity[key] for key in current_key},
+            "context": {
+                "scan_id": resolved["scan_id"],
+                "source_scope": resolved["source_scope"],
+                "marker": resolved["marker"],
+            },
+        }
+        command_id = self.mesa.store.create_extension_command("OPEN_NEXT_ACT", command_payload)
+        self._send_json(
+            {
+                "ok": True,
+                "command_id": command_id,
+                "target_process_id": resolved["target_process_id"],
+                "target_identity": command_payload["target_identity"],
+            },
+            status=201,
         )
 
     def post_process_archive(self, process_id: str) -> None:

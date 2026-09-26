@@ -927,3 +927,12 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - Nenhuma ação do portal foi executada para Task 1; nenhum ato/processo foi navegado, preenchido, enviado ou finalizado. O clique final permanece humano. Um `wait_for` do MCP anexou acidentalmente a árvore de acessibilidade integral ao resultado do erro; ela não foi salva em arquivo nem Git. Evitar `wait_for` na Mesa, preferindo status agregado restrito.
 - Git: branch única `codex/atos-tce-unified`. O commit documental útil residual foi cherry-picked como `f44f45c`; a referência remota residual foi removida; decisão Phase 0 publicada em `e2ce76b`. Esta implementação, testes, ledger e handoff são registrados juntos no commit da Task 1 e enviados apenas para a branch unificada.
 - Retomada: começar Task 2 em TDD, adicionar a requisição Mesa e manter navegação/pós-leitura fail-closed; não iniciar autofill na mesma ação. Task 10 Best-Effort e Tasks 2–8, validação real de navegação, revisão adversarial e pacote standalone continuam pendentes.
+
+## 2026-09-26 — Task 2 de Próximo Processo
+
+- Commit Task 1 `5acb0d6` publicado em `codex/atos-tce-unified`.
+- Task 2: rota `POST /api/v1/portal/next-act` com autenticação Mesa same-origin por `process_id` ou extensão pareada por identidade composta. NavigationService escolhe o alvo; payload fornecido pelo cliente não pode escolher destino. Enfileira `OPEN_NEXT_ACT` com identidade atual/alvo e scan/scope/marcador. Fim da fila retorna sucesso explícito.
+- TDD: RED observado para rota ausente e método `requestNextAct` ausente. GREEN: backend focal 14/14; suíte API completa 99/99; extensão API 15/15; diff check verde. O Task 1 focused também passou 191/191 antes do commit.
+- A captura L0 autorizada já está em diretório local ignorado `tmp/portal-lab/2026-09-26-phase0-authorized/{raw,sanitized}/`; a captura não foi reaberta nem duplicada nesta retomada. O SCAN_PAGE recente continuou em `session_required`; não houve interface alternativa.
+- Não houve navegação live, abertura ou alteração de processo/ato nesta Task 2. Nenhum preenchimento ou ação final ocorreu; clique final segue manual.
+- Task 2 está implementada e validada, pronta para commit/push no ramo autorizado. Próxima etapa: Task 3 do plano canônico — comandos/protocolo e roteador `OPEN_NEXT_ACT`; depois Tasks 4–8, validação supervisionada, revisão adversarial e pacote portátil.

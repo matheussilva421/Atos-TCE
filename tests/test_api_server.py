@@ -1408,6 +1408,161 @@ FILL_FIELDS = {
 FILL_IDENTITY = {"processKey": "102390/2026", "interestedNormalized": "pessoa exemplo"}
 
 
+class NextActRouteTests(ApiTestCase):
+    """The Mesa resolves the next process; callers may not choose a target."""
+
+    def setUp(self):
+        super().setUp()
+        self.extension = self.register_extension()
+        self.opener = self.mesa_opener()
+        self.current_identity = {
+            "processKey": "102390/2026",
+            "interestedNormalized": "pessoa exemplo",
+        }
+        self.target_identity = {
+            "processKey": "100/2026",
+            "interestedNormalized": "pessoa destino",
+        }
+        self.target_process_id = self.store.upsert_process(
+            ProcessRecord(
+                process_key="100/2026",
+                interested="Pessoa Destino",
+                interested_normalized="pessoa destino",
+                source_scope="scope-fixture",
+                marker="marker-label-fixture",
+                status="PRONTO",
+            )
+        )
+        self.scan_id = self.store.create_area_scan(
+            source_scope="scope-fixture",
+            marker_label="marker-label-fixture",
+            marker_value="marker-value-fixture",
+            rows=[
+                {
+                    **self.current_identity,
+                    "process_key": self.current_identity["processKey"],
+                    "interested": "Pessoa Exemplo",
+                    "interested_normalized": self.current_identity["interestedNormalized"],
+                    "portal_act_id": "fixture-current-act",
+                    "classification": "PRECISA_COMPLEMENTAR",
+                },
+                {
+                    **self.target_identity,
+                    "process_key": self.target_identity["processKey"],
+                    "interested": "Pessoa Destino",
+                    "interested_normalized": self.target_identity["interestedNormalized"],
+                    "portal_act_id": "fixture-target-act",
+                    "classification": "PRECISA_COMPLEMENTAR",
+                },
+            ],
+        )
+
+    def post_next_act(self, body, *, headers=None, opener=None):
+        return self.call_json(
+            "/api/v1/portal/next-act",
+            method="POST",
+            headers=headers,
+            body=body,
+            opener=opener,
+        )
+
+    def test_mesa_session_resolves_and_queues_the_exact_scan_target(self):
+        status, _headers, payload = self.post_next_act(
+            {"process_id": self.process_id},
+            headers=self.mesa_headers(),
+            opener=self.opener,
+        )
+
+        self.assertEqual(status, 201, payload)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["target_process_id"], self.target_process_id)
+        command = self.store.get_extension_command(payload["command_id"])
+        self.assertEqual(command["type"], "OPEN_NEXT_ACT")
+        self.assertEqual(
+            command["payload"],
+            {
+                "current_identity": self.current_identity,
+                "target_identity": self.target_identity,
+                "context": {
+                    "scan_id": self.scan_id,
+                    "source_scope": "scope-fixture",
+                    "marker": {
+                        "label": "marker-label-fixture",
+                        "value": "marker-value-fixture",
+                    },
+                },
+            },
+        )
+
+    def test_registered_extension_can_request_by_exact_current_identity(self):
+        status, _headers, payload = self.post_next_act(
+            {"identity": self.current_identity},
+            headers=self.extension,
+        )
+
+        self.assertEqual(status, 201, payload)
+        self.assertEqual(payload["target_process_id"], self.target_process_id)
+        command = self.store.get_extension_command(payload["command_id"])
+        self.assertEqual(command["payload"]["target_identity"], self.target_identity)
+
+    def test_request_without_either_local_credential_is_rejected(self):
+        status, _headers, payload = self.post_next_act({"process_id": self.process_id})
+
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "unauthorized")
+
+    def test_ambiguous_or_unknown_current_identity_is_conflict(self):
+        self.store.upsert_process(
+            ProcessRecord(
+                process_key="102390/2026",
+                interested="Pessoa Alternativa",
+                interested_normalized="pessoa alternativa",
+                source_scope="scope-fixture",
+                marker="marker-label-fixture",
+                status="PRONTO",
+            )
+        )
+        for identity, error_code in (
+            ({"processKey": "102390/2026"}, "ambiguous_identity"),
+            (
+                {"processKey": "missing/2026", "interestedNormalized": "pessoa ausente"},
+                "current_process_not_found",
+            ),
+        ):
+            with self.subTest(error_code=error_code):
+                status, _headers, payload = self.post_next_act(
+                    {"identity": identity},
+                    headers=self.extension,
+                )
+
+                self.assertEqual(status, 409)
+                self.assertEqual(payload["detail"], error_code)
+        self.assertIsNone(self.store.get_extension_command(1))
+
+    def test_end_of_queue_is_an_explicit_success_response(self):
+        status, _headers, payload = self.post_next_act(
+            {"process_id": self.target_process_id},
+            headers=self.mesa_headers(),
+            opener=self.opener,
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload, {"ok": True, "end_of_queue": True})
+
+    def test_request_cannot_supply_a_target_identity(self):
+        status, _headers, payload = self.post_next_act(
+            {
+                "identity": self.current_identity,
+                "target_identity": {"processKey": "999/2026", "interestedNormalized": "forjado"},
+            },
+            headers=self.extension,
+        )
+
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"], "invalid_next_act_request")
+        self.assertIsNone(self.store.get_extension_command(1))
+
+
 class FillOrchestrationTests(ApiTestCase):
     """The whole OPEN -> READ -> PREFLIGHT -> FILL chain over the real routes."""
 

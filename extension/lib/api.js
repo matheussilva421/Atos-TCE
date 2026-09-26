@@ -246,5 +246,20 @@ export function createApi({
           : response.payload?.detail ?? response.error ?? "request_failed",
       };
     },
+
+    async requestNextAct(currentIdentity) {
+      const response = await authenticatedRequest("/api/v1/portal/next-act", {
+        method: "POST",
+        body: { identity: currentIdentity },
+      });
+      return {
+        ok: response.ok,
+        status: response.status,
+        payload: response.payload,
+        error: response.ok
+          ? null
+          : response.payload?.detail ?? response.error ?? "request_failed",
+      };
+    },
   };
 }

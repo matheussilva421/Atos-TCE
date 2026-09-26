@@ -318,6 +318,38 @@ test("manual fill uses the authenticated request", async () => {
   assert.equal(fetchImpl.calls[0].headers.Authorization, "Bearer token-123");
 });
 
+test("next-act request sends the current identity through the authenticated request", async () => {
+  const { api, fetchImpl } = build({
+    data: pairedData(),
+    routes: [
+      {
+        path: "/api/v1/portal/next-act",
+        method: "POST",
+        body: {
+          ok: true,
+          command_id: 12,
+          target_process_id: 34,
+          target_identity: { processKey: "100/2026", interestedNormalized: "pessoa destino" },
+        },
+      },
+    ],
+  });
+  const identity = { processKey: "800/2026", interestedNormalized: "pessoa atual" };
+
+  const outcome = await api.requestNextAct(identity);
+
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.status, 200);
+  assert.deepEqual(outcome.payload.target_identity, {
+    processKey: "100/2026",
+    interestedNormalized: "pessoa destino",
+  });
+  assert.equal(outcome.error, null);
+  assert.equal(fetchImpl.calls[0].url, "http://127.0.0.1:18743/api/v1/portal/next-act");
+  assert.deepEqual(JSON.parse(fetchImpl.calls[0].body), { identity });
+  assert.equal(fetchImpl.calls[0].headers.Authorization, "Bearer token-123");
+});
+
 test("the public API has no manual pairing or credential clearing methods", () => {
   const { api } = build();
 

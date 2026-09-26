@@ -330,3 +330,11 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - TDD: primeiro RED por módulo ausente; depois, REDs para preservar o marcador literal e recusar contexto divergente/ausente no processo atual e no destino. Oito testes novos; teste focal final `python -m unittest tests.test_navigation_service tests.test_store tests.test_fill_service tests.test_api_server -q` — 191/191 aprovados.
 - Gates finais: Python raiz 655 executados, 654 aprovados, 0 falhas, 1 skip; extensão 160/160; web 29/29; `verify-project.ps1` 1.260 executados, 1.258 aprovados, 0 falhas, 2 skips, sete estágios verdes; suíte complementar do extrator 529 executados, 520 aprovados, 0 falhas, 9 skips (sem alterações no legado); `git diff --check` passou.
 - Nenhuma navegação, abertura de ato, preenchimento ou ação final foi executada nesta Task 1. Próximo passo: Task 2, uma requisição Mesa para preparar e enfileirar o alvo explícito.
+
+## Task 2 — requisição autenticada para enfileirar o próximo alvo (2026-09-26)
+
+- Task 1 foi commitada como `5acb0d6` e o push para `origin/codex/atos-tce-unified` foi confirmado.
+- RED: os seis testes backend falharam porque `/api/v1/portal/next-act` não existia (sete assertions, contando os dois subcasos de identidade); o teste da extensão falhou porque `requestNextAct` não existia.
+- GREEN: `python -m unittest tests.test_api_server.NextActRouteTests tests.test_navigation_service -q` — 14 passaram; `python -m unittest tests.test_api_server -q` — 99 passaram; `node --test extension/tests/api.test.mjs` — 15 passaram; `git diff --check` passou.
+- Implementada rota de autenticação dupla: sessão same-origin da Mesa envia `process_id`; extensão pareada envia identidade composta. O backend valida o alvo pela NavigationService, recusa `target_identity` fornecida pelo cliente, devolve fim da fila sem erro e enfileira `OPEN_NEXT_ACT` com identidades/contexto do scan. O cliente da extensão expõe `requestNextAct`.
+- Testes usam dados fictícios. Não houve chamada live, navegação, abertura de ato, preenchimento, envio nem ação final. Próximo: registrar e publicar Task 2, seguir Task 3 com RED do protocolo/router.
