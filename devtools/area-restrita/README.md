@@ -3,29 +3,50 @@
 Este laboratório conecta ferramentas de desenvolvimento a uma instância de
 Chrome isolada. Ele não integra o runtime portátil do extrator.
 
-## Chrome dedicado
+## Chrome QA dedicado com a extensão
 
-No PowerShell, confira o plano de inicialização antes de abrir o navegador:
+O launcher usa o Chromium gerenciado pelo Playwright para carregar a extensão
+unpacked e verifica o manifesto da service worker antes de declarar sucesso.
+O Google Chrome estável atual ignora os flags de sideload usados pelo launcher
+antigo, então uma janela aberta sozinha não prova que a extensão foi carregada.
+O runtime portátil do Atos-TCE não depende de Node nem Playwright.
 
-```powershell
-.\scripts\portal-lab\Start-AtosChrome.ps1 -WhatIf
-```
-
-O plano limita o CDP a `127.0.0.1`, usa a porta `9222` e mantém o perfil em
-`%LOCALAPPDATA%\Atos-TCE\Chrome-Debug`, fora do repositório. Para iniciar a
-janela visível após revisar o plano:
+Confira o plano sem abrir o navegador:
 
 ```powershell
-.\scripts\portal-lab\Start-AtosChrome.ps1
+.\scripts\portal-lab\Start-AtosChrome.ps1 -PlanOnly
 ```
 
-Não encerre o Chrome pessoal para liberar a porta. Se `9222` estiver ocupada,
-identifique o processo manualmente ou escolha uma porta livre com `-Port`.
-Autenticação no portal deve ser feita pela pessoa operadora nessa janela. O
-perfil contém estado privado e nunca deve ser copiado para o repositório,
-versionado ou incluído em pacotes.
+Para abrir o QA com a extensão da fonte `extension/` e CDP em loopback:
 
-Verifique somente o endpoint local de versão do CDP:
+```powershell
+.\work\tce-extractor\Abrir-Chrome-QA.bat
+```
+
+Para abrir diretamente a Área Restrita:
+
+```powershell
+.\work\tce-extractor\Abrir-Chrome-QA.bat `
+  -Url https://novaarearestrita.tce.rn.gov.br/telaPrincipalMenu.asp
+```
+
+O launcher mantém o perfil em
+`%LOCALAPPDATA%\Atos-TCE\Chrome-QA-Playwright`, fora do repositório. No
+primeiro uso, autentique-se manualmente nessa janela; a sessão fica no perfil
+para usos seguintes. Perfis anteriores não são reutilizados nem alterados. A
+extensão e o CDP são confirmados antes de navegar para a URL solicitada. A
+saída `QA_EXTENSION_READY` inclui ID, nome e versão; `CDP_READY` confirma
+`127.0.0.1:<porta>`.
+
+O launcher precisa do Node.js, do pacote Playwright e do Chromium instalado.
+Ele detecta a distribuição agrupada pelo Codex nesta máquina. Em outra
+instalação, informe `-NodePath`, `-PlaywrightEntry` e `-BrowserCachePath`, ou
+use os equivalentes `ATOS_TCE_NODE_EXE`, `ATOS_TCE_PLAYWRIGHT_ENTRY` e
+`PLAYWRIGHT_BROWSERS_PATH`. O launcher não fecha o Chrome pessoal. Se a porta
+`9222` estiver ocupada, ele para sem alterar o processo que a está usando; use
+`-Port` para selecionar uma porta livre.
+
+Verifique o endpoint local de versão do CDP:
 
 ```powershell
 .\scripts\portal-lab\Test-CdpEndpoint.ps1 -Port 9222

@@ -136,8 +136,6 @@ class ChromeLauncherContractTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.chrome = self.root / "chrome.exe"
-        self.chrome.write_bytes(b"test executable; never launched with -WhatIf")
         self.profile = self.root / "isolated chrome profile"
 
     def test_preview_uses_loopback_and_profile_outside_repository_without_creating_it(self):
@@ -151,20 +149,20 @@ class ChromeLauncherContractTests(unittest.TestCase):
             port,
             "-ProfileRoot",
             self.profile,
-            "-ChromePath",
-            self.chrome,
-            "-WhatIf",
+            "-PlanOnly",
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
         launch = json.loads(result.stdout)
+        self.assertEqual(launch["browserEngine"], "playwright-chromium")
+        self.assertEqual(Path(launch["extensionRoot"]), (REPO_ROOT / "extension").resolve())
         self.assertEqual(launch["port"], port)
         self.assertEqual(Path(launch["profileRoot"]), self.profile.resolve())
-        self.assertEqual(Path(launch["executable"]), self.chrome.resolve())
-        self.assertIn("--remote-debugging-address=127.0.0.1", launch["arguments"])
-        self.assertIn(f"--remote-debugging-port={port}", launch["arguments"])
-        self.assertIn(f'--user-data-dir="{self.profile.resolve()}"', launch["arguments"])
-        self.assertIn("--no-first-run", launch["arguments"])
+        self.assertEqual(launch["devToolsUrl"], f"http://127.0.0.1:{port}")
+        self.assertIn("--profile-root", launch["arguments"])
+        self.assertIn(str(self.profile.resolve()), launch["arguments"])
+        self.assertIn("--port", launch["arguments"])
+        self.assertIn(str(port), launch["arguments"])
         self.assertFalse(self.profile.exists())
 
     def test_launcher_refuses_a_profile_inside_the_repository(self):
@@ -179,9 +177,7 @@ class ChromeLauncherContractTests(unittest.TestCase):
             port,
             "-ProfileRoot",
             profile,
-            "-ChromePath",
-            self.chrome,
-            "-WhatIf",
+            "-PlanOnly",
         )
 
         self.assertNotEqual(result.returncode, 0)

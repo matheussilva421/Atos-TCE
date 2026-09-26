@@ -709,3 +709,179 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - Iniciei uma instância limpa do mesmo perfil `%LOCALAPPDATA%\AtosTCE\perfil-qa-20260926`, com CDP em loopback 9222, `--auto-open-devtools-for-tabs`, extensão local, Área Restrita e Mesa. Chrome 154 respondeu no endpoint; `Get-Process` confirmou handle nativo não zero e título `novaarearestrita.tce.rn.gov.br/telaPrincipalMenu.asp`. O DevTools MCP listou a Área Restrita selecionada, Mesa Local e service worker da extensão; a Mesa segue HTTP 200.
 - A Área Restrita ainda está em `chrome-error://chromewebdata/` e precisa de autenticação manual. Não inseri credenciais. O inventário CUA segue conectado ao perfil Matheus, separado do perfil QA, então não usei aquele perfil para contornar o bloqueio. Nenhum ato foi selecionado ou alterado.
 - O goal continua ativo: após autenticação humana na janela QA, verificar lista e extensão e retomar Task 10; Phase 0 permanece gate anterior às Tasks 1–8. A ação final do ato continua manual.
+
+## Login QA confirmado; sessão local da Mesa expirada — 2026-09-26
+
+- Reabri a aba oficial da Área Restrita no Chrome QA pelo Chrome DevTools MCP e a trouxe para frente. O operador confirmou que concluiu o login. `list_pages` mostra Área Restrita, Mesa Local em `127.0.0.1:18743` e o service worker da extensão no mesmo endpoint CDP `127.0.0.1:9222`.
+- A lista autenticada inicialmente estava sem o filtro PROFESSOR (5.000 itens). Pela interface da Área Restrita selecionei o marcador `PROFESSOR - IPERN (1197)` e acionei `Consultar`; a página confirmou 1.197 itens. A primeira página apresenta 30 atos já complementados. Não selecionei nem abri processo.
+- Acionei uma vez o botão oficial `Analisar Área Restrita` da Mesa para retomar a leitura. A Mesa respondeu `session_required`; o endpoint de saúde ainda identifica a API local conectada, mas a sessão da Mesa não está válida. O login do portal e a sessão local da Mesa são independentes (`app/api/server.py`, `_require_session`). Nenhum novo scan foi concluído.
+- A tentativa de pedir `SCAN_PAGE` diretamente ao service worker pela avaliação DevTools foi rejeitada pelo verificador automático: a chamada transmitiria uma consulta a frames autenticados fora do caminho L0 documentado e retornaria marcador/processos brutos. Não tentei contornar a rejeição por outra via.
+- O servidor Mesa permanece ativo na porta 18743. Não o encerrei à força porque o terminal de origem não está disponível para um `Ctrl+C` gracioso nesta sessão. Depois que o operador encerrar o servidor no terminal original, renovar a sessão pelo launcher oficial, sem imprimir a URL/token de bootstrap:
+
+  ```powershell
+  python .\scripts\portal-lab\launch_mesa_in_qa_chrome.py `
+    --cdp-url http://127.0.0.1:9222 -- `
+    --data-root data --host 127.0.0.1 --port 18743
+  ```
+
+- Nenhum ato foi selecionado, preenchido, relido ou finalizado; não houve submissão, assinatura ou tramitação. Nenhum código/teste mudou neste bloco; testes não executados. `git diff --check` passou. Branch `codex/atos-tce-unified`, HEAD `5f0d544869530e377f5f70d8f8a25fab0aa1f9bb`, alinhada ao tracking branch; apenas este handoff está modificado. O `.git` está somente para leitura neste contexto, portanto não foi possível fazer commit/push.
+- Estado global inalterado: Task 10 aguarda revisão humana da proposta legal com `hard_conflict` antes de outra escrita; Phase 0 segue aberta. Tasks 1–8 continuam bloqueadas até os dois gates fecharem. O clique final permanece manual.
+
+## Revalidação após login e análise do contrato legal — 2026-09-26
+
+- Reli integralmente o objetivo ativo. Estado atual confirmado: branch `codex/atos-tce-unified`, HEAD `5f0d544869530e377f5f70d8f8a25fab0aa1f9bb`; Chrome QA responde em CDP 9222; a lista autenticada e a Mesa Local seguem abertas no mesmo Chrome, com o service worker da extensão enumerado.
+- O filtro PROFESSOR continua aplicado: `1 - 30 de 1197`. A primeira página contém 30 atos complementados; nenhum processo foi aberto ou alterado.
+- A análise oficial da Área Restrita pela Mesa permanece em `session_required`. O processo Python que atende 18743 continua ativo, mas `read_thread_terminal` confirmou que não há terminal de aplicação anexado a esta tarefa. Não enviei término forçado. Retomar pelo `Ctrl+C` no terminal original e pelo launcher oficial indicado acima, mantendo o perfil QA e o login do portal.
+- Reanalisei os documentos canônicos e o código/testes de `legal-foundation-v4`. O contrato documentado manda escolher uma opção real determinística mesmo se todas tiverem hard conflict; conflito, confiança e margem são diagnósticos. `tests/test_legal_rules.py` codifica a seleção nesse cenário. Isso não aprova juridicamente uma proposta real nem fecha a revisão humana pendente; nenhuma alteração de runtime foi feita.
+- O verificador automático continua tendo rejeitado a consulta direta ao service worker para enumerar frames autenticados e retornar marcador/processos brutos. Não usei outro caminho indireto. A leitura pelo botão oficial falhou antes do scan por falta de sessão Mesa.
+- Nenhum teste foi executado nem código alterado nesta retomada. `git diff --check` passou; apenas este handoff está modificado. O Git continua somente para leitura em `.git`, então não há commit/push neste contexto.
+- Pendências reais: renovar a sessão Mesa; obter `SCAN_PAGE` vivo pelo fluxo oficial; concluir cinco casos Task 10 e A/B/C, sob revisão humana da decisão anterior; fechar evidências restantes de Phase 0 (pós-conclusão manual, três timings, caso multi-interessado, retorno e delta); só então implementar Tasks 1–8 e executar os gates/ZIP finais.
+
+## Bootstrap Mesa renovado; ponte ainda não encontra aba portal — 2026-09-26
+
+- O servidor anterior foi encerrado graciosamente por Ctrl+C dirigido ao console verificado da própria execução; o PID do listener saiu e a porta 18743 recusou conexão. Não houve encerramento forçado nem fechamento do Chrome.
+- Relancei com sucesso o launcher documentado `scripts/portal-lab/launch_mesa_in_qa_chrome.py` no CDP `127.0.0.1:9222`, usando `data`, host loopback e porta 18743. A URL de bootstrap de uso único não foi exposta. A aba nova redirecionou para `ATOS TCE · Mesa Local`; saúde HTTP 200, API v1, schema 7.
+- O botão oficial de análise deixou de retornar `session_required`, confirmando que o bootstrap Mesa foi consumido. Agora falha com `Nenhuma aba autenticada da Área Restrita está aberta`, embora `list_pages` enumere a aba autenticada do portal no mesmo endpoint CDP. Logo, a falha passou da sessão Mesa para descoberta de tab/frame pela ponte; não foi concluído scan.
+- `list_extensions` retorna “No extensions installed”, enquanto `list_pages` enumera `sw-1` no ID da extensão ATOS. A instalação/escopo funcional permanece contraditória. O verificador automático rejeitou `trigger_extension_action` para abrir o painel, porque altera a UI sem autorização específica e não prova que corrigiria a descoberta da aba. Não repeti a ação nem usei caminho indireto.
+- O portal continua na lista PROFESSOR filtrada (1.197 itens); nenhum processo foi selecionado ou alterado. Nenhum ato foi aberto, preenchido ou finalizado. O clique final permanece manual.
+- Retomada: depois da autorização específica para abrir o painel da extensão, inspecionar o diagnóstico visível e confirmar extensão + tab no perfil QA. Se a ponte continuar sem enumerar a aba, parar em L0 e corrigir somente após captura sanitizada → fixture → RED. Não executar outra análise repetidamente até resolver a descoberta da aba. Task 10 e Phase 0 permanecem abertas; Tasks 1–8 continuam bloqueadas.
+- Nenhum código foi alterado e testes não foram executados nesta etapa. `git diff --check` passou; apenas este handoff está modificado. Branch `codex/atos-tce-unified`, HEAD `5f0d544869530e377f5f70d8f8a25fab0aa1f9bb`, alinhada ao tracking branch; `.git` somente para leitura impede commit/push neste contexto. O serviço Mesa iniciado nesta etapa continua ativo na sessão 52538; não encerrar.
+
+## Login revalidado; mismatch de extensão no Chrome QA — 2026-09-26
+
+- O usuário confirmou login manual na Área Restrita. No CDP `127.0.0.1:9222`, `list_pages` mostra a aba autenticada no mesmo Chrome que as abas Mesa; saúde da Mesa `GET /api/v1/health` = `ok`, API v1, schema 7, 1.294 processos.
+- Repeti uma vez a análise pelo botão oficial da Mesa. Ela criou a solicitação (a UI passou de `session_required` para `Aguardando a extensão`) mas nenhum worker retirou/respondeu ao comando; não houve scan nem leitura/processamento dos atos nesta tentativa.
+- Diagnóstico da extensão, somente leitura: o service worker anunciado pelo Chrome é `chrome-extension://admccjkmockfdflocgggjfgdacdodkdf/background.js`. A chave pública de `extension/manifest.json` deriva o ID `nhpklhieopdbomkojifcengjaklabjng`, que coincide com `app/api/bridge.py:TRUSTED_EXTENSION_ID`. O servidor valida esse ID no registro de cliente; portanto o worker atualmente conectado não é a extensão confiável para este Portal Lab. `list_extensions` retorna vazio, embora o worker seja enumerado — o MCP de extensões também não está reconciliado.
+- Tentei instalar a fonte correta `extension/` com `mcp__chrome_devtools__install_extension`; o MCP recusou porque o caminho não pertence às raízes de workspace configuradas. Nenhuma extensão foi instalada ou removida. Não alterei o ID confiável do servidor e não contornei o limite de caminho pela UI.
+- `GET /api/v1/health` foi leitura pública e não retornou credenciais. Nenhum cookie, token, header, storage ou corpo de request foi consultado. Não abri o painel após a rejeição anterior do auto-review; a aprovação específica continua pendente.
+- Nenhum processo/ato foi aberto, selecionado ou alterado. Nenhum campo foi preenchido; sem assinatura, envio, tramitação ou clique final. O modo de compatibilidade não foi usado.
+- Sem alteração de código/teste; testes não executados. `git diff --check` deve ser repetido após este registro. Apenas este handoff pode estar modificado; `.git` permanece read-only neste contexto, sem commit/push.
+- Próximo passo: tornar `extension/` acessível ao Chrome DevTools MCP numa raiz permitida e instalar a cópia cuja chave deriva `nhpklhieopdbomkojifcengjaklabjng`; então confirmar `Mesa conectada` no painel e um comando de análise concluído. Se a instalação depender de uma ação manual do Chrome, solicitar apenas essa ação específica. Retomar Task 10 e Phase 0 depois do scan real; Tasks 1–8 continuam bloqueadas até ambos os gates.
+
+## Baseline completa após login — 2026-09-26
+
+- Reli integralmente `goal-objective.md`; a ordem e os hard gates permanecem Task 10 real + Phase 0 antes de qualquer implementação de Próximo processo.
+- Baseline direta no checkout atual: `python -m unittest discover -s tests -p test_*.py -q` — 647 executados, 646 aprovados, 0 falhas, 1 skip; `npm test --prefix extension` — 160/160; `node --test app/web/tests/*.test.mjs` — 29/29.
+- Verificador integrado `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\work\tce-extractor\verify-project.ps1` — 1.260 executados, 1.258 aprovados, 0 falhas, 2 skips. Stages: extensão 480/480, web 6/6, Python portátil 6/6, PowerShell 603/603, pacote 81/83 (2 skips), automação raiz 81/81, diff 1/1. Exit code 0.
+- Depois dos gates, a aba Mesa ainda mostra o resultado `Nenhuma aba autenticada da Área Restrita está aberta.` e o botão foi reabilitado. A tentativa única terminou sem scan aproveitável. O service worker continua com ID `admccjkmockfdflocgggjfgdacdodkdf`, diferente do ID confiável `nhpklhieopdbomkojifcengjaklabjng`; não repetir a análise antes de reconciliar a extensão.
+- O Chrome ainda enumera a aba autenticada do portal e duas abas Mesa no CDP `127.0.0.1:9222`; `list_extensions` ainda informa zero extensões. Saúde Mesa segue `ok`, API v1/schema 7, 1.294 processos.
+- Pergunta específica pendente: autorização para carregar `extension/` pela interface do Chrome QA, pois `install_extension` recusou a pasta fora das raízes permitidas pelo MCP. Não usar o modo de compatibilidade nem relaxar o ID confiável do servidor.
+- Nenhum processo/ato ou campo foi alterado; sem preenchimento, assinatura, envio, tramitação ou clique final. Nenhuma alteração de runtime. Git: branch `codex/atos-tce-unified`, HEAD `5f0d544869530e377f5f70d8f8a25fab0aa1f9bb`, tracking `origin/codex/atos-tce-unified`; apenas handoff modificado, `git diff --check` verde. Sem commit/push porque `.git` está read-only.
+
+## Login confirmado; árvore de frames atualizada — 2026-09-26
+
+- Após o usuário confirmar novo login, `list_pages` mostrou a Área Restrita em `/telaPrincipalMenu.asp` no Chrome QA `127.0.0.1:9222`, além das duas abas da Mesa. O documento principal e os frames estão `complete`; não há formulário de login.
+- Inspeção estrutural somente leitura encontrou a lista dentro do frame visível `[3,0]`: 165 linhas de tabela no DOM e 210 controles; nenhum texto, identidade, número de processo, valor de campo, cookie, header ou storage foi retornado. A árvore tem quatro frames filhos no documento principal e quatro folhas alcançáveis.
+- Capture estrutural salvo em `tmp/portal-lab/2026-09-26-login-refresh/raw/list-frame-tree.json` e sanitizado para `tmp/portal-lab/2026-09-26-login-refresh/sanitized/list-frame-tree.json`. `git check-ignore` confirmou que a captura local está ignorada; o sanitizador terminou com exit 0. A tentativa opcional de salvar diretamente via DevTools MCP foi recusada pelo allowlist de caminhos, então o retorno estrutural foi validado em memória e gravado localmente no workspace.
+- Estado da ponte continua sem solução: `list_extensions` informa zero extensões, embora `list_pages` enumere o worker `admccjkmockfdflocgggjfgdacdodkdf`; a Mesa ainda indica `Nenhuma aba autenticada da Área Restrita está aberta` e não detecta Área Restrita. Não executei novo `SCAN_PAGE`/análise, pois o worker confiável ainda não foi reconciliado.
+- Nenhum processo foi selecionado/aberto; nenhum ato ou campo foi alterado. Sem preenchimento, releitura de formulário, conclusão, envio, assinatura ou tramitação. O clique final permanece manual.
+- Sem alteração de runtime e sem testes nesta atualização. `git diff --check` passou; branch `codex/atos-tce-unified`, HEAD `5f0d544869530e377f5f70d8f8a25fab0aa1f9bb`; apenas este handoff está versionável/modificado e `.git` segue somente para leitura, sem commit/push.
+- Próximo passo: resolver a autorização pendente para carregar a extensão correta `extension/` no perfil QA; conferir o ID esperado `nhpklhieopdbomkojifcengjaklabjng`, a conexão da Mesa e só então executar um scan oficial. Task 10 e Phase 0 continuam abertas; Tasks 1–8 seguem bloqueadas pelos gates.
+
+## Ponte QA reconciliada; marcador ainda pendente — 2026-09-26
+
+- Releitura do worker ativo pelo DevTools MCP identificou `Gemini in Chrome` versão `1.2`, ID `admccjkmockfdflocgggjfgdacdodkdf`; ele não é a extensão Atos. `trigger_extension_action` para a extensão confiável `nhpklhieopdbomkojifcengjaklabjng` retornou “not found”. A lista de extensões do MCP continua vazia.
+- O launcher oficial `work/tce-extractor/Abrir-Chrome-QA.ps1` usa `--disable-extensions-except` e `--load-extension` apenas para `work/tce-extractor/portable/extensao-complementar-ato`; ele não carrega a raiz `extension/`, cujo manifesto deriva o ID esperado pela ponte. Isso explica a falta da extensão confiável nesta sessão QA. Não alterei launcher nem perfil.
+- A lista autenticada está no frame visível `[3,0]`, rota `/SISTEMAS/Processo/ProcessonoSetor.asp`, página 1 de 40, com total exibido de 1.197 itens. Captura detalhada estrutural (13 selects e contagens, sem valores) está em `tmp/portal-lab/2026-09-26-login-refresh/raw/list-page-structure.json` e passou pelo sanitizador para `sanitized/list-page-structure.json`. O controle do marcador é `cmbMarcadorFiltro`, índice selecionado 18 de 73 opções. O auto-review bloqueou a leitura do rótulo/valor selecionados por classificá-los como dado operacional sensível; não usei caminho alternativo. Aguarda-se autorização específica para guardar esse par somente em captura local ignorada.
+- Reconciliação agregada read-only entre os scans salvos 5 e 9, sem selecionar campos de marcador nem imprimir identidades: 1.198 e 1.197 linhas únicas, sem duplicatas; 1.196 identidades exatas comuns, duas somente no scan 5 e uma somente no scan 9. Entre as comuns, 128 mudaram de `PRECISA_COMPLEMENTAR` para `ATO_COMPLEMENTADO`. O total do scan 9 coincide com a contagem atual da lista (1.197), mas o escopo/marcador ainda não foi confirmado e as três diferenças não foram identificadas; portanto o delta não está semanticamente fechado.
+- A Mesa ainda informa que não há aba autenticada da Área Restrita e não detecta o portal. Não acionei outro scan. A tentativa de abrir `chrome://extensions/` por DevTools MCP foi recusada pela restrição de navegação interna; nenhuma aba foi criada. A tentativa de gravação direta do MCP para `tmp/` também foi recusada; a árvore estrutural sem dados pessoais foi capturada em memória, escrita no workspace e sanitizada.
+- Nenhum processo/ato foi escolhido, aberto, preenchido ou alterado. Sem ação final, envio, assinatura ou tramitação. Código e testes inalterados nesta etapa.
+- Atualização do handoff e nova captura local: `tmp/portal-lab/2026-09-26-login-refresh/`; Git `diff --check` deve ser revalidado após este adendo. Branch `codex/atos-tce-unified`, HEAD `5f0d544869530e377f5f70d8f8a25fab0aa1f9bb`; `.git` read-only, sem commit/push.
+- Retomada: após autorização específica, guardar marcador raw apenas sob `tmp/portal-lab/`; em paralelo, resolver carregamento da extensão confiável no Chrome QA sem encerrar a sessão atual. Só então executar um scan oficial e seguir Task 10/Phase 0.
+
+## Retomada após novo login — 2026-09-26
+
+### Estado do navegador e da Mesa
+
+- O usuário confirmou que concluiu o login. Leitura read-only do Chrome DevTools MCP: portal em `novaarearestrita.tce.rn.gov.br/telaPrincipalMenu.asp`, sem campo de senha. Nenhuma navegação, seleção, busca, preenchimento ou envio foi feito.
+- A Mesa respondeu `Mesa conectada=true`, `Área Restrita detectada=false` e `formulário aberto=false`. `list_extensions` informou zero extensões e o único service worker enumerado é `Gemini in Chrome 1.2` (`admccjkmockfdflocgggjfgdacdodkdf`), não a extensão Atos confiável `nhpklhieopdbomkojifcengjaklabjng`.
+- A consulta read-only ao processo Chrome via CIM retornou `Acesso negado`; não se extraíram argumentos ou dados do processo. `install_extension` já havia sido recusado pelo auto-review para a pasta `extension/`, e DevTools MCP não permite `chrome://extensions`. Não tentar rotas alternativas que contornem essas restrições. A solicitação pendente é carregar manualmente `C:\Users\slvma\Downloads\Github\Atos-TCE\extension` pelo Chrome QA, preservando o login atual.
+
+### Alteração local do launcher QA
+
+- TDD aplicado a `work/tce-extractor/Abrir-Chrome-QA.ps1` e `work/tce-extractor/tests/Test-QAChromeLauncher.ps1`: primeiro RED por parâmetro `PortalLab` ausente; depois implementação opt-in `-PortalLab` carrega a extensão confiável na raiz. A execução padrão continua carregando a extensão portátil. Perfil e porta não foram alterados, e o navegador autenticado não foi reiniciado.
+- Teste focado do launcher: 14 verificações, 14 aprovadas. Verificador `work/tce-extractor/verify-project.ps1`: exit 0, 1.260 executados, 1.258 aprovados, 0 falhas, 2 skips; estágios extensão 480/480, web 6/6, Python portátil 6/6, PowerShell 603/603, pacote 81/83 (2 skips), automação raiz 81/81, diff 1/1.
+- Suíte extra `python -m unittest discover -s . -p "test_*.py" -q` (cwd `work/tce-extractor`): 529 executados, 1 erro, 9 skips; timeout em `test_extension_browser.ExtensionBrowserTests.test_chrome_fixture_smoke_uses_disposable_profile`, aguardando `#review-section` visível após reiniciar o perfil descartável. Reexecução focada exata passou 1/1 em 10,6 s. A falha não foi reproduzida; causa permanece não confirmada, sem correção especulativa.
+
+### Arquivos, Git e retomada
+
+- Código/teste alterados: `work/tce-extractor/Abrir-Chrome-QA.ps1`, `work/tce-extractor/tests/Test-QAChromeLauncher.ps1`. Registro alterado: este handoff e `.superpowers/sdd/2026-09-24-area-restrita-reverse-engineering-plan/progress.md`. `git diff --check` passou.
+- Branch `codex/atos-tce-unified`, HEAD `5f0d544869530e377f5f70d8f8a25fab0aa1f9bb`. O checkout informa `.git` read-only neste ambiente: nenhum commit ou push realizado.
+- O portal/Mesa autenticados foram preservados. Nenhum processo ou ato foi aberto/alterado; nenhum campo foi preenchido, e não houve conclusão, envio, assinatura ou tramitação.
+- Próximos passos: (1) carregar manualmente a pasta `extension/` no Chrome QA atual; (2) confirmar que a extensão listada tem ID `nhpklhieopdbomkojifcengjaklabjng` e que a Mesa detecta a Área Restrita; (3) só após isso executar um scan oficial e reconciliar seu escopo/marcador; (4) concluir Task 10 e Phase 0 antes de iniciar Next Process. Há uma pergunta pendente de autorização para registrar somente o marcador atualmente selecionado em captura local ignorada; não leia nem tente descobrir esse valor por outra via até resposta explícita. A ação final no portal permanece manual.
+
+## Auditoria do bloqueio recorrente — 2026-09-26
+
+- Revalidei o objetivo completo e o Chrome DevTools MCP. Portal segue autenticado em `/telaPrincipalMenu.asp`; as abas do portal e Mesa estão abertas. `list_extensions` retornou “No extensions installed” e o único worker é Gemini. A Mesa exibe `Não foi possível analisar: Nenhuma aba autenticada da Área Restrita está aberta.`
+- A ação `install_extension` para a raiz `extension/` foi recusada pelo auto-review por caminho fora das raízes permitidas. O login atual foi preservado; nenhum processo/ato foi aberto ou alterado. O estado bloqueante persistiu por três turnos de goal.
+- Status do goal registrado como `blocked`, sem declarar o objetivo concluído. Para retomar: no Chrome QA autenticado, abrir `chrome://extensions`, selecionar “Carregar sem compactação” e escolher `C:\Users\slvma\Downloads\Github\Atos-TCE\extension`; então avisar para eu conferir o ID da extensão e a conexão da Mesa. Não é necessário fechar o Chrome nem repetir o login.
+- Permanecem pendentes: autorização já solicitada para registrar apenas o marcador selecionado em captura local ignorada; scan vivo e reconciliação 1.198/1.197; cinco casos jurídicos e um caso best-effort parcial da Task 10; restante da Phase 0; Tasks 1–8; revisão adversarial, empacotamento e smoke standalone.
+- Git continua em `codex/atos-tce-unified`, HEAD `5f0d544869530e377f5f70d8f8a25fab0aa1f9bb`; sem commit/push neste ambiente read-only.
+
+## 2026-09-26 — extensão aceita pelo carregador, mas ausente no Chrome observado
+
+- O usuário informou que já carregou a extensão. A captura de `chrome://extensions` mostra Modo do desenvolvedor ligado e o toast “Extensão carregada”, porém nenhum cartão de extensão aparece.
+- Inspeção read-only: `extension/manifest.json` é MV3 e identifica `ATOS TCE — Ponte da Mesa` v0.1.0; `Abrir-Chrome-QA.ps1 -PlanOnly -PortalLab` aponta corretamente para a pasta raiz `extension/` e inclui `--disable-extensions-except` e `--load-extension` para essa pasta.
+- No Chrome conectado pelo CDP 9222, `list_pages` ainda mostra Área Restrita e Mesa, mas o único service worker identificado é `Gemini in Chrome`; `list_extensions` diz “No extensions installed”. O perfil local do launcher (`dados-locais/chrome-qa-profile`, `Default/Preferences`) não registra extensões.
+- Não foi possível confirmar que o CDP 9222 usa esse perfil: o launcher não inicia enquanto a porta 9222 estiver ocupada; o endpoint CDP não retorna a linha de comando porque `--enable-automation` não está ativo; o MCP rejeita navegação para `chrome://version`. Portanto, “perfil diferente” ou allowlist do Chrome já iniciado são hipóteses compatíveis com a evidência, não causa confirmada.
+- Não repeti a tentativa de instalação MCP: ela foi recusada pelo allowlist de workspace, e não usei UI/CDP alternativos para contorná-la. Mantive a sessão autenticada aberta. Nenhum processo/ato foi aberto, selecionado, preenchido ou finalizado.
+- Sem mudança de runtime e sem testes nesta etapa; atualizar `git diff --check` após este registro. Branch `codex/atos-tce-unified`, HEAD `5f0d544869530e377f5f70d8f8a25fab0aa1f9bb`; `.git` read-only, sem commit/push.
+- Próximo passo: na mesma janela autenticada, o operador abre `chrome://version` e informa apenas `Caminho do perfil` e se a linha de comando contém `--load-extension` ou `--disable-extensions-except`. Com esse dado, escolher entre corrigir a pasta/perfil ativo e reiniciar com `-PortalLab`; não fechar a sessão antes de confirmar que cookies/login persistirão.
+
+## 2026-09-26 — reabertura do Chrome QA; extensão segue ausente
+
+- A pedido do usuário, executei `Abrir-Chrome-QA.ps1 -PortalLab` com URL inicial da Área Restrita. O launcher saiu com código 0 e informou perfil `dados-locais/chrome-qa-profile` e CDP `127.0.0.1:9222`.
+- Depois do lançamento, o MCP reportou reconexão e um snapshot da Área Restrita carregada; na chamada seguinte, o endpoint 9222 ficou indisponível. O único worker observado nessa conexão transitória foi Google Network Speech, e `list_extensions` retornou vazio.
+- A captura enviada pelo usuário confirma a janela Chrome na página `chrome://extensions`, Modo do desenvolvedor ligado e toast “Extensão carregada”, mas nenhum cartão listado. O perfil QA foi atualizado em disco, porém `Default/Preferences` não contém registro de extensão.
+- Não é possível provar que a captura corresponde ao processo/profile iniciado pelo launcher: o endpoint não permanece disponível, a listagem MCP falha e o caminho/flags da janela visível não foram obtidos. Não encerrar nem substituir a janela autenticada até reconciliar essa identidade.
+- Nenhum ato/processo foi aberto, alterado ou finalizado; nenhum clique de complementação ou envio. Sem alteração de runtime e sem testes nesta etapa. `git diff --check` passou após o registro; `.git` read-only, sem commit/push.
+- Retomada: aguarda a informação solicitada de `chrome://version` (Caminho do perfil e presença de `--load-extension` / `--disable-extensions-except`). Depois, confirmar processo/porta; somente então escolher instalação manual no perfil exato ou reinício seguro pelo launcher. Tasks 10 e Phase 0 permanecem abertas; Tasks 1–8 não podem começar antes desses gates.
+
+## 2026-09-26 — causa confirmada para extensão ausente no Chrome QA
+
+- Revisados `README.md`, `docs/notes/2026-09-24-chrome-qa-launcher-handoff.md`, este handoff, `scripts/portal-lab/Start-AtosChrome.ps1`, `scripts/portal-lab/launch_mesa_in_qa_chrome.py` e o launcher/teste `work/tce-extractor/Abrir-Chrome-QA.ps1`.
+- O README orienta carregar manualmente a pasta raiz `extension/` por `chrome://extensions`; essa pasta é a fonte correta. O atalho `-PortalLab` calcula o mesmo caminho, mas tenta instalá-la com `--load-extension` e `--disable-extensions-except`.
+- Reproduzida a causa em Google Chrome 154 com perfil temporário vazio e `about:blank`: Chrome registrou `--disable-extensions-except is not allowed in Google Chrome, ignoring`; removida somente essa flag numa segunda prova, registrou `--load-extension is not allowed in Google Chrome, ignoring`. Em ambos os casos o endpoint CDP subiu, mas a extensão não foi instalada. A documentação oficial informa que a flag `--load-extension` foi removida no Chrome 137. Isso explica o launcher sem cartão e invalida o caminho de carregamento automático no Chrome estável.
+- O perfil `%LOCALAPPDATA%\AtosTCE\perfil-qa-20260926` e o perfil `dados-locais\chrome-qa-profile` são distintos. O perfil dedicado existente contém entrada residual do ID esperado, mas sem manifesto. Nenhum deles foi apagado ou recriado. O launcher tentou abrir o perfil do repositório e seu CDP 9222 caiu; não foi confirmado que a captura do usuário pertence a esse perfil.
+- Orientação revisada: para uso humano, abrir `chrome://extensions` na mesma janela/perfil QA que mantém o login, carregar sem compactação a pasta `C:\Users\slvma\Downloads\Github\Atos-TCE\extension` e confirmar o cartão `ATOS TCE — Ponte da Mesa` (ID esperado `nhpklhieopdbomkojifcengjaklabjng`). Um toast sem cartão não confirma instalação. Para automação por flags, usar Chrome for Testing com integração suportada.
+- Nenhuma sessão/perfil autenticado foi fechado ou apagado; nenhum processo/ato do portal foi aberto ou modificado. Provas temporárias foram limpas. Sem alteração de código/testes nesta etapa; `git diff --check` passou. Branch `codex/atos-tce-unified`, HEAD `5f0d544869530e377f5f70d8f8a25fab0aa1f9bb`; `.git` read-only, sem commit/push.
+- Próximo passo: carregar manualmente a extensão raiz na janela QA correta e verificar que o cartão e a conexão da Mesa aparecem; não repetir `-PortalLab` esperando instalação automática em Google Chrome 154. Depois retomar o scan oficial, Task 10 e Phase 0; Tasks 1–8 seguem bloqueadas até esses gates.
+
+## 2026-09-26 — contrato Playwright e baseline completo
+
+- Baseline raiz inicialmente encontrou dois testes de launcher ainda usando a interface antiga `-ChromePath`/`-WhatIf`. Atualizei esses contratos para `-PlanOnly` e Chromium Playwright, mantendo a validação de CDP loopback, perfil externo e ausência de criação do perfil no preview.
+- A reprodução com o contrato novo revelou erro real em `powershell.exe -File`: o default de `ExtensionRoot` avaliava `Join-Path $PSScriptRoot` durante o binding de parâmetros, quando o valor estava vazio. Passar `-ExtensionRoot` explicitamente eliminava o erro. Movi a resolução padrão para depois do bloco `param`; o teste também confirma a pasta da extensão.
+- Red/GREEN: contrato focado primeiro falhou nos dois casos antigos, depois reproduziu o erro de `$PSScriptRoot`; após correção, `python -m unittest discover -s tests -p 'test_portal_lab_contract.py' -q` passou 20/20.
+- Gates atuais: suíte Python raiz 647 executados, 646 aprovados, 0 falhas, 1 skip; `npm test --prefix extension` 160/160; web 29/29; `verify-project.ps1` 1.260 executados, 1.258 aprovados, 0 falhas, 2 skips, sete estágios verdes; suíte Python complementar do extrator 529 executados, 520 aprovados, 0 falhas, 9 skips. `git diff --check` passou no verificador integrado.
+- A suíte web emitiu aviso já conhecido de `MODULE_TYPELESS_PACKAGE_JSON`; a complementar Python emitiu avisos de API `fitz` deprecada e `ResourceWarning` dos testes de HTTP simulados, sem falhas.
+- MCP reconfirmou a extensão oficial Enabled e o painel com “Mesa conectada”, “Área Restrita detectada” e nenhum formulário aberto. Nenhum processo/ato foi aberto ou alterado.
+- O pedido específico de autorização para persistir a captura estrutural L0 continua pendente. A gravação anterior foi rejeitada pelo auto-review por risco de expor IDs/nomes de frames e controles; não houve contorno nem nova tentativa.
+- Git permanece em `codex/atos-tce-unified`, HEAD `5f0d544869530e377f5f70d8f8a25fab0aa1f9bb`; alterações locais não commitadas/não publicadas, `.git` read-only. Task 10 e Phase 0 seguem incompletas; Tasks 1–8 continuam sob hard gate.
+
+## 2026-09-26 — captura L0 autorizada e próximo gate
+
+### Estado comprovado
+
+- O usuário autorizou persistir a captura estrutural L0 localmente. O MCP confirmou a extensão `ATOS TCE — Ponte da Mesa` v0.1.0 ativa no Chrome QA e uma aba autenticada da Área Restrita. O painel da extensão não indicava formulário aberto.
+- A Mesa Local respondeu HTTP 200 em `/api/v1/storage` dentro do mesmo Chrome QA. Abri a Mesa em nova aba; nenhuma ação de análise foi iniciada.
+- Executei `scripts/portal-lab/capture-structure.js` em cada frame da aba autenticada. O coletor lê rota sem query, `readyState`, caminho estrutural, atributos/state dos controles e quantidade de frames filhos; não lê texto nem valores de controles.
+- Captura L0 sanitizada: 9 frames, 251 controles, 169 linhas de tabela, 26 radios, 14 selects; os sentinelas da lista e do controle de página foram encontrados; todos os documentos estavam `complete`.
+- O coletor original gerou três caminhos duplicados porque alguns frames não tinham identidade estrutural distinta. Recolhi o mesmo estado e complementei o caminho com o índice observado entre frames irmãos. A segunda sanitização passou e os nove caminhos ficaram únicos. O índice identifica somente a posição nesta captura; não é seletor nem identidade permanente.
+- Comparações com `live-frame-tree.json`, `list-page.json` e `live-pagination.json` não acharam identidades de frame em comum. São capturas de estados/contratos anteriores e não demonstram uma transição equivalente. Não adicionei fixture.
+
+### Limite encontrado
+
+- A chamada oficial somente de leitura `SCAN_PAGE` foi rejeitada pelo auto-review: ela lê as linhas autenticadas com processos e interessados, ainda que a saída pedida ao MCP fosse somente papel e contagem. Não tentei contornar pela Mesa UI, CDP, DOM ou endpoint alternativo. Nenhuma linha/processo foi lida ou persistida nesta etapa.
+- Por isso, ainda não há `source_scope`, marcador label/value, página/total, ordem nem identidades anonimizadas vivos desta sessão. A estrutura L0 confirma a tela de lista, mas não fecha D1 ou a reconciliação D2.
+
+### Arquivos e validação
+
+- Evidências privadas: `tmp/portal-lab/2026-09-26-phase0-authorized/raw/` e `tmp/portal-lab/2026-09-26-phase0-authorized/sanitized/`. Ambas ficam ignoradas; não versionar os arquivos, nem os scripts temporários de captura.
+- Nenhum processo/ato foi aberto, preenchido, finalizado ou alterado; nenhuma paginação foi executada. Sem testes nesta etapa; não houve alteração de runtime. Rodar `git diff --check` antes de registrar/commitar este handoff.
+- O estado de código e o handoff do launcher desta retomada permanecem nos arquivos desta nota e `2026-09-24-chrome-qa-launcher-handoff.md`. Git: branch `codex/atos-tce-unified`, HEAD `5f0d544869530e377f5f70d8f8a25fab0aa1f9bb`; mudanças do launcher já staged localmente, ainda sem commit/push.
+
+### Retomada
+
+1. A autorização já concedida cobre seleção de um processo pendente e preenchimento/releitura sem ação final, mas o auto-review desta sessão bloqueou a leitura `SCAN_PAGE` por incluir linhas com pessoas/processos. A ferramenta não ofereceu um modo agregado que evitasse a leitura das linhas.
+2. Não iniciar outra rota de leitura dos mesmos dados para contornar o bloqueio. Se o auto-review liberar a leitura na próxima retomada, executar uma única captura `SCAN_PAGE`, anonimizar as identidades antes de qualquer registro compartilhável e salvar dados identificáveis apenas no store privado local.
+3. A fronteira manual continua obrigatória: operador pode revisar e clicar `Complementar Ato`; o agente só observa o estado posterior. Até fechar Best-Effort Task 10 e Phase 0, não iniciar Next Process Tasks 1–8.

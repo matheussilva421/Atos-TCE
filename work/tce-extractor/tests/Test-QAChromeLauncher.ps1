@@ -3,35 +3,33 @@
 $testRoot = $PSScriptRoot
 $launcherPath = Join-Path $testRoot '..\Abrir-Chrome-QA.bat'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $testRoot '..\..\..'))
-$chromeFixture = Join-Path $env:SystemRoot 'System32\notepad.exe'
 $customUrl = 'https://qa.example.invalid/test?case=42'
-
-if (-not (Test-Path -LiteralPath $chromeFixture -PathType Leaf)) {
-    throw "Executável de teste indisponível: $chromeFixture"
-}
-
-$planJson = (& $launcherPath -PlanOnly -ChromePath $chromeFixture -Url $customUrl) -join "`n"
+$planJson = (& $launcherPath -PlanOnly -Url $customUrl) -join "`n"
 if ($LASTEXITCODE -ne 0) { throw "O .bat encerrou com código $LASTEXITCODE." }
 $plan = ConvertFrom-Json -InputObject $planJson
-$defaultPlanJson = (& $launcherPath -PlanOnly -ChromePath $chromeFixture) -join "`n"
+$launcherScript = Join-Path $testRoot '..\Abrir-Chrome-QA.ps1'
+$portalLabPlan = ConvertFrom-Json -InputObject ((& $launcherScript -PlanOnly) -join "`n")
+if ($LASTEXITCODE -ne 0) { throw "O launcher PowerShell encerrou com código $LASTEXITCODE." }
+$defaultPlanJson = (& $launcherPath -PlanOnly) -join "`n"
 if ($LASTEXITCODE -ne 0) { throw "O .bat encerrou com código $LASTEXITCODE ao usar a URL padrão." }
 $defaultPlan = ConvertFrom-Json -InputObject $defaultPlanJson
-$expectedProfile = Join-Path $repoRoot 'dados-locais\chrome-qa-profile'
-$expectedExtension = Join-Path $testRoot '..\portable\extensao-complementar-ato'
-$expectedExtension = [IO.Path]::GetFullPath($expectedExtension)
+$expectedProfile = Join-Path $env:LOCALAPPDATA 'Atos-TCE\Chrome-QA-Playwright'
+$expectedExtension = [IO.Path]::GetFullPath((Join-Path $repoRoot 'extension'))
+$runnerPath = Join-Path $repoRoot 'scripts\portal-lab\launch-qa-chromium.mjs'
+$runnerSource = Get-Content -Raw -LiteralPath $runnerPath
 
 $checks = @(
-    [pscustomobject]@{ Name = 'usa o perfil privado padrão do QA'; Passed = $plan.profilePath -eq $expectedProfile },
-    [pscustomobject]@{ Name = 'inicia o Chrome com o perfil privado'; Passed = $plan.arguments -contains "--user-data-dir=$expectedProfile" },
-    [pscustomobject]@{ Name = 'carrega a extensão do extrator'; Passed = $plan.extensionPath -eq $expectedExtension },
-    [pscustomobject]@{ Name = 'expõe DevTools na porta CDP 9222'; Passed = $plan.arguments -contains '--remote-debugging-port=9222' },
-    [pscustomobject]@{ Name = 'informa o endpoint CDP local'; Passed = $plan.devToolsUrl -eq 'http://127.0.0.1:9222' },
-    [pscustomobject]@{ Name = 'mantém CDP restrito ao loopback'; Passed = $plan.arguments -contains '--remote-debugging-address=127.0.0.1' },
-    [pscustomobject]@{ Name = 'abre o painel DevTools nas abas'; Passed = $plan.arguments -contains '--auto-open-devtools-for-tabs' },
-    [pscustomobject]@{ Name = 'limita extensões à extensão em teste'; Passed = $plan.arguments -contains "--disable-extensions-except=$expectedExtension" },
-    [pscustomobject]@{ Name = 'carrega a extensão local'; Passed = $plan.arguments -contains "--load-extension=$expectedExtension" },
-    [pscustomobject]@{ Name = 'aceita uma URL de teste opcional'; Passed = $plan.arguments[-1] -eq $customUrl },
-    [pscustomobject]@{ Name = 'usa about:blank quando não há URL'; Passed = $defaultPlan.arguments[-1] -eq 'about:blank' }
+    [pscustomobject]@{ Name = 'usa Chromium gerenciado pelo Playwright'; Passed = $plan.browserEngine -eq 'playwright-chromium' },
+    [pscustomobject]@{ Name = 'carrega a extensão-fonte da Mesa'; Passed = $plan.extensionRoot -eq $expectedExtension },
+    [pscustomobject]@{ Name = 'usa perfil novo fora do repositório'; Passed = $plan.profileRoot -eq $expectedProfile -and -not $plan.profileRoot.StartsWith($repoRoot, [StringComparison]::OrdinalIgnoreCase) },
+    [pscustomobject]@{ Name = 'expõe CDP local na porta 9222'; Passed = $plan.devToolsUrl -eq 'http://127.0.0.1:9222' },
+    [pscustomobject]@{ Name = 'passa a URL ao runner'; Passed = $plan.url -eq $customUrl },
+    [pscustomobject]@{ Name = 'usa about:blank por padrão'; Passed = $defaultPlan.url -eq 'about:blank' },
+    [pscustomobject]@{ Name = 'runner usa contexto persistente e Chromium'; Passed = $runnerSource.Contains('launchPersistentContext') -and $runnerSource.Contains('channel: "chromium"') },
+    [pscustomobject]@{ Name = 'runner permite a extensão unpacked'; Passed = $runnerSource.Contains('ignoreDefaultArgs: ["--disable-extensions"]') -and $runnerSource.Contains('--load-extension=') -and $runnerSource.Contains('--disable-extensions-except=') },
+    [pscustomobject]@{ Name = 'runner verifica a extensão pela service worker'; Passed = $runnerSource.Contains('chrome.runtime.getManifest()') },
+    [pscustomobject]@{ Name = 'runner expõe CDP apenas no loopback'; Passed = $runnerSource.Contains('--remote-debugging-address=127.0.0.1') -and $runnerSource.Contains('--remote-debugging-port=') },
+    [pscustomobject]@{ Name = 'launcher não depende dos flags removidos do Chrome estável'; Passed = $plan.browserEngine -ne 'google-chrome-stable' }
 )
 
 foreach ($check in $checks) {
