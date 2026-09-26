@@ -371,3 +371,13 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - Commit `bf35ba2` (`ui: add next-process action to extension`) e push para `origin/codex/atos-tce-unified` confirmados (`ef2aac1..bf35ba2`). Nenhuma navegação/edição live; clique final manual.
 - A única tentativa autorizada do scan oficial retornou `session_required`; não repetir nem buscar os mesmos dados por outra interface.
 - Próxima tarefa: Task 6, botão Próximo Processo na Mesa, TDD com os testes de UI do plano.
+
+## Task 6 — ação Próximo Processo na Mesa (2026-09-26)
+
+- Ruling de caminho: o plano canônico especifica `app/web`, shell ativa da Mesa conectada à API local. `work/tce-extractor/portable/app/web` é o visualizador offline de revisão e permaneceu intocado.
+- RED: UI wiring teve 29/31 passando e os dois novos contratos falharam pela ausência do controle/handler. Durante GREEN, duas expectativas estáticas foram corrigidas para refletir a conversão numérica válida do ID e o `commandId` local; GREEN final `node --test app/web/tests/*.test.mjs` — 31/31.
+- Implementada solicitação autenticada com o `state.selectedId`, fim da fila, polling do comando, seleção do `target_process_id` somente após `SUCCEEDED`/`next_act_ready`/`form`, estado de timeout conservador e feedback acessível. Não há chamada automática a `/fill` nem reanálise de área.
+- `python -m unittest tests.test_api_server tests.test_web_suite -v` — 102/102; `node --check app/web/app.js`; `git diff --check`. Gate `verify-project.ps1` — 1.260 executados, 1.258 aprovados, zero falhas, 2 skips; sete estágios verdes.
+- Nenhuma navegação live ou alteração de processo/ato; clique final manual. O scan oficial foi tentado uma vez nesta retomada e retornou `session_required`; não repetir nem contornar.
+- Commit `b3e1284` (`ui: add next-process action to Mesa`) e push confirmados (`39f8aec..b3e1284`).
+- Próxima tarefa: Task 7, testes RED para paginação cross-page, alvo stale, ambiguidade de frames e foco. Task 8, validação supervisionada, revisão adversarial e ZIP standalone permanecem pendentes.

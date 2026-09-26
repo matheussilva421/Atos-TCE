@@ -973,3 +973,13 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - `node --check` nos quatro módulos alterados e `git diff --check` passaram. Os testes não acessaram o portal nem usaram dados reais.
 - Commit `bf35ba2` (`ui: add next-process action to extension`) foi enviado; push aceito (`ef2aac1..bf35ba2`). Nenhum processo/ato foi navegado, alterado, preenchido, enviado ou finalizado.
 - Próxima retomada: Task 6 — ação equivalente na Mesa, começando pelos testes RED do wiring da UI e seleção do processo atual. Tasks 7–8, validação supervisionada, revisão adversarial e ZIP standalone continuam pendentes. Scan oficial já usado uma vez nesta retomada respondeu `session_required`; não repetir nem substituir por outra interface.
+
+## 2026-09-26 — Task 6: ação Próximo Processo na Mesa
+
+- Ruling de caminho: o plano nomeia `app/web`, que é a shell ativa da Mesa ligada à API local. `work/tce-extractor/portable/app/web` contém `review-app.js`, visualizador offline separado; não foi alterado.
+- TDD RED: `node --test app/web/tests/*.test.mjs` passou 29 testes existentes e falhou nos dois novos contratos por ausência do botão/handler. Depois da implementação, os testes de wiring foram alinhados à conversão exigida pela API de IDs para números inteiros e ao nome local `commandId`; GREEN final 31/31.
+- A Mesa envia `POST /api/v1/portal/next-act` com o ID selecionado, mostra fim de fila ou aguarda `/api/v1/extension/commands/{command_id}` até SUCCEEDED/FAILED/timeout. Só em SUCCEEDED com resultado `next_act_ready` e tela `form` seleciona `target_process_id` e mostra “Formulário pronto”. A implementação não chama `/fill` nem refresca scan/aquisição. Resposta incerta após envio ou timeout deixa o botão bloqueado e pede conferência manual para evitar duplicatas.
+- Testes: UI `node --test app/web/tests/*.test.mjs` — 31/31; `python -m unittest tests.test_api_server tests.test_web_suite -v` — 102/102; `node --check app/web/app.js` e `git diff --check` passaram. `verify-project.ps1`: 1.260 executados, 1.258 aprovados, 0 falhas, 2 skips; sete estágios verdes.
+- Nenhuma navegação live, preenchimento ou ação final ocorreu. Scan oficial autorizado já retornou `session_required` em tentativa única; não repetir nem consultar os mesmos dados por outro caminho.
+- Commit `b3e1284` (`ui: add next-process action to Mesa`) foi enviado; push aceito (`39f8aec..b3e1284`).
+- Próximo passo: Task 7, reforçar casos cross-page, alvo stale, frames ambíguos e foco, começando por testes RED. Best-Effort Task 10, Task 8, validação supervisionada, revisão adversarial e pacote standalone seguem pendentes.
