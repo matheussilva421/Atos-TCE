@@ -306,3 +306,12 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - Uma chamada somente de leitura ao `SCAN_PAGE` da extensão foi rejeitada pelo auto-review porque esse comando lê linhas autenticadas com identidade de processos/interessados, mesmo quando a saída pretendida seria apenas agregada. Não houve leitura de linhas, varredura, paginação, alteração de processo/ato ou clique final. Não tentar o mesmo acesso por interface/API alternativa.
 - D1 continua pendente: falta a leitura viva do marcador, escopo/página/total e identidades anonimizadas; D2–D6 e a validação real Best-Effort Task 10 permanecem abertas. Next Process Tasks 1–8 continuam atrás do hard gate.
 - Nenhum teste foi executado nesta etapa; houve somente captura L0 e atualização documental. Executar `git diff --check` antes do commit. Git continua na branch `codex/atos-tce-unified`; commit/push ainda pendentes.
+
+## 2026-09-26 — reconciliação histórica offline
+
+- Consulta SQLite estritamente read-only em `data/atos-tce.db`: nenhuma escrita. Nove scans históricos existentes, sem duplicatas nos scans comparados.
+- O scan parcial de 27 itens corresponde exatamente ao sufixo ordenado de 27 itens tanto do scan completo de 1.198 quanto do de 1.197. Isso confirma que aquela tentativa começou na última página; não representa uma varredura completa.
+- O scan completo de 1.198 e o scan mais recente de 1.197 têm 1.196 identidades em comum, duas apenas no baseline e uma apenas no mais recente; os três itens exclusivos estavam classificados como `ATO_COMPLEMENTADO`. Entre as identidades compartilhadas, 128 mudaram de `PRECISA_COMPLEMENTAR` para `ATO_COMPLEMENTADO`. As contagens agregadas conferem: 482/716 no baseline e 354/843 no mais recente.
+- O par de scans completos mais recentes de 1.197 tem a mesma ordem e classificações. Entre os scans de 1.198 e 1.197, `source_scope` e valor do marcador são iguais; o label do marcador mudou. O arquivo privado do marcador anterior corresponde ao scan de 1.197.
+- HMACs de identidade e comparações ficam em `tmp/portal-lab/2026-09-26-phase0-authorized/sanitized/historical-reconciliation.json`; a chave HMAC fica na pasta `raw/`. Nenhum nome ou número de processo foi incluído em relatório versionado.
+- D2 está melhor caracterizada, mas não fechada: a leitura atual foi rejeitada pelo auto-review e os três itens exclusivos ainda não foram validados contra uma observação viva autorizada. Task 10 e D1/D3–D6 permanecem pendentes.

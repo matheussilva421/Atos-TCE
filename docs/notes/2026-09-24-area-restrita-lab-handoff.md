@@ -885,3 +885,13 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 1. A autorização já concedida cobre seleção de um processo pendente e preenchimento/releitura sem ação final, mas o auto-review desta sessão bloqueou a leitura `SCAN_PAGE` por incluir linhas com pessoas/processos. A ferramenta não ofereceu um modo agregado que evitasse a leitura das linhas.
 2. Não iniciar outra rota de leitura dos mesmos dados para contornar o bloqueio. Se o auto-review liberar a leitura na próxima retomada, executar uma única captura `SCAN_PAGE`, anonimizar as identidades antes de qualquer registro compartilhável e salvar dados identificáveis apenas no store privado local.
 3. A fronteira manual continua obrigatória: operador pode revisar e clicar `Complementar Ato`; o agente só observa o estado posterior. Até fechar Best-Effort Task 10 e Phase 0, não iniciar Next Process Tasks 1–8.
+
+## 2026-09-26 — reconciliação de scans históricos, somente leitura
+
+- Li `data/atos-tce.db` por conexão SQLite `mode=ro`; não atualizei o banco. Há nove scans registrados.
+- O scan parcial de 27 itens coincide exatamente, na mesma ordem, com o sufixo de 27 itens dos scans completos de 1.198 e 1.197. Isso confirma a causa do resultado parcial: a tentativa iniciou no fim da lista e capturou somente a última página.
+- O baseline completo de 1.198 e o último completo de 1.197 compartilham 1.196 identidades HMAC; há duas somente no baseline e uma somente no último. As três exclusivas estavam classificadas como `ATO_COMPLEMENTADO`, sem duplicatas. Das identidades compartilhadas, 128 mudaram de `PRECISA_COMPLEMENTAR` para `ATO_COMPLEMENTADO`.
+- As agregações conferem com os itens: baseline 1.198 = 482 pendentes + 716 complementados; último 1.197 = 354 pendentes + 843 complementados. Dois scans completos de 1.197 consecutivos têm a mesma ordem e classificação.
+- Comparação privada do contexto: `source_scope` e valor do marcador não mudaram entre o scan de 1.198 e o de 1.197; o label mudou. O arquivo local privado do marcador anterior corresponde ao último scan de 1.197.
+- Identidades anonimizadas por HMAC, ordem e diferenças estão em `tmp/portal-lab/2026-09-26-phase0-authorized/sanitized/historical-reconciliation.json`; a chave local está em `raw/identity-hmac.key`. Esses arquivos são ignorados pelo Git. Nenhum valor identificável foi exibido ou adicionado a docs.
+- Essa comparação histórica explica a tentativa de 27 e descreve a variação das contagens; não valida ainda os três itens exclusivos contra a lista viva atual. D2 segue parcial por causa da rejeição de `SCAN_PAGE` pelo auto-review. Não tentei outra interface para a mesma leitura.
