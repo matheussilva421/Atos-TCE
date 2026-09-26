@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { executeCommand, installRouter, scanAreaPages } from "../background/router.js";
+import { MESSAGE_TYPES } from "../lib/protocol.js";
 import { fakeChrome } from "./helpers.mjs";
 
 const PORTAL = "https://novaarearestrita.tce.rn.gov.br";
@@ -78,6 +79,341 @@ test("an unknown command type is refused, never guessed", async () => {
 });
 
 const IDENTITY = { processKey: "102390/2026", interestedNormalized: "pessoa exemplo" };
+const NEXT_IDENTITY = { processKey: "100/2026", interestedNormalized: "pessoa destino" };
+const NEXT_PAYLOAD = {
+  current_identity: IDENTITY,
+  target_identity: NEXT_IDENTITY,
+  context: {
+    scan_id: 17,
+    source_scope: "sector_finalistic",
+    marker: { label: "Professor - fixture", value: "6189" },
+  },
+};
+
+function nextActHarness({
+  currentForm = null,
+  pages = [{
+    ok: true,
+    frame: { tabId: 1, frameId: 5 },
+    snapshot: page([{ process_key: NEXT_IDENTITY.processKey, interested_normalized: NEXT_IDENTITY.interestedNormalized }]),
+  }],
+  returnedListMarker = null,
+  openResults = [{ ok: true, action: "open_act", waitingForFrame: true }],
+  targetForms = [{ ok: true, form: { identity: NEXT_IDENTITY }, tabId: 9, frameId: 3 }],
+} = {}) {
+  const calls = [];
+  let pageIndex = 0;
+  let openIndex = 0;
+  let formIndex = 0;
+  const dependencies = {
+    async readCurrentForm() {
+      calls.push("readCurrentForm");
+      return currentForm;
+    },
+    async returnToList(form, identity) {
+      calls.push(["returnToList", form, identity]);
+      return { ok: true, marker: returnedListMarker };
+    },
+    async readListPage() {
+      calls.push("readListPage");
+      const current = pages[Math.min(pageIndex, pages.length - 1)];
+      return {
+        ...current,
+        snapshot: {
+          ...current.snapshot,
+          marker: returnedListMarker ?? current.snapshot.marker ?? NEXT_PAYLOAD.context.marker,
+        },
+      };
+    },
+    async advancePage(frame, currentPage) {
+      calls.push(["advancePage", frame, currentPage]);
+      pageIndex += 1;
+      return { ok: true, page_after: currentPage + 1 };
+    },
+    async openAct(identity) {
+      calls.push(["openAct", identity]);
+      return openResults[Math.min(openIndex++, openResults.length - 1)];
+    },
+    async readTargetForm(identity) {
+      calls.push(["readTargetForm", identity]);
+      return targetForms[Math.min(formIndex++, targetForms.length - 1)] ?? null;
+    },
+    async activateTab(tabId) {
+      calls.push(["activateTab", tabId]);
+      return { ok: true };
+    },
+  };
+  const router = installRouter({
+    api: idleApi(),
+    chromeApi: fakeChrome(),
+    timing: { ...FAST, nextActAttempts: 4, nextActDelayMs: 1 },
+    nextActDependencies: dependencies,
+  });
+  return { router, calls };
+}
+
+async function runNextAct(harness) {
+  assert.equal(typeof harness.router.openNextAct, "function", "router must expose next-act orchestration");
+  return harness.router.openNextAct(NEXT_PAYLOAD);
+}
+
+test("OPEN_NEXT_ACT dispatches through its dedicated navigation collaborator", async () => {
+  let received;
+  const result = await executeCommand(
+    { id: 81, type: "OPEN_NEXT_ACT", payload: NEXT_PAYLOAD },
+    { openNextAct: async (payload) => { received = payload; return { ok: true, action: "next_act_ready", identity: NEXT_IDENTITY, screen: "form" }; } }
+  );
+
+  assert.deepEqual(received, NEXT_PAYLOAD);
+  assert.deepEqual(result, {
+    command_id: 81,
+    ok: true,
+    action: "next_act_ready",
+    identity: NEXT_IDENTITY,
+    screen: "form",
+  });
+});
+
+test("poll reports the reread target after OPEN_NEXT_ACT navigation", async () => {
+  const reported = [];
+  const calls = [];
+  const router = installRouter({
+    api: {
+      nextCommand: async () => ({
+        ok: true,
+        command: {
+          id: 82,
+          type: "OPEN_NEXT_ACT",
+          claim_token: "lease-next-act",
+          payload: NEXT_PAYLOAD,
+        },
+      }),
+      reportResult: async (commandId, result) => reported.push({ commandId, result }),
+    },
+    chromeApi: fakeChrome(),
+    timing: FAST,
+    nextActDependencies: {
+      readCurrentForm: async () => ({ ok: true, form: null }),
+      returnToList: async () => ({ ok: true }),
+      readListPage: async () => ({
+        ok: true,
+        frame: { tabId: 1, frameId: 3 },
+        snapshot: {
+          ...page([]),
+          marker: NEXT_PAYLOAD.context.marker,
+        },
+      }),
+      openAct: async (identity) => {
+        calls.push(["openAct", identity]);
+        return { ok: true, action: "open_act" };
+      },
+      readTargetForm: async (identity) => {
+        calls.push(["readTargetForm", identity]);
+        return {
+          ok: true,
+          form: { identity },
+          tabId: 9,
+          frameId: 4,
+        };
+      },
+      activateTab: async (tabId) => {
+        calls.push(["activateTab", tabId]);
+        return { ok: true };
+      },
+    },
+  });
+
+  await router.poll();
+
+  assert.equal(reported.length, 1);
+  assert.equal(reported[0].commandId, 82);
+  assert.deepEqual(reported[0].result, {
+    command_id: 82,
+    ok: true,
+    action: "next_act_ready",
+    identity: NEXT_IDENTITY,
+    screen: "form",
+    claim_token: "lease-next-act",
+  });
+  assert.deepEqual(calls.map(([action]) => action), ["openAct", "readTargetForm", "activateTab"]);
+});
+
+test("next-act refuses a scan id that is not an actual positive integer", async () => {
+  for (const scanId of ["17", true, 0, -1, 1.5]) {
+    const harness = nextActHarness();
+    const result = await harness.router.openNextAct({
+      ...NEXT_PAYLOAD,
+      context: { ...NEXT_PAYLOAD.context, scan_id: scanId },
+    });
+
+    assert.equal(result.ok, false, `scan_id=${String(scanId)} must be rejected`);
+    assert.equal(result.code, "SCAN_CONTEXT_MISSING");
+    assert.deepEqual(harness.calls, []);
+  }
+});
+
+test("next-act returns the exact current form to list and reads the target form", async () => {
+  const harness = nextActHarness({
+    currentForm: { form: { identity: IDENTITY }, tabId: 1, frameId: 2 },
+    openResults: [
+      { ok: true, action: "open_act", waitingForFrame: true },
+      { ok: true, action: "select_interested", waitingForFrame: true },
+    ],
+    targetForms: [null, { ok: true, form: { identity: NEXT_IDENTITY }, tabId: 9, frameId: 3 }],
+  });
+
+  const result = await runNextAct(harness);
+
+  assert.deepEqual(result, { ok: true, action: "next_act_ready", identity: NEXT_IDENTITY, screen: "form" });
+  assert.deepEqual(harness.calls.map((call) => Array.isArray(call) ? call[0] : call), [
+    "readCurrentForm", "returnToList", "readListPage", "openAct", "readTargetForm", "openAct", "readTargetForm", "activateTab",
+  ]);
+});
+
+test("next-act opens an exact target already on the current list page", async () => {
+  const harness = nextActHarness({ currentForm: null });
+
+  const result = await runNextAct(harness);
+
+  assert.equal(result.ok, true);
+  assert.equal(harness.calls.some((call) => Array.isArray(call) && call[0] === "returnToList"), false);
+});
+
+test("next-act advances the list and opens a target on a later page", async () => {
+  const harness = nextActHarness({
+    currentForm: null,
+    pages: [
+      { ok: true, frame: { tabId: 1, frameId: 5 }, snapshot: page([{ process_key: "200/2026", interested_normalized: "pessoa outra" }], { page: 1, total_pages: 2 }) },
+      { ok: true, frame: { tabId: 1, frameId: 5 }, snapshot: page([{ process_key: NEXT_IDENTITY.processKey, interested_normalized: NEXT_IDENTITY.interestedNormalized }], { page: 2, total_pages: 2 }) },
+    ],
+    openResults: [
+      { ok: false, code: "ROW_ACTION_NOT_FOUND" },
+      { ok: true, action: "open_act", waitingForFrame: true },
+    ],
+  });
+
+  const result = await runNextAct(harness);
+
+  assert.equal(result.ok, true);
+  assert.equal(harness.calls.filter((call) => Array.isArray(call) && call[0] === "advancePage").length, 1);
+  assert.equal(harness.calls.filter((call) => Array.isArray(call) && call[0] === "openAct").length, 2);
+});
+
+test("next-act refuses pagination drift before trying a row on the new page", async () => {
+  const scenarios = [
+    {
+      label: "page jump",
+      second: page(
+        [{ process_key: NEXT_IDENTITY.processKey, interested_normalized: NEXT_IDENTITY.interestedNormalized }],
+        { page: 3, total_pages: 3 },
+      ),
+    },
+    {
+      label: "page count changed",
+      second: page(
+        [{ process_key: NEXT_IDENTITY.processKey, interested_normalized: NEXT_IDENTITY.interestedNormalized }],
+        { page: 2, total_pages: 3 },
+      ),
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const harness = nextActHarness({
+      currentForm: null,
+      pages: [
+        {
+          ok: true,
+          frame: { tabId: 1, frameId: 5 },
+          snapshot: page([{ process_key: "200/2026", interested_normalized: "pessoa outra" }], {
+            page: 1,
+            total_pages: 2,
+          }),
+        },
+        { ok: true, frame: { tabId: 1, frameId: 5 }, snapshot: scenario.second },
+      ],
+      openResults: [
+        { ok: false, code: "ROW_ACTION_NOT_FOUND" },
+        { ok: true, action: "open_act", waitingForFrame: true },
+      ],
+    });
+
+    const result = await runNextAct(harness);
+
+    assert.equal(result.ok, false, scenario.label);
+    assert.equal(result.code, "PAGINATION_INCOHERENT", scenario.label);
+    assert.equal(
+      harness.calls.filter((call) => Array.isArray(call) && call[0] === "openAct").length,
+      1,
+      scenario.label,
+    );
+  }
+});
+
+test("next-act refuses a wrong marker without attempting marker restoration", async () => {
+  const harness = nextActHarness({
+    currentForm: { form: { identity: IDENTITY }, tabId: 1, frameId: 2 },
+    returnedListMarker: { label: "different", value: "other" },
+  });
+
+  const result = await runNextAct(harness);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "MARKER_MISMATCH");
+  assert.equal(Object.values(MESSAGE_TYPES).includes("ENSURE_MARKER"), false);
+  assert.equal(harness.calls.some((call) => Array.isArray(call) && call[0] === "openAct"), false);
+});
+
+test("next-act reports TARGET_NOT_FOUND without selecting a neighboring row", async () => {
+  const harness = nextActHarness({
+    currentForm: null,
+    pages: [{ ok: true, frame: { tabId: 1, frameId: 5 }, snapshot: page([{ process_key: "200/2026", interested_normalized: "pessoa outra" }]) }],
+    openResults: [{ ok: false, code: "ROW_ACTION_NOT_FOUND" }],
+  });
+
+  const result = await runNextAct(harness);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "TARGET_NOT_FOUND");
+  const openCalls = harness.calls.filter((call) => Array.isArray(call) && call[0] === "openAct");
+  assert.equal(openCalls.length, 1);
+  assert.deepEqual(openCalls[0][1], NEXT_IDENTITY);
+});
+
+test("next-act rejects a final form with a different identity", async () => {
+  const harness = nextActHarness({
+    currentForm: null,
+    targetForms: [{ ok: true, form: { identity: { processKey: "999/2026", interestedNormalized: "outra pessoa" } }, tabId: 9, frameId: 3 }],
+  });
+
+  const result = await runNextAct(harness);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "TARGET_IDENTITY_MISMATCH");
+});
+
+test("next-act refuses multiple matching target form frames", async () => {
+  const harness = nextActHarness({
+    currentForm: null,
+    targetForms: [{ ok: false, code: "FORM_AMBIGUOUS" }],
+  });
+
+  const result = await runNextAct(harness);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "FORM_AMBIGUOUS");
+});
+
+test("next-act activates the tab containing the reread exact target form", async () => {
+  const harness = nextActHarness({
+    currentForm: null,
+    targetForms: [{ ok: true, form: { identity: NEXT_IDENTITY }, tabId: 42, frameId: 8 }],
+  });
+
+  const result = await runNextAct(harness);
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(harness.calls.at(-1), ["activateTab", 42]);
+});
 
 test("an OPEN_ACT command reports the navigation outcome", async () => {
   const result = await executeCommand(

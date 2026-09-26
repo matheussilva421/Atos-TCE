@@ -133,6 +133,10 @@ export async function executeCommand(command, dependencies = {}) {
     const outcome = (await dependencies.openAct(command.payload ?? {})) ?? {};
     return { ...outcome, command_id: commandId };
   }
+  if (type === COMMAND_TYPES.OPEN_NEXT_ACT) {
+    const outcome = (await dependencies.openNextAct(command.payload ?? {})) ?? {};
+    return { ...outcome, command_id: commandId };
+  }
   if (type === COMMAND_TYPES.READ_FORM) {
     const outcome = (await dependencies.readForm(command.payload ?? {})) ?? null;
     if (!outcome || outcome.ok !== true || !outcome.form) {
@@ -213,11 +217,160 @@ export async function scanAreaPages({
   return { role: frozen.role, source_scope: frozen.source_scope, marker: frozen.marker, rows };
 }
 
+function nextActFailure(code) {
+  return { ok: false, action: "next_act_failed", code, error: code };
+}
+
+/**
+ * Navigate to the backend-selected identity without rescanning the queue.
+ * The injected operations keep frame/browser effects testable and bounded.
+ */
+async function orchestrateNextAct(payload, actions, {
+  pageCap = MAX_SCAN_PAGES,
+  attempts = FORM_READ_ATTEMPTS,
+  retryDelayMs = FORM_READ_DELAY_MS,
+} = {}) {
+  const currentIdentity = payload?.current_identity;
+  const targetIdentity = payload?.target_identity;
+  const context = payload?.context ?? {};
+  const marker = context.marker;
+  if (!hasIdentity(currentIdentity) || !hasIdentity(targetIdentity)) {
+    return nextActFailure("INVALID_IDENTITY");
+  }
+  if (sameIdentity(currentIdentity, targetIdentity)) {
+    return nextActFailure("INVALID_TARGET_IDENTITY");
+  }
+  if (
+    !Number.isInteger(context.scan_id) ||
+    context.scan_id <= 0 ||
+    !String(context.source_scope ?? "").trim() ||
+    !String(marker?.label ?? "").trim() ||
+    !String(marker?.value ?? "").trim()
+  ) {
+    return nextActFailure("SCAN_CONTEXT_MISSING");
+  }
+
+  let current;
+  try {
+    current = await actions.readCurrentForm();
+  } catch {
+    return nextActFailure("CURRENT_FORM_UNAVAILABLE");
+  }
+  if (current?.ok === false) return nextActFailure(current.code ?? "CURRENT_FORM_UNAVAILABLE");
+  if (current?.form) {
+    if (!sameIdentity(current.form.identity, currentIdentity)) {
+      return nextActFailure("CURRENT_IDENTITY_MISMATCH");
+    }
+    let returned;
+    try {
+      returned = await actions.returnToList(current, currentIdentity);
+    } catch {
+      return nextActFailure("RETURN_TO_LIST_FAILED");
+    }
+    if (returned?.ok !== true) return nextActFailure(returned?.code ?? "RETURN_TO_LIST_FAILED");
+  }
+
+  let frozenTotalPages = null;
+  let expectedPage = null;
+  for (let pageNumber = 0; pageNumber < pageCap; pageNumber += 1) {
+    let pageState;
+    try {
+      pageState = await actions.readListPage();
+    } catch {
+      return nextActFailure("LIST_NOT_AVAILABLE");
+    }
+    if (pageState?.ok !== true || pageState.snapshot?.role !== "list") {
+      return nextActFailure(pageState?.code ?? "LIST_NOT_AVAILABLE");
+    }
+    const snapshot = pageState.snapshot;
+    if (snapshot.source_scope !== context.source_scope) {
+      return nextActFailure("SCOPE_MISMATCH");
+    }
+    if (
+      snapshot.marker?.label !== marker.label ||
+      snapshot.marker?.value !== marker.value
+    ) {
+      return nextActFailure("MARKER_MISMATCH");
+    }
+    const page = Number(snapshot.page);
+    const totalPages = Number(snapshot.total_pages);
+    if (!Number.isInteger(page) || !Number.isInteger(totalPages) || page < 1 || page > totalPages) {
+      return nextActFailure("PAGINATION_INCOHERENT");
+    }
+    if (frozenTotalPages === null) {
+      frozenTotalPages = totalPages;
+      expectedPage = page;
+    } else if (totalPages !== frozenTotalPages || page !== expectedPage) {
+      return nextActFailure("PAGINATION_INCOHERENT");
+    }
+
+    let opened = null;
+    let rowNotFound = false;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        opened = await actions.openAct(targetIdentity);
+      } catch {
+        opened = { ok: false, code: "FRAME_UNREACHABLE" };
+      }
+      if (opened?.ok === true) {
+        let targetForm;
+        try {
+          targetForm = await actions.readTargetForm(targetIdentity);
+        } catch {
+          targetForm = { ok: false, code: "FORM_NOT_AVAILABLE" };
+        }
+        if (targetForm?.code === "FORM_AMBIGUOUS") return nextActFailure("FORM_AMBIGUOUS");
+        if (targetForm?.ok === true && targetForm.form) {
+          if (!sameIdentity(targetForm.form.identity, targetIdentity)) {
+            return nextActFailure("TARGET_IDENTITY_MISMATCH");
+          }
+          const activated = await actions.activateTab(targetForm.tabId);
+          if (activated?.ok !== true) return nextActFailure("TARGET_TAB_ACTIVATION_FAILED");
+          return {
+            ok: true,
+            action: "next_act_ready",
+            identity: targetIdentity,
+            screen: "form",
+          };
+        }
+        if (targetForm?.code === "TARGET_IDENTITY_MISMATCH") {
+          return nextActFailure("TARGET_IDENTITY_MISMATCH");
+        }
+        if (targetForm?.code && targetForm.code !== "FORM_NOT_AVAILABLE") {
+          return nextActFailure(targetForm.code);
+        }
+      } else if (opened?.code === "ROW_ACTION_NOT_FOUND") {
+        rowNotFound = true;
+        break;
+      } else if (!["FRAME_UNREACHABLE", "SCREEN_NOT_NAVIGABLE"].includes(opened?.code)) {
+        return nextActFailure(opened?.code ?? "NAVIGATION_FAILED");
+      }
+      if (attempt + 1 < attempts) await delay(retryDelayMs);
+    }
+
+    if (!rowNotFound) return nextActFailure("FORM_NOT_AVAILABLE");
+    if (page >= totalPages) return nextActFailure("TARGET_NOT_FOUND");
+    if (pageNumber + 1 >= pageCap) return nextActFailure("PAGE_LIMIT_EXCEEDED");
+    let advanced;
+    try {
+      advanced = await actions.advancePage(pageState.frame, page);
+    } catch {
+      return nextActFailure("PAGINATION_STALLED");
+    }
+    if (advanced?.ok !== true || advanced.page_after !== page + 1) {
+      return nextActFailure(advanced?.code ?? "PAGINATION_STALLED");
+    }
+    expectedPage = page + 1;
+  }
+  return nextActFailure("PAGE_LIMIT_EXCEEDED");
+}
+
 export function installRouter({
   api = createApi({ storage: globalThis.chrome?.storage?.local }),
   chromeApi = globalThis.chrome,
   verbose = false,
   timing = {},
+  nextActDependencies = {},
 } = {}) {
   let running = false;
   const retryAttempts = timing.retryAttempts ?? RETRY_ATTEMPTS;
@@ -453,6 +606,143 @@ export function installRouter({
     };
   }
 
+  async function readCurrentPortalForm() {
+    const forms = (await askFrames({ type: MESSAGE_TYPES.READ_FORM })).filter(
+      (answer) => answer.response?.ok === true && answer.response.form
+    );
+    if (forms.length > 1) return { ok: false, code: "FORM_AMBIGUOUS" };
+    if (forms.length === 0) return { ok: true, form: null };
+    const found = forms[0];
+    return { ok: true, form: found.response.form, tabId: found.tabId, frameId: found.frameId };
+  }
+
+  async function returnToList(current, identity) {
+    try {
+      return await sendToFrame(current.tabId, current.frameId, {
+        type: MESSAGE_TYPES.RETURN_TO_LIST,
+        payload: { identity },
+      });
+    } catch {
+      return { ok: false, code: "RETURN_TO_LIST_FAILED" };
+    }
+  }
+
+  async function readListPageForNextAct() {
+    try {
+      const frame = await findListFrame();
+      const response = await sendToFrame(frame.tabId, frame.frameId, {
+        type: MESSAGE_TYPES.SCAN_PAGE,
+      });
+      if (response?.ok !== true || response.snapshot?.role !== "list") {
+        return { ok: false, code: "LIST_NOT_AVAILABLE" };
+      }
+      return { ok: true, frame, snapshot: response.snapshot };
+    } catch {
+      return { ok: false, code: "LIST_NOT_AVAILABLE" };
+    }
+  }
+
+  async function advanceListPageForNextAct(frame, currentPage) {
+    const expectedPage = currentPage + 1;
+    for (let attempt = 0; attempt < pageAdvanceAttempts; attempt += 1) {
+      let response;
+      try {
+        response = await sendToFrame(frame.tabId, frame.frameId, {
+          type: MESSAGE_TYPES.LIST_PAGE,
+          payload: { action: "next" },
+        });
+      } catch {
+        response = null;
+      }
+      if (response?.ok === true) {
+        const before = Number(response.page_before);
+        const after = Number(response.page_after);
+        if (Number.isInteger(before) && before !== currentPage) {
+          return { ok: false, code: "PAGINATION_STALLED" };
+        }
+        if (Number.isInteger(after) && after !== expectedPage) {
+          return { ok: false, code: "PAGINATION_STALLED" };
+        }
+        if (await waitForPageReady(frame, expectedPage)) {
+          return { ok: true, page_after: expectedPage };
+        }
+      } else {
+        return { ok: false, code: "PAGINATION_STALLED" };
+      }
+      if (attempt + 1 < pageAdvanceAttempts) await delay(pageAdvanceRetryDelayMs);
+    }
+    return { ok: false, code: "PAGINATION_STALLED" };
+  }
+
+  async function openExactNextTarget(identity) {
+    const outcome = await openAct({ identity });
+    if (outcome?.ok === true || outcome?.code === "ROW_ACTION_NOT_FOUND") return outcome;
+    // A non-list frame can mask the list's precise row-not-found refusal.
+    try {
+      const frame = await findListFrame();
+      const listOutcome = await sendToFrame(frame.tabId, frame.frameId, {
+        type: MESSAGE_TYPES.OPEN_ACT,
+        payload: { identity },
+      });
+      if (listOutcome?.ok === true || listOutcome?.code === "ROW_ACTION_NOT_FOUND") {
+        return listOutcome;
+      }
+    } catch {
+      // Keep the original exact-navigation refusal.
+    }
+    return outcome;
+  }
+
+  async function readExactTargetForm(identity) {
+    const forms = (await askFrames({
+      type: MESSAGE_TYPES.READ_FORM,
+      payload: { identity },
+    })).filter((answer) => answer.response?.ok === true && answer.response.form);
+    if (forms.length > 1) return { ok: false, code: "FORM_AMBIGUOUS" };
+    if (forms.length === 0) return { ok: false, code: "FORM_NOT_AVAILABLE" };
+    const found = forms[0];
+    if (!sameIdentity(found.response.form.identity, identity)) {
+      return { ok: false, code: "TARGET_IDENTITY_MISMATCH" };
+    }
+    return {
+      ok: true,
+      form: found.response.form,
+      tabId: found.tabId,
+      frameId: found.frameId,
+    };
+  }
+
+  async function activatePortalTab(tabId) {
+    if (!Number.isInteger(tabId)) return { ok: false, code: "TARGET_TAB_ACTIVATION_FAILED" };
+    try {
+      await chromeApi.tabs.update(tabId, { active: true });
+      return { ok: true };
+    } catch {
+      return { ok: false, code: "TARGET_TAB_ACTIVATION_FAILED" };
+    }
+  }
+
+  async function openNextAct(payload) {
+    return orchestrateNextAct(
+      payload,
+      {
+        readCurrentForm: readCurrentPortalForm,
+        returnToList,
+        readListPage: readListPageForNextAct,
+        advancePage: advanceListPageForNextAct,
+        openAct: openExactNextTarget,
+        readTargetForm: readExactTargetForm,
+        activateTab: activatePortalTab,
+        ...nextActDependencies,
+      },
+      {
+        pageCap: timing.nextActPageCap ?? MAX_SCAN_PAGES,
+        attempts: timing.nextActAttempts ?? FORM_READ_ATTEMPTS,
+        retryDelayMs: timing.nextActDelayMs ?? FORM_READ_DELAY_MS,
+      },
+    );
+  }
+
   /** Write only into the one frame whose identity was confirmed by reading. */
   async function fillForm(payload) {
     const located = await locateFormFrame(payload?.identity ?? {});
@@ -532,6 +822,7 @@ export function installRouter({
         result = await executeCommand(outcome.command, {
           scanPortal,
           openAct,
+          openNextAct,
           readForm,
           fillForm,
           ...(typeof api.renewCommandLease === "function"
@@ -593,7 +884,7 @@ export function installRouter({
     if (alarm?.name === "tce-recovery-poll") poll();
   });
 
-  return { poll, scanPortal, openAct, readForm, fillForm, readCurrentForm };
+  return { poll, scanPortal, openAct, openNextAct, readForm, fillForm, readCurrentForm };
 }
 
 if (globalThis.chrome?.runtime?.onMessage?.addListener) {

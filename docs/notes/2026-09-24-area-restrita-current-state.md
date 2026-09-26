@@ -1,5 +1,15 @@
 # Estado atual canônico — 2026-09-24
 
+## Retomada atual — 2026-09-26
+
+Este bloco é a fonte de estado atual; os registros abaixo são cronológicos e podem conter estados antigos.
+
+- Branch única: `codex/atos-tce-unified`; último commit publicado: `5510362`. Task 3 está em implementação local, ainda sem commit.
+- Phase 0 foi encerrada por equivalência de evidências, conforme a decisão registrada adiante. Tasks 1 e 2 de Próximo Processo estão implementadas e publicadas.
+- Task 3 implementa `OPEN_NEXT_ACT`, retorno interno para lista e validação backend da identidade/tela reportadas. RED/GREEN focais passaram; revisão e commit ainda pendentes.
+- O usuário autorizou uma execução do botão oficial de análise. A tentativa retornou `session_required`; não houve varredura nova persistida. Não repetir nem buscar a mesma leitura por outra interface.
+- Best-Effort Task 10, Tasks 4–8, validação supervisionada de navegação, revisão adversarial e pacote standalone seguem pendentes. O clique final permanece manual.
+
 ## Git
 
 Branch de retomada:
@@ -42,9 +52,7 @@ Nenhum clique final deve ser automatizado.
 
 ## Próximo Processo
 
-Nenhuma Task 1–8 de produção foi implementada.
-
-A Phase 0 de discovery está parcialmente concluída.
+Tasks 1–3 de Próximo Processo estão implementadas; a Phase 0 foi encerrada por equivalência de evidências em 2026-09-26, como registrado na atualização abaixo.
 
 ### Evidência já obtida
 
@@ -65,7 +73,7 @@ Também foram observados:
 - retorno nativo aproximado em ~1,2 s;
 - navegação manual para formulário em amostras de ~3,0 a 4,9 s.
 
-### Gates ainda abertos
+### Gates ainda abertos na revisão inicial de 24/09 (histórico)
 
 1. obter `SCAN_PAGE` vivo da Mesa/extensão atual;
 2. confirmar valor bruto vivo do marcador;
@@ -75,7 +83,7 @@ Também foram observados:
 6. observar caso multi-interessado se houver caso controlado disponível;
 7. fechar e commitar a nota de discovery.
 
-**Não iniciar `navigation_service.py`, `OPEN_NEXT_ACT` ou Tasks 1–8 antes disso.**
+O bloqueio acima foi substituído pela decisão de encerramento equivalente registrada em 2026-09-26.
 
 ## Baseline registrado na reconciliação
 
@@ -103,4 +111,4 @@ Phase 0 está **encerrada por equivalência de evidências reais**, conforme dec
 
 Task 1 de Próximo Processo foi implementada e validada em TDD: a Mesa resolve o próximo alvo elegível na ordem do scan, com identidade composta e contexto literal do marcador; alvos stale/ambíguos/incoerentes falham fechados. Tasks 2–8, validação real da navegação, revisão adversarial e pacote standalone continuam pendentes.
 
-Task 2 foi implementada em TDD: `POST /api/v1/portal/next-act` recebe `process_id` sob sessão Mesa ou identidade composta sob credencial da extensão; só o backend resolve/enfileira o alvo, e identidade ausente/ambígua falha com 409. A requisição não navega nem preenche o portal. Testes: backend focal 14/14, API completa 99/99, extensão API 15/15. Task 1 (`5acb0d6`) está publicada; Task 2 está pronta para commit/push. Próximo: Task 3, protocolo `OPEN_NEXT_ACT` e roteador da extensão.
+Task 2 foi implementada em TDD: `POST /api/v1/portal/next-act` recebe `process_id` sob sessão Mesa ou identidade composta sob credencial da extensão; só o backend resolve/enfileira o alvo, e identidade ausente/ambígua falha com 409. A requisição não navega nem preenche o portal. Testes: backend focal 14/14, API completa 99/99, extensão API 15/15. Tasks 1 (`5acb0d6`) e 2 (`5510362`) estão publicadas em `codex/atos-tce-unified`. Próximo: Task 3, protocolo `OPEN_NEXT_ACT` e roteador da extensão.

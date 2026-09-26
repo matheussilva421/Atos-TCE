@@ -22,6 +22,7 @@ test("the protocol declares the scanning and filling commands", () => {
   assert.deepEqual(Object.values(COMMAND_TYPES).sort(), [
     "FILL_FORM",
     "OPEN_ACT",
+    "OPEN_NEXT_ACT",
     "READ_FORM",
     "SCAN_AREA",
     "STATUS",
@@ -30,10 +31,18 @@ test("the protocol declares the scanning and filling commands", () => {
   assert.ok(isSupportedCommand("scan_area"));
   assert.ok(isSupportedCommand("STATUS"));
   assert.ok(isSupportedCommand("OPEN_ACT"));
+  assert.ok(isSupportedCommand("OPEN_NEXT_ACT"));
   assert.ok(isSupportedCommand("READ_FORM"));
   assert.ok(isSupportedCommand("FILL_FORM"));
   assert.equal(isSupportedCommand(""), false);
   assert.equal(isSupportedCommand(undefined), false);
+});
+
+test("return-to-list is an internal message, and marker restore stays absent", () => {
+  assert.equal(MESSAGE_TYPES.RETURN_TO_LIST, "RETURN_TO_LIST");
+  assert.equal(Object.values(COMMAND_TYPES).includes("RETURN_TO_LIST"), false);
+  assert.equal(MESSAGE_TYPES.ENSURE_MARKER, undefined);
+  assert.equal(Object.values(COMMAND_TYPES).includes("ENSURE_MARKER"), false);
 });
 
 test("no submit command was added with the filling vocabulary", () => {

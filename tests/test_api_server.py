@@ -1562,6 +1562,70 @@ class NextActRouteTests(ApiTestCase):
         self.assertEqual(payload["error"], "invalid_next_act_request")
         self.assertIsNone(self.store.get_extension_command(1))
 
+    def test_next_act_result_must_confirm_the_queued_identity_and_form(self):
+        status, _headers, created = self.post_next_act(
+            {"identity": self.current_identity}, headers=self.extension
+        )
+        self.assertEqual(status, 201, created)
+        command = self.store.get_extension_command(created["command_id"])
+
+        status, _headers, claimed = self.call_json(
+            "/api/v1/extension/commands/next", headers=self.extension
+        )
+        self.assertEqual(status, 200, claimed)
+        self.assertEqual(claimed["command"]["id"], created["command_id"])
+
+        valid_result = {
+            "ok": True,
+            "action": "next_act_ready",
+            "identity": self.target_identity,
+            "screen": "form",
+        }
+        invalid_results = (
+            ({**valid_result, "action": "open_act"}, "action"),
+            ({**valid_result, "screen": "list"}, "screen"),
+            (
+                {
+                    **valid_result,
+                    "identity": {**self.target_identity, "processKey": "999/2026"},
+                },
+                "identidade",
+            ),
+            (
+                {
+                    **valid_result,
+                    "identity": {
+                        **self.target_identity,
+                        "interestedNormalized": "outra pessoa",
+                    },
+                },
+                "identidade",
+            ),
+        )
+        for result, expected_detail in invalid_results:
+            with self.subTest(expected_detail=expected_detail, result=result):
+                status, _headers, rejected = self.call_json(
+                    f"/api/v1/extension/commands/{created['command_id']}/result",
+                    method="POST",
+                    headers=self.extension,
+                    body={**result, "claim_token": claimed["command"]["claim_token"]},
+                )
+                self.assertEqual(status, 400, rejected)
+                self.assertEqual(rejected["error"], "invalid_result")
+                self.assertIn(expected_detail, rejected["detail"])
+
+        status, _headers, accepted = self.call_json(
+            f"/api/v1/extension/commands/{created['command_id']}/result",
+            method="POST",
+            headers=self.extension,
+            body={**valid_result, "claim_token": claimed["command"]["claim_token"]},
+        )
+        self.assertEqual(status, 200, accepted)
+        self.assertEqual(accepted, {"ok": True})
+        self.assertEqual(
+            self.store.get_extension_command(created["command_id"])["state"], "SUCCEEDED"
+        )
+
 
 class FillOrchestrationTests(ApiTestCase):
     """The whole OPEN -> READ -> PREFLIGHT -> FILL chain over the real routes."""

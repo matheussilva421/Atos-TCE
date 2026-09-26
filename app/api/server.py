@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
+from ..core.identity import normalize_interested
 from ..core.store import Store
 from ..area_restrita import (
     AREA_CLASSIFICATIONS,
@@ -158,8 +159,46 @@ def _open_act_result_problem(payload: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _next_act_result_problem(
+    payload: Mapping[str, Any], command_payload: Mapping[str, Any] | None
+) -> str | None:
+    if str(payload.get("action") or "").strip().lower() != "next_act_ready":
+        return "action inválida no resultado de próximo processo"
+    if str(payload.get("screen") or "").strip().lower() != "form":
+        return "screen inválida no resultado de próximo processo"
+    actual = payload.get("identity")
+    expected = (
+        command_payload.get("target_identity")
+        if isinstance(command_payload, Mapping)
+        else None
+    )
+    problem = _identity_problem(expected)
+    if problem:
+        return f"identidade alvo inválida no comando: {problem}"
+    problem = _identity_problem(actual)
+    if problem:
+        return f"{problem} no resultado de próximo processo"
+    expected_process = str(
+        expected.get("processKey") or expected.get("process_key") or ""
+    ).strip()
+    actual_process = str(
+        actual.get("processKey") or actual.get("process_key") or ""
+    ).strip()
+    expected_interested = normalize_interested(
+        expected.get("interestedNormalized") or expected.get("interested_normalized")
+    )
+    actual_interested = normalize_interested(
+        actual.get("interestedNormalized") or actual.get("interested_normalized")
+    )
+    if actual_process != expected_process or actual_interested != expected_interested:
+        return "identidade do resultado não corresponde ao alvo enfileirado"
+    return None
+
+
 def check_command_result(
-    command_type: str, payload: Mapping[str, Any]
+    command_type: str,
+    payload: Mapping[str, Any],
+    command_payload: Mapping[str, Any] | None = None,
 ) -> tuple[str | None, str | None]:
     """Return (error, invalid_reason) for one reported command result.
 
@@ -179,6 +218,9 @@ def check_command_result(
         return None, "o resultado precisa declarar ok=true ou ok=false"
     if command_type == "STATUS":
         return None, None
+    if command_type == "OPEN_NEXT_ACT":
+        reason = _next_act_result_problem(payload, command_payload)
+        return (None, reason) if reason else (None, None)
     checker = {
         "SCAN_AREA": _scan_result_problem,
         "READ_FORM": _read_form_result_problem,
@@ -976,7 +1018,9 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
                 {"error": "command_not_found", "command_id": int(command_id)}, status=404
             )
             return
-        error, invalid = check_command_result(str(command.get("type") or ""), payload)
+        error, invalid = check_command_result(
+            str(command.get("type") or ""), payload, command.get("payload")
+        )
         if invalid is not None:
             self._send_json({"error": "invalid_result", "detail": invalid}, status=400)
             return

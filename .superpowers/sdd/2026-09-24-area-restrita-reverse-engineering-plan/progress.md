@@ -333,8 +333,17 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 
 ## Task 2 — requisição autenticada para enfileirar o próximo alvo (2026-09-26)
 
-- Task 1 foi commitada como `5acb0d6` e o push para `origin/codex/atos-tce-unified` foi confirmado.
+- Task 1 foi commitada como `5acb0d6` e o push para `origin/codex/atos-tce-unified` foi confirmado. Task 2 foi commitada como `5510362` e seu push também foi confirmado.
 - RED: os seis testes backend falharam porque `/api/v1/portal/next-act` não existia (sete assertions, contando os dois subcasos de identidade); o teste da extensão falhou porque `requestNextAct` não existia.
 - GREEN: `python -m unittest tests.test_api_server.NextActRouteTests tests.test_navigation_service -q` — 14 passaram; `python -m unittest tests.test_api_server -q` — 99 passaram; `node --test extension/tests/api.test.mjs` — 15 passaram; `git diff --check` passou.
 - Implementada rota de autenticação dupla: sessão same-origin da Mesa envia `process_id`; extensão pareada envia identidade composta. O backend valida o alvo pela NavigationService, recusa `target_identity` fornecida pelo cliente, devolve fim da fila sem erro e enfileira `OPEN_NEXT_ACT` com identidades/contexto do scan. O cliente da extensão expõe `requestNextAct`.
-- Testes usam dados fictícios. Não houve chamada live, navegação, abertura de ato, preenchimento, envio nem ação final. Próximo: registrar e publicar Task 2, seguir Task 3 com RED do protocolo/router.
+- Testes usam dados fictícios. Não houve chamada live, navegação, abertura de ato, preenchimento, envio nem ação final. Próximo: Task 3 com RED do protocolo/router.
+
+## Task 3 — protocolo e orquestração OPEN_NEXT_ACT (2026-09-26)
+
+- RED/GREEN do protocolo/roteador: `node --test extension/tests/protocol.test.mjs extension/tests/router.test.mjs` — 74 testes, 74 aprovados, zero falhas. Cobertura inclui retorno nativo, marcador e escopo, identidade exata, paginação limitada e estável, ausência/ambiguidade, aba ativa e recusa de `scan_id` não inteiro positivo.
+- RED/GREEN API: `python -m unittest tests.test_api_server.NextActRouteTests -q` — 7/7; suíte API completa `python -m unittest tests.test_api_server -q` — 100/100. Uma resposta só confirma o comando com `next_act_ready`, tela `form` e identidade composta igual ao alvo enfileirado.
+- Ação de próxima navegação não chama filler nem finaliza ato. Sem leitura live de processo durante os testes.
+- O usuário autorizou uma tentativa do botão oficial “Analisar Área Restrita”; executada uma vez na Mesa Local. Resultado `session_required`; nenhum novo scan foi persistido. Não repetir nem substituir a rota.
+- Código/handoff ainda no working tree; branch `codex/atos-tce-unified`, HEAD publicado `5510362`. Commit/push do Task 3 pendentes após revisão e `git diff --check`.
+- Próxima retomada: concluir review estático, commit/push do Task 3; iniciar Task 4 com RED dos handlers `RETURN_TO_LIST` em `extension/content/navigate.js`, sem interagir com o portal até a validação supervisionada prevista.
