@@ -1548,6 +1548,7 @@ class NextActRouteTests(ApiTestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(payload, {"ok": True, "end_of_queue": True})
+        self.assertIsNone(self.store.get_extension_command(1))
 
     def test_request_cannot_supply_a_target_identity(self):
         status, _headers, payload = self.post_next_act(
