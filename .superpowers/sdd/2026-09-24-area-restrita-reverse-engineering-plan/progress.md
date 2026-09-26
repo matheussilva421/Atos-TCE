@@ -347,3 +347,11 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - O usuário autorizou uma tentativa do botão oficial “Analisar Área Restrita”; executada uma vez na Mesa Local. Resultado `session_required`; nenhum novo scan foi persistido. Não repetir nem substituir a rota.
 - Task 3 commit `9231c19` foi enviado com sucesso a `origin/codex/atos-tce-unified`. `git ls-remote` adicional falhou por indisponibilidade de conexão a `github.com:443`; o push aceito e o tracking local ficaram alinhados.
 - Próxima retomada: iniciar Task 4 com RED dos handlers `RETURN_TO_LIST` em `extension/content/navigate.js`, sem interagir com o portal até a validação supervisionada prevista.
+
+## Task 4 — retorno nativo à lista (2026-09-26)
+
+- Evidência estrutural live, sem ler linhas: aba de retorno é um único `<a class="tabs-inner">` no documento superior, com rótulo exato `Proc./ Doc. Eletrônicos`.
+- TDD: RED para ausência de `returnToList`; GREEN após implementar validação do formulário/identidade, busca só no link ancestral observado, recusa de missing/ambiguous e mensagem interna `RETURN_TO_LIST`. Não existe ensure/restore marker porque `marker_restore: not_needed`.
+- Testes: `node --test extension/tests/navigate.test.mjs extension/tests/router.test.mjs` — 82/82; `npm test --prefix extension` — 180/180; `node --check extension/content/navigate.js`; `git diff --check`.
+- Nenhuma navegação live nem edição de processo/ato. Análise oficial única permanece recusada com `session_required`; não repetir.
+- Task 4 code e handoff estão no working tree; HEAD remoto anterior `b14e565`. Após revisar diff, commit/push e registrar SHA, começar Task 5: botão Próximo Processo no side panel.

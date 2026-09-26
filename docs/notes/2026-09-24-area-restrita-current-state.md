@@ -4,9 +4,9 @@
 
 Este bloco é a fonte de estado atual; os registros abaixo são cronológicos e podem conter estados antigos.
 
-- Branch única: `codex/atos-tce-unified`; último commit publicado: `9231c19` (`feat: orchestrate next-act navigation`). O push do commit terminou com sucesso.
-- Phase 0 foi encerrada por equivalência de evidências, conforme a decisão registrada adiante. Tasks 1–3 de Próximo Processo estão implementadas e publicadas.
-- Task 3 implementa `OPEN_NEXT_ACT`, retorno interno para lista e validação backend da identidade/tela reportadas. RED/GREEN focal e suíte completa da extensão passaram.
+- Branch única: `codex/atos-tce-unified`; HEAD publicado antes desta Task 4: `b14e565`; o commit funcional Task 3 é `9231c19`. Ambos foram enviados com sucesso.
+- Phase 0 foi encerrada por equivalência de evidências, conforme a decisão registrada adiante. Tasks 1–3 de Próximo Processo estão implementadas e publicadas; Task 4 está implementada localmente, pendente de commit.
+- Task 4 retorna pelo único link nativo observado (`A.tabs-inner`, rótulo exato), após confirmar a identidade atual; não altera o marcador e recusa controles ausentes ou ambíguos.
 - O usuário autorizou uma execução do botão oficial de análise. A tentativa retornou `session_required`; não houve varredura nova persistida. Não repetir nem buscar a mesma leitura por outra interface.
 - Best-Effort Task 10, Tasks 4–8, validação supervisionada de navegação, revisão adversarial e pacote standalone seguem pendentes. O clique final permanece manual.
 

@@ -946,3 +946,12 @@ O login foi informado como manual pelo operador. Nenhum submit, envio, finalize 
 - Nenhum valor identificável da lista foi copiado para arquivos ou para a resposta. O registro de execução contém somente o status agregado acima.
 - Git: commit `9231c19` enviado a `origin/codex/atos-tce-unified`; checkout limpo após o commit. `git ls-remote` adicional não conectou a `github.com:443`, então a confirmação remota disponível é o sucesso do `git push` e o tracking local alinhado.
 - Pendências: Tasks 4–8; Best-Effort Task 10; validação supervisionada da navegação; revisão adversarial; gates finais e ZIP standalone. Clique final permanece humano.
+
+## 2026-09-26 — Task 4: retorno nativo à lista
+
+- RED/GREEN em `extension/content/navigate.js`: `TCENavigate.returnToList` exige formulário visível com a identidade composta solicitada e clica somente o link ancestral exato `A.tabs-inner` cujo rótulo normalizado é `Proc./ Doc. Eletrônicos`. O DOM live mostrou uma correspondência no documento superior; a inspeção retornou somente tag/classe/rótulo/frame, sem ler conteúdo das linhas.
+- Controles ausentes, duplicados, identidade divergente, formulário ausente ou contexto ancestral inacessível recusam com código. A mensagem interna `RETURN_TO_LIST` entrega o resultado ao roteador. Nenhuma mutação de marcador foi implementada, conforme Phase 0 `marker_restore: not_needed`.
+- RED/GREEN: `node --test extension/tests/navigate.test.mjs extension/tests/router.test.mjs` — 82/82; `npm test --prefix extension` — 180/180; `node --check extension/content/navigate.js` e `git diff --check` passaram.
+- Não houve clique em portal, navegação de processo, preenchimento ou ação final. A tentativa única já autorizada do botão oficial de análise segue com resposta `session_required`; não repetir nem usar rota alternativa.
+- Git no início desta tarefa: branch `codex/atos-tce-unified`, HEAD publicado `b14e565`. Task 4 está no working tree, aguardando revisão e commit. Próxima etapa imediata: rever diff/contrato, commit `feat: navigate back to portal queue safely` e push apenas para a branch unificada.
+- Pendências: Tasks 5–8, Best-Effort Task 10, validação supervisionada, revisão adversarial, gates finais e ZIP standalone. Clique final permanece humano.
