@@ -4,11 +4,13 @@
 
 Este bloco é a fonte de estado atual; os registros abaixo são cronológicos e podem conter estados antigos.
 
-- Branch única: `codex/atos-tce-unified`; HEAD publicado: `9472d2acda17eedb4161d8d77f941a979e0b1f98`. Task 4 e seus testes estão commitados e o push para `origin/codex/atos-tce-unified` foi aceito.
-- Phase 0 foi encerrada por equivalência de evidências, conforme a decisão registrada adiante. Tasks 1–4 de Próximo Processo estão implementadas e publicadas.
+- Branch única: `codex/atos-tce-unified`; último commit funcional publicado: `bf35ba2b7192d4872d735175ace9143d94ba188d` (Task 5), push aceito em `origin/codex/atos-tce-unified`.
+- Phase 0 foi encerrada por equivalência de evidências, conforme a decisão registrada adiante. Tasks 1–5 de Próximo Processo estão implementadas e publicadas.
 - Task 4 retorna pelo único link nativo observado (`A.tabs-inner`, rótulo exato), após confirmar a identidade atual; não altera o marcador e recusa controles ausentes ou ambíguos.
+- Task 5 acrescenta “Próximo processo →” ao painel; conserva a identidade atual em memória, encaminha somente os dois campos compostos pelo service worker e aguarda a releitura exata do destino antes de declarar pronto. Timeout após aceite mantém a ação bloqueada para evitar duplicatas e instrui conferência manual.
 - O usuário autorizou uma execução do botão oficial de análise. A tentativa retornou `session_required`; não houve varredura nova persistida. Não repetir nem buscar a mesma leitura por outra interface.
-- Best-Effort Task 10, Tasks 5–8, validação supervisionada de navegação, revisão adversarial e pacote standalone seguem pendentes. O clique final permanece manual.
+- Task 5 passou os testes focais, suíte completa da extensão e gates gerais; a validação de navegação live continua pendente porque o scan autorizado respondeu `session_required`.
+- Best-Effort Task 10, Tasks 6–8, validação supervisionada, revisão adversarial e pacote standalone seguem pendentes. O clique final permanece manual.
 
 ## Git
 
@@ -16,10 +18,10 @@ Branch de retomada:
 
 ```text
 codex/atos-tce-unified
-HEAD 9472d2acda17eedb4161d8d77f941a979e0b1f98
+último commit funcional bf35ba2b7192d4872d735175ace9143d94ba188d
 ```
 
-No momento da revisão, a branch está **44 commits à frente de `main` e 0 atrás**.
+No momento da revisão, o commit funcional está publicado e a branch está **137 commits à frente de `main` e 0 atrás**.
 
 Não recriar as antigas branches de implementação como fonte de verdade. A reconciliação de 24/09 consolidou o trabalho relevante na branch unificada.
 

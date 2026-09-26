@@ -361,3 +361,13 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - Task 4 publicada em `9472d2a` (`feat: navigate back to portal queue safely`); `git push origin codex/atos-tce-unified` aceito, atualização `b14e565..9472d2a`.
 - Handoff de publicação: `docs/notes/2026-09-24-area-restrita-lab-handoff.md`. Próximo trabalho: Task 5, TDD do botão Próximo Processo no side panel e persistência da identidade confirmada durante a transição.
 - Scan Área Restrita autorizado foi tentado uma vez e retornou `session_required`; não repetir nem usar rota alternativa. Nenhum processo/ato foi alterado; ação final permanece manual.
+
+## Task 5 — ação Próximo Processo no painel lateral (2026-09-26)
+
+- TDD RED/GREEN: painel/wiring `node --test extension/tests/sidepanel-state.test.mjs extension/tests/sidepanel-wiring.test.mjs` — RED nas exports/controle ausentes; GREEN 13/13. Roteador: teste de encaminhamento e recusa de identidade incompleta — RED com `message_not_handled`; GREEN 2/2. `npm test --prefix extension` — 190/190.
+- Implementados retenção da identidade composta confirmada, botão Próximo Processo, fim de fila explícito e polling local limitado que só reporta pronto após comparação exata. Service worker encaminha à Mesa apenas `processKey` e `interestedNormalized`; painel não escolhe alvo. Timeout pós-aceite bloqueia nova solicitação até releitura do alvo, evitando duplicata.
+- Ruling: o plano lista painel e testes, mas a arquitetura atual exige que o painel delegue chamadas autenticadas ao service worker. Estendi a Task 5 com mensagem interna no protocolo e handler/testes no roteador; isso mantém a ponte autenticada e reduz o payload a allowlist da identidade atual.
+- `verify-project.ps1`: 1.260 executados, 1.258 aprovados, 0 falhas, 2 skips; sete estágios verdes. Suíte Python completa adicional em `work/tce-extractor`: 529 executados, 520 aprovados, 0 falhas, 9 skips. `node --check` e `git diff --check` passaram.
+- Commit `bf35ba2` (`ui: add next-process action to extension`) e push para `origin/codex/atos-tce-unified` confirmados (`ef2aac1..bf35ba2`). Nenhuma navegação/edição live; clique final manual.
+- A única tentativa autorizada do scan oficial retornou `session_required`; não repetir nem buscar os mesmos dados por outra interface.
+- Próxima tarefa: Task 6, botão Próximo Processo na Mesa, TDD com os testes de UI do plano.
