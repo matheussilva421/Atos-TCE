@@ -144,7 +144,26 @@
 
 1. Não repetir os preenchimentos 21, 22 ou 23; deixá-los pendentes para conferência/finalização manual.
 2. Manter o marcador atual e conferir que continua igual ao scan 10 antes de qualquer nova navegação.
-3. Acessar pelo filtro/paginação oficial da lista o candidato CF art. 40 da posição 704 (alternativa na posição 829), confirmar identidade composta e pendência, então preencher e reler sem finalizar.
+3. Os candidatos nas posições 704 e 829 foram preenchidos para investigação, mas não são casos CF art. 40 isolados; encontrar outra amostra antes de marcar essa cobertura como concluída.
 4. Revisar o resultado 23 e continuar procurando um caso parcial A/B/C genuíno e evidência EC 47 já validada; não fabricar estados.
 5. Prosseguir com a matriz live de Próximo Processo apenas quando útil; stale, ambíguo e fim da fila continuam pendentes se não aparecer caso seguro.
 6. Depois da cobertura, fazer revisão adversarial, gates finais, ZIP/smoke standalone, atualizar o handoff e push somente `codex/atos-tce-unified`.
+
+## 2026-09-27 — Task 10: CF art. 40 misto e preenchimentos 24/25
+
+- A lista oficial foi usada para navegar da página 11 à 24 e depois à 28, pelo seletor de página nativo. Antes de cada salto, o marcador continuou igual ao scan 10.
+- Nas posições 704 e 829, a linha da Área Restrita coincidiu unicamente com a identidade composta do scan e ambas estavam pendentes. O preenchimento rápido pela tabela local de campos as havia classificado como candidatas CF art. 40 isolado.
+- A abertura direta pelo ícone **Complementar Ato** cria um formulário sem interessado selecionado. Em cada caso havia exatamente um rádio com interessado igual ao alvo; a seleção explícita desse rádio fez `READ_CURRENT_FORM` confirmar identidade e habilitou o preenchimento. Não selecionar nenhum vizinho.
+- Os preenchimentos manuais 24 e 25 terminaram `PREENCHIDO`, seis campos alterados e seis relidos iguais à proposta, zero preservados, zero não resolvidos e obrigatórios satisfeitos. Ambos permanecem pendentes; não houve **Complementar Ato**, envio, assinatura ou tramitação final.
+- A evidência completa do plano de preenchimento mostrou que os dois casos não são isolados: referências incluem EC 41/2003 (arts. 6 e 7), CF art. 40 (§ 5) e LCE 308/2005 (art. 87). Ambos selecionaram `EC41_TRANSITION_TEACHER`, método de regra, confiança 0,982258, margem 0,007730, `hard_conflict=false` e aviso `low-margin`. Portanto, são evidência útil para correspondência de baixa margem, mas não fecham CF art. 40 isolado.
+- Em ambos a modalidade foi selecionada automaticamente por `catalog-token-overlap`, confiança 0,84, margem 0 e quatro avisos (`equivalent-candidates`, desempate por índice, baixa confiança e baixa margem). A escolha continua para revisão humana.
+- A divergência entre a pré-triagem da tabela `fields` e as referências completas do plano foi concreta: não usar apenas as linhas rápidas para declarar uma base isolada. Nenhum código foi alterado; não há defeito confirmado que justifique correção sem reprodução RED.
+- Nenhum teste foi executado. Validação foi portal real, identidade hash-only contra scan 10 e releitura local. Capturas do processo permanecem ignoradas em `tmp/`.
+
+### Retomada
+
+1. Não repetir preenchimentos 24/25; manter os formulários pendentes para revisão e conclusão manual.
+2. Encontrar outra amostra real de CF art. 40 isolado por análise estruturada dos documentos já baixados; não usar apenas `fields` para afirmar isolamento e não rodar OCR quando houver texto embutido.
+3. Manter o scan 10/marcador como contexto; qualquer nova linha deve bater processo + interessado, estar `PRECISA_COMPLEMENTAR`, e o frame ativo deve ser confirmado antes do fill.
+4. Continuar o parcial A/B/C e revisar os casos EC41/ECE20 já preenchidos; stale, ambíguo e fim da fila ficam pendentes se não surgirem naturalmente.
+5. Depois da cobertura live, fazer revisão adversarial, gates finais, ZIP/smoke standalone, atualizar o handoff e push somente `codex/atos-tce-unified`.
