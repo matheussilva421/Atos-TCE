@@ -18,6 +18,13 @@
 - O `Bridge` guarda bootstrap e sessões apenas em memória. Reiniciar Mesa invalida a sessão local e requer que o operador use manualmente o novo bootstrap dentro do Chrome QA; não ler/copiar o token no chat. Isso não encerra a sessão autenticada da Área Restrita.
 - Retomada: reiniciar somente Mesa com `START.cmd --data-root data --port 18743 --no-browser`, concluir bootstrap manual, confirmar extensão conectada e então repetir uma transição supervisionada uma única vez. Task 8 continua parcial; Task 10 e goal continuam incompletos; clique final humano.
 
+## Mesa reiniciada — bootstrap humano pendente — 2026-09-26
+
+- O processo Python antigo foi encerrado após confirmar exatamente o listener loopback da Mesa, com zero jobs e zero comandos ativos. A captura da Área Restrita permaneceu na lista; nenhum ato/campo foi alterado.
+- Iniciado `START.cmd --data-root data --port 18743 --no-browser` a partir da raiz do repositório atual, em janela visível para o operador usar o bootstrap. Nenhum URL/token foi lido pelo agente.
+- Verificações: listener único em `127.0.0.1:18743` com PID novo; `GET /api/v1/health` = 200, status `ok`, API v1/schema 7, 1.294 processos; extensão `Mesa conectada` e `Área Restrita detectada`; porta CDP 9222 continua mapeada às abas corretas; Área Restrita tem 9 documentos e 1 lista, sem campos complementares.
+- Fica pendente o operador abrir a URL de bootstrap mostrada na janela visível dentro do Chrome QA. Não enviar o token no chat. Após “pronto”, confirmar sessão Mesa e então fazer uma única tentativa supervisionada do botão.
+
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
 **Nota:** O parágrafo de estado abaixo é histórico (25/09); a seção “Continuação — 2026-09-26” acima é a retomada vigente e o supersede.

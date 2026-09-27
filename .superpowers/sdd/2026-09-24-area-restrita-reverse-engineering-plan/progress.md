@@ -406,3 +406,9 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - Structural before capture is local/ignored at `dados-locais/portal-lab/next-process-before-2026-09-26.json` (metadata only). Existing scan id 9: 1,197 total, 354 pending; two eligible records matched in memory only.
 - No active jobs or queued commands. Restarting Mesa will invalidate its in-memory Bridge session; operator bootstrap in Chrome QA is required and the token must stay human-controlled.
 - Next: restart only Mesa from current code, wait for operator bootstrap, reverify bridge, then run one supervised transition and exact reread. Task 8, Task 10, timing comparison, and overall goal remain open.
+
+## Mesa restart — awaiting operator bootstrap — 2026-09-26
+
+- Old server ended only after confirming the exact loopback listener and zero active jobs/commands. Current `START.cmd --data-root data --port 18743 --no-browser` is running from the canonical repo.
+- Health 200/API v1/schema 7; extension connected; Chrome QA CDP mapping is intact; portal remains on list with no complementary fields/form.
+- New Bridge bootstrap token is visible to the operator in the local window and was not read/copied by the agent. Await operator to open it in Chrome QA, then continue one live transition. Task 8, Task 10, paired timing and goal remain incomplete.

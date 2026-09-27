@@ -8,7 +8,7 @@
 - ZIP standalone foi reconstruído e verificado: 516 entradas, runtime pinado com 430 arquivos, smoke `status: ok`; SHA-256 `216f10546370c1215ee0aef6554b397c33b4c562fa4b46bf98409b8c47f55627`, artefato ignorado em `dist/Atos-TCE-portable.zip`.
 - Task 8 parcial: correspondência MCP/CDP com o Chrome QA foi comprovada. A tentativa única do botão Próximo Processo recebeu HTTP 404 do backend antigo antes de enfileirar comando; a lista permaneceu aberta e nenhum ato/campo mudou. O scan id 9 salvo tem 1.197 itens/354 pendentes; duas identidades elegíveis foram usadas só em memória, sem reproduzi-las aqui. Task 10 e comparação pareada de tempo continuam pendentes; goal não concluído.
 - Captura estrutural before está em `dados-locais/portal-lab/next-process-before-2026-09-26.json`, ignorada pelo Git (9 documentos do portal, 1 Mesa; somente estrutura).
-- Próxima retomada: reiniciar o servidor Mesa antigo para carregar a rota adicionada em `5510362`, depois o operador deve refazer o bootstrap local no Chrome QA porque o `Bridge` é in-memory. O login da Área Restrita permanece separado. Depois reconfirmar conexão e repetir uma transição supervisionada; não reanalisar a lista. Clique final continua humano.
+- Servidor antigo já foi reiniciado com `START.cmd --data-root data --port 18743 --no-browser` na branch atual. Health `ok`, API v1/schema 7, extensão conectada; aguarda bootstrap manual da sessão Mesa no Chrome QA. O login da Área Restrita permanece separado. Depois reconfirmar sessão e repetir uma transição supervisionada; não reanalisar a lista. Clique final continua humano.
 
 ## Histórico anterior ao fechamento offline — 2026-09-26
 
