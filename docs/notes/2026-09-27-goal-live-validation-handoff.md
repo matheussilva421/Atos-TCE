@@ -98,3 +98,13 @@
 - Nenhum código/teste foi alterado ou executado neste checkpoint. A janela do Chrome QA está aberta e em primeiro plano; a intervenção humana necessária é somente selecionar novamente o marcador correto na lista e avisar quando a página terminar de carregar.
 
 - A captura estrutural L0 previamente autorizada foi salva em `tmp/portal-lab/2026-09-27-foreground-session/raw/area-restrita-l0.json` (9 frames; 1 seletor de marcador; 5.061 bytes). O caminho está coberto por `.gitignore`; verificação confirmou ausência de valores, texto de página e campos de sessão.
+
+
+## 2026-09-27 — rechecagem do marcador e diagnóstico da extensão
+
+- Releitura do objetivo e do estado atual: HEAD `6443dcfe4a261be85e5dd5cc3c12f60e1821b77d`, branch `codex/atos-tce-unified`; Mesa, Área Restrita e extensão seguem abertas no Chrome QA.
+- A leitura atual do seletor que o código identifica como marcador mostra índice selecionado 0 de 73 opções, rótulo vazio e divergência de rótulo/valor em relação ao scan 10. Portanto, o contexto do scan não está selecionado no portal.
+- O painel da extensão indica Mesa conectada e Área Restrita detectada. Os botões **Preencher formulário atual** e **Próximo processo** estão desabilitados; não confirmei formulário de ato.
+- Não li armazenamento do navegador nem identidade de processo/interessado. Não houve scan, navegação, preenchimento ou ação final neste checkpoint.
+- Próxima ação: a operadora seleciona manualmente na lista o marcador usado no scan 10 e avisa quando terminar; então comparar novamente e reconciliar a solicitação aceita antes de emitir qualquer novo comando.
+- Código e testes não mudaram. `git diff --check` será verificado após este registro.
