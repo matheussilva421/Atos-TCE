@@ -1,0 +1,17 @@
+ATOS-TCE — INSTALAÇÃO EM OUTRO PC
+
+O ZIP contém o programa. A pasta data é transferida separadamente e não está
+incluída no ZIP.
+
+1. Extraia Atos-TCE-portable.zip em C:\TCE-Atos.
+2. Com a Mesa fechada no PC novo, copie a pasta data inteira do PC antigo para
+   C:\TCE-Atos\data. Preserve também archive, logs e os demais arquivos dela;
+   não copie somente atos-tce.db.
+3. Se a extensão ainda não estiver carregada no Chrome, abra chrome://extensions,
+   ative o modo de desenvolvedor, escolha “Carregar sem compactação” e selecione
+   C:\TCE-Atos\extension.
+4. Execute C:\TCE-Atos\START.cmd.
+5. Faça manualmente o login no e-Contas e na Área Restrita quando necessário.
+
+Mantenha a cópia original de data no PC antigo até confirmar que a Mesa, os
+processos, os documentos e os PDFs abriram corretamente no PC novo.

@@ -133,7 +133,13 @@
     }
 
     if (screen === "interested") {
-      const radio = helpers.snapshot?.findInterestedRadio?.(documentRef, identity);
+      const candidates = helpers.snapshot?.findInterestedRadioCandidates?.(documentRef, identity);
+      if (Array.isArray(candidates) && candidates.length > 1) {
+        return { ok: false, code: "INTERESTED_AMBIGUOUS", screen };
+      }
+      const radio = Array.isArray(candidates)
+        ? candidates[0]
+        : helpers.snapshot?.findInterestedRadio?.(documentRef, identity);
       if (!radio) return { ok: false, code: "INTERESTED_NOT_FOUND", screen };
       if (!helpers.click(radio)) return { ok: false, code: "INTERESTED_NOT_CLICKABLE", screen };
       return { ok: true, action: "select_interested", screen, waitingForFrame: true };

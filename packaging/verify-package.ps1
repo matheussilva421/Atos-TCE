@@ -57,6 +57,7 @@ $requiredEntries = @(
     'extension/manifest.json',
     'START.cmd',
     'README.md',
+    'LEIA-ME-OUTRO-PC.txt',
     'scripts/scan-area-cdp.ps1'
 )
 $runtimeRequiredEntries = @(

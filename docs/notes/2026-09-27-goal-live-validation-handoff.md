@@ -219,3 +219,36 @@
 2. EC 41 isolada e CF art. 40 isolada continuam sem amostra real comprovada; os candidatos examinados são mistos. Não promover uma amostra mista a isolada.
 3. Parcial A/B/C, EC 47 preservada, ECE/RN 20/2020 e correspondência fraca têm evidência registrada; manter as ressalvas de revisão humana.
 4. Concluir revisão adversarial, gates finais, ZIP standalone e smoke em extração limpa. Não promover `main`; stale/ambíguo/fim de fila só se valida por caso real natural ou pelos testes focados sem alterar o portal.
+
+## 2026-09-27 — Bloqueio de navegação e revisão offline
+
+- A operadora confirmou que o marcador estava selecionado. A página do Chrome DevTools estava autenticada, mas no menu inicial da Área Restrita, sem lista/formulário de processo ativo.
+- Foi acionado uma vez o botão oficial **Próximo processo** usando a fila local já existente (scan 10, sem novo scan). O portal mostrou **Acesso negado** para `pessoas-associadas`. A navegação foi interrompida nesse ponto; não insistir no mesmo caminho nem contornar permissões. Nenhum campo foi preenchido e nenhuma ação final ocorreu.
+- e-Contas não foi aberto nem usado. Ele serve à aquisição/baixamento; esta etapa trata somente da Área Restrita, Mesa Local e extensão.
+- Baseline offline da extensão: `npm test --prefix extension` — 190 testes, 190 aprovados, 0 falhas.
+- Revisão adversarial sintética reproduziu uma falha em `findInterestedRadio`: quando duas linhas têm nomes que normalizam para a mesma identidade, `openAct` retorna sucesso e clica na primeira correspondência. A asserção de falha fechada falhou como esperado. Isso é evidência de teste sintético, não observação do portal real.
+- Naquele checkpoint não houve mudança de código. O objetivo V1 atualizado lido nesta retomada aceita a evidência live existente e limita mudanças a blockers reproduzíveis; não repetir discovery nem busca por casos jurídicos raros. Para a V1, o README, o empacotador e o objetivo apontam `extension/` como runtime distribuído.
+- O marcador permaneceu intocado. O scan 10 continua sendo a fila local de referência. Dados privados e identidades não foram incluídos neste handoff.
+
+### Retomada
+
+1. Não repetir a navegação que recebeu **Acesso negado**; a V1 já aceita as evidências same-page/cross-page anteriores e não requer nova rodada live.
+2. e-Contas é somente para baixar processos; não faz parte da complementação de atos.
+3. O próximo marco é fechar gates, pacote e transferência do `data` separadamente; promover para `main` somente após o teste de dados em layout limpo.
+
+## 2026-09-27 — Correção de blockers e pacote V1
+
+- O objetivo V1 atualizado foi lido. Ele aceita a evidência live já registrada, considera EC 41/CF art. 40 mistos como limitação de backlog e orienta não repetir discovery ou casos já comprovados.
+- A revisão adversarial isolada reproduziu um blocker de identidade: duas linhas de interessados normalizadas para a mesma identidade faziam `openAct` clicar na primeira. O teste novo falhou antes da correção; `findInterestedRadioCandidates` agora enumera os matches e `openAct` retorna `INTERESTED_AMBIGUOUS` sem clicar quando há mais de um. O caminho exato único continua selecionando apenas seu rádio.
+- Incluído `LEIA-ME-OUTRO-PC.txt`; builder e verificador agora exigem e empacotam o guia junto do programa.
+- Gates no estado atual: Python raiz 663/663; extensão 191/191; web 32/32; contrato de pacote 15/15; `verify-project.ps1` executou 1.260 verificações, 1.258 aprovadas, 0 falhas, 2 skips; `git diff --check` passou.
+- `verify-package.ps1` passou com smoke de extração limpa: health `ok`, schema 7, extensão 0.1.0, 517 entradas e 430 arquivos de runtime. O cleanup emitiu aviso de acesso negado ao encerrar; confirmação independente mostrou porta fechada e diretório temporário removido.
+- ZIP gerado em `dist/Atos-TCE-portable.zip`: 96.156.289 bytes; SHA-256 `ee917bddd7b113f78ab03e86332368c6e33f88a45d0cd0b849f0c9444bfd92bc`. O ZIP não contém `data`, PDFs ou ferramentas de desenvolvimento; inclui o guia.
+- Health da Mesa confirma `data` relativo ao projeto (`C:\Users\slvma\Downloads\Github\Atos-TCE\data`) e 1.294 processos. A base tem 15.923 registros de documentos, todos com arquivo existente dentro de `data`, sem caminho absoluto/externo ou PDF ausente. `archive` contém 15.392 PDFs em `blobs` e 15.392 em `processos`; 30.784 arquivos PDF no total. A pasta completa ocupa 20.471.032.764 bytes. Portanto, nenhuma outra pasta do acervo é necessária.
+- A cópia completa para `C:\TCE-Atos` não foi iniciada: o auto-review recusou a duplicação de 20,47 GB de dados privados fora do workspace e instruiu pedir aprovação explícita. O destino estava ausente; o acervo original não foi alterado.
+
+### Retomada
+
+1. Solicitar aprovação explícita para criar `C:\TCE-Atos` e copiar a pasta `data` inteira para o teste de transferência. Gerar snapshots SQLite consistentes na cópia, sem tocar na origem.
+2. Nesse layout, iniciar o ZIP, confirmar health e contagem, abrir um processo, um documento e um PDF; confirmar que a extensão do ZIP carrega.
+3. Depois do teste, atualizar este handoff, commit/push no branch `codex/atos-tce-unified` e promover para `main` somente por fast-forward se `origin/main` ainda permitir.

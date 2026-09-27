@@ -73,6 +73,7 @@ BASE_FILES = {
     ).encode("utf-8"),
     "START.cmd": b"@echo off\r\npython -m app.main %*\r\n",
     "README.md": b"# Atos TCE\n",
+    "LEIA-ME-OUTRO-PC.txt": b"Guia para outro PC.\n",
     "scripts/scan-area-cdp.ps1": b"# shared read-only Area Restrita scanner\n",
     "licenses/README.md": b"# Licencas\n",
 }
@@ -82,6 +83,7 @@ REQUIRED_ENTRIES = (
     "extension/manifest.json",
     "START.cmd",
     "README.md",
+    "LEIA-ME-OUTRO-PC.txt",
     "scripts/scan-area-cdp.ps1",
 )
 
@@ -248,6 +250,16 @@ class VerifierContractTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("START.cmd", result.stderr + result.stdout)
 
+    def test_rejects_package_missing_the_other_pc_guide(self):
+        base = dict(BASE_FILES)
+        base.pop("LEIA-ME-OUTRO-PC.txt")
+        archive = make_package(self.tmp / "sem-guia.zip", base=base)
+
+        result = self.verify(archive, "-AllowMissingRuntime", "-SkipSmoke")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("LEIA-ME-OUTRO-PC.txt", result.stderr + result.stdout)
+
     def test_rejects_package_missing_the_cdp_compatibility_scanner(self):
         base = dict(BASE_FILES)
         base.pop("scripts/scan-area-cdp.ps1")
@@ -306,6 +318,12 @@ class BuilderContractTests(unittest.TestCase):
         self.assertTrue(any(name.startswith("extension/") for name in names))
         self.assertIn("START.cmd", names)
         self.assertIn("README.md", names)
+        self.assertIn("LEIA-ME-OUTRO-PC.txt", names)
+        with zipfile.ZipFile(destination) as handle:
+            self.assertEqual(
+                handle.read("LEIA-ME-OUTRO-PC.txt"),
+                (REPO_ROOT / "LEIA-ME-OUTRO-PC.txt").read_bytes(),
+            )
         self.assertIn("scripts/scan-area-cdp.ps1", names)
         with zipfile.ZipFile(destination) as handle:
             self.assertEqual(

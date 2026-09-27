@@ -137,7 +137,7 @@ function Assert-PackageStagingSafe {
             }
         }
     }
-    foreach ($required in @('app\main.py', 'extension\manifest.json', 'START.cmd', 'README.md')) {
+    foreach ($required in @('app\main.py', 'extension\manifest.json', 'START.cmd', 'README.md', 'LEIA-ME-OUTRO-PC.txt')) {
         if (-not (Test-Path -LiteralPath (Join-Path $Root $required) -PathType Leaf)) {
             throw "Pacote incompleto: falta $required"
         }
@@ -231,6 +231,7 @@ try {
     Copy-Tree -SourcePath (Join-Path $RepositoryRoot 'extension') -DestinationPath (Join-Path $packageStaging 'extension') -Label 'extension' -ExcludedDirectoryNames $sourceExcludedDirectories -ExcludedFileSuffixes $sourceExcludedSuffixes -ForbiddenFileSuffixes $sourceForbiddenSuffixes
     Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'START.cmd') -Destination (Join-Path $packageStaging 'START.cmd') -Force
     Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'README.md') -Destination (Join-Path $packageStaging 'README.md') -Force
+    Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'LEIA-ME-OUTRO-PC.txt') -Destination (Join-Path $packageStaging 'LEIA-ME-OUTRO-PC.txt') -Force
     # The Mesa compatibility endpoint resolves this single read-only scanner
     # from the repository/package root; do not copy the development scripts tree.
     [IO.Directory]::CreateDirectory((Join-Path $packageStaging 'scripts')) | Out-Null

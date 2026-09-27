@@ -77,6 +77,19 @@ test("openAct selects the exact interested person", () => {
   assert.equal(radios[0].clickCount, 0);
 });
 
+test("openAct refuses duplicate normalized interested identities without clicking", () => {
+  const documentRef = buildInterestedDocument({
+    processKey: IDENTITY.processKey,
+    people: ["Pessoa Exemplo", " PESSOA   Exemplo "],
+  });
+
+  const result = navigate.openAct({ documentRef, identity: IDENTITY });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "INTERESTED_AMBIGUOUS");
+  assert.ok(documentRef.querySelectorAll('input[type="radio"]').every((radio) => radio.clickCount === 0));
+});
+
 test("openAct refuses a person that is not on the interested screen", () => {
   const documentRef = buildInterestedDocument({ people: ["Maria da Silva"] });
 

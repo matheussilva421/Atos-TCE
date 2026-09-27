@@ -6,6 +6,7 @@
 !/.github/workflows/
 !/.github/workflows/*.yml
 !/README.md
+!/LEIA-ME-OUTRO-PC.txt
 !/docs/
 /docs/*
 !/docs/notes/

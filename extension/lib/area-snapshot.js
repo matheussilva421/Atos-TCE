@@ -755,15 +755,21 @@
    * Locate the radio of the exact interested person on the interested screen.
    * The name resolution is the proven row/header rule, shared with the scan.
    */
-  function findInterestedRadio(documentRef, identity) {
+  function findInterestedRadioCandidates(documentRef, identity) {
     const wanted = normalizeInterested(identity?.interestedNormalized);
-    if (!wanted) return null;
+    if (!wanted) return [];
+    const matches = [];
     for (const row of interestedRows(documentRef)) {
-      const radio = queryOne(row, 'input[type="radio"]');
-      if (!radio) continue;
-      if (normalizeInterested(interestedTextFromRow(row, radio)) === wanted) return radio;
+      for (const radio of queryAll(row, 'input[type="radio"]')) {
+        if (normalizeInterested(interestedTextFromRow(row, radio)) === wanted) matches.push(radio);
+      }
     }
-    return null;
+    return matches;
+  }
+
+  function findInterestedRadio(documentRef, identity) {
+    const matches = findInterestedRadioCandidates(documentRef, identity);
+    return matches.length === 1 ? matches[0] : null;
   }
 
   globalThis.TCEAreaSnapshot = Object.freeze({
@@ -777,6 +783,7 @@
     submitLegacyPagination,
     findActControl,
     findInterestedRadio,
+    findInterestedRadioCandidates,
     dom: Object.freeze({ queryAll, queryOne, byId, getAttribute, textOf, hasCanonicalIdentity }),
     PORTAL_ROLES,
     AREA_CLASSIFICATIONS,
