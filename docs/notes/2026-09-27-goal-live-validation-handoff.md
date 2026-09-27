@@ -87,3 +87,12 @@
 - Spec axis: live stale/ambiguous/end-of-queue Next Process cases and the remaining Task 10 cases are incomplete. No high-confidence out-of-scope or incorrect implementation finding was reported. The spec does not define an expected decision status for weak legal matches with hard conflicts.
 - The reviewer initially marked package acceptance pending based on the earlier handoff text. Two subsequent clean-extraction smokes passed with health `ok`; that package finding is superseded by the later evidence above.
 - Overall goal remains active because portal-real acceptance is incomplete. Do not promote to `main` or claim completion.
+
+## 2026-09-27 — Chrome QA foreground e marcador divergente
+
+- O Chrome QA já estava conectado ao MCP em `127.0.0.1:9222`; a página da Área Restrita foi selecionada e trazida para primeiro plano. A Mesa Local e a extensão `ATOS TCE — Ponte da Mesa` v0.1.0 Enabled continuam abertas no mesmo perfil.
+- A página autenticada está na lista de processos (`ProcessonoSetor.asp`); o frame da lista está completo e contém a tabela. Não foi aberto formulário de ato neste checkpoint.
+- Comparação somente de leitura entre o scan oficial 10 e os controles da lista: o seletor que `extension/lib/area-snapshot.js` identifica por metadados como marcador (índice DOM 7, 73 opções, seleção na posição 0) não corresponde ao marcador persistido no scan 10, nem pelo rótulo normalizado nem pelo valor. Os outros dois candidatos (índices 8 e 11) só correspondem porque o texto da linha ancestral menciona marcador; também não correspondem ao scan.
+- A checagem usou hashes locais para comparar os valores, sem imprimir os identificadores do marcador. Nenhum seletor foi alterado. Não foi repetido o scan oficial, o comando Próximo Processo, nem qualquer preenchimento ou ação final.
+- Este estado bloqueia navegação/fill live seguros até que a operadora restaure manualmente na Área Restrita o mesmo marcador usado pelo scan 10. Depois, revalidar a correspondência e reconciliar a navegação aceita anteriormente antes de emitir qualquer novo comando.
+- Nenhum código/teste foi alterado ou executado neste checkpoint. A janela do Chrome QA está aberta e em primeiro plano; a intervenção humana necessária é somente selecionar novamente o marcador correto na lista e avisar quando a página terminar de carregar.
