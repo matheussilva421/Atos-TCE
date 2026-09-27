@@ -310,8 +310,9 @@
 - Estado Git observado antes do fechamento: branch `codex/atos-tce-unified`, HEAD `fb8ab21b5c508b0eaf16b184ebea305dd32e9dca`; `origin/main` `b1d41e848c39cb61947b011501925c40f86793fb`. Próximos passos imediatos: publicar este checkpoint, atualizar refs, confirmar que `origin/main` é ancestral da branch e promovê-la apenas por fast-forward sem force push; confirmar `origin/main` no SHA final.
 - Backlog pós-release: EC41 isolada e CF40 isolada seguem sem amostra real; os candidatos disponíveis têm referências jurídicas mistas. Preservar os warnings e revisão humana desses casos; não ampliar a busca para bloquear a V1.
 
-### Retomada imediata
+### Fechamento Git final
 
-1. Commitar e enviar este handoff para `codex/atos-tce-unified`.
-2. Atualizar refs com `git fetch origin`; confirmar `git merge-base --is-ancestor origin/main origin/codex/atos-tce-unified`.
-3. Fazer push fast-forward da branch para `main` sem force; buscar refs novamente e confirmar o mesmo SHA final em `origin/main`.
+- Atualizei refs com `git fetch origin` e confirmei `git merge-base --is-ancestor origin/main origin/codex/atos-tce-unified` com sucesso.
+- Promovi `codex/atos-tce-unified` para `main` por fast-forward, sem force push. A primeira promoção levou ambas as refs ao commit `1ef44ced60b28cd23eb41818d468013b42ef1b09`.
+- Este fechamento documental é somente o registro final da promoção e será incluído também em `main` por fast-forward. O SHA final autoritativo é o commit desta nota; após a promoção, `origin/main` e `origin/codex/atos-tce-unified` devem apontar para o mesmo SHA. A branch de trabalho será preservada.
+- Estado final da V1: concluída; transferência com `missing=0`, `extra=0`, `mismatch=0`; sem novas execuções de health, PDF, extensão, testes, smoke live, Best-Effort ou Próximo Processo.
