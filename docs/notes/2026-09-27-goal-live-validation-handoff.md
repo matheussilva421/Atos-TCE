@@ -246,6 +246,7 @@
 - ZIP gerado em `dist/Atos-TCE-portable.zip`: 96.156.289 bytes; SHA-256 `ee917bddd7b113f78ab03e86332368c6e33f88a45d0cd0b849f0c9444bfd92bc`. O ZIP não contém `data`, PDFs ou ferramentas de desenvolvimento; inclui o guia.
 - Health da Mesa confirma `data` relativo ao projeto (`C:\Users\slvma\Downloads\Github\Atos-TCE\data`) e 1.294 processos. A base tem 15.923 registros de documentos, todos com arquivo existente dentro de `data`, sem caminho absoluto/externo ou PDF ausente. `archive` contém 15.392 PDFs em `blobs` e 15.392 em `processos`; 30.784 arquivos PDF no total. A pasta completa ocupa 20.471.032.764 bytes. Portanto, nenhuma outra pasta do acervo é necessária.
 - A cópia completa para `C:\TCE-Atos` não foi iniciada: o auto-review recusou a duplicação de 20,47 GB de dados privados fora do workspace e instruiu pedir aprovação explícita. O destino estava ausente; o acervo original não foi alterado.
+- O checkpoint de código/documentação foi commitado e enviado ao GitHub: `a45bcb828cab30cb1cb0820de76b1748beef1c9c` em `codex/atos-tce-unified`. `origin/main` continua em `b1d41e848c39cb61947b011501925c40f86793fb`; a promoção está pendente do teste separado de `data`.
 
 ### Retomada
 
