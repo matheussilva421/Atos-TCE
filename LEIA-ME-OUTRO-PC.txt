@@ -11,7 +11,11 @@ incluída no ZIP.
    ative o modo de desenvolvedor, escolha “Carregar sem compactação” e selecione
    C:\TCE-Atos\extension.
 4. Execute C:\TCE-Atos\START.cmd.
-5. Faça manualmente o login no e-Contas e na Área Restrita quando necessário.
+5. Use cada portal somente no seu fluxo:
+   - e-Contas: login manual apenas para adquirir/baixar processos.
+   - Área Restrita: login manual para analisar a lista e usar a complementação
+     assistida pela Mesa e pela extensão. e-Contas não participa da
+     complementação de atos.
 
 Mantenha a cópia original de data no PC antigo até confirmar que a Mesa, os
 processos, os documentos e os PDFs abriram corretamente no PC novo.

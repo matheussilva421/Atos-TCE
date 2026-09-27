@@ -48,6 +48,10 @@ O clique final de complementação do ato **continua humano** em todos os fluxos
 Se a navegação automática falhar, o caminho manual preenche o formulário que já
 está aberto usando o mesmo plano e o mesmo preflight.
 
+**e-Contas é usado somente para adquirir/baixar processos.** A complementação
+assistida acontece na Área Restrita, com a Mesa Local e a extensão; o login no
+e-Contas não é uma etapa da complementação.
+
 ## Extensão
 
 A extensão suportada é a da raiz, `extension/` (Manifest V3 fina). Depois de

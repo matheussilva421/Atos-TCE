@@ -258,3 +258,11 @@
 
 - Validação somente leitura no Chrome da Mesa original: uma tela de detalhes de processo já estava aberta, com seis ações **ver fonte**. Acionei uma delas; o visualizador renderizou canvas visível e carregou um recurso PDF.
 - Isso confirma que a Mesa atual consegue exibir documento/PDF do acervo original. Não valida a cópia de `data` em `C:\TCE-Atos`; essa cópia segue sem aprovação e não foi criada. Nenhuma identidade foi registrada e nenhuma análise/ato foi alterado.
+
+## 2026-09-27 — Separação dos portais no guia
+
+- Esclarecido que e-Contas serve apenas para adquirir/baixar processos; a complementação assistida é feita na Área Restrita com a Mesa Local e a extensão.
+- README e guia de outro PC agora dizem explicitamente que o login no e-Contas não é uma etapa da complementação de atos.
+- ZIP regenerado com os documentos atualizados: `dist/Atos-TCE-portable.zip`, 96.156.444 bytes, SHA-256 `62371e9ca0e9a304996510f3afee1d5a627358cc787a6be3745bfdf48451187b`. Verificação de pacote: 517 entradas, 430 arquivos de runtime; smoke de extração limpa `health=ok`, schema 7 e extensão 0.1.0. O script avisou `Acesso negado` ao encerrar; confirmei em seguida que o processo/porta do smoke e a pasta temporária foram removidos.
+- Nenhum código, sessão autenticada, processo ou ato foi alterado. Validação documental por leitura do diff e `git diff --check`; sem testes de código por ser ajuste somente de documentação.
+- Retomada: concluir o teste do ZIP com uma cópia separada da pasta `data` após autorização para criar o destino/cópia, então fast-forward seguro para `main`.
