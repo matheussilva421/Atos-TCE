@@ -8,6 +8,16 @@
 - ZIP reconstruído após a correção: `dist/Atos-TCE-portable.zip`, 516 entradas, runtime 430 arquivos, smoke OK; SHA-256 `216f10546370c1215ee0aef6554b397c33b4c562fa4b46bf98409b8c47f55627`. Artefato ignorado, sem dados locais.
 - Próximo passo: reconciliar MCP/Chrome QA e concluir somente a matriz live autorizada. Task 10 e goal seguem incompletos; ação final Complementar Ato é sempre manual.
 
+## Próximo Processo — tentativa live e backend antigo — 2026-09-26
+
+- MCP e CDP agora correspondem exatamente nas origins/paths para Área Restrita, Mesa em `127.0.0.1:18743` e extensão em CDP `127.0.0.1:9222`.
+- Captura estrutural before foi salva no diretório ignorado `dados-locais/portal-lab/next-process-before-2026-09-26.json`: 9 documentos/frame do portal e um da Mesa, só origens/rotas/contagens, sem texto ou valores.
+- Usado apenas o scan local id 9 já existente (1.197 itens, 354 pendentes); dois candidatos `PRONTO` e `PRECISA_COMPLEMENTAR` foram comparados em memória, sem registrar nomes/números.
+- A aba Mesa tinha DOM anterior ao HTML atualizado. Recarga sem cache trouxe `next-process`; a seleção local do âncora foi única. Um clique autorizado no botão produziu HTTP 404 em `/api/v1/portal/next-act`; health permaneceu API v1/schema 7. A extensão não recebeu comando, a Área Restrita continuou na lista e a consulta local confirmou zero `OPEN_NEXT_ACT` novo. Nenhum ato/campo foi alterado.
+- Causa confirmada: o servidor Python que atende 18743 iniciou antes do commit `5510362` que adicionou `post_next_act`. Reinício é necessário. Não havia jobs ativos nem comandos enfileirados; não existe `data/service.json` para controlar o processo.
+- O `Bridge` guarda bootstrap e sessões apenas em memória. Reiniciar Mesa invalida a sessão local e requer que o operador use manualmente o novo bootstrap dentro do Chrome QA; não ler/copiar o token no chat. Isso não encerra a sessão autenticada da Área Restrita.
+- Retomada: reiniciar somente Mesa com `START.cmd --data-root data --port 18743 --no-browser`, concluir bootstrap manual, confirmar extensão conectada e então repetir uma transição supervisionada uma única vez. Task 8 continua parcial; Task 10 e goal continuam incompletos; clique final humano.
+
 **Data:** 2026-09-24  
 **Branch:** `codex/atos-tce-unified`  
 **Nota:** O parágrafo de estado abaixo é histórico (25/09); a seção “Continuação — 2026-09-26” acima é a retomada vigente e o supersede.

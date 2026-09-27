@@ -6,8 +6,9 @@
 - Revisão adversarial de Next Process apontou uma recusa 409 `next_act_refused` que travava novas tentativas. Corrigida sob TDD em `app/web/app.js` e `app/web/tests/ui-wiring.test.mjs`; `13f0503` e o handoff `c9e0428` foram publicados em `origin/codex/atos-tce-unified`.
 - Gates após correção: Python raiz 662 executados, exit 0; extensão 190/190; web 32/32; `verify-project.ps1` 1.260 executados, 1.258 aprovados, 0 falhas, 2 skips; contrato do pacote 14/14.
 - ZIP standalone foi reconstruído e verificado: 516 entradas, runtime pinado com 430 arquivos, smoke `status: ok`; SHA-256 `216f10546370c1215ee0aef6554b397c33b4c562fa4b46bf98409b8c47f55627`, artefato ignorado em `dist/Atos-TCE-portable.zip`.
-- Task 8 ainda parcial: MCP/CDP continua sem prova de estar conectado ao Chrome QA correto; a única análise oficial autorizada retornou `session_required` e não será repetida nem contornada. Matriz real e comparação pareada de tempo seguem `NOT_RUN`. Task 10 também continua pendente; goal não concluído.
-- Próxima retomada: reconectar MCP ao Chrome QA dedicado em `127.0.0.1:9222`, confirmar abas da Área Restrita e Mesa por metadados, depois executar somente uma transição supervisionada no alvo exato e registrar releitura/timing. Clique final de Complementar Ato segue humano.
+- Task 8 parcial: correspondência MCP/CDP com o Chrome QA foi comprovada. A tentativa única do botão Próximo Processo recebeu HTTP 404 do backend antigo antes de enfileirar comando; a lista permaneceu aberta e nenhum ato/campo mudou. O scan id 9 salvo tem 1.197 itens/354 pendentes; duas identidades elegíveis foram usadas só em memória, sem reproduzi-las aqui. Task 10 e comparação pareada de tempo continuam pendentes; goal não concluído.
+- Captura estrutural before está em `dados-locais/portal-lab/next-process-before-2026-09-26.json`, ignorada pelo Git (9 documentos do portal, 1 Mesa; somente estrutura).
+- Próxima retomada: reiniciar o servidor Mesa antigo para carregar a rota adicionada em `5510362`, depois o operador deve refazer o bootstrap local no Chrome QA porque o `Bridge` é in-memory. O login da Área Restrita permanece separado. Depois reconfirmar conexão e repetir uma transição supervisionada; não reanalisar a lista. Clique final continua humano.
 
 ## Histórico anterior ao fechamento offline — 2026-09-26
 

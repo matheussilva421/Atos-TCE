@@ -2,7 +2,7 @@
 
 ## Estado
 
-**Parcial; a validação real do portal não foi executada.** Os testes e gates automatizados passaram. Não declarar Task 8 ou o goal completo enquanto a matriz supervisionada e a comparação de tempo real estiverem pendentes.
+**Parcial; a navegação portal-real não foi concluída.** A tentativa única pelo botão da Mesa foi recusada com HTTP 404 antes de criar comando; a Área Restrita permaneceu na lista, sem formulário aberto. Os gates automatizados passaram. Não declarar Task 8 ou o goal completo enquanto a matriz supervisionada e a comparação de tempo real estiverem pendentes.
 
 ## Implementação e gates automatizados
 
@@ -35,22 +35,25 @@
 | Frames ambíguos | PASS — recusa `FORM_AMBIGUOUS` | NOT_RUN |
 | Fim da fila sem comando | PASS — resposta explícita e nenhum comando enfileirado | NOT_RUN |
 | Formulário pronto e identidade relida | PASS — fixtures e contrato da API | NOT_RUN |
+| Ação Próximo Processo nesta sessão | Cobertura automatizada PASS | BLOCKED — API local respondeu 404; nenhum comando criado |
 | Transição após clique final manual | Sem teste automático; ação final é humana | NOT_RUN |
 | Comparação com tempo manual | Sem medição pareada atual | NOT_RUN |
 
 ## Motivo da lacuna live
 
 - A única execução autorizada da análise oficial retornou `session_required`. Ela não foi repetida e a lista não foi lida por outra interface.
-- O MCP listou páginas do portal/Mesa, mas a inspeção read-only dos endpoints locais `9222–9232` encontrou em `127.0.0.1:9222` apenas uma página de extensão e nenhum alvo da Área Restrita ou Mesa. Não foi possível provar que o MCP controla o Chrome QA dedicado exigido pelo Portal Lab; nenhuma navegação real foi iniciada.
-- A captura estrutural L0 autorizada permanece somente em `dados-locais/portal-lab/area-restrita-structural-L0-2026-09-26.json`, ignorada pelo Git. Ela não contém texto, valores de campos, cookies, storage, tráfego ou screenshot e não substitui `SCAN_PAGE` nem uma validação de navegação.
+- A correspondência MCP/CDP foi comprovada: `127.0.0.1:9222` e `list_pages` expuseram as mesmas origins/paths da Área Restrita, da Mesa local e da extensão. A Mesa retornou health API v1/schema 7, mas `POST /api/v1/portal/next-act` respondeu HTTP 404 em 4 ms. O processo servidor iniciou antes do commit que adicionou essa rota (`5510362`, 2026-09-26 18:36 -03); o snapshot local registrou zero comando `OPEN_NEXT_ACT` novo e a Área Restrita continuou na lista. O root cause é um backend Mesa antigo ainda em execução.
+- A lista salva mais recente (scan id 9) tem 1.197 itens, 354 pendentes; dois itens consecutivos elegíveis `PRONTO`/`PRECISA_COMPLEMENTAR` foram verificados somente em memória como âncora/alvo. Identidades não foram incluídas no handoff. Nenhuma releitura/varredura da lista autenticada foi executada.
+- O DOM anterior da aba Mesa estava antigo; recarga local sem cache fez reaparecer a ação. O âncora foi selecionado localmente e o botão foi clicado uma única vez. A API 404 impediu qualquer comando/navegação; nenhum ato ou campo foi alterado.
+- Captura estrutural `before` autorizada em `dados-locais/portal-lab/next-process-before-2026-09-26.json`, ignorada pelo Git: 9 documentos/frames do portal e um documento da Mesa, só origens/rotas e contagens de estrutura. Sem texto, valores, cookies, storage, headers, corpos ou screenshot.
+- Para carregar o endpoint novo será necessário reiniciar a Mesa. `Bridge` mantém sessões em memória, portanto a reinicialização invalida a sessão local da Mesa e exigirá bootstrap manual no Chrome QA. O login da Área Restrita permanece separado. O agente não deve ler/copiar o token de bootstrap. No diagnóstico, não havia jobs ativos nem comandos enfileirados.
 
 ## Próxima retomada
 
-1. Reconciliar o Chrome QA dedicado e o MCP para que ambos apontem ao mesmo CDP loopback em `127.0.0.1:9222`, preservando login manual.
-2. Confirmar no próprio endpoint a presença das abas da Área Restrita e da Mesa antes de qualquer transição.
-3. Usar a fila já persistida e um alvo exato ainda elegível; não repetir a análise da lista. Fazer uma única transição L1 de navegação, capturar before/after estrutural e reler a identidade final.
-4. Manter sem execução o clique final **Complementar Ato**; qualquer observação posterior depende do operador.
-5. Registrar tempos e completar a matriz real. Se `session_required` persistir, parar a etapa live sem contorno.
+1. Reiniciar somente o backend Mesa na branch/código atual após reconciliar que não há jobs/comandos ativos; reabrir `127.0.0.1:18743` no Chrome QA e concluir o bootstrap local manual sem compartilhar o token no chat.
+2. Reconfirmar Mesa conectada e abas da Área Restrita/Mesa em CDP `127.0.0.1:9222`.
+3. Usar o snapshot persistido; não repetir a análise da lista. Uma única transição supervisionada, captura estrutural `after` e releitura exata do alvo.
+4. Manter sem execução o clique final **Complementar Ato**; registrar tempos e completar a matriz real.
 
 ## Fechamento documental — 2026-09-26
 
@@ -58,3 +61,4 @@
 - O ZIP foi refeito depois de `13f0503` e passou tanto `packaging/verify-package.ps1` quanto o teste de allowlist do pacote real. Artefato local ignorado: `dist/Atos-TCE-portable.zip`.
 - Task 8 permanece parcial; Task 10 e o goal geral não estão concluídos enquanto faltarem validação supervisionada real e comparação de tempo. O clique final permanece manual.
 - Estado Git ao fechar: branch canônica publicada em `c9e0428`; captura L0 e ZIP continuam locais/ignorados.
+- Atualização posterior: a aba Mesa está comprovadamente ligada ao CDP, mas o backend ativo precede a rota `next-act`; uma tentativa HTTP 404 terminou sem comando nem navegação. Restart exigirá bootstrap Mesa humano devido ao `Bridge` em memória.

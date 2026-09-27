@@ -398,3 +398,11 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - User authorized L0 structural persistence; capture remains under ignored `dados-locais/portal-lab/` and contains structure metadata only.
 - Live Task 8 remains NOT_RUN: MCP/CDP target mismatch; the one official scan attempt returned `session_required`. Do not retry or bypass. No process/act changed. Manual final click remains out of automation.
 - Published: `13f0503` and handoff `c9e0428` are on `origin/codex/atos-tce-unified` (push accepted from `a6f7572`). Next: reconcile MCP with the dedicated Chrome QA CDP session; only then perform one supervised exact-target transition and timing comparison. Task 10 and overall goal remain incomplete.
+
+## Next Process live checkpoint — 2026-09-26
+
+- MCP/CDP mapping is now verified at 127.0.0.1:9222 for the portal, Mesa, and extension.
+- One Mesa button click returned HTTP 404 for `/api/v1/portal/next-act`; active Python server predates commit `5510362`. No OPEN_NEXT_ACT command was created and the portal remained on its list. No act or field changed.
+- Structural before capture is local/ignored at `dados-locais/portal-lab/next-process-before-2026-09-26.json` (metadata only). Existing scan id 9: 1,197 total, 354 pending; two eligible records matched in memory only.
+- No active jobs or queued commands. Restarting Mesa will invalidate its in-memory Bridge session; operator bootstrap in Chrome QA is required and the token must stay human-controlled.
+- Next: restart only Mesa from current code, wait for operator bootstrap, reverify bridge, then run one supervised transition and exact reread. Task 8, Task 10, timing comparison, and overall goal remain open.
