@@ -1,9 +1,11 @@
 # Área Restrita Portal Lab — handoff incremental
 
-## Continuação — 2026-09-26, fechamento offline
+## Registro offline anterior à prova MCP — 2026-09-26
+
+Este checkpoint foi supersedido pelas seções “Próximo Processo — tentativa live e backend antigo” e “Mesa reiniciada — bootstrap humano pendente” abaixo.
 
 - O usuário autorizou persistir a captura estrutural L0; ela foi salva apenas no diretório ignorado `dados-locais/portal-lab/`, sem texto da página, valores, cookies, storage, rede ou screenshot. Nenhuma leitura da lista nem análise oficial adicional foi feita.
-- Task 8 de Next Process está parcial. MCP lista páginas do portal, mas `127.0.0.1:9222` expõe só alvo de extensão; não há prova de que sejam a sessão Chrome QA. A execução oficial anterior respondeu `session_required`; não repetir nem contornar. Navegação portal-real e timing continuam pendentes.
+- Naquele checkpoint ainda faltava provar a correspondência MCP/CDP; isso foi resolvido e está registrado nas seções live posteriores. O `session_required` anterior continua sem retry.
 - Revisão adversarial encontrou e levou a correção TDD do tratamento HTTP 409 `next_act_refused`, commit `13f0503`; correção e handoff `c9e0428` publicados em `origin/codex/atos-tce-unified`. Teste web 32/32; contrato do ZIP real 14/14; gate integrado 1.260/1.258/0/2; extensão 190/190.
 - ZIP reconstruído após a correção: `dist/Atos-TCE-portable.zip`, 516 entradas, runtime 430 arquivos, smoke OK; SHA-256 `216f10546370c1215ee0aef6554b397c33b4c562fa4b46bf98409b8c47f55627`. Artefato ignorado, sem dados locais.
 - Próximo passo: reconciliar MCP/Chrome QA e concluir somente a matriz live autorizada. Task 10 e goal seguem incompletos; ação final Complementar Ato é sempre manual.

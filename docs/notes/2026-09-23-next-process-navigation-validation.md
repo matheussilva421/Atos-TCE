@@ -60,6 +60,6 @@
 - `python -m unittest tests.test_packaging_contract -v`: 14 testes aprovados, 0 falhas.
 - O ZIP foi refeito depois de `13f0503` e passou tanto `packaging/verify-package.ps1` quanto o teste de allowlist do pacote real. Artefato local ignorado: `dist/Atos-TCE-portable.zip`.
 - Task 8 permanece parcial; Task 10 e o goal geral não estão concluídos enquanto faltarem validação supervisionada real e comparação de tempo. O clique final permanece manual.
-- Estado Git ao fechar: branch canônica publicada em `c9e0428`; captura L0 e ZIP continuam locais/ignorados.
+- O primeiro closeout foi publicado em `c9e0428`; os checkpoints live posteriores foram enviados até `cf65e11` na branch canônica. A captura L0 e o ZIP continuam locais/ignorados.
 - Atualização posterior: a aba Mesa está comprovadamente ligada ao CDP, mas o backend ativo precede a rota `next-act`; uma tentativa HTTP 404 terminou sem comando nem navegação. Restart exigirá bootstrap Mesa humano devido ao `Bridge` em memória.
 - Backend antigo foi encerrado e `START.cmd --data-root data --port 18743 --no-browser` foi iniciado na branch atual. Health voltou `ok` (API v1/schema 7), a extensão está conectada, e a Área Restrita continua na lista; ainda falta bootstrap humano da sessão Mesa no Chrome QA. Não houve nova tentativa de navegação.

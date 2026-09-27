@@ -397,7 +397,7 @@ Task 4 closeout: commit `1a5250b` and handoff `afd6fb4` published. Task 3 MCP li
 - Standalone ZIP rebuilt and smoke-verified: 516 entries, pinned runtime 430 files, health OK, SHA-256 `216f10546370c1215ee0aef6554b397c33b4c562fa4b46bf98409b8c47f55627`. ZIP remains ignored/local.
 - User authorized L0 structural persistence; capture remains under ignored `dados-locais/portal-lab/` and contains structure metadata only.
 - Live Task 8 remains NOT_RUN: MCP/CDP target mismatch; the one official scan attempt returned `session_required`. Do not retry or bypass. No process/act changed. Manual final click remains out of automation.
-- Published: `13f0503` and handoff `c9e0428` are on `origin/codex/atos-tce-unified` (push accepted from `a6f7572`). Next: reconcile MCP with the dedicated Chrome QA CDP session; only then perform one supervised exact-target transition and timing comparison. Task 10 and overall goal remain incomplete.
+- Historical offline checkpoint: implementation/handoff were already published; MCP/CDP reconciliation and subsequent live attempts are recorded in the newer checkpoints below.
 
 ## Next Process live checkpoint — 2026-09-26
 
