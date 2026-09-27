@@ -96,3 +96,5 @@
 - A checagem usou hashes locais para comparar os valores, sem imprimir os identificadores do marcador. Nenhum seletor foi alterado. Não foi repetido o scan oficial, o comando Próximo Processo, nem qualquer preenchimento ou ação final.
 - Este estado bloqueia navegação/fill live seguros até que a operadora restaure manualmente na Área Restrita o mesmo marcador usado pelo scan 10. Depois, revalidar a correspondência e reconciliar a navegação aceita anteriormente antes de emitir qualquer novo comando.
 - Nenhum código/teste foi alterado ou executado neste checkpoint. A janela do Chrome QA está aberta e em primeiro plano; a intervenção humana necessária é somente selecionar novamente o marcador correto na lista e avisar quando a página terminar de carregar.
+
+- A captura estrutural L0 previamente autorizada foi salva em `tmp/portal-lab/2026-09-27-foreground-session/raw/area-restrita-l0.json` (9 frames; 1 seletor de marcador; 5.061 bytes). O caminho está coberto por `.gitignore`; verificação confirmou ausência de valores, texto de página e campos de sessão.
