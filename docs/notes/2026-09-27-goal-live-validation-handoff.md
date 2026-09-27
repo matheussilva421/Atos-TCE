@@ -45,9 +45,27 @@
 
 ## Resume instructions
 
-1. Have the operator manually authenticate in the already-open Chrome QA window; do not handle credentials or session tokens.
-2. Recheck the page/frame structure and extension state. Restore the normal sector process list through the portal's UI and compare the selected marker with scan 10 without rerunning the official scan.
-3. Reconcile the Mesa selection with the last confirmed navigation result before clicking **Próximo processo** again. Do not repeat command 66 blindly.
+1. If the session expires, have the operator authenticate in the already-open Chrome QA window; do not handle credentials or session tokens.
+2. The sector process list has been restored through the portal UI. Recheck its page/frame structure and compare the selected marker with scan 10 before any further queue navigation; do not rerun the official scan.
+3. Do not repeat command 66 or the later accepted-but-unconfirmed request. Reconcile the pending target through the official UI before any new **Próximo processo** action.
 4. Continue Task 10 only on exact eligible identities, filling and rereading only; leave the final portal action manual.
 5. Cover live stale/ambiguous/end-of-queue only if a natural safe case is available. Keep the already green automated fixtures distinct from portal-real evidence.
 6. After all live work, perform adversarial review, final test gates, standalone ZIP verification, clean-extraction smoke, update this handoff, and push only `codex/atos-tce-unified`.
+
+## 2026-09-27 — reauthenticated queue and accepted-but-unconfirmed navigation
+
+- Chrome QA was already running under the DevTools connection. The user had reauthenticated manually; the portal shell and process list were reachable. No credentials or session material were read.
+- Restored the sector process list by opening the portal's **Proc./Doc. Eletrônicos no Setor** view. One informational “Limite de 10 Abas” dialog appeared and was accepted. The list loaded; no official scan was rerun and scan 10 remains the source snapshot.
+- The extension and Mesa both reported connected. Clicked **Próximo processo** exactly once. The extension accepted a target request, then completed its bounded wait without confirming the target form. Its diagnostic was `accepted_unconfirmed`; the portal remained on the list and no act form was confirmed.
+- The extension kept both **Preencher formulário atual** and **Próximo processo** disabled after that result. Do not retry or submit another target request until the accepted request is reconciled through the normal portal/extension UI. Do not read or copy the target identity from extension state.
+- No fill request was issued by this click, no act fields were changed, and no final action was taken. The previously recorded Task 10 fill remains the only real fill evidence.
+- Structural check: the authenticated portal page and sector list frames were complete; no act form was found. The selected marker was not independently re-compared to scan 10 in this checkpoint.
+- No source code changed and no tests ran. Before this handoff update, Git was clean on `codex/atos-tce-unified` at `cb1d305e47aba80dcb0e41342c6b22c7fe29fde3`, equal to `origin/codex/atos-tce-unified`.
+
+### Resume from this checkpoint
+
+1. Keep the current Chrome QA session and do not repeat the accepted navigation request. First inspect the extension diagnostic and portal frame state through the official UI; continue only after the pending target is resolved or safely reset and exact identity is confirmed.
+2. Recompare the selected portal marker with scan 10 before any further queue navigation. Do not rerun the official scan.
+3. Continue the remaining real Task 10 cases only after the portal opens an exact, eligible case; fill and reread only, with final **Complementar Ato** kept manual.
+4. Complete live Next Process matrix cases only when naturally available; retain fail-closed status for stale/ambiguous and end-of-queue unless the live portal provides safe evidence.
+5. Finish final review, all project gates, standalone ZIP verification, and clean-extraction smoke; then update this handoff and push only `codex/atos-tce-unified`.
