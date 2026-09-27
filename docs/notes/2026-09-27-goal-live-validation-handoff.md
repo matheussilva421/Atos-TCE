@@ -108,3 +108,23 @@
 - Não li armazenamento do navegador nem identidade de processo/interessado. Não houve scan, navegação, preenchimento ou ação final neste checkpoint.
 - Próxima ação: a operadora seleciona manualmente na lista o marcador usado no scan 10 e avisa quando terminar; então comparar novamente e reconciliar a solicitação aceita antes de emitir qualquer novo comando.
 - Código e testes não mudaram. `git diff --check` será verificado após este registro.
+
+## 2026-09-27 — Próximo Processo 68 e preenchimento real 21
+
+- Correção do estado do checkpoint anterior: a operadora selecionou o marcador correto. A comparação local por SHA entre a seleção no frame da lista e o scan 10 confirmou rótulo e valor iguais; o contexto do comando também corresponde ao scan 10. Nenhum marcador foi alterado pelo agente e nenhum novo scan foi executado.
+- A navegação oficial `OPEN_NEXT_ACT` 68 terminou `SUCCEEDED`, `action=next_act_ready`, `screen=form`. O servidor validou que processo e interessado relidos eram exatamente o alvo enfileirado. O alvo estava presente no scan 10 como `PRECISA_COMPLEMENTAR`; o scan continua com 1.197 registros, 354 pendentes e 843 complementados, sem ambíguos, bloqueados ou não encontrados.
+- A transição abriu `/SISTEMAS/PROCESSO/ComplementarAto.asp` em frame aninhado, com estado `complete`, formulário e controles de processo visíveis. O identificador de formulário `complementarAtoForm` documentado não foi observado; não foi criado seletor nem feita alteração de runtime. A página shell permaneceu em `/telaPrincipalMenu.asp`.
+- Tempo medido clique→documento do formulário pronto: 56.676 ms; duração arredondada nos registros do servidor: 57 s. A captura L0 sanitizada, sem valores ou texto de página, está em `tmp/portal-lab/2026-09-27-foreground-session/raw/next-process-after.json`; `git check-ignore` confirmou a exclusão por `.gitignore`.
+- O clique do MCP no botão oficial falhou antes de executar (`handle.asLocator is not a function`). Depois de confirmar a presença única e habilitada do botão **Preencher formulário atual**, o evento de clique foi disparado no próprio botão visível do painel da extensão. A solicitação manual 21 terminou `PREENCHIDO`; o comando `FILL_FORM` associado terminou `SUCCEEDED`, geração 7, identidade ligada ao mesmo registro do alvo.
+- Releitura: 6 campos, todos `changed`; em todos, `after == proposed`; zero preservados e zero não resolvidos; `mandatory_satisfied=true`. O scan continua marcando o ato como pendente porque a ação final não foi executada. A operação avisou que não havia proposta para gênero.
+- Decisão legal: `AUTO_SELECTED`, classe `EC41_TRANSITION_GENERAL`, método `best-available`, confiança 0,775581, margem 0,001257, `hard_conflict=false`, avisos `low-confidence` e `low-margin`. As referências estruturadas incluem CE 20/2020, arts. 6º e 7º; esta evidência não constitui aprovação jurídica humana. Modalidade ficou `selected`/`AUTO_SELECTED`, confiança 0,84, margem 0, com candidatos equivalentes e desempate por índice; manter para revisão.
+- Classificação de cobertura: amostra real útil para revisar ECE/RN 20/2020 e correspondência fraca/não literal, ainda pendente de revisão humana. Não fecha isoladamente EC 41/2003, CF art. 40, preservação de EC 47/2005 nem o caso parcial A/B/C. Nenhuma ação **Complementar Ato**, envio, assinatura ou tramitação foi executada.
+- Arquivos: fonte/runtime inalterados; este handoff foi atualizado. A captura acima permanece ignorada/local. Nenhum teste foi executado neste bloco; a validação foi pelo portal real e releitura local. `git diff --check` e a sincronização do handoff são os gates deste checkpoint.
+
+### Retomada
+
+1. Não repetir o preenchimento 21. Deixar esse ato preenchido para revisão humana e manter o clique final manual.
+2. Continuar pelo botão oficial **Próximo processo**, uma transição por vez, validando frame, identidade composta, marcador e elegibilidade antes de cada preenchimento.
+3. Priorizar casos reais isolados EC 41/2003 e CF art. 40, evidência de preservação EC 47/2005 e um parcial A/B/C genuíno; não fabricar estado de portal.
+4. Prosseguir com a matriz Next Process natural disponível; casos stale, ambíguo e fim da fila ficam pendentes se não surgirem com segurança.
+5. Depois da cobertura live, fazer revisão adversarial, gates finais, ZIP/smoke standalone e atualizar/push somente `codex/atos-tce-unified`.
