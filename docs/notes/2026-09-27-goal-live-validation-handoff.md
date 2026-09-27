@@ -167,3 +167,37 @@
 3. Manter o scan 10/marcador como contexto; qualquer nova linha deve bater processo + interessado, estar `PRECISA_COMPLEMENTAR`, e o frame ativo deve ser confirmado antes do fill.
 4. Continuar o parcial A/B/C e revisar os casos EC41/ECE20 já preenchidos; stale, ambíguo e fim da fila ficam pendentes se não surgirem naturalmente.
 5. Depois da cobertura live, fazer revisão adversarial, gates finais, ZIP/smoke standalone, atualizar o handoff e push somente `codex/atos-tce-unified`.
+
+## 2026-09-27 — parcial A/B/C e busca textual CF art. 40
+
+- O marcador foi selecionado manualmente pela operadora; manter a seleção e conferir por fingerprint contra o scan 10 antes de novo comando. Não repetir o scan.
+- A busca local sem OCR percorreu 117 PDFs com texto embutido (342 páginas com texto). Os seis candidatos filtrados por referência rápida a CF art. 40 continham referências legais adicionais; nenhum confirmou CF art. 40 isolado. A lista `fields` é apenas triagem e não prova isolamento.
+- Uma amostra pendente com conflito em data de publicação foi aberta pela navegação oficial. A identidade composta foi confirmada localmente contra o scan e o interessado único foi selecionado. O campo em conflito estava presente, habilitado e vazio; o processo está em `REVISAR`, não `PRONTO`.
+- O serviço recusou a solicitação de preenchimento manual antes de criar pedido ou alterar campo, pois exige correspondência única em `PRONTO`. Os demais três casos com conflito obrigatório também estão `REVISAR`; não há candidato `PRONTO` com falta/conflito nos campos obrigatórios. Não contornar esse gate.
+- O formulário permanece sem campos preenchidos. Nenhuma ação final ocorreu. Os preenchimentos 21–25 omitiram a proposta opcional de gênero; isso é sinal parcial, mas não demonstra comportamento real de preenchimento parcial com conflito/controle obrigatório. A cobertura A/B/C permanece aberta.
+- Nenhum código ou teste foi alterado/executado. Sem defeito confirmado, não iniciar correção por hipótese; a validação desta etapa foi leitura do estado local e do formulário live.
+
+### Retomada
+
+1. Validar Próximo Processo entre páginas com correspondência exata da identidade composta, elegibilidade pendente e fingerprint do marcador; não finalizar formulário algum.
+2. Procurar um CF art. 40 isolado usando referências completas dos documentos baixados, sem OCR quando o PDF já contém texto.
+3. Manter o caso `REVISAR` sem preenchimento; só executar teste A/B/C se surgir um caso elegível suportado pelo serviço.
+4. Continuar a revisão de EC 41/2003, ECE/RN 20/2020, baixa margem e preservação EC 47/2005 com evidência de plano completo.
+5. Ao terminar os casos live viáveis, executar revisão adversarial, gates finais, smoke de extração limpa e registrar o status real; push apenas em `codex/atos-tce-unified`.
+
+## 2026-09-27 — Próximo Processo cruza página 11 → 12
+
+- A operadora confirmou que o marcador estava selecionado. Fingerprint local do seletor atual correspondeu ao scan 10 sem ler ou exibir o rótulo/valor.
+- A leitura da página 11 encontrou 30 linhas. Comparação hash-only de processo + interessado conferiu as 30 contra a fatia correspondente do scan 10; havia pendências na página e a última linha pendente era a posição 330. O próximo registro pendente do scan é a posição 340, página 12.
+- A ação oficial da linha abriu a posição 330. A tela de seleção tinha um único rádio; após selecioná-lo, `READ_CURRENT_FORM` confirmou por fingerprint a identidade exata da posição 330, com sete controles de formulário. Nenhum campo foi escrito.
+- O botão oficial **Próximo processo** foi acionado com essa identidade atual confirmada. A solicitação `OPEN_NEXT_ACT` terminou `SUCCEEDED`, `action=next_act_ready`, `screen=form`; a identidade relida correspondeu por hash à próxima pendência esperada da posição 340. O comando preservou contexto do scan 10. Isso demonstra avanço até a página 12 sem wrap.
+- Depois da abertura, o formulário alvo ficou ativo e o content snapshot não expôs uma lista visível para confirmar independentemente o número da página; a evidência do cruzamento é a sequência da página 11, o comando concluído e o alvo exato da posição 340 (página 12). Nenhum preenchimento, complemento, envio, assinatura ou tramitação foi realizado.
+- Estado atual: formulário da posição 340 aberto, vazio e pendente para eventual revisão; atos 21–25 continuam sem ação final. Não repetir a abertura nem avançar novamente sem primeiro confirmar o contexto atual.
+- Código e testes inalterados neste checkpoint. A validação foi live com fingerprints e resultado estruturado local, sem reproduzir identidades.
+
+### Retomada
+
+1. Registrar e preservar este formulário vazio; não finalizar.
+2. Prosseguir a busca local estruturada por candidato EC 41/2003 isolado, CF art. 40 isolado, EC 47/2005 e parcial A/B/C. CF art. 40 isolado ainda não encontrado; o parcial com conflito permanece `REVISAR` e sem alteração.
+3. Se continuar matriz Próximo Processo, exigir identidade exata atual + pendência + marcador antes de cada avanço; stale, ambíguo e fim da fila ficam pendentes se não ocorrerem naturalmente.
+4. Completar revisão adversarial, gates pedidos, smoke de extração limpa e o handoff final; fazer push somente para `codex/atos-tce-unified`.
