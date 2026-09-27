@@ -201,3 +201,21 @@
 2. Prosseguir a busca local estruturada por candidato EC 41/2003 isolado, CF art. 40 isolado, EC 47/2005 e parcial A/B/C. CF art. 40 isolado ainda não encontrado; o parcial com conflito permanece `REVISAR` e sem alteração.
 3. Se continuar matriz Próximo Processo, exigir identidade exata atual + pendência + marcador antes de cada avanço; stale, ambíguo e fim da fila ficam pendentes se não ocorrerem naturalmente.
 4. Completar revisão adversarial, gates pedidos, smoke de extração limpa e o handoff final; fazer push somente para `codex/atos-tce-unified`.
+
+## 2026-09-27 — Task 10: preenchimento 26 e evidência parcial
+
+- A identidade aberta na posição 340 foi confirmada hash-only contra o scan 10, pendente e `PRONTO`; 17 PDFs locais do processo continham texto pesquisável (46 páginas), sem OCR. A base documental inclui EC 41/2003 e LCE 308/2005, portanto é mista.
+- O preenchimento manual 26 terminou `PREENCHIDO`; o comando `FILL_FORM` terminou `SUCCEEDED`, identidade exata, seis campos obrigatórios alterados e os seis `after == proposed`; zero preservados/não resolvidos; `mandatory_satisfied=true`. O processo segue pendente no scan 10 porque o clique final não ocorreu.
+- Decisão legal: `EC41_TRANSITION_GENERAL`, método `rule`, confiança 0,976, margem 0,205545, sem hard conflict/avisos. A opção do portal selecionada combina EC 41/2003 (arts. 6 e 7) com EC 47/2005 (art. 2); não é EC 41 isolada. A evidência de documentos do caso também contém LCE 308/2005.
+- Modalidade: `selected` por `catalog-token-overlap`, confiança 0,84, margem 0, quatro avisos de equivalência/desempate/baixa confiança/baixa margem. Revisão humana da opção permanece necessária. O portal não foi complementado, enviado, assinado ou tramitado.
+- Evidência parcial A/B/C já presente em execução live anterior: o pedido manual 11 concluiu `FILL_FORM` com cinco campos gravados e relidos iguais; `modalidade` ficou `option_unavailable`, o resumo registrou obrigatório não satisfeito e evento `form_filled_partial`; o processo permaneceu `PRONTO`. Isso confirma escrita parcial sem rollback e retry do processo. Diferenciar o estado terminal do pedido do estado do processo.
+- A pesquisa robusta dos 354 pendentes não encontrou fundamento EC 41 isolado nos campos estruturados. Dois candidatos com CF art. 40 isolado na pré-triagem (posições 379 e 797) foram conferidos em 44 PDFs com texto (90 páginas); ambos tinham documento adicional com EC 41 + CF art. 40 + LCE 308. A posição 379 está `PENDENTE`; 797 está `PRONTO`, mas nenhum deles prova CF art. 40 isolado.
+- A evidência EC 47 previamente preservada permanece válida: pedidos 12 e 15 mantiveram `fundamento_legal` com `before == after` e evidência EC 47. Os resultados ECE/RN 20/2020 e correspondência fraca/não literal já registrados nos pedidos 21/23 continuam como revisão, não aprovação jurídica.
+- Não houve mudança de código nem testes neste bloco; os dados/capturas são locais e ignorados. `git diff --check` será executado junto do commit do handoff.
+
+### Retomada
+
+1. Não repetir o preenchimento 26 nem clicar o botão final; deixar o formulário pendente para revisão humana.
+2. EC 41 isolada e CF art. 40 isolada continuam sem amostra real comprovada; os candidatos examinados são mistos. Não promover uma amostra mista a isolada.
+3. Parcial A/B/C, EC 47 preservada, ECE/RN 20/2020 e correspondência fraca têm evidência registrada; manter as ressalvas de revisão humana.
+4. Concluir revisão adversarial, gates finais, ZIP standalone e smoke em extração limpa. Não promover `main`; stale/ambíguo/fim de fila só se valida por caso real natural ou pelos testes focados sem alterar o portal.
