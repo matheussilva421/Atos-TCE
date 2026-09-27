@@ -128,3 +128,23 @@
 3. Priorizar casos reais isolados EC 41/2003 e CF art. 40, evidência de preservação EC 47/2005 e um parcial A/B/C genuíno; não fabricar estado de portal.
 4. Prosseguir com a matriz Next Process natural disponível; casos stale, ambíguo e fim da fila ficam pendentes se não surgirem com segurança.
 5. Depois da cobertura live, fazer revisão adversarial, gates finais, ZIP/smoke standalone e atualizar/push somente `codex/atos-tce-unified`.
+
+## 2026-09-27 — Próximo Processo 72 e preenchimento real 23
+
+- A operadora selecionou manualmente o marcador. Comparação local por fingerprint confirmou que rótulo e valor do seletor atual correspondem ao scan 10; não foi executado outro scan.
+- Antes de avançar, os dois frames antigos foram reconciliados: o formulário visível correspondia ao preenchimento 22 e o oculto ao 21. Ambos seguem sem ação final.
+- A ação oficial **Próximo processo** foi acionada uma vez. O comando 72 terminou `SUCCEEDED`, `next_act_ready`, tela `form`, em 2 s. O servidor releu a identidade exata do alvo solicitado; ela pertence ao scan 10 como `PRECISA_COMPLEMENTAR`, e o contexto/marcador do comando coincide com o scan. A releitura do frame visível confirmou a mesma identidade composta; os outros dois formulários ficaram ocultos.
+- O botão oficial **Preencher formulário atual** foi acionado uma vez. O preenchimento manual 23 terminou `PREENCHIDO`: seis campos alterados, os seis com `after == proposed`, zero preservados, zero não resolvidos e obrigatórios satisfeitos. A classificação continua pendente no scan, pois não houve ação final.
+- Decisão legal: `EC41_TRANSITION_GENERAL`, `selected`, automática pelo método `rule`, confiança 0,983333, margem 0,213889, sem hard conflict nem avisos da decisão; três referências documentais incluem ECE/RN 20/2020. É evidência de cobertura EC 41 e revisão ECE/RN 20/2020, não aprovação jurídica humana.
+- Modalidade: `selected`, automática via `catalog-token-overlap`, confiança 0,84, margem 0 e quatro avisos; revisar a escolha. Houve cinco avisos operacionais. O ato continua aberto e não finalizado.
+- A fila permanece com 1.197 itens, 354 pendentes e 843 complementados, sem ambíguos, bloqueados ou não encontrados. Nenhuma identidade de processo/interessado foi registrada neste handoff.
+- Nenhum código foi alterado e nenhum teste foi executado; a validação deste bloco foi live e por releitura local. A comparação exploratória de identidade por argumento MCP foi rejeitada antes da execução; foi substituída por comparação local hash-only, sem efeito no portal.
+
+### Retomada
+
+1. Não repetir os preenchimentos 21, 22 ou 23; deixá-los pendentes para conferência/finalização manual.
+2. Manter o marcador atual e conferir que continua igual ao scan 10 antes de qualquer nova navegação.
+3. Acessar pelo filtro/paginação oficial da lista o candidato CF art. 40 da posição 704 (alternativa na posição 829), confirmar identidade composta e pendência, então preencher e reler sem finalizar.
+4. Revisar o resultado 23 e continuar procurando um caso parcial A/B/C genuíno e evidência EC 47 já validada; não fabricar estados.
+5. Prosseguir com a matriz live de Próximo Processo apenas quando útil; stale, ambíguo e fim da fila continuam pendentes se não aparecer caso seguro.
+6. Depois da cobertura, fazer revisão adversarial, gates finais, ZIP/smoke standalone, atualizar o handoff e push somente `codex/atos-tce-unified`.
