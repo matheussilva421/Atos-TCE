@@ -253,3 +253,8 @@
 1. Solicitar aprovação explícita para criar `C:\TCE-Atos` e copiar a pasta `data` inteira para o teste de transferência. Gerar snapshots SQLite consistentes na cópia, sem tocar na origem.
 2. Nesse layout, iniciar o ZIP, confirmar health e contagem, abrir um processo, um documento e um PDF; confirmar que a extensão do ZIP carrega.
 3. Depois do teste, atualizar este handoff, commit/push no branch `codex/atos-tce-unified` e promover para `main` somente por fast-forward se `origin/main` ainda permitir.
+
+## 2026-09-27 — Mesa original: leitura de documento/PDF
+
+- Validação somente leitura no Chrome da Mesa original: uma tela de detalhes de processo já estava aberta, com seis ações **ver fonte**. Acionei uma delas; o visualizador renderizou canvas visível e carregou um recurso PDF.
+- Isso confirma que a Mesa atual consegue exibir documento/PDF do acervo original. Não valida a cópia de `data` em `C:\TCE-Atos`; essa cópia segue sem aprovação e não foi criada. Nenhuma identidade foi registrada e nenhuma análise/ato foi alterado.
