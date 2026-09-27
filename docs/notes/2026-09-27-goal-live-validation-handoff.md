@@ -298,3 +298,20 @@
 1. Preservar a origem e `C:\TCE-Atos\data`. Solicitar ao usuário copiar os dois `resultados.json` acima para seus caminhos correspondentes no destino; não tocar nas ACLs da origem.
 2. Confirmar existência e SHA-256 dos dois arquivos; repetir somente a comparação de inventário necessária para provar cópia completa. Não refazer health, banco, Mesa, PDF, extensão ou gates já verdes, salvo se o código/dados forem alterados.
 3. Confirmada a igualdade estrutural, decidir se a promoção fica ancestry-safe: atualizar refs remotas e avançar `main` somente por fast-forward, sem force push. Se houver divergência ou outra diferença, parar e registrar.
+
+## 2026-09-27 — Gate de transferência concluído
+
+- O usuário copiou os dois arquivos finais. Conferi tamanho e SHA-256 de ambos no destino; os hashes correspondem aos valores de origem já registrados.
+- Comparei os inventários completos de `C:\Users\slvma\Downloads\Github\Atos-TCE\data` e `C:\TCE-Atos\data`, percorrendo a junction da origem e comparando caminho relativo e tamanho de cada arquivo. Resultado: **missing=0, extra=0, mismatch=0**. Ambos têm 36.043 arquivos, 19.301 diretórios e 20.722.449.992 bytes. A junction `runtime\tesseract` da origem foi materializada como arquivos regulares no destino; o inventário resultante coincide.
+- **Gate de transferência: PASS.** A unidade de acervo do pacote separado está completa. Caminho de origem: `C:\Users\slvma\Downloads\Github\Atos-TCE\data`; destino de teste/transferência: `C:\TCE-Atos\data`; tamanho: 20.722.449.992 bytes. Contagens previamente verificadas e não repetidas: 1.294 processos, 15.923 documentos e 33.158 PDFs.
+- As validações anteriores permanecem aceitas conforme o pedido: health/Mesa/banco, PDF renderizado no Chrome QA, extensão empacotada carregável e smoke limpo. Não foram repetidos health, PDF, extensão, testes, Best-Effort ou Próximo Processo. Gates de código previamente verdes: Python 663/663; extensão 191/191; web 32/32; contrato de pacote 15/15; `verify-project.ps1`: 1.260 executados, 1.258 aprovados, 0 falhas, 2 skips.
+- ZIP standalone final: `C:\Users\slvma\Downloads\Github\Atos-TCE\dist\Atos-TCE-portable.zip`, 96.156.444 bytes, SHA-256 `62371e9ca0e9a304996510f3afee1d5a627358cc787a6be3745bfdf48451187b`; smoke de extração limpa já aprovado, 517 entradas, 430 arquivos runtime, health ok, schema 7, extensão 0.1.0. O ZIP exclui `data` e PDFs.
+- Nenhuma outra pasta do acervo é necessária. e-Contas permanece somente como canal de aquisição/download; a complementação de atos é pela Área Restrita/Mesa/extensão. O clique final de Complementar Ato permanece humano e nenhum submit foi automatizado.
+- Estado Git observado antes do fechamento: branch `codex/atos-tce-unified`, HEAD `fb8ab21b5c508b0eaf16b184ebea305dd32e9dca`; `origin/main` `b1d41e848c39cb61947b011501925c40f86793fb`. Próximos passos imediatos: publicar este checkpoint, atualizar refs, confirmar que `origin/main` é ancestral da branch e promovê-la apenas por fast-forward sem force push; confirmar `origin/main` no SHA final.
+- Backlog pós-release: EC41 isolada e CF40 isolada seguem sem amostra real; os candidatos disponíveis têm referências jurídicas mistas. Preservar os warnings e revisão humana desses casos; não ampliar a busca para bloquear a V1.
+
+### Retomada imediata
+
+1. Commitar e enviar este handoff para `codex/atos-tce-unified`.
+2. Atualizar refs com `git fetch origin`; confirmar `git merge-base --is-ancestor origin/main origin/codex/atos-tce-unified`.
+3. Fazer push fast-forward da branch para `main` sem force; buscar refs novamente e confirmar o mesmo SHA final em `origin/main`.
