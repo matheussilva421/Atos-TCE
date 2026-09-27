@@ -69,3 +69,21 @@
 3. Continue the remaining real Task 10 cases only after the portal opens an exact, eligible case; fill and reread only, with final **Complementar Ato** kept manual.
 4. Complete live Next Process matrix cases only when naturally available; retain fail-closed status for stale/ambiguous and end-of-queue unless the live portal provides safe evidence.
 5. Finish final review, all project gates, standalone ZIP verification, and clean-extraction smoke; then update this handoff and push only `codex/atos-tce-unified`.
+
+## 2026-09-27 — offline gates and standalone package
+
+- Integrated gate: `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\verify-project.ps1` from `work/tce-extractor` exited 0. Seven stages passed; 1,260 checks executed, 1,258 passed, 0 failed, 2 skipped.
+- Full supplemental Python suite: `python -m unittest discover -s . -p 'test_*.py' -q` from `work/tce-extractor` exited 0; 529 tests ran, 520 passed, 0 failed, 9 skipped. The run emitted the existing PyMuPDF deprecation and expected simulated HTTP/CLI warnings.
+- Built a fresh standalone package to `tmp/goal-package-2026-09-27.zip`, leaving `dist/Atos-TCE-portable.zip` untouched. The builder reused the pinned runtime. Package: 96,155,474 bytes, 516 entries, runtime included (430 files), extension version 0.1.0; SHA-256 `216f10546370c1215ee0aef6554b397c33b4c562fa4b46bf98409b8c47f55627`.
+- The fresh package hash is identical to the existing `dist/Atos-TCE-portable.zip`; no promotion/rotation or overwrite was needed. `START.cmd` selects the bundled Python runtime.
+- `verify-package.ps1` passed twice without `-SkipSmoke`; each clean extraction reported health `ok`, API v1/schema 7, zero process data, and extension 0.1.0. Both runs printed a `taskkill` Access Denied warning, then cleanup checks confirmed the exact extraction root removed, no package child process, and the smoke port closed. Record that warning alongside the passing result.
+- Final two-axis review against `origin/main...HEAD` completed with read-only Standards and Spec reviewers; findings are recorded below.
+- The live accepted-but-unconfirmed navigation and remaining Task 10 cases are unchanged and remain the only real-portal blockers. No source code changed in this block.
+
+## 2026-09-27 — final two-axis review
+
+- Fixed point: `origin/main` at `b1d41e848c39cb61947b011501925c40f86793fb`; merge-base equals that SHA. Review diff was `git diff origin/main...HEAD` (151 commits at review time).
+- Standards axis: the repo's `AGENTS.md` says the code source of truth is `work/tce-extractor`, while `docs/ESTRUTURA.md` and `README.md` say root `app/` and `extension/` are supported and `work/tce-extractor` is legacy. This is an unresolved documentation authority conflict; no code change was made. The reviewer also noted a judgement-call Data Clumps smell for the process/interested identity pair across navigation layers; no functional defect was established.
+- Spec axis: live stale/ambiguous/end-of-queue Next Process cases and the remaining Task 10 cases are incomplete. No high-confidence out-of-scope or incorrect implementation finding was reported. The spec does not define an expected decision status for weak legal matches with hard conflicts.
+- The reviewer initially marked package acceptance pending based on the earlier handoff text. Two subsequent clean-extraction smokes passed with health `ok`; that package finding is superseded by the later evidence above.
+- Overall goal remains active because portal-real acceptance is incomplete. Do not promote to `main` or claim completion.
