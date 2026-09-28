@@ -28,6 +28,15 @@ test("the sidepanel offers next-process navigation after a form identity is know
   assert.match(source, /lastConfirmedFormIdentity/u);
 });
 
+test("next-process feedback polls the accepted command result, not the active tab form", () => {
+  const handler = source.slice(source.indexOf('document.getElementById("next-process").addEventListener'));
+  const body = handler.slice(0, handler.indexOf('document.getElementById("open-mesa")'));
+
+  assert.match(body, /pollForNextActCommand/u);
+  assert.match(body, /MESSAGE_TYPES\.READ_NEXT_ACT_STATUS/u);
+  assert.doesNotMatch(body, /MESSAGE_TYPES\.READ_CURRENT_FORM/u);
+});
+
 test("the sidepanel never includes a target identity in its request", () => {
   assert.match(source, /payload:\s*\{\s*identity:\s*lastConfirmedFormIdentity\s*\}/u);
   assert.doesNotMatch(source, /target_identity\s*:/u);

@@ -40,6 +40,9 @@ export function retainLastConfirmedIdentity(previous, response) {
   return {
     processKey: identity.processKey,
     interestedNormalized: identity.interestedNormalized,
+    ...(typeof identity.portalActId === "string" && identity.portalActId.trim()
+      ? { portalActId: identity.portalActId }
+      : {}),
   };
 }
 
@@ -63,20 +66,82 @@ export function describeNextActOutcome(outcome) {
 
   return {
     state: "opening",
+    commandId: payload.command_id,
     targetIdentity: {
       processKey: payload.target_identity.processKey,
       interestedNormalized: payload.target_identity.interestedNormalized,
+      ...(typeof payload.target_identity.portalActId === "string" && payload.target_identity.portalActId.trim()
+        ? { portalActId: payload.target_identity.portalActId }
+        : {}),
     },
   };
 }
 
+export function describeNextActCommandStatus(outcome, targetIdentity) {
+  if (outcome?.ok !== true || !outcome?.command) {
+    const status = Number(outcome?.status);
+    if (status >= 400 && status < 500) {
+      const code = String(outcome?.error ?? "COMMAND_STATUS_UNAVAILABLE");
+      return { state: "error", code, message: code };
+    }
+    return { state: "pending" };
+  }
+  const command = outcome.command;
+  const state = String(command.state ?? "").trim().toUpperCase();
+  if (["QUEUED", "CLAIMED"].includes(state)) return { state: "pending" };
+
+  const result = command.result && typeof command.result === "object" ? command.result : {};
+  if (state === "FAILED" || result.ok === false) {
+    const code = String(result.code ?? command.error ?? result.error ?? "NAVIGATION_FAILED");
+    return { state: "error", code, message: String(result.error ?? command.error ?? code) };
+  }
+  if (state !== "SUCCEEDED" || result.ok !== true) {
+    return { state: "error", code: "COMMAND_RESULT_UNCONFIRMED", message: "COMMAND_RESULT_UNCONFIRMED" };
+  }
+  if (result.action !== "next_act_ready" || result.screen !== "form") {
+    return { state: "error", code: "COMMAND_RESULT_UNCONFIRMED", message: "COMMAND_RESULT_UNCONFIRMED" };
+  }
+  if (!matchesFormIdentity(result.identity, targetIdentity)) {
+    return { state: "error", code: "TARGET_IDENTITY_MISMATCH", message: "TARGET_IDENTITY_MISMATCH" };
+  }
+  return { state: "ready", identity: result.identity };
+}
+
+export async function pollForNextActCommand({
+  readCommandStatus,
+  commandId,
+  targetIdentity,
+  maxAttempts = 600,
+  intervalMs = 500,
+  sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+}) {
+  const attempts = Number.isSafeInteger(maxAttempts) ? Math.max(0, maxAttempts) : 600;
+  if (typeof readCommandStatus !== "function" || !Number.isSafeInteger(commandId) ||
+      commandId < 1 || !hasFormIdentity(targetIdentity)) {
+    return { state: "error", code: "INVALID_COMMAND_STATUS_REQUEST", message: "INVALID_COMMAND_STATUS_REQUEST" };
+  }
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    let outcome;
+    try {
+      outcome = describeNextActCommandStatus(await readCommandStatus(commandId), targetIdentity);
+    } catch {
+      outcome = { state: "pending" };
+    }
+    if (outcome.state !== "pending") return outcome;
+    if (attempt + 1 < attempts) await sleep(intervalMs);
+  }
+  return { state: "timeout", code: "COMMAND_STATUS_TIMEOUT", message: "COMMAND_STATUS_TIMEOUT" };
+}
+
 export function matchesFormIdentity(identity, expected) {
-  return (
-    hasFormIdentity(identity) &&
-    hasFormIdentity(expected) &&
-    identity.processKey === expected.processKey &&
-    identity.interestedNormalized === expected.interestedNormalized
-  );
+  if (!hasFormIdentity(identity) || !hasFormIdentity(expected) || identity.processKey !== expected.processKey) {
+    return false;
+  }
+  const actualActId = String(identity.portalActId ?? "").trim();
+  const expectedActId = String(expected.portalActId ?? "").trim();
+  return actualActId && expectedActId
+    ? actualActId === expectedActId
+    : identity.interestedNormalized === expected.interestedNormalized;
 }
 
 export async function pollForTargetForm({

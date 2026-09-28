@@ -62,6 +62,7 @@ async function loadPdfjs() {
     BLOQUEADO: "Preenchimento bloqueado.",
     ERRO: "O preenchimento falhou.",
   };
+  const FILLABLE_STATUSES = new Set(["PRONTO", "PREENCHIDO"]);
 
   function renderFillSummary(request) {
     const summaryHost = document.getElementById("fill-summary");
@@ -142,6 +143,7 @@ async function loadPdfjs() {
           break;
         }
       }
+      await refreshProcesses();
       if (state.selectedId === processId) await selectProcess(processId);
     } catch (error) {
       status.textContent = `Não foi possível preencher: ${error.message}`;
@@ -845,12 +847,12 @@ async function loadPdfjs() {
       }),
     ]);
     const button = panel.querySelector("button");
-    if (process.status === "PRONTO") {
+    if (FILLABLE_STATUSES.has(process.status)) {
       button.addEventListener("click", startFill);
     } else {
       button.hidden = true;
     }
-    if (process.status !== "PRONTO" && !fillResult) {
+    if (!FILLABLE_STATUSES.has(process.status) && !fillResult) {
       panel.hidden = true;
       return panel;
     }

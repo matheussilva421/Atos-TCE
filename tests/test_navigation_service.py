@@ -100,6 +100,43 @@ class NavigationServiceTests(unittest.TestCase):
         with self.assertRaises(NavigationError):
             self.service.next_target(identity={"processKey": "700/2026"})
 
+    def test_navigation_preserves_the_portal_alias_and_strong_id_from_the_scan(self):
+        current_id = self.add_process("A nome completo", "800/2026")
+        target_id = self.add_process("B nome completo", "100/2026")
+        self.store._connection.execute(
+            "UPDATE processes SET portal_act_id = ? WHERE id IN (?, ?)",
+            ("act-fixture-shared", current_id, target_id),
+        )
+        self.store.create_area_scan(
+            source_scope="scope-fixture",
+            marker_label="marker-label-fixture",
+            marker_value="marker-value-fixture",
+            rows=[
+                {
+                    "process_key": "800/2026",
+                    "interested": "Pessoa A",
+                    "interested_normalized": "pessoa a",
+                    "portal_act_id": "act-fixture-shared",
+                    "classification": "PRECISA_COMPLEMENTAR",
+                },
+                {
+                    "process_key": "100/2026",
+                    "interested": "Pessoa B",
+                    "interested_normalized": "pessoa b",
+                    "portal_act_id": "act-fixture-shared",
+                    "classification": "PRECISA_COMPLEMENTAR",
+                },
+            ],
+        )
+
+        result = self.service.next_target(process_id=current_id)
+
+        self.assertEqual(result["current_identity"]["interestedNormalized"], "pessoa a")
+        self.assertEqual(result["current_identity"]["portalActId"], "act-fixture-shared")
+        self.assertEqual(result["target_identity"]["interestedNormalized"], "pessoa b")
+        self.assertEqual(result["target_identity"]["portalActId"], "act-fixture-shared")
+        self.assertEqual(result["target_process_id"], target_id)
+
     def test_process_missing_from_its_referenced_scan_is_refused(self):
         current_id = self.add_process("A", "800/2026")
         self.add_process("B", "100/2026")

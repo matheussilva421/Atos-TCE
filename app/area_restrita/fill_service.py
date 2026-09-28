@@ -16,7 +16,7 @@ from typing import Any
 
 from ..analysis import MANDATORY_FIELDS
 from ..core.identity import normalize_interested
-from ..core.store import Store
+from ..core.store import Store, StoreError
 from .preflight import FillBlocked, build_fill_plan
 
 FILL_STATES: tuple[str, ...] = (
@@ -30,6 +30,7 @@ FILL_STATES: tuple[str, ...] = (
 )
 
 TERMINAL_FILL_STATES: frozenset[str] = frozenset({"PREENCHIDO", "BLOQUEADO", "ERRO"})
+FILLABLE_PROCESS_STATUSES: frozenset[str] = frozenset({"PRONTO", "PREENCHIDO"})
 
 #: Which command type each state is waiting for.
 EXPECTED_COMMAND: dict[str, str] = {
@@ -149,18 +150,22 @@ class FillService:
     # ------------------------------------------------------------- entry points
 
     def request_fill(self, process_id: int) -> int:
-        """Start the automatic ``Preencher ato`` flow for one PRONTO process."""
+        """Start an automatic fill for a PRONTO or previously PREENCHIDO process."""
 
         process = self._store.get_process(process_id)
         if process is None:
             raise FillError(f"unknown process: {process_id}")
-        if str(process.get("status")) != "PRONTO":
-            raise FillError("somente um processo PRONTO pode ser preenchido")
+        if str(process.get("status")) not in FILLABLE_PROCESS_STATUSES:
+            raise FillError("somente um processo PRONTO ou PREENCHIDO pode ser preenchido")
         request_id = self._store.create_fill_request(
             int(process_id), state="OPENING", mode="automatic"
         )
+        command_payload: dict[str, Any] = {"identity": self._portal_identity_of(process)}
+        navigation_context = self._store.area_scan_context_for_process(int(process_id))
+        if navigation_context is not None:
+            command_payload["context"] = navigation_context
         command_id = self._store.queue_fill_command(
-            "OPEN_ACT", {"identity": identity_of(process)}, request_id
+            "OPEN_ACT", command_payload, request_id
         )
         self._store.update_fill_request(
             request_id, state="OPENING", current_command_id=command_id
@@ -173,7 +178,7 @@ class FillService:
     def request_manual_fill(self, form_snapshot: Mapping[str, Any] | None) -> int:
         """Create a request from a form the operator opened by hand.
 
-        The snapshot must identify exactly one PRONTO process; zero or several
+        The snapshot must identify exactly one PRONTO or PREENCHIDO process; zero or several
         matches block, because filling the wrong act is worse than not filling.
         """
 
@@ -187,17 +192,17 @@ class FillService:
         )
         if not process_key or not interested:
             raise FillError("identidade incompleta no formulário aberto")
-        matches = [
-            process
-            for process in self._store.list_processes(status="PRONTO")
-            if str(process["process_key"]) == process_key
-            and str(process["interested_normalized"]) == interested
-        ]
-        if not matches:
-            raise FillError("nenhum processo PRONTO corresponde ao formulário aberto")
-        if len(matches) > 1:
-            raise FillError("mais de um processo PRONTO corresponde ao formulário aberto")
-        process_id = int(matches[0]["id"])
+        try:
+            process = self._store.resolve_process_identity(
+                process_key, interested, identity.get("portalActId") or identity.get("portal_act_id")
+            )
+        except StoreError as exc:
+            raise FillError(str(exc)) from exc
+        if process is None:
+            raise FillError("nenhum processo PRONTO ou PREENCHIDO corresponde ao formulário aberto")
+        if str(process.get("status")) not in FILLABLE_PROCESS_STATUSES:
+            raise FillError("somente um processo PRONTO ou PREENCHIDO pode ser preenchido")
+        process_id = int(process["id"])
         request_id = self._store.create_fill_request(
             process_id, state="PREFLIGHT", mode="manual", form_snapshot=dict(snapshot)
         )
@@ -273,7 +278,7 @@ class FillService:
                 self._block(request, mismatch)
                 return
         command_id = self._store.queue_fill_command(
-            "READ_FORM", {"identity": identity_of(process)}, int(request["id"])
+            "READ_FORM", {"identity": self._portal_identity_of(process)}, int(request["id"])
         )
         self._store.update_fill_request(
             int(request["id"]), state="READING", current_command_id=command_id, error=None
@@ -309,8 +314,22 @@ class FillService:
     ) -> None:
         """Decide the exact fields to write, or block without touching a control."""
 
+        observed_identity = snapshot.get("identity") if isinstance(snapshot, Mapping) else None
+        mismatch = self._identity_mismatch(process, observed_identity)
+        if mismatch:
+            self._block(request, mismatch)
+            return
+        preflight_snapshot = dict(snapshot)
+        canonical_identity = dict(observed_identity)
+        canonical_identity["processKey"] = str(process.get("process_key") or "")
+        canonical_identity["interestedNormalized"] = str(process.get("interested_normalized") or "")
+        if "process_key" in canonical_identity:
+            canonical_identity["process_key"] = canonical_identity["processKey"]
+        if "interested_normalized" in canonical_identity:
+            canonical_identity["interested_normalized"] = canonical_identity["interestedNormalized"]
+        preflight_snapshot["identity"] = canonical_identity
         try:
-            plan = self._preflight(process, snapshot)
+            plan = self._preflight(process, preflight_snapshot)
         except FillBlocked as blocked:
             reason = blocked.code
             if blocked.details:
@@ -323,6 +342,10 @@ class FillService:
         except Exception as error:  # a broken plan must never reach the portal
             self._fail(request, f"preflight falhou: {type(error).__name__}")
             return
+        # The identity was resolved to this canonical process above. Keep the
+        # portal's exact displayed alias in the extension command so its form
+        # readback is checked against the page the operator actually opened.
+        plan.identity = dict(observed_identity)
         command_id = self._store.queue_fill_command(
             "FILL_FORM",
             {
@@ -504,7 +527,7 @@ class FillService:
             self._block(request, "processo desapareceu durante o preenchimento")
             return
         command_id = self._store.queue_fill_command(
-            "READ_FORM", {"identity": identity_of(process)}, int(request["id"])
+            "READ_FORM", {"identity": self._portal_identity_of(process)}, int(request["id"])
         )
         snapshot["stale_generation_retries"] = 1
         self._store.update_fill_request(
@@ -522,9 +545,11 @@ class FillService:
 
     # ------------------------------------------------------------------ helpers
 
-    @staticmethod
+    def _portal_identity_of(self, process: Mapping[str, Any]) -> dict[str, Any]:
+        return self._store.portal_identity_for_process(int(process["id"])) or identity_of(process)
+
     def _identity_mismatch(
-        process: Mapping[str, Any], identity: Mapping[str, Any] | None
+        self, process: Mapping[str, Any], identity: Mapping[str, Any] | None
     ) -> str | None:
         if not isinstance(identity, Mapping):
             return "a extensão não informou a identidade do ato aberto"
@@ -532,9 +557,17 @@ class FillService:
         interested = normalize_interested(
             identity.get("interestedNormalized") or identity.get("interested_normalized") or ""
         )
-        if process_key != str(process.get("process_key")) or interested != str(
-            process.get("interested_normalized")
-        ):
+        if process_key != str(process.get("process_key")):
+            return "identidade divergente entre o ato aberto e o processo selecionado"
+        try:
+            resolved = self._store.resolve_process_identity(
+                process_key,
+                interested,
+                identity.get("portalActId") or identity.get("portal_act_id"),
+            )
+        except StoreError:
+            resolved = None
+        if resolved is None or int(resolved["id"]) != int(process.get("id") or 0):
             return "identidade divergente entre o ato aberto e o processo selecionado"
         return None
 

@@ -63,6 +63,58 @@ class FillRequestTestCase(unittest.TestCase):
 
 
 class FillStateMachineTests(FillRequestTestCase):
+    def test_a_preenchido_process_can_start_another_fill_request(self):
+        process_id = self.make_process(status="PREENCHIDO")
+
+        request_id = self.service.request_fill(process_id)
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "OPENING")
+        self.assertEqual(request["mode"], "automatic")
+
+    def test_automatic_fill_uses_the_exact_portal_alias_from_the_latest_scan(self):
+        process_id = self.make_process()
+        self.store._connection.execute(
+            "UPDATE processes SET interested = ?, interested_normalized = ?, portal_act_id = ? WHERE id = ?",
+            ("Pessoa Exemplo Nome Completo", "pessoa exemplo nome completo", "act-fixture-42", process_id),
+        )
+        self.store.create_area_scan(
+            source_scope="sector_finalistic",
+            marker_label="FIXTURE - SANITIZADO",
+            marker_value="fixture-marker",
+            rows=[
+                {
+                    "process_key": "102390/2026",
+                    "interested": "Pessoa Exemplo",
+                    "interested_normalized": "pessoa exemplo",
+                    "portal_act_id": "act-fixture-42",
+                    "classification": "PRECISA_COMPLEMENTAR",
+                }
+            ],
+        )
+
+        request_id = self.service.request_fill(process_id)
+        command = self.store.get_extension_command(
+            self.store.get_fill_request(request_id)["current_command_id"]
+        )
+
+        self.assertEqual(
+            command["payload"]["identity"],
+            {
+                "processKey": "102390/2026",
+                "interestedNormalized": "pessoa exemplo",
+                "portalActId": "act-fixture-42",
+            },
+        )
+        self.assertEqual(
+            command["payload"]["context"],
+            {
+                "scan_id": self.store.latest_area_scan()["id"],
+                "source_scope": "sector_finalistic",
+                "marker": {"label": "FIXTURE - SANITIZADO", "value": "fixture-marker"},
+            },
+        )
+
     def test_a_pronto_process_opens_and_then_reads_the_form(self):
         process_id = self.make_process()
 
@@ -288,9 +340,13 @@ class ManualFillRequestTests(FillRequestTestCase):
         )
         return process_id
 
-    def snapshot(self, process_key="102390/2026", interested="pessoa exemplo"):
+    def snapshot(self, process_key="102390/2026", interested="pessoa exemplo", portal_act_id=None):
         return {
-            "identity": {"processKey": process_key, "interestedNormalized": interested},
+            "identity": {
+                "processKey": process_key,
+                "interestedNormalized": interested,
+                **({"portalActId": portal_act_id} if portal_act_id is not None else {}),
+            },
             "generation": 3,
             "fields": form_controls(),
         }
@@ -311,6 +367,48 @@ class ManualFillRequestTests(FillRequestTestCase):
         self.assertEqual(
             request["form_snapshot"]["modality_decision"]["option_value"], "VOLUNTARIA"
         )
+
+    def test_manual_fill_resolves_a_scanned_name_alias_to_the_canonical_process(self):
+        process_id = self.ready_process()
+        self.store._connection.execute(
+            "UPDATE processes SET interested = ?, interested_normalized = ? WHERE id = ?",
+            ("Pessoa Exemplo Nome Completo", "pessoa exemplo nome completo", process_id),
+        )
+        self.store._connection.execute(
+            "UPDATE processes SET portal_act_id = ? WHERE id = ?", ("act-fixture-42", process_id)
+        )
+        self.store.create_area_scan(
+            source_scope="sector_finalistic",
+            marker_label="FIXTURE - SANITIZADO",
+            marker_value="fixture-marker",
+            rows=[
+                {
+                    "process_key": "102390/2026",
+                    "interested": "Pessoa Exemplo",
+                    "interested_normalized": "pessoa exemplo",
+                    "portal_act_id": "act-fixture-42",
+                    "classification": "PRECISA_COMPLEMENTAR",
+                }
+            ],
+        )
+
+        request_id = self.service.request_manual_fill(
+            self.snapshot(interested="pessoa exemplo")
+        )
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["process_id"], process_id)
+        self.assertEqual(request["state"], "FILLING")
+        self.assertEqual(len(self.store.list_processes()), 1)
+
+    def test_manual_fill_accepts_a_preenchido_process(self):
+        process_id = self.ready_process(status="PREENCHIDO")
+
+        request_id = self.service.request_manual_fill(self.snapshot())
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["process_id"], process_id)
+        self.assertEqual(request["state"], "FILLING")
 
     def test_zero_matches_block(self):
         self.make_process()

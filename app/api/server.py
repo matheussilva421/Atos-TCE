@@ -190,7 +190,11 @@ def _next_act_result_problem(
     actual_interested = normalize_interested(
         actual.get("interestedNormalized") or actual.get("interested_normalized")
     )
-    if actual_process != expected_process or actual_interested != expected_interested:
+    expected_act_id = str(expected.get("portalActId") or expected.get("portal_act_id") or "").strip()
+    actual_act_id = str(actual.get("portalActId") or actual.get("portal_act_id") or "").strip()
+    same_interested = actual_interested == expected_interested
+    same_strong_act = bool(expected_act_id and actual_act_id and expected_act_id == actual_act_id)
+    if actual_process != expected_process or not (same_strong_act or (not expected_act_id and same_interested)):
         return "identidade do resultado não corresponde ao alvo enfileirado"
     return None
 
@@ -263,6 +267,11 @@ ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/jobs/(?P<job_id>\d+)"), "handle_job_status", "public"),
     Route(re.compile(r"/api/v1/bridge/status"), "handle_bridge_status", "extension"),
     Route(re.compile(r"/api/v1/extension/commands/next"), "handle_command_next", "extension"),
+    Route(
+        re.compile(r"/api/v1/extension/commands/(?P<command_id>\d+)/status"),
+        "handle_extension_command_status",
+        "extension",
+    ),
     Route(re.compile(r"/api/v1/extension/commands/(?P<command_id>\d+)"), "handle_command_status", "mesa"),
 )
 
@@ -837,7 +846,7 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
 
         current_identity = resolved["current_identity"]
         target_identity = resolved["target_identity"]
-        current_key = ("processKey", "interestedNormalized")
+        current_key = ("processKey", "interestedNormalized", "portalActId")
         command_payload = {
             "current_identity": {key: current_identity[key] for key in current_key},
             "target_identity": {key: target_identity[key] for key in current_key},
@@ -847,6 +856,8 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
                 "marker": resolved["marker"],
             },
         }
+        if extension_client is not None:
+            command_payload["_requester_client_id"] = extension_client
         command_id = self.mesa.store.create_extension_command("OPEN_NEXT_ACT", command_payload)
         self._send_json(
             {
@@ -927,6 +938,30 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "command_not_found", "command_id": int(command_id)}, status=404)
             return
         self._send_json(command)
+
+    def handle_extension_command_status(self, query: dict[str, list[str]], command_id: str) -> None:
+        """Expose only the terminal status of a next-act command to its caller."""
+
+        client_id = self._require_extension()
+        if client_id is None:
+            return
+        command = self.mesa.store.get_extension_command(int(command_id))
+        if command is None:
+            self._send_json({"error": "command_not_found"}, status=404)
+            return
+        requester = str((command.get("payload") or {}).get("_requester_client_id") or "")
+        if command.get("type") != "OPEN_NEXT_ACT" or requester != client_id:
+            self._send_json({"error": "command_not_found"}, status=404)
+            return
+        self._send_json(
+            {
+                "id": int(command["id"]),
+                "type": str(command["type"]),
+                "state": str(command["state"]),
+                "result": command.get("result"),
+                "error": command.get("error"),
+            }
+        )
 
     def post_session_bootstrap(self) -> None:
         payload = self._read_json_body()

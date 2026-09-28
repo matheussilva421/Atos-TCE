@@ -742,13 +742,14 @@
   function findActControl(documentRef, identity) {
     const wantedKey = String(identity?.processKey ?? "").trim();
     const wanted = normalizeInterested(identity?.interestedNormalized);
+    const wantedActId = String(identity?.portalActId ?? identity?.portal_act_id ?? "").trim();
     if (!wantedKey || !wanted) return null;
-    for (const entry of listIdentityEntries(documentRef)) {
-      if (String(entry.identity.processKey ?? "") !== wantedKey) continue;
-      if (normalizeInterested(entry.identity.interestedNormalized) !== wanted) continue;
-      if (entry.control) return entry.control;
-    }
-    return null;
+    const matches = listIdentityEntries(documentRef).filter((entry) => {
+      if (String(entry.identity.processKey ?? "") !== wantedKey) return false;
+      if (wantedActId) return String(entry.identity.portalActId ?? "") === wantedActId;
+      return normalizeInterested(entry.identity.interestedNormalized) === wanted;
+    });
+    return matches.length === 1 ? matches[0].control ?? null : null;
   }
 
   /**

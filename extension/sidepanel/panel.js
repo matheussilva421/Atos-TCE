@@ -8,9 +8,8 @@ import { MESA_ORIGIN, MESSAGE_TYPES, PORTAL_ORIGIN } from "../lib/protocol.js";
 import {
   describeMesaStatus,
   describeNextActOutcome,
+  pollForNextActCommand,
   hasFormIdentity,
-  matchesFormIdentity,
-  pollForTargetForm,
   retainLastConfirmedIdentity,
 } from "./state.js";
 
@@ -72,10 +71,6 @@ async function refreshCurrentForm() {
     currentFormAvailable = response?.ok === true && hasFormIdentity(response.form?.identity);
     if (currentFormAvailable) {
       info.textContent = `Processo atual: ${response.form.identity.processKey} — ${response.form.identity.interestedNormalized}`;
-      if (matchesFormIdentity(response.form.identity, acceptedNextTarget)) {
-        acceptedNextTarget = null;
-        setNextActFeedback(`Formulário pronto: ${response.form.identity.processKey}`);
-      }
       updateActionButtons();
       return response.form;
     }
@@ -165,21 +160,35 @@ document.getElementById("next-process").addEventListener("click", async () => {
 
     acceptedNextTarget = outcome.targetIdentity;
     updateActionButtons();
-    const form = await pollForTargetForm({
-      readCurrentForm: () =>
-        globalThis.chrome.runtime.sendMessage({ type: MESSAGE_TYPES.READ_CURRENT_FORM }),
+    const commandOutcome = await pollForNextActCommand({
+      readCommandStatus: (commandId) =>
+        globalThis.chrome.runtime.sendMessage({
+          type: MESSAGE_TYPES.READ_NEXT_ACT_STATUS,
+          payload: { command_id: commandId },
+        }),
+      commandId: outcome.commandId,
       targetIdentity: outcome.targetIdentity,
     });
-    if (form) {
-      lastConfirmedFormIdentity = retainLastConfirmedIdentity(lastConfirmedFormIdentity, { ok: true, form });
+    if (commandOutcome.state === "ready") {
+      const identity = commandOutcome.identity;
+      lastConfirmedFormIdentity = retainLastConfirmedIdentity(lastConfirmedFormIdentity, {
+        ok: true,
+        form: { identity },
+      });
       currentFormAvailable = true;
       document.getElementById("form-info").textContent =
-        `Processo atual: ${form.identity.processKey} — ${form.identity.interestedNormalized}`;
+        `Processo atual: ${identity.processKey} — ${identity.interestedNormalized}`;
       acceptedNextTarget = null;
-      setNextActFeedback(`Formulário pronto: ${form.identity.processKey}`);
+      setNextActFeedback(`Formulário pronto: ${identity.processKey}`);
+    } else if (commandOutcome.state === "error") {
+      acceptedNextTarget = null;
+      setNextActFeedback(
+        `Não foi possível abrir o próximo processo (${commandOutcome.code}): ${commandOutcome.message}`,
+        true,
+      );
     } else {
       setNextActFeedback(
-        "A Mesa aceitou a solicitação, mas o formulário alvo não foi confirmado. Confira a Área Restrita antes de tentar novamente.",
+        `A confirmação do comando ${outcome.commandId} ainda não chegou. A solicitação continua em acompanhamento; não a repita agora.`,
         true,
       );
     }

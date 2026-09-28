@@ -75,12 +75,19 @@ test("a sidepanel fill result is rendered when process detail is reopened", () =
   assert.match(body, /if \(fillResult\) renderFillSummary\(fillResult\)/u);
 });
 
-test("the fill action remains available according to PRONTO process status", () => {
+test("the fill action remains available for PRONTO and PREENCHIDO processes", () => {
   const panel = source.slice(source.indexOf("function fillPanel"));
   const body = panel.slice(0, panel.indexOf("function refreshTabBar"));
 
-  assert.match(body, /process\.status !== "PRONTO"/u);
+  assert.match(body, /FILLABLE_STATUSES\.has\(process\.status\)/u);
   assert.doesNotMatch(body, /request\.(?:state|error)/u);
+});
+
+test("a terminal fill refreshes both the process list and selected detail", () => {
+  const fill = source.slice(source.indexOf("async function startFill"));
+  const body = fill.slice(0, fill.indexOf("const state ="));
+
+  assert.match(body, /await refreshProcesses\(\);[\s\S]*await selectProcess\(processId\)/u);
 });
 
 test("the Mesa does not add a submit, send or finalize action", () => {
@@ -131,11 +138,11 @@ test("fill warnings identify the affected field and its review reason", () => {
   assert.ok(source.includes("summary.warnings"));
 });
 
-test("a PRONTO process retains the fill action for retry regardless of prior request state", () => {
+test("fillable processes retain the fill action for retry regardless of prior request state", () => {
   const panel = source.slice(source.indexOf("function fillPanel"));
   const body = panel.slice(0, panel.indexOf("function refreshTabBar"));
 
-  assert.match(body, /process\.status !== "PRONTO"/u);
+  assert.match(body, /FILLABLE_STATUSES\.has\(process\.status\)/u);
   assert.doesNotMatch(body, /request\.state|ERRO|BLOQUEADO/u);
 });
 

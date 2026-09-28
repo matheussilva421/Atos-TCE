@@ -27,11 +27,12 @@
   }
 
   function sameIdentity(left, right) {
-    return (
-      Boolean(left && right) &&
-      String(left.processKey) === String(right.processKey) &&
-      normalize(left.interestedNormalized) === normalize(right.interestedNormalized)
-    );
+    if (!left || !right || String(left.processKey) !== String(right.processKey)) return false;
+    const leftActId = String(left.portalActId ?? left.portal_act_id ?? "").trim();
+    const rightActId = String(right.portalActId ?? right.portal_act_id ?? "").trim();
+    return leftActId && rightActId
+      ? leftActId === rightActId
+      : normalize(left.interestedNormalized) === normalize(right.interestedNormalized);
   }
 
   /** The form wins over every other role: an open, complete form is the target. */

@@ -21,6 +21,7 @@ const extensionRoot = join(here, "..");
 await import("../lib/area-snapshot.js");
 const {
   scan,
+  findActControl,
   findNextPageControl,
   legacyPaginationPlan,
   submitLegacyPagination,
@@ -107,6 +108,34 @@ test("the portal act id is read from the row when present", () => {
   });
 
   assert.equal(scan(documentRef).rows[0].portal_act_id, "987654");
+});
+
+test("an exact portal act id resolves a row when its displayed name is an alias", () => {
+  const documentRef = buildListDocument({
+    rows: [{ processKey: "102390/2026", interested: "Pessoa Exemplo", actId: "act-fixture-42" }],
+  });
+
+  const control = findActControl(documentRef, {
+    processKey: "102390/2026",
+    interestedNormalized: "pessoa exemplo nome completo",
+    portalActId: "act-fixture-42",
+  });
+
+  assert.ok(control);
+});
+
+test("a supplied portal act id never falls back to a matching name with another id", () => {
+  const documentRef = buildListDocument({
+    rows: [{ processKey: "102390/2026", interested: "Pessoa Exemplo", actId: "act-fixture-42" }],
+  });
+
+  const control = findActControl(documentRef, {
+    processKey: "102390/2026",
+    interestedNormalized: "pessoa exemplo",
+    portalActId: "different-act-fixture",
+  });
+
+  assert.equal(control, null);
 });
 
 test("interested names are normalized exactly like the Python owner", () => {

@@ -487,6 +487,16 @@ class Store:
 
         observed_at = utc_now()
         counters = {"total": 0, "pending": 0, "completed": 0, "ambiguous": 0, "blocked": 0, "not_found": 0}
+        names_by_act: dict[tuple[str, str], set[str]] = {}
+        for raw_row in rows:
+            process_key = str(raw_row.get("process_key") or "").strip()
+            interested_normalized = str(raw_row.get("interested_normalized") or "").strip()
+            portal_act_id = str(raw_row.get("portal_act_id") or "").strip()
+            if process_key and interested_normalized and portal_act_id:
+                names_by_act.setdefault((process_key, portal_act_id), set()).add(interested_normalized)
+        ambiguous_act_pairs = {
+            key for key, names in names_by_act.items() if len(names) > 1
+        }
         with self._transaction() as connection:
             if source_command_id is not None:
                 existing = connection.execute(
@@ -511,7 +521,10 @@ class Store:
             scan_id = int(cursor.lastrowid)
             for raw_row in rows:
                 counters["total"] += 1
-                self._apply_scan_row(connection, scan_id, raw_row, observed_at, source_scope, marker_label, counters)
+                self._apply_scan_row(
+                    connection, scan_id, raw_row, observed_at, source_scope, marker_label, counters,
+                    ambiguous_act_pairs,
+                )
             connection.execute(
                 "UPDATE area_scans SET total = ?, pending = ?, completed = ?, ambiguous = ?, "
                 "blocked = ?, not_found = ? WHERE id = ?",
@@ -536,10 +549,12 @@ class Store:
         source_scope: str,
         marker_label: str | None,
         counters: dict[str, int],
+        ambiguous_act_pairs: set[tuple[str, str]],
     ) -> None:
         process_key = str(raw_row.get("process_key") or "").strip()
         interested = str(raw_row.get("interested") or "").strip()
         interested_normalized = str(raw_row.get("interested_normalized") or "").strip()
+        portal_act_id = str(raw_row.get("portal_act_id") or "").strip() or None
         if not process_key or not interested or not interested_normalized:
             return
 
@@ -555,40 +570,56 @@ class Store:
             "BLOQUEADO": "blocked",
             "NAO_ENCONTRADO_AREA_RESTRITA": "not_found",
         }[classification]
-        counters[counter_key] += 1
         needs_complement = 1 if classification == "PRECISA_COMPLEMENTAR" else 0
 
-        previous = connection.execute(
-            "SELECT id, status FROM processes WHERE process_key = ? AND interested_normalized = ?",
-            (process_key, interested_normalized),
-        ).fetchone()
+        if portal_act_id and (process_key, portal_act_id) in ambiguous_act_pairs:
+            exact = connection.execute(
+                "SELECT id, portal_act_id FROM processes WHERE process_key = ? AND interested_normalized = ?",
+                (process_key, interested_normalized),
+            ).fetchone()
+            conflict = exact is not None and exact["portal_act_id"] not in (None, "", portal_act_id)
+            process_id = int(exact["id"]) if exact is not None and not conflict else None
+        else:
+            process_id, conflict = self._resolve_scan_process(
+                connection, process_key, interested_normalized, portal_act_id
+            )
+        if conflict:
+            classification = "AMBIGUO"
+            counter_key = "ambiguous"
+            needs_complement = 0
+        counters[counter_key] += 1
+
+        previous = (
+            connection.execute("SELECT id, status FROM processes WHERE id = ?", (process_id,)).fetchone()
+            if process_id is not None
+            else None
+        )
         target = AREA_CLASSIFICATION_TARGET[classification]
         previous_status = str(previous["status"]) if previous is not None else None
         if previous_status is not None and status_rank(previous_status) > status_rank(target):
             target = previous_status
 
-        process_id = self._upsert_process_row(
-            connection,
-            ProcessRecord(
-                process_key=process_key,
-                interested=interested,
-                interested_normalized=interested_normalized,
-                source_scope=source_scope,
-                marker=marker_label,
-                status=target,
-            ),
-        )
-        connection.execute(
-            "UPDATE processes SET portal_act_id = ?, area_classification = ?, needs_complement = ?, "
-            "last_area_scan_id = ? WHERE id = ?",
-            (
-                str(raw_row.get("portal_act_id") or "") or None,
-                classification,
-                needs_complement,
-                scan_id,
-                process_id,
-            ),
-        )
+        if not conflict:
+            if process_id is None:
+                process_id = self._upsert_process_row(
+                    connection,
+                    ProcessRecord(
+                        process_key=process_key,
+                        interested=interested,
+                        interested_normalized=interested_normalized,
+                        source_scope=source_scope,
+                        marker=marker_label,
+                        status=target,
+                    ),
+                )
+            connection.execute(
+                "UPDATE processes SET portal_act_id = COALESCE(portal_act_id, ?), "
+                "area_classification = ?, needs_complement = ?, last_area_scan_id = ?, "
+                "source_scope = COALESCE(?, source_scope), marker = COALESCE(?, marker), "
+                "status = ?, updated_at = ? WHERE id = ?",
+                (portal_act_id, classification, needs_complement, scan_id, source_scope, marker_label,
+                 target, observed_at, process_id),
+            )
         connection.execute(
             "INSERT INTO area_scan_items (scan_id, process_id, process_key, interested, "
             "interested_normalized, portal_act_id, classification, needs_complement, action_observed) "
@@ -601,13 +632,13 @@ class Store:
                 process_key,
                 interested,
                 interested_normalized,
-                str(raw_row.get("portal_act_id") or "") or None,
+                portal_act_id,
                 classification,
                 needs_complement,
                 str(raw_row.get("action_observed") or "") or None,
             ),
         )
-        if previous_status is not None and previous_status != target:
+        if process_id is not None and previous_status is not None and previous_status != target:
             connection.execute(
                 "INSERT INTO workflow_events (process_id, event_type, payload, created_at) VALUES (?, ?, ?, ?)",
                 (
@@ -627,6 +658,192 @@ class Store:
                     observed_at,
                 ),
             )
+
+    @staticmethod
+    def _resolve_scan_process(
+        connection: sqlite3.Connection,
+        process_key: str,
+        interested_normalized: str,
+        portal_act_id: str | None,
+    ) -> tuple[int | None, bool]:
+        """Resolve a portal row using exact text or an exact persisted act id.
+
+        Returns ``(process_id, conflict)``. A conflict is deliberately distinct
+        from no match: it must not create or mutate a process row.
+        """
+
+        exact = connection.execute(
+            "SELECT * FROM processes WHERE process_key = ? AND interested_normalized = ?",
+            (process_key, interested_normalized),
+        ).fetchone()
+        aliases = connection.execute(
+            "SELECT DISTINCT process_id, portal_act_id FROM area_scan_items "
+            "WHERE process_key = ? AND interested_normalized = ? "
+            "AND process_id IS NOT NULL AND portal_act_id IS NOT NULL",
+            (process_key, interested_normalized),
+        ).fetchall()
+        historical_act_ids = {str(row["portal_act_id"]) for row in aliases}
+        historical_process_ids = {int(row["process_id"]) for row in aliases}
+        if exact is not None and portal_act_id and exact["portal_act_id"] not in (None, "", portal_act_id):
+            return None, True
+        if historical_act_ids:
+            if len(historical_act_ids) != 1 or len(historical_process_ids) != 1:
+                return None, True
+            historical_act_id = next(iter(historical_act_ids))
+            mapped_id = next(iter(historical_process_ids))
+            if portal_act_id and historical_act_id != portal_act_id:
+                return None, True
+            if exact is None or int(exact["id"]) == mapped_id:
+                return mapped_id, False
+            if portal_act_id:
+                winner = Store._reconcile_portal_identity(
+                    connection, process_key, portal_act_id, {mapped_id, int(exact["id"])}
+                )
+                return (winner, False) if winner is not None else (None, True)
+            return None, True
+
+        # Exact text remains the best key when a process id is shared by
+        # several interested people.
+        if exact is not None:
+            return int(exact["id"]), False
+        if not portal_act_id:
+            return None, False
+
+        candidates = {
+            int(row["id"])
+            for row in connection.execute(
+                "SELECT id FROM processes WHERE process_key = ? AND portal_act_id = ? "
+                "UNION SELECT process_id AS id FROM area_scan_items WHERE process_key = ? "
+                "AND portal_act_id = ? AND process_id IS NOT NULL",
+                (process_key, portal_act_id, process_key, portal_act_id),
+            )
+        }
+        if len(candidates) > 1:
+            return None, True
+        if candidates:
+            return next(iter(candidates)), False
+        return None, False
+
+    @staticmethod
+    def _reconcile_portal_identity(
+        connection: sqlite3.Connection, process_key: str, portal_act_id: str, process_ids: set[int]
+    ) -> int | None:
+        """Merge proven duplicate rows atomically, or leave every row intact."""
+
+        rows = [
+            connection.execute("SELECT * FROM processes WHERE id = ?", (process_id,)).fetchone()
+            for process_id in process_ids
+        ]
+        rows = [row for row in rows if row is not None]
+        if len(rows) != len(process_ids) or any(
+            row["process_key"] != process_key or row["portal_act_id"] != portal_act_id for row in rows
+        ):
+            return None
+        rows.sort(
+            key=lambda row: (
+                status_rank(str(row["status"])),
+                connection.execute("SELECT COUNT(*) FROM documents WHERE process_id = ?", (row["id"],)).fetchone()[0],
+                connection.execute("SELECT COUNT(*) FROM fields WHERE process_id = ?", (row["id"],)).fetchone()[0],
+                -int(row["id"]),
+            ),
+            reverse=True,
+        )
+        winner = int(rows[0]["id"])
+        losers = [int(row["id"]) for row in rows[1:]]
+        connection.execute("SAVEPOINT reconcile_portal_identity")
+        try:
+            for loser in losers:
+                # Refuse a document collision unless all persisted metadata is
+                # identical. Repoint field evidence before removing that copy.
+                duplicates = connection.execute(
+                    "SELECT a.id AS loser_id, b.id AS winner_id, "
+                    "a.event AS loser_event, b.event AS winner_event, a.title AS loser_title, "
+                    "b.title AS winner_title, a.relative_path AS loser_path, b.relative_path AS winner_path, "
+                    "a.sha256 AS loser_sha, b.sha256 AS winner_sha, a.page_count AS loser_pages, "
+                    "b.page_count AS winner_pages, a.classification AS loser_class, "
+                    "b.classification AS winner_class, a.storage_state AS loser_storage, "
+                    "b.storage_state AS winner_storage FROM documents a JOIN documents b "
+                    "ON a.source_id = b.source_id WHERE a.process_id = ? AND b.process_id = ?",
+                    (loser, winner),
+                ).fetchall()
+                if any(
+                    any(item[f"loser_{column}"] != item[f"winner_{column}"] for column in
+                        ("event", "title", "path", "sha", "pages", "class", "storage"))
+                    for item in duplicates
+                ):
+                    raise StoreError("document collision prevents safe identity reconciliation")
+                for item in duplicates:
+                    connection.execute(
+                        "UPDATE fields SET document_id = ? WHERE document_id = ?",
+                        (item["winner_id"], item["loser_id"]),
+                    )
+                    connection.execute("DELETE FROM documents WHERE id = ?", (item["loser_id"],))
+                connection.execute("UPDATE documents SET process_id = ? WHERE process_id = ?", (winner, loser))
+
+                field_conflicts = connection.execute(
+                    "SELECT a.id AS loser_id, a.value AS loser_value, b.value AS winner_value, "
+                    "a.status AS loser_status, b.status AS winner_status, "
+                    "a.confidence AS loser_confidence, b.confidence AS winner_confidence, "
+                    "a.document_id AS loser_document, b.document_id AS winner_document, "
+                    "a.page AS loser_page, b.page AS winner_page, "
+                    "a.evidence AS loser_evidence, b.evidence AS winner_evidence "
+                    "FROM fields a JOIN fields b ON a.field_name = b.field_name "
+                    "WHERE a.process_id = ? AND b.process_id = ?",
+                    (loser, winner),
+                ).fetchall()
+                if any(
+                    any(item[f"loser_{column}"] != item[f"winner_{column}"] for column in
+                        ("value", "status", "confidence", "document", "page", "evidence"))
+                    for item in field_conflicts
+                ):
+                    raise StoreError("field evidence collision prevents safe identity reconciliation")
+                for item in field_conflicts:
+                    connection.execute("DELETE FROM fields WHERE id = ?", (item["loser_id"],))
+                connection.execute("UPDATE fields SET process_id = ? WHERE process_id = ?", (winner, loser))
+                connection.execute("UPDATE workflow_events SET process_id = ? WHERE process_id = ?", (winner, loser))
+
+                job_conflicts = connection.execute(
+                    "SELECT a.id AS loser_id, b.state AS winner_state, a.state AS loser_state, "
+                    "b.error AS winner_error, a.error AS loser_error FROM job_items a JOIN job_items b "
+                    "ON a.job_id = b.job_id WHERE a.process_id = ? AND b.process_id = ?",
+                    (loser, winner),
+                ).fetchall()
+                if any(
+                    item["winner_state"] != item["loser_state"] or item["winner_error"] != item["loser_error"]
+                    for item in job_conflicts
+                ):
+                    raise StoreError("job history collision prevents safe identity reconciliation")
+                for item in job_conflicts:
+                    connection.execute("DELETE FROM job_items WHERE id = ?", (item["loser_id"],))
+                connection.execute("UPDATE job_items SET process_id = ? WHERE process_id = ?", (winner, loser))
+
+                scan_conflicts = connection.execute(
+                    "SELECT a.id AS loser_id, a.portal_act_id AS loser_act, b.portal_act_id AS winner_act, "
+                    "a.classification AS loser_class, b.classification AS winner_class, "
+                    "a.needs_complement AS loser_needs, b.needs_complement AS winner_needs, "
+                    "a.action_observed AS loser_action, b.action_observed AS winner_action "
+                    "FROM area_scan_items a JOIN area_scan_items b ON a.scan_id = b.scan_id "
+                    "AND a.process_key = b.process_key AND a.interested_normalized = b.interested_normalized "
+                    "WHERE a.process_id = ? AND b.process_id = ?",
+                    (loser, winner),
+                ).fetchall()
+                if any(
+                    any(item[f"loser_{column}"] != item[f"winner_{column}"] for column in
+                        ("act", "class", "needs", "action"))
+                    for item in scan_conflicts
+                ):
+                    raise StoreError("scan history collision prevents safe identity reconciliation")
+                for item in scan_conflicts:
+                    connection.execute("DELETE FROM area_scan_items WHERE id = ?", (item["loser_id"],))
+                connection.execute("UPDATE area_scan_items SET process_id = ? WHERE process_id = ?", (winner, loser))
+                connection.execute("UPDATE portal_fill_requests SET process_id = ? WHERE process_id = ?", (winner, loser))
+                connection.execute("DELETE FROM processes WHERE id = ?", (loser,))
+        except (sqlite3.IntegrityError, StoreError):
+            connection.execute("ROLLBACK TO reconcile_portal_identity")
+            connection.execute("RELEASE reconcile_portal_identity")
+            return None
+        connection.execute("RELEASE reconcile_portal_identity")
+        return winner
 
     def get_area_scan(self, scan_id: int) -> dict[str, Any] | None:
         """Return one scan with its items."""
@@ -1438,6 +1655,125 @@ class Store:
                 (process_key, interested_normalized),
             ).fetchone()
             return dict(row) if row is not None else None
+
+    def resolve_process_identity(
+        self, process_key: str, interested_normalized: str, portal_act_id: str | None = None
+    ) -> dict[str, Any] | None:
+        """Resolve an exact identity or a historically proven portal alias.
+
+        Name similarity is never used. An act id is matched exactly, and a
+        historical alias is accepted only when its scan item persisted that
+        same strong id and a process link.
+        """
+
+        key = str(process_key or "").strip()
+        interested = str(interested_normalized or "").strip()
+        act_id = str(portal_act_id or "").strip() or None
+        if not key or not interested:
+            return None
+        with self._lock:
+            exact = self._connection.execute(
+                "SELECT * FROM processes WHERE process_key = ? AND interested_normalized = ?",
+                (key, interested),
+            ).fetchone()
+            if exact is not None and act_id and exact["portal_act_id"] not in (None, "", act_id):
+                raise StoreError("portal act id conflicts with the exact process identity")
+            historical = self._connection.execute(
+                "SELECT DISTINCT process_id, portal_act_id FROM area_scan_items "
+                "WHERE process_key = ? AND interested_normalized = ? AND process_id IS NOT NULL "
+                "AND portal_act_id IS NOT NULL",
+                (key, interested),
+            ).fetchall()
+            historical_act_ids = {str(row["portal_act_id"]) for row in historical}
+            historical_process_ids = {int(row["process_id"]) for row in historical}
+            if act_id and historical_act_ids and historical_act_ids != {act_id}:
+                raise StoreError("portal act id conflicts with the historical alias identity")
+            if historical_act_ids and (not act_id or act_id in historical_act_ids):
+                if len(historical_act_ids) != 1 or len(historical_process_ids) != 1:
+                    raise StoreError("historical alias resolves to multiple process records")
+                process_id = next(iter(historical_process_ids))
+                row = self._connection.execute(
+                    "SELECT * FROM processes WHERE id = ?", (process_id,)
+                ).fetchone()
+                return dict(row) if row is not None else None
+            if exact is not None:
+                return dict(exact)
+            candidate_ids: set[int] = set()
+            if act_id:
+                candidate_ids.update(
+                    int(row["id"])
+                    for row in self._connection.execute(
+                        "SELECT id FROM processes WHERE process_key = ? AND portal_act_id = ?",
+                        (key, act_id),
+                    )
+                )
+                candidate_ids.update(
+                    int(row["process_id"])
+                    for row in self._connection.execute(
+                        "SELECT DISTINCT process_id FROM area_scan_items WHERE process_key = ? "
+                        "AND portal_act_id = ? AND process_id IS NOT NULL",
+                        (key, act_id),
+                    )
+                )
+            if len(candidate_ids) > 1:
+                raise StoreError("portal identity resolves to multiple process records")
+            if candidate_ids:
+                row = self._connection.execute(
+                    "SELECT * FROM processes WHERE id = ?", (next(iter(candidate_ids)),)
+                ).fetchone()
+                return dict(row) if row is not None else None
+            return None
+
+    def portal_identity_for_process(self, process_id: int) -> dict[str, Any] | None:
+        """Return the unique strongly linked name observed in the latest scan."""
+
+        with self._lock:
+            process = self._connection.execute(
+                "SELECT process_key, interested_normalized, portal_act_id, last_area_scan_id "
+                "FROM processes WHERE id = ?", (int(process_id),)
+            ).fetchone()
+            if process is None:
+                return None
+            if process["last_area_scan_id"] is not None and process["portal_act_id"]:
+                aliases = self._connection.execute(
+                    "SELECT DISTINCT process_key, interested_normalized, portal_act_id "
+                    "FROM area_scan_items WHERE scan_id = ? AND process_id = ? "
+                    "AND portal_act_id = ?",
+                    (process["last_area_scan_id"], int(process_id), process["portal_act_id"]),
+                ).fetchall()
+                if len(aliases) == 1:
+                    alias = aliases[0]
+                    return {
+                        "processKey": str(alias["process_key"]),
+                        "interestedNormalized": str(alias["interested_normalized"]),
+                        "portalActId": str(alias["portal_act_id"]),
+                    }
+            return {
+                "processKey": str(process["process_key"]),
+                "interestedNormalized": str(process["interested_normalized"]),
+                "portalActId": process["portal_act_id"],
+            }
+
+    def area_scan_context_for_process(self, process_id: int) -> dict[str, Any] | None:
+        """Return the frozen list context that last observed this process."""
+
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT s.id, s.source_scope, s.marker_label, s.marker_value "
+                "FROM processes p JOIN area_scans s ON s.id = p.last_area_scan_id "
+                "JOIN area_scan_items i ON i.scan_id = s.id AND i.process_id = p.id "
+                "WHERE p.id = ? ORDER BY i.id DESC LIMIT 1",
+                (int(process_id),),
+            ).fetchone()
+            if row is None or not all(
+                str(row[key] or "").strip() for key in ("source_scope", "marker_label", "marker_value")
+            ):
+                return None
+            return {
+                "scan_id": int(row["id"]),
+                "source_scope": str(row["source_scope"]),
+                "marker": {"label": str(row["marker_label"]), "value": str(row["marker_value"])},
+            }
 
     # --------------------------------------------------------------- documents
 

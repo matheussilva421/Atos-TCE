@@ -67,6 +67,7 @@ function identityParts(identity) {
   return {
     processKey: String(identity?.processKey ?? identity?.process_key ?? "").trim(),
     interested: canonical(identity?.interestedNormalized ?? identity?.interested_normalized),
+    portalActId: String(identity?.portalActId ?? identity?.portal_act_id ?? "").trim(),
   };
 }
 
@@ -79,7 +80,11 @@ function sameIdentity(left, right) {
   if (!hasIdentity(left) || !hasIdentity(right)) return false;
   const wanted = identityParts(left);
   const observed = identityParts(right);
-  return wanted.processKey === observed.processKey && wanted.interested === observed.interested;
+  return wanted.processKey === observed.processKey && (
+    wanted.portalActId && observed.portalActId
+      ? wanted.portalActId === observed.portalActId
+      : wanted.interested === observed.interested
+  );
 }
 
 function markerKey(marker) {
@@ -229,15 +234,16 @@ async function orchestrateNextAct(payload, actions, {
   pageCap = MAX_SCAN_PAGES,
   attempts = FORM_READ_ATTEMPTS,
   retryDelayMs = FORM_READ_DELAY_MS,
+  requireCurrentIdentity = true,
 } = {}) {
   const currentIdentity = payload?.current_identity;
   const targetIdentity = payload?.target_identity;
   const context = payload?.context ?? {};
   const marker = context.marker;
-  if (!hasIdentity(currentIdentity) || !hasIdentity(targetIdentity)) {
+  if (!hasIdentity(targetIdentity) || (requireCurrentIdentity && !hasIdentity(currentIdentity))) {
     return nextActFailure("INVALID_IDENTITY");
   }
-  if (sameIdentity(currentIdentity, targetIdentity)) {
+  if (requireCurrentIdentity && sameIdentity(currentIdentity, targetIdentity)) {
     return nextActFailure("INVALID_TARGET_IDENTITY");
   }
   if (
@@ -250,24 +256,48 @@ async function orchestrateNextAct(payload, actions, {
     return nextActFailure("SCAN_CONTEXT_MISSING");
   }
 
-  let current;
-  try {
-    current = await actions.readCurrentForm();
-  } catch {
-    return nextActFailure("CURRENT_FORM_UNAVAILABLE");
-  }
-  if (current?.ok === false) return nextActFailure(current.code ?? "CURRENT_FORM_UNAVAILABLE");
-  if (current?.form) {
-    if (!sameIdentity(current.form.identity, currentIdentity)) {
-      return nextActFailure("CURRENT_IDENTITY_MISMATCH");
-    }
-    let returned;
+  if (!requireCurrentIdentity) {
+    let existingTarget;
     try {
-      returned = await actions.returnToList(current, currentIdentity);
+      existingTarget = await actions.readTargetForm(targetIdentity);
     } catch {
-      return nextActFailure("RETURN_TO_LIST_FAILED");
+      existingTarget = { ok: false, code: "FORM_NOT_AVAILABLE" };
     }
-    if (returned?.ok !== true) return nextActFailure(returned?.code ?? "RETURN_TO_LIST_FAILED");
+    if (existingTarget?.code === "FORM_AMBIGUOUS") return nextActFailure("FORM_AMBIGUOUS");
+    if (existingTarget?.ok === true && existingTarget.form) {
+      if (!sameIdentity(existingTarget.form.identity, targetIdentity)) {
+        return nextActFailure("TARGET_IDENTITY_MISMATCH");
+      }
+      const activated = await actions.activateTab(existingTarget.tabId);
+      if (activated?.ok !== true) return nextActFailure("TARGET_TAB_ACTIVATION_FAILED");
+      return {
+        ok: true,
+        action: "next_act_ready",
+        identity: targetIdentity,
+        screen: "form",
+        already_open: true,
+      };
+    }
+  } else {
+    let current;
+    try {
+      current = await actions.readCurrentForm();
+    } catch {
+      return nextActFailure("CURRENT_FORM_UNAVAILABLE");
+    }
+    if (current?.ok === false) return nextActFailure(current.code ?? "CURRENT_FORM_UNAVAILABLE");
+    if (current?.form) {
+      if (!sameIdentity(current.form.identity, currentIdentity)) {
+        return nextActFailure("CURRENT_IDENTITY_MISMATCH");
+      }
+      let returned;
+      try {
+        returned = await actions.returnToList(current, currentIdentity);
+      } catch {
+        return nextActFailure("RETURN_TO_LIST_FAILED");
+      }
+      if (returned?.ok !== true) return nextActFailure(returned?.code ?? "RETURN_TO_LIST_FAILED");
+    }
   }
 
   let frozenTotalPages = null;
@@ -308,7 +338,7 @@ async function orchestrateNextAct(payload, actions, {
     let rowNotFound = false;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
-        opened = await actions.openAct(targetIdentity);
+        opened = await actions.openAct(targetIdentity, pageState.frame);
       } catch {
         opened = { ok: false, code: "FRAME_UNREACHABLE" };
       }
@@ -437,9 +467,9 @@ export function installRouter({
   }
 
   /** Ask every portal frame and keep all the answers, never a single first one. */
-  async function askFrames(message) {
+  async function askFrames(message, frames = null) {
     const answers = [];
-    for (const frame of await portalFrames()) {
+    for (const frame of frames ?? (await portalFrames())) {
       try {
         answers.push({ ...frame, response: await sendToFrame(frame.tabId, frame.frameId, message) });
       } catch (error) {
@@ -453,16 +483,39 @@ export function installRouter({
   async function findListFrame() {
     const answers = await askFrames({ type: MESSAGE_TYPES.SCAN_PAGE });
     if (answers.length === 0) {
-      throw new Error("Nenhuma aba autenticada da Área Restrita está aberta.");
+      const error = new Error("Nenhuma aba autenticada da Área Restrita está aberta.");
+      error.code = "PORTAL_NOT_AVAILABLE";
+      throw error;
     }
     const listFrames = answers.filter(
       (answer) => answer.response?.ok === true && answer.response.snapshot?.role === "list"
     );
     if (listFrames.length === 1) return listFrames[0];
     if (listFrames.length === 0) {
-      throw new Error("nenhuma moldura da Área Restrita responde como lista de processos");
+      const error = new Error("nenhuma moldura da Área Restrita responde como lista de processos");
+      error.code = "LIST_NOT_AVAILABLE";
+      throw error;
     }
-    throw new Error(`mais de uma moldura (${listFrames.length}) responde como lista de processos`);
+    const error = new Error(`mais de uma moldura (${listFrames.length}) responde como lista de processos`);
+    error.code = "LIST_AMBIGUOUS";
+    throw error;
+  }
+
+  async function openActInListFrame(identity, frame = null) {
+    let targetFrame = frame;
+    try {
+      targetFrame ??= await findListFrame();
+      return (await sendToFrame(targetFrame.tabId, targetFrame.frameId, {
+        type: MESSAGE_TYPES.OPEN_ACT,
+        payload: { identity },
+      })) ?? { ok: false, code: "NAVIGATION_RESPONSE_MISSING" };
+    } catch (error) {
+      return {
+        ok: false,
+        code: error?.code ?? "FRAME_UNREACHABLE",
+        error: String(error?.message ?? error),
+      };
+    }
   }
 
   async function waitForPageReady(frame, expectedPage) {
@@ -536,34 +589,116 @@ export function installRouter({
     });
   }
 
-  /**
-   * Ask every frame to open the act. The portal opens the form in a sibling
-   * tab/frame, so the loop is over frames, not over one document; each content
-   * script only clicks the row or the radio of the exact requested identity.
-   */
+  /** Open one proven target, preserving the precise refusal from its screen. */
   async function openAct(payload) {
-    const frames = await portalFrames();
-    if (frames.length === 0) {
-      throw new Error("Nenhuma aba autenticada da Área Restrita está aberta.");
+    const identity = payload?.identity ?? {};
+    if (payload?.context) {
+      const outcome = await orchestrateNextAct(
+        { target_identity: identity, context: payload.context },
+        {
+          readCurrentForm: readCurrentPortalForm,
+          returnToList,
+          readListPage: readListPageForNextAct,
+          advancePage: advanceListPageForNextAct,
+          openAct: openExactNextTarget,
+          readTargetForm: readExactTargetForm,
+          activateTab: activatePortalTab,
+          ...nextActDependencies,
+        },
+        {
+          pageCap: timing.nextActPageCap ?? MAX_SCAN_PAGES,
+          attempts: timing.nextActAttempts ?? FORM_READ_ATTEMPTS,
+          retryDelayMs: timing.nextActDelayMs ?? FORM_READ_DELAY_MS,
+          requireCurrentIdentity: false,
+        },
+      );
+      if (outcome?.ok !== true) return outcome;
+      return {
+        ok: true,
+        action: outcome.already_open ? "already_open" : "open_act",
+        screen: "form",
+        waitingForFrame: false,
+      };
     }
-    let lastRefusal = { ok: false, code: "SCREEN_NOT_NAVIGABLE" };
-    for (const frame of frames) {
+
+    let frames;
+    try {
+      frames = await portalFrames();
+    } catch (error) {
+      return { ok: false, code: "PORTAL_NOT_AVAILABLE", error: String(error?.message ?? error) };
+    }
+    if (frames.length === 0) {
+      return { ok: false, code: "PORTAL_NOT_AVAILABLE", error: "Nenhuma aba autenticada da Área Restrita está aberta." };
+    }
+    const formAnswers = await askFrames({ type: MESSAGE_TYPES.READ_FORM }, frames);
+    const exactForms = formAnswers.filter(
+      (answer) => answer.response?.ok === true && answer.response.form &&
+        sameIdentity(answer.response.form.identity, identity)
+    );
+    if (exactForms.length > 1) {
+      return { ok: false, code: "FORM_AMBIGUOUS", error: `mais de uma moldura (${exactForms.length}) tem o formulário do ato` };
+    }
+    if (exactForms.length === 1) {
+      return { ok: true, action: "already_open", screen: "form", waitingForFrame: false };
+    }
+
+    const screens = await askFrames({ type: MESSAGE_TYPES.SCAN_PAGE }, frames);
+    const listFrames = screens.filter(
+      (answer) => answer.response?.ok === true && answer.response.snapshot?.role === "list"
+    );
+    if (listFrames.length > 1) {
+      return { ok: false, code: "LIST_AMBIGUOUS", error: `mais de uma moldura (${listFrames.length}) responde como lista` };
+    }
+    if (listFrames.length === 1) {
+      const frame = listFrames[0];
+      return openActInListFrame(identity, { tabId: frame.tabId, frameId: frame.frameId });
+    }
+
+    const interestedFrames = screens.filter(
+      (answer) => answer.response?.ok === true && answer.response.snapshot?.role === "interested"
+    );
+    if (interestedFrames.length > 1) {
+      return { ok: false, code: "INTERESTED_AMBIGUOUS", error: `mais de uma moldura (${interestedFrames.length}) mostra a seleção do interessado` };
+    }
+    if (interestedFrames.length === 1) {
+      const frame = interestedFrames[0];
       try {
-        const response = await sendToFrame(frame.tabId, frame.frameId, {
+        return (await sendToFrame(frame.tabId, frame.frameId, {
           type: MESSAGE_TYPES.OPEN_ACT,
-          payload,
-        });
-        if (response?.ok === true) return response;
-        if (response?.ok === false) lastRefusal = response;
+          payload: { identity },
+        })) ?? { ok: false, code: "NAVIGATION_RESPONSE_MISSING" };
       } catch (error) {
-        lastRefusal = {
-          ok: false,
-          code: "FRAME_UNREACHABLE",
-          error: String(error?.message ?? error),
-        };
+        return { ok: false, code: "FRAME_UNREACHABLE", error: String(error?.message ?? error) };
       }
     }
-    return lastRefusal;
+
+    const wrongForms = formAnswers.filter(
+      (answer) => answer.response?.ok === true && answer.response.form?.identity &&
+        String(answer.response.form.identity.processKey ?? "") === String(identity.processKey ?? "")
+    );
+    if (wrongForms.length > 0) {
+      return { ok: false, code: "FORM_IDENTITY_MISMATCH", error: "o formulário aberto pertence a outro interessado" };
+    }
+    const frameError = [...screens, ...formAnswers].find((answer) => answer.error);
+    if (frameError) {
+      return { ok: false, code: "FRAME_UNREACHABLE", error: frameError.error };
+    }
+    const refusalPriority = [
+      "FORM_IDENTITY_MISMATCH",
+      "FORM_AMBIGUOUS",
+      "INTERESTED_AMBIGUOUS",
+      "INTERESTED_NOT_FOUND",
+      "ROW_ACTION_NOT_FOUND",
+      "LIST_NOT_AVAILABLE",
+      "SCREEN_NOT_NAVIGABLE",
+    ];
+    const refusals = [...screens, ...formAnswers]
+      .map((answer) => answer.response?.code)
+      .filter((code) => typeof code === "string");
+    const code = refusalPriority.find((candidate) => refusals.includes(candidate));
+    return code
+      ? { ok: false, code }
+      : { ok: false, code: "SCREEN_NOT_NAVIGABLE", screen: "unknown" };
   }
 
   /**
@@ -637,8 +772,8 @@ export function installRouter({
         return { ok: false, code: "LIST_NOT_AVAILABLE" };
       }
       return { ok: true, frame, snapshot: response.snapshot };
-    } catch {
-      return { ok: false, code: "LIST_NOT_AVAILABLE" };
+    } catch (error) {
+      return { ok: false, code: error?.code ?? "LIST_NOT_AVAILABLE" };
     }
   }
 
@@ -674,23 +809,8 @@ export function installRouter({
     return { ok: false, code: "PAGINATION_STALLED" };
   }
 
-  async function openExactNextTarget(identity) {
-    const outcome = await openAct({ identity });
-    if (outcome?.ok === true || outcome?.code === "ROW_ACTION_NOT_FOUND") return outcome;
-    // A non-list frame can mask the list's precise row-not-found refusal.
-    try {
-      const frame = await findListFrame();
-      const listOutcome = await sendToFrame(frame.tabId, frame.frameId, {
-        type: MESSAGE_TYPES.OPEN_ACT,
-        payload: { identity },
-      });
-      if (listOutcome?.ok === true || listOutcome?.code === "ROW_ACTION_NOT_FOUND") {
-        return listOutcome;
-      }
-    } catch {
-      // Keep the original exact-navigation refusal.
-    }
-    return outcome;
+  async function openExactNextTarget(identity, frame) {
+    return openActInListFrame(identity, frame);
   }
 
   async function readExactTargetForm(identity) {
@@ -879,7 +999,22 @@ export function installRouter({
         .requestNextAct({
           processKey: identity.processKey,
           interestedNormalized: identity.interestedNormalized,
+          ...(typeof identity.portalActId === "string" && identity.portalActId.trim()
+            ? { portalActId: identity.portalActId.trim() }
+            : {}),
         })
+        .then((outcome) => sendResponse(outcome))
+        .catch((error) => sendResponse({ ok: false, status: 0, error: String(error?.message ?? error) }));
+      return true;
+    }
+    if (message?.type === MESSAGE_TYPES.READ_NEXT_ACT_STATUS) {
+      const commandId = Number(message.payload?.command_id);
+      if (!Number.isSafeInteger(commandId) || commandId < 1) {
+        sendResponse({ ok: false, error: "invalid_command_id" });
+        return false;
+      }
+      Promise.resolve()
+        .then(() => api.commandStatus(commandId))
         .then((outcome) => sendResponse(outcome))
         .catch((error) => sendResponse({ ok: false, status: 0, error: String(error?.message ?? error) }));
       return true;

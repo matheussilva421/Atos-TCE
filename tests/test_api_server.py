@@ -1418,10 +1418,12 @@ class NextActRouteTests(ApiTestCase):
         self.current_identity = {
             "processKey": "102390/2026",
             "interestedNormalized": "pessoa exemplo",
+            "portalActId": "fixture-current-act",
         }
         self.target_identity = {
             "processKey": "100/2026",
             "interestedNormalized": "pessoa destino",
+            "portalActId": "fixture-target-act",
         }
         self.target_process_id = self.store.upsert_process(
             ProcessRecord(
@@ -1505,6 +1507,48 @@ class NextActRouteTests(ApiTestCase):
         command = self.store.get_extension_command(payload["command_id"])
         self.assertEqual(command["payload"]["target_identity"], self.target_identity)
 
+    def test_extension_can_read_only_its_own_next_act_command_status(self):
+        status, _headers, created = self.post_next_act(
+            {"identity": self.current_identity}, headers=self.extension
+        )
+        self.assertEqual(status, 201, created)
+        command_id = created["command_id"]
+        other_extension = self.register_extension("other-extension")
+
+        status, _headers, queued = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/status", headers=self.extension
+        )
+        self.assertEqual(status, 200, queued)
+        self.assertEqual(queued["state"], "QUEUED")
+        denied_status, _headers, denied = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/status", headers=other_extension
+        )
+        self.assertEqual(denied_status, 404, denied)
+
+        _status, _headers, claimed = self.call_json(
+            "/api/v1/extension/commands/next", headers=self.extension
+        )
+        result = {
+            "ok": True,
+            "action": "next_act_ready",
+            "identity": self.target_identity,
+            "screen": "form",
+            "claim_token": claimed["command"]["claim_token"],
+        }
+        result_status, _headers, accepted = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/result",
+            method="POST",
+            headers=self.extension,
+            body=result,
+        )
+        self.assertEqual(result_status, 200, accepted)
+        terminal_status, _headers, terminal = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/status", headers=self.extension
+        )
+        self.assertEqual(terminal_status, 200, terminal)
+        self.assertEqual(terminal["state"], "SUCCEEDED")
+        self.assertEqual(terminal["result"]["identity"], self.target_identity)
+
     def test_request_without_either_local_credential_is_rejected(self):
         status, _headers, payload = self.post_next_act({"process_id": self.process_id})
 
@@ -1579,7 +1623,10 @@ class NextActRouteTests(ApiTestCase):
         valid_result = {
             "ok": True,
             "action": "next_act_ready",
-            "identity": self.target_identity,
+            "identity": {
+                **self.target_identity,
+                "interestedNormalized": "pessoa alias confirmada",
+            },
             "screen": "form",
         }
         invalid_results = (
@@ -1598,6 +1645,7 @@ class NextActRouteTests(ApiTestCase):
                     "identity": {
                         **self.target_identity,
                         "interestedNormalized": "outra pessoa",
+                        "portalActId": "different-fixture-act",
                     },
                 },
                 "identidade",

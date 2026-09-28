@@ -350,6 +350,27 @@ test("next-act request sends the current identity through the authenticated requ
   assert.equal(fetchImpl.calls[0].headers.Authorization, "Bearer token-123");
 });
 
+test("commandStatus reads a terminal next-act result with bridge credentials", async () => {
+  const command = {
+    id: 12,
+    type: "OPEN_NEXT_ACT",
+    state: "FAILED",
+    error: "TARGET_NOT_FOUND",
+    result: { ok: false, code: "TARGET_NOT_FOUND" },
+  };
+  const { api, fetchImpl } = build({
+    data: pairedData(),
+    routes: [{ path: "/api/v1/extension/commands/12/status", body: command }],
+  });
+
+  const outcome = await api.commandStatus(12);
+
+  assert.equal(outcome.ok, true);
+  assert.deepEqual(outcome.command, command);
+  assert.equal(fetchImpl.calls[0].url, "http://127.0.0.1:18743/api/v1/extension/commands/12/status");
+  assert.equal(fetchImpl.calls[0].headers.Authorization, "Bearer token-123");
+});
+
 test("the public API has no manual pairing or credential clearing methods", () => {
   const { api } = build();
 

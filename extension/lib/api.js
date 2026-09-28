@@ -261,5 +261,21 @@ export function createApi({
           : response.payload?.detail ?? response.error ?? "request_failed",
       };
     },
+
+    async commandStatus(commandId) {
+      const normalizedId = Number(commandId);
+      if (!Number.isSafeInteger(normalizedId) || normalizedId < 1) {
+        return { ok: false, status: 0, command: null, error: "invalid_command_id" };
+      }
+      const response = await authenticatedRequest(
+        `/api/v1/extension/commands/${normalizedId}/status`,
+      );
+      return {
+        ok: response.ok,
+        status: response.status,
+        command: response.ok ? response.payload : null,
+        error: response.ok ? null : response.error ?? "request_failed",
+      };
+    },
   };
 }

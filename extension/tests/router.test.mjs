@@ -907,7 +907,7 @@ test("the router sends manual fill through its Mesa API", async () => {
   assert.deepEqual(received, form);
 });
 
-test("the router forwards only the current composed identity for next-process", async () => {
+test("the router forwards only the current identity and strong act id for next-process", async () => {
   const chromeApi = fakeChrome();
   let received = null;
   installRouter({
@@ -928,6 +928,7 @@ test("the router forwards only the current composed identity for next-process", 
       identity: {
         processKey: "current/2026",
         interestedNormalized: "pessoa atual",
+        portalActId: "act-current",
         target_identity: { processKey: "forged/2026", interestedNormalized: "forjada" },
       },
     },
@@ -937,6 +938,7 @@ test("the router forwards only the current composed identity for next-process", 
   assert.deepEqual(received, {
     processKey: "current/2026",
     interestedNormalized: "pessoa atual",
+    portalActId: "act-current",
   });
 });
 
@@ -962,6 +964,31 @@ test("the router refuses next-process requests without both current identity fie
 
   assert.deepEqual(response, { ok: false, error: "current_identity_required" });
   assert.equal(requestCount, 0);
+});
+
+test("the sidepanel can read one authoritative next-act command status", async () => {
+  const chromeApi = fakeChrome();
+  let requestedId = null;
+  const command = { id: 42, type: "OPEN_NEXT_ACT", state: "FAILED", error: "TARGET_NOT_FOUND" };
+  installRouter({
+    api: {
+      commandStatus: async (commandId) => {
+        requestedId = commandId;
+        return { ok: true, status: 200, command };
+      },
+      nextCommand: async () => ({ ok: true, command: null }),
+      reportResult: async () => {},
+    },
+    chromeApi,
+  });
+
+  const response = await sendRuntime(chromeApi, {
+    type: "READ_NEXT_ACT_STATUS",
+    payload: { command_id: 42 },
+  });
+
+  assert.equal(requestedId, 42);
+  assert.deepEqual(response.command, command);
 });
 
 test("the router registers a slow recovery alarm", () => {
@@ -1000,6 +1027,154 @@ function idleApi() {
 function portalTab(id, { active = false } = {}) {
   return { id, active, url: `${PORTAL}/ProcessonoSetor.asp` };
 }
+
+test("OPEN_ACT keeps a list frame's specific refusal when another frame is unknown", async () => {
+  let openCalls = 0;
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1)],
+    frames: { 1: [
+      { frameId: 4, url: `${PORTAL}/ProcessonoSetor.asp` },
+      { frameId: 0, url: `${PORTAL}/telaPrincipalMenu.asp` },
+    ] },
+    onMessage: (message, _tabId, frameId) => {
+      if (message.type === "READ_FORM") return { ok: false, code: "FORM_NOT_AVAILABLE" };
+      if (message.type === "SCAN_PAGE") {
+        return { ok: true, snapshot: { role: frameId === 4 ? "list" : "unknown" } };
+      }
+      if (message.type === "OPEN_ACT") {
+        openCalls += 1;
+        return frameId === 4
+          ? { ok: false, code: "ROW_ACTION_NOT_FOUND" }
+          : { ok: false, code: "SCREEN_NOT_NAVIGABLE" };
+      }
+      return { ok: false };
+    },
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const result = await router.openAct({ identity: IDENTITY });
+
+  assert.equal(result.code, "ROW_ACTION_NOT_FOUND");
+  assert.equal(openCalls, 1);
+});
+
+test("OPEN_ACT recognizes an exact form in another portal tab before clicking a list row", async () => {
+  let openCalls = 0;
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1), portalTab(2)],
+    frames: {
+      1: [{ frameId: 4, url: `${PORTAL}/ProcessonoSetor.asp` }],
+      2: [{ frameId: 7, url: `${PORTAL}/complementarAto.asp` }],
+    },
+    onMessage: (message, tabId, frameId) => {
+      if (message.type === "READ_FORM") {
+        return tabId === 2 && frameId === 7
+          ? { ok: true, form: { identity: IDENTITY } }
+          : { ok: false, code: "FORM_NOT_AVAILABLE" };
+      }
+      if (message.type === "SCAN_PAGE") return { ok: true, snapshot: { role: "list" } };
+      if (message.type === "OPEN_ACT") {
+        openCalls += 1;
+        return { ok: true, action: "open_act", screen: "list", waitingForFrame: true };
+      }
+      return { ok: false };
+    },
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const result = await router.openAct({ identity: IDENTITY });
+
+  assert.equal(result.action, "already_open");
+  assert.equal(result.screen, "form");
+  assert.equal(openCalls, 0);
+});
+
+test("OPEN_ACT refuses multiple list frames before causing navigation", async () => {
+  let openCalls = 0;
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1)],
+    frames: { 1: [
+      { frameId: 4, url: `${PORTAL}/ProcessonoSetor.asp` },
+      { frameId: 5, url: `${PORTAL}/MeusProcessos.asp` },
+    ] },
+    onMessage: (message) => {
+      if (message.type === "READ_FORM") return { ok: false, code: "FORM_NOT_AVAILABLE" };
+      if (message.type === "SCAN_PAGE") return { ok: true, snapshot: { role: "list" } };
+      if (message.type === "OPEN_ACT") {
+        openCalls += 1;
+        return { ok: true, action: "open_act", screen: "list" };
+      }
+      return { ok: false };
+    },
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const result = await router.openAct({ identity: IDENTITY });
+
+  assert.equal(result.code, "LIST_AMBIGUOUS");
+  assert.equal(openCalls, 0);
+});
+
+test("OPEN_ACT reuses the frozen paginated navigator for a target on a later page", async () => {
+  const context = {
+    scan_id: 8,
+    source_scope: "sector_finalistic",
+    marker: { label: "M", value: "marker-8" },
+  };
+  let pageNumber = 1;
+  let opened = false;
+  let advances = 0;
+  let openCalls = 0;
+  const router = installRouter({
+    api: idleApi(),
+    chromeApi: fakeChrome(),
+    timing: { ...FAST, nextActPageCap: 3, nextActAttempts: 1 },
+    nextActDependencies: {
+      async readTargetForm(identity) {
+        return opened
+          ? { ok: true, form: { identity }, tabId: 4, frameId: 3 }
+          : { ok: false, code: "FORM_NOT_AVAILABLE" };
+      },
+      async readListPage() {
+        return {
+          ok: true,
+          frame: { tabId: 4, frameId: 6 },
+          snapshot: {
+            role: "list",
+            source_scope: context.source_scope,
+            marker: context.marker,
+            page: pageNumber,
+            total_pages: 2,
+          },
+        };
+      },
+      async openAct(_identity, frame) {
+        openCalls += 1;
+        assert.deepEqual(frame, { tabId: 4, frameId: 6 });
+        if (pageNumber === 1) return { ok: false, code: "ROW_ACTION_NOT_FOUND" };
+        opened = true;
+        return { ok: true, action: "open_act", screen: "list" };
+      },
+      async advancePage(_frame, currentPage) {
+        advances += 1;
+        pageNumber = currentPage + 1;
+        return { ok: true, page_after: pageNumber };
+      },
+      async activateTab(tabId) {
+        assert.equal(tabId, 4);
+        return { ok: true };
+      },
+    },
+  });
+
+  const result = await router.openAct({ identity: IDENTITY, context });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.action, "open_act");
+  assert.equal(result.screen, "form");
+  assert.equal(openCalls, 2);
+  assert.equal(advances, 1);
+});
 
 test("the scan is addressed to the list frame, not to the top frame", async () => {
   let pageAdvances = 0;
