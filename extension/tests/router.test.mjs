@@ -415,6 +415,90 @@ test("next-act activates the tab containing the reread exact target form", async
   assert.deepEqual(harness.calls.at(-1), ["activateTab", 42]);
 });
 
+test("OPEN_NEXT_ACT confirms a target in a second portal tab after focus moves to the Mesa", async () => {
+  const tabs = [
+    { id: 1, active: false, url: "http://127.0.0.1:18743/" },
+    portalTab(2, { active: true }),
+    { id: 3, active: false, url: `${PORTAL}/complementarAto.asp` },
+  ];
+  let currentReturnedToList = false;
+  let targetOpened = false;
+  let focusChangedToMesa = false;
+  const activatedTabs = [];
+  const chromeApi = fakeChrome({
+    tabs,
+    frames: {
+      2: [{ frameId: 4, url: `${PORTAL}/ProcessonoSetor.asp` }],
+      3: [{ frameId: 7, url: `${PORTAL}/complementarAto.asp` }],
+    },
+    onMessage: (message, tabId) => {
+      if (message.type === MESSAGE_TYPES.READ_FORM) {
+        if (!currentReturnedToList && !message.payload?.identity && tabId === 2) {
+          return { ok: true, form: { identity: IDENTITY, generation: 4 } };
+        }
+        if (targetOpened && message.payload?.identity && tabId === 3) {
+          return { ok: true, form: { identity: NEXT_IDENTITY, generation: 5 } };
+        }
+        return { ok: false, code: "FORM_NOT_AVAILABLE" };
+      }
+      if (message.type === MESSAGE_TYPES.RETURN_TO_LIST) {
+        currentReturnedToList = true;
+        tabs.forEach((tab) => { tab.active = false; });
+        tabs[0].active = true;
+        focusChangedToMesa = true;
+        return { ok: true };
+      }
+      if (message.type === MESSAGE_TYPES.SCAN_PAGE) {
+        return tabId === 2
+          ? {
+              ok: true,
+              snapshot: {
+                ...page([{ process_key: NEXT_IDENTITY.processKey, interested_normalized: NEXT_IDENTITY.interestedNormalized }]),
+                marker: NEXT_PAYLOAD.context.marker,
+              },
+            }
+          : { ok: true, snapshot: { role: "unknown" } };
+      }
+      if (message.type === MESSAGE_TYPES.OPEN_ACT && tabId === 2) {
+        targetOpened = true;
+        return { ok: true, action: "open_act", screen: "list", waitingForFrame: true };
+      }
+      return { ok: false };
+    },
+  });
+  chromeApi.tabs.update = async (tabId, patch) => {
+    tabs.forEach((tab) => { tab.active = false; });
+    const updated = tabs.find((tab) => tab.id === tabId);
+    Object.assign(updated, patch);
+    activatedTabs.push(tabId);
+    return updated;
+  };
+  const router = installRouter({
+    api: idleApi(),
+    chromeApi,
+    timing: { ...FAST, nextActAttempts: 1, nextActDelayMs: 1 },
+  });
+
+  const result = await router.openNextAct(NEXT_PAYLOAD);
+
+  assert.deepEqual(result, {
+    ok: true,
+    action: "next_act_ready",
+    identity: NEXT_IDENTITY,
+    screen: "form",
+  });
+  assert.equal(focusChangedToMesa, true);
+  assert.deepEqual(activatedTabs, [3]);
+  assert.equal(tabs[0].active, false);
+  assert.equal(tabs[2].active, true);
+  assert.ok(chromeApi.sent.some((entry) =>
+    entry.tabId === 3 &&
+    entry.message.type === MESSAGE_TYPES.READ_FORM &&
+    entry.message.payload?.identity?.processKey === NEXT_IDENTITY.processKey
+  ));
+  assert.equal(chromeApi.sent.some((entry) => entry.tabId === 1), false);
+});
+
 test("an OPEN_ACT command reports the navigation outcome", async () => {
   const result = await executeCommand(
     { id: 21, type: "OPEN_ACT", payload: { identity: IDENTITY } },
