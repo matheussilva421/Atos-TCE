@@ -390,12 +390,14 @@ class FillService:
         self._ar1_finished.add(run_id)
 
     def _record_ar1_refusal(
-        self, snapshot: Mapping[str, Any], code: str
+        self, snapshot: Mapping[str, Any], code: str, *, detected: bool = True
     ) -> str | None:
         """A manual attempt that never became a request still counts as a failure.
 
         The operator started AR-1 and the trial did not proceed, so it has to
         break the qualification sequence instead of disappearing from the ledger.
+        ``detected`` says whether one exact form had been resolved before the
+        refusal: a failure to detect must never claim ``current_form_detected``.
         """
 
         if self._reliability is None:
@@ -411,19 +413,20 @@ class FillService:
             browser_session_id=(diagnostics or {}).get("browser_session_id"),
             run_id=run_id,
         )
+        first_state = "FORM" if detected else "UNKNOWN"
         self._ar1_transition(
             run_id,
-            boundary="current_form_detected",
+            boundary="current_form_detected" if detected else "current_form_attempted",
             state_before=None,
-            state_after="FORM",
-            result_code="FORM_DETECTED",
+            state_after=first_state,
+            result_code="FORM_DETECTED" if detected else "FORM_NOT_DETECTED",
             observed_identity=observed,
         )
         refusal = _safe_code(code, "REFUSED")
         self._ar1_transition(
             run_id,
             boundary="manual_fill_requested",
-            state_before="FORM",
+            state_before=first_state,
             state_after="REFUSED",
             result_code=refusal,
             observed_identity=observed,
@@ -447,7 +450,7 @@ class FillService:
         snapshot: dict[str, Any] = {}
         if isinstance(diagnostics, Mapping):
             snapshot["diagnostics"] = dict(diagnostics)
-        return self._record_ar1_refusal(snapshot, normalized)
+        return self._record_ar1_refusal(snapshot, normalized, detected=False)
 
     def _ar1_close(
         self,

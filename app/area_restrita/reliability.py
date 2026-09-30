@@ -560,6 +560,10 @@ class ReliabilityRecorder:
                     "build_id": str(event.get("build_id") or ""),
                     "browser_session_id": event.get("browser_session_id"),
                     "passed": None,
+                    # Distinct from "passed is None": a malformed terminal still
+                    # closes the run, so a later duplicate can never turn it
+                    # into a counted pass.
+                    "terminal_seen": False,
                     "intervened": False,
                     "result_code": None,
                 }
@@ -570,10 +574,11 @@ class ReliabilityRecorder:
             if kind == "intervention":
                 run["intervened"] = True
             elif kind == "run_finished":
-                if run["passed"] is not None:
+                if run["terminal_seen"]:
                     raise ReliabilityError(
                         f"ledger com resultado terminal duplicado para a execução {run_id}"
                     )
+                run["terminal_seen"] = True
                 raw_passed = event.get("passed")
                 # Anything that is not a real boolean is unproven, never a pass.
                 run["passed"] = raw_passed if isinstance(raw_passed, bool) else None

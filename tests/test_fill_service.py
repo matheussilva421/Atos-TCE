@@ -1711,6 +1711,40 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
 
         self.assertEqual(self.finishes(), [])
 
+    def test_a_reported_detection_failure_does_not_claim_a_detected_form(self):
+        self.ready_process()
+        service = self.ar1_service()
+
+        service.record_manual_attempt_failure("FORM_NOT_AVAILABLE")
+
+        run_id = self.finishes()[0]["run_id"]
+        transitions = [
+            event
+            for event in self.events()
+            if event.get("run_id") == run_id and event.get("type") == "transition"
+        ]
+        self.assertEqual(transitions[0]["boundary"], "current_form_attempted")
+        self.assertEqual(transitions[0]["result_code"], "FORM_NOT_DETECTED")
+        self.assertEqual(transitions[0]["state_after"], "UNKNOWN")
+
+    def test_a_detected_form_refusal_still_records_the_detection(self):
+        self.ready_process()
+        service = self.ar1_service()
+
+        unknown = self.snapshot()
+        unknown["identity"] = {**unknown["identity"], "processKey": "999999/2026"}
+        with self.assertRaises(FillError):
+            service.request_manual_fill(unknown)
+
+        run_id = self.finishes()[0]["run_id"]
+        transitions = [
+            event
+            for event in self.events()
+            if event.get("run_id") == run_id and event.get("type") == "transition"
+        ]
+        self.assertEqual(transitions[0]["boundary"], "current_form_detected")
+        self.assertEqual(transitions[0]["result_code"], "FORM_DETECTED")
+
 
 
 

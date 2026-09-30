@@ -45,6 +45,7 @@ KNOWN_RESULT_CODES: frozenset[str] = frozenset(
         "PLAN_READY",
         "REQUEST_CREATED",
         "FORM_DETECTED",
+        "FORM_NOT_DETECTED",
         "ROW_ACTION_NOT_FOUND",
         "INTERESTED_NOT_FOUND",
         "AMBIGUOUS",

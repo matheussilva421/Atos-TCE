@@ -161,6 +161,38 @@ class ReliabilityRecorderTestCase(unittest.TestCase):
         self.record()
         self.assertTrue(self.recorder.evaluate("manual_form_fill", "real-dev")["qualified"])
 
+    def test_a_duplicate_terminal_after_a_malformed_one_is_refused(self):
+        path = self.data / "reliability" / "events.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lines = [
+            {
+                "type": "run_start",
+                "run_id": "tampered-1",
+                "capability": "manual_form_fill",
+                "environment": "real-dev",
+                "build_id": BUILD,
+                "ts": 1.0,
+            },
+            {
+                "type": "run_finished",
+                "run_id": "tampered-1",
+                "passed": "false",
+                "result_code": "SUCCEEDED",
+                "ts": 1.1,
+            },
+            {
+                "type": "run_finished",
+                "run_id": "tampered-1",
+                "passed": True,
+                "result_code": "SUCCEEDED",
+                "ts": 1.2,
+            },
+        ]
+        path.write_text("\n".join(json.dumps(line) for line in lines) + "\n", encoding="utf-8")
+
+        with self.assertRaises(ReliabilityError):
+            self.recorder.evaluate("manual_form_fill", "real-dev")
+
     def test_build_change_breaks_the_sequence(self):
         for _ in range(10):
             self.record()
@@ -432,6 +464,7 @@ class ReliabilityRecorderTestCase(unittest.TestCase):
 REPO_ROOT = Path(__file__).resolve().parents[1]
 QUALIFICATION_CLI = REPO_ROOT / "scripts" / "portal-reliability" / "qualification.py"
 REPORT_CLI = REPO_ROOT / "scripts" / "portal-reliability" / "report.py"
+CAPABILITY_STATE_CLI = REPO_ROOT / "scripts" / "portal-reliability" / "capability-state.py"
 
 
 class QualificationCliTests(unittest.TestCase):
@@ -554,10 +587,6 @@ class QualificationCliTests(unittest.TestCase):
         result = self.qualify(build="102390/2026")
 
         self.assertEqual(result.returncode, 2)
-
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-CAPABILITY_STATE_CLI = REPO_ROOT / "scripts" / "portal-reliability" / "capability-state.py"
 
 
 class CapabilityStateCliTests(unittest.TestCase):
