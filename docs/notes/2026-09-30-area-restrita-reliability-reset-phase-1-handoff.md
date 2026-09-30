@@ -2,8 +2,8 @@
 
 Data: 2026-09-30
 Branch: `codex/area-restrita-reliability-reset`
-AR1_BUILD (build congelado para a sequência AR-1): `f1cf5b49d548f1b3a21eebb75c2d857189072355`
-Builds congelados anteriores: `5e9c277` → `4cd848a` → `af8c1f2` → `4cd848a` (hardening de proveniência) → **`f1cf5b4` (AR1_BUILD em uso)**. Builds anteriores não devem ser usados para novos runs.
+AR1_BUILD (build congelado para a sequência AR-1): `1d90b8d3bd47ec76b7e7142b5fffeaf82057ac1c`
+Builds congelados anteriores: `5e9c277` → `4cd848a` → `af8c1f2` → `f1cf5b4` → **`1d90b8d` (AR1_BUILD em uso)**. Builds anteriores não devem ser usados para novos runs.
 Base da reconciliação: `9fa3465` (`origin/codex/area-restrita-reliability-reset-spec`)
 
 ## 1. Reconciliação das branches
@@ -77,12 +77,12 @@ git diff --check                                         -> limpo
 
 ## 5. Gates offline executados no HEAD congelado
 
-Executados em `f1cf5b49d548f1b3a21eebb75c2d857189072355` (AR1_BUILD), com árvore de trabalho limpa e igual a `origin/codex/area-restrita-reliability-reset`.
+Executados em `1d90b8d3bd47ec76b7e7142b5fffeaf82057ac1c` (AR1_BUILD), com árvore de trabalho limpa e igual a `origin/codex/area-restrita-reliability-reset`.
 
 | Gate | Comando | Resultado |
 |---|---|---|
-| HEAD | `git rev-parse HEAD` | `f1cf5b49d548f1b3a21eebb75c2d857189072355`, igual a `origin/...` |
-| Python | `python -m unittest discover -s tests -p "test_*.py" -q` | 764 testes, OK (0 falhas) |
+| HEAD | `git rev-parse HEAD` | `1d90b8d3bd47ec76b7e7142b5fffeaf82057ac1c`, igual a `origin/...` |
+| Python | `python -m unittest discover -s tests -p "test_*.py" -q` | 768 testes, OK (0 falhas) |
 | extension | `npm test --prefix extension` | 225/225, 0 falhas |
 | web | `node --test app/web/tests/*.test.mjs` | 34/34, 0 falhas |
 | verify-project | `powershell -File .\work\tce-extractor\verify-project.ps1` | 1260 executados / 1258 pass / 0 fail / 2 skip, exit 0 |
@@ -104,9 +104,9 @@ O ZIP antigo em `dist/` podia estar funcionalmente desatualizado e ainda passar 
 
 | Fato | Valor |
 |---|---|
-| AR1_BUILD | `f1cf5b49d548f1b3a21eebb75c2d857189072355` |
+| AR1_BUILD | `1d90b8d3bd47ec76b7e7142b5fffeaf82057ac1c` |
 | ZIP | `dist/Atos-TCE-portable.zip`, 520 entradas, 96.186.076 bytes |
-| SHA-256 do ZIP | `f6b9dfc451f6e1b04b193acaab6bfc2dfa95b72b140170137146d74dbdad8aa3` |
+| SHA-256 do ZIP | `1d50da97b880604b6733167dc015f05bab21da3a5a82581b518c698d8e35763e` |
 | schema do manifesto | 1 (88 arquivos de produto) |
 | verificação `-ExpectedBuildId` + smoke | PASS; `health.build_id` = build do manifesto |
 | probe portátil `FORM_NOT_AVAILABLE` | `{"recorded": true}`; ledger com `build_id` = AR1_BUILD, `environment` = portable-normal-chrome, `passed` = false |
@@ -133,7 +133,7 @@ Login, seleção do marcador e o clique final **Complementar Ato** continuam hum
 
 ## 7. Runbook para destravar a Task 5
 
-Use sempre `AR1_BUILD = f1cf5b49d548f1b3a21eebb75c2d857189072355` nos passos abaixo (`<HEAD>` nos comandos).
+Use sempre `AR1_BUILD = 1d90b8d3bd47ec76b7e7142b5fffeaf82057ac1c` nos passos abaixo (`<HEAD>` nos comandos).
 
 0. Em uma raiz de dados limpa a capability nasce `UNQUALIFIED`, então habilite o AR-1 para a sequência supervisionada (isso declara EXPERIMENTAL, não qualifica):
 
@@ -233,6 +233,10 @@ python scripts/portal-reliability/qualification.py --data-root <portable-data-ro
 - Revisão adversarial do hardening: o smoke injetava o build id esperado em `ATOS_TCE_BUILD_ID` e comparava o health com o próprio valor injetado, o que era tautológico. Corrigido: o smoke limpa a variável e exige que o runtime extraído derive o build do manifesto empacotado (que passou a ter precedência sobre um checkout acima da extração).
 - Revisão adversarial do hardening: um manifesto reescrito dentro do ZIP autenticava bytes modificados e arquivos ignorados/não versionados entravam com identidade limpa. Corrigido: pacote de release exige `-ExpectedBuildId`, o commit precisa existir localmente e cada arquivo declarado precisa estar no commit com o mesmo blob git dos bytes do ZIP.
 - Revisão adversarial do hardening: `-ExpectedBuildId` era opcional, então um release antigo e autoconsistente passava. Corrigido: obrigatório para pacote com runtime embutido.
+- Re-revisão do hardening: a forma de release era inferida só da presença de `runtime-manifest.json`, então um ZIP podia carregar `runtime/` sem o manifesto e escapar de `-ExpectedBuildId` e da comparação de commit. Corrigido: árvore `runtime/` sem manifesto é artefato irregular e qualquer árvore `runtime/` torna o pacote release-shaped.
+- Re-revisão do hardening: a cobertura só olhava `app/`, `extension/` e quatro arquivos nomeados, então um source extra fora dessas raízes passava. Corrigido: todo arquivo fora do contrato do runtime (`runtime/**`, `licenses/**`, `runtime-manifest.json`, `package-manifest.json`) precisa estar declarado no manifesto.
+- Re-revisão do hardening (introduzido por mim): o caminho declarado era interpolado sem escape em `cmd.exe /c`, permitindo execução de comando durante a verificação. Corrigido: os bytes empacotados são lidos do próprio ZIP e enviados ao stdin do git sem shell, e caminho com aspas é recusado.
+- Re-revisão do hardening: a detecção de duplicata não normalizava `./` nem `//`. Corrigido: nome canônico compartilhado entre duplicata e cobertura.
 - Um clique feito com a Mesa fora do ar não gera evento, porque o ledger vive na Mesa: por construção, nenhuma tentativa é registrada quando o serviço de registro está indisponível. O runbook exige conferir "Mesa conectada" e `runs = 0` antes de começar, e o painel mostra a linha da Mesa separadamente do resultado do preenchimento.
 
 ## 10. Confirmação de segurança
