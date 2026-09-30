@@ -195,6 +195,7 @@ def package_manifest(payload: dict, build_id: str = "c" * 40, *, drop=(), corrup
 
 
 def make_package(path: Path, entries: dict | None = None, base: dict | None = None, manifest="auto") -> Path:
+
     payload = dict(BASE_FILES if base is None else base)
     payload.update(entries or {})
     # Every contract fixture carries a valid manifest unless a test asks for a
@@ -209,6 +210,40 @@ def make_package(path: Path, entries: dict | None = None, base: dict | None = No
         for name, data in payload.items():
             archive.writestr(name, data)
     return path
+
+
+def repo_product_payload() -> dict:
+    """The committed product bytes of HEAD, for release-shaped fixtures.
+
+    Reading the commit rather than the worktree keeps these fixtures valid while
+    the checkout itself has work in progress.
+    """
+
+    listed = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "ls-files", "app", "extension"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    names = [name for name in listed if "__pycache__" not in name and not name.endswith(".pyc")]
+    names += [name for name in PRODUCT_FILES if (REPO_ROOT / name).is_file()]
+    return {
+        name: subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "show", f"HEAD:{name}"],
+            capture_output=True,
+            check=True,
+        ).stdout
+        for name in names
+    }
+
+
+def head_commit() -> str:
+    return subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
 
 
 class VerifierContractTests(unittest.TestCase):
@@ -331,15 +366,24 @@ class VerifierContractTests(unittest.TestCase):
     def test_verifies_every_runtime_file_against_the_runtime_manifest(self):
         payload = b"runtime payload"
 
-        good = make_package(self.tmp / "runtime-ok.zip", runtime_entries(payload))
-        result = self.verify(good, "-SkipSmoke")
+        # A release-shaped package must name a commit it really came from, so the
+        # product bytes here are the tracked ones and the manifest names HEAD.
+        build_id = head_commit()
+        entries = {**repo_product_payload(), **runtime_entries(payload)}
+        good = make_package(
+            self.tmp / "runtime-ok.zip", entries, manifest=package_manifest(entries, build_id)
+        )
+        result = self.verify(good, "-SkipSmoke", "-ExpectedBuildId", build_id)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(json.loads(result.stdout)["runtime_included"])
 
         corrupted = runtime_entries(payload)
         corrupted["runtime/python/python.exe"] = b"runtime payloaX"
-        bad = make_package(self.tmp / "runtime-ruim.zip", corrupted)
-        result = self.verify(bad, "-SkipSmoke")
+        corrupted = {**repo_product_payload(), **corrupted}
+        bad = make_package(
+            self.tmp / "runtime-ruim.zip", corrupted, manifest=package_manifest(corrupted, build_id)
+        )
+        result = self.verify(bad, "-SkipSmoke", "-ExpectedBuildId", build_id)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("python.exe", result.stderr + result.stdout)
 
@@ -454,7 +498,16 @@ class RealPackageContractTests(unittest.TestCase):
         self.assertEqual(packaged["key"], trusted_manifest()["key"])
         assert_trusted_extension_manifest(self, packaged)
 
-        result = powershell(VERIFIER, "-ZipPath", DIST_ZIP, "-SkipSmoke")
+        with zipfile.ZipFile(DIST_ZIP) as handle:
+            manifest = json.loads(handle.read("package-manifest.json").decode("utf-8"))
+        result = powershell(
+            VERIFIER,
+            "-ZipPath",
+            DIST_ZIP,
+            "-SkipSmoke",
+            "-ExpectedBuildId",
+            manifest["build_id"],
+        )
 
         self.assertEqual(result.returncode, 0, result.stderr)
 

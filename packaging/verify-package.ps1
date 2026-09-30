@@ -80,14 +80,19 @@ function Get-NormalizedEntryName {
 # and the licences stay under runtime-manifest.json, and the manifest itself is
 # not a source.
 $productPathPrefixes = @('app/', 'extension/')
-$productPathExact = @('START.cmd', 'README.md', 'LEIA-ME-OUTRO-PC.txt', 'scripts/scan-area-cdp.ps1')
+$productPathExact = @('start.cmd', 'readme.md', 'leia-me-outro-pc.txt', 'scripts/scan-area-cdp.ps1')
 
 function Test-CoveredProductPath {
     param([Parameter(Mandatory)][string]$Name)
+    # Case-insensitive and tolerant of a './' prefix: a disguised path must not
+    # smuggle an undeclared source past the coverage check.
+    $normalized = $Name
+    while ($normalized.StartsWith('./')) { $normalized = $normalized.Substring(2) }
+    $normalized = $normalized.ToLowerInvariant()
     foreach ($prefix in $productPathPrefixes) {
-        if ($Name.StartsWith($prefix)) { return $true }
+        if ($normalized.StartsWith($prefix)) { return $true }
     }
-    return $productPathExact -contains $Name
+    return $productPathExact -contains $normalized
 }
 
 function Get-EntrySha256 {
@@ -284,12 +289,11 @@ function Invoke-PackageSmoke {
         '--port', [string]$port,
         '--no-browser'
     )
-    # The smoke proves the extracted runtime reports the declared build, so it
-    # starts it with the manifest build id pinned.
+    # The smoke must measure the identity the extracted package derives on its
+    # own, so an ambient override is cleared rather than injected: pinning the
+    # expected value here would make the health comparison a tautology.
     $previousBuildId = $env:ATOS_TCE_BUILD_ID
-    if (-not [string]::IsNullOrWhiteSpace($ExpectedBuildId)) {
-        $env:ATOS_TCE_BUILD_ID = $ExpectedBuildId
-    }
+    $env:ATOS_TCE_BUILD_ID = ''
     try {
         $process = Start-Process -FilePath $launcher -ArgumentList $arguments -WorkingDirectory $DestinationRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
     } finally {
@@ -358,13 +362,22 @@ $smokeRoot = $null
 $smokeResult = $null
 try {
     $entries = @{}
+    $entryNames = New-Object System.Collections.Generic.List[string]
+    $seenNames = @{}
     $forbidden = New-Object System.Collections.ArrayList
     foreach ($entry in $archive.Entries) {
         $name = Get-NormalizedEntryName -Name $entry.FullName
         if ([string]::IsNullOrWhiteSpace($name)) { continue }
-        if (-not $entries.ContainsKey($name)) {
-            $entries[$name] = $entry
+        # A path that repeats under a different case is an irregular package: it
+        # would otherwise vanish from a case-insensitive lookup and smuggle an
+        # undeclared source past the coverage check.
+        $nameKey = $name.ToLowerInvariant()
+        if ($seenNames.ContainsKey($nameKey)) {
+            throw "Pacote com entrada duplicada (ou variação de caixa): $name"
         }
+        $seenNames[$nameKey] = $true
+        $entryNames.Add($name)
+        $entries[$name] = $entry
         $lower = $name.ToLowerInvariant()
         foreach ($prefix in $forbiddenPrefixes) {
             if ($lower.StartsWith($prefix)) {
@@ -519,7 +532,7 @@ try {
             throw "SHA-256 divergente para ${declaredPath}: manifesto $declaredHash, pacote $actualHash"
         }
     }
-    foreach ($name in @($entries.Keys)) {
+    foreach ($name in $entryNames) {
         if (-not (Test-CoveredProductPath -Name $name)) { continue }
         if (-not $declaredProductPaths.ContainsKey($name)) {
             throw "Source empacotado não declarado no package-manifest.json: $name"
@@ -531,6 +544,41 @@ try {
             throw "Build divergente: ExpectedBuildId = $expected / package build_id = $packageBuildId"
         }
     }
+    # A release artefact is only proven when its bytes are the commit it names.
+    # The in-ZIP manifest vouches for itself, so every declared product file is
+    # hashed with git's own rules and compared against that commit's blob: a
+    # rewritten manifest cannot authenticate bytes the commit never had, and a
+    # file that is not tracked at that commit cannot pass at all.
+    if ($runtimeIncluded) {
+        if ([string]::IsNullOrWhiteSpace($ExpectedBuildId)) {
+            throw 'Verificação de release exige -ExpectedBuildId <sha>: informe o commit esperado do artefato.'
+        }
+        & git -C $RepositoryRoot cat-file -e "$($packageBuildId)^{commit}" 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Proveniência não comprovada: o commit $packageBuildId não existe neste repositório."
+        }
+        foreach ($item in $declaredFiles) {
+            $relative = Get-NormalizedEntryName -Name ([string]$item.path)
+            $committed = @(& git -C $RepositoryRoot rev-parse "$($packageBuildId):$relative" 2>$null)
+            if ($committed.Count -eq 0 -or [string]::IsNullOrWhiteSpace([string]$committed[0])) {
+                throw "Proveniência não comprovada: $relative não está no commit $packageBuildId."
+            }
+            $entryFile = Join-Path ([IO.Path]::GetTempPath()) ('tce-entry-' + [guid]::NewGuid().ToString('N'))
+            try {
+                [IO.Compression.ZipFileExtensions]::ExtractToFile($entries[$relative], $entryFile, $true)
+                $hashCommand = 'git -C "{0}" hash-object --path={1} --stdin < "{2}"' -f $RepositoryRoot, $relative, $entryFile
+                $packaged = @(& cmd.exe /c $hashCommand 2>$null)
+            } finally {
+                if (Test-Path -LiteralPath $entryFile) { Remove-Item -LiteralPath $entryFile -Force -ErrorAction SilentlyContinue }
+            }
+            $committedBlob = ([string]$committed[0]).Trim()
+            $packagedBlob = if ($packaged.Count -gt 0) { ([string]$packaged[0]).Trim() } else { '' }
+            if ($packagedBlob -ne $committedBlob) {
+                throw "Proveniência não comprovada para ${relative}: commit $committedBlob, pacote $packagedBlob."
+            }
+        }
+    }
+
 
 
     if (-not $SkipSmoke) {

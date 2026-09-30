@@ -60,10 +60,11 @@ def product_payload() -> dict:
 def is_covered(name: str) -> bool:
     return name.startswith(COVERED_ROOTS) or name in COVERED_FILES
 
-def release_payload() -> dict:
+def release_payload(product: dict | None = None) -> dict:
+
     """A release-shaped payload: product sources plus a declared embedded runtime."""
 
-    payload = dict(product_payload())
+    payload = dict(product if product is not None else product_payload())
     declared = (
         ("runtime/python/python.exe", "python", b"binary"),
         ("licenses/README.md", "licenses", b"# licencas\n"),
@@ -87,6 +88,40 @@ def release_payload() -> dict:
         }
     ).encode("utf-8")
     return payload
+
+
+def repo_payload() -> dict:
+    """The committed product bytes of HEAD, for commit-backed checks.
+
+    Reading the commit rather than the worktree keeps these fixtures valid while
+    the checkout itself has work in progress.
+    """
+
+    listed = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "ls-files", "app", "extension"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    names = [name for name in listed if "__pycache__" not in name and not name.endswith(".pyc")]
+    names += [name for name in COVERED_FILES if (REPO_ROOT / name).is_file()]
+    return {
+        name: subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "show", f"HEAD:{name}"],
+            capture_output=True,
+            check=True,
+        ).stdout
+        for name in names
+    }
+
+
+def head_commit() -> str:
+    return subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
 
 
 def build_manifest(payload: dict, build_id: str, *, drop=(), corrupt=()) -> dict:
@@ -230,6 +265,21 @@ class PackageProvenanceTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("extension/extra.js", result.stdout + result.stderr)
 
+    def test_verifier_refuses_a_covered_source_with_a_disguised_path(self):
+        """Case and ./ prefixes must not smuggle a source past the coverage check."""
+
+        payload = product_payload()
+        manifest = build_manifest(payload, CURRENT_BUILD)
+        for disguise in ("APP/main.py", "./app/main.py"):
+            with self.subTest(disfarce=disguise):
+                disguised = dict(payload)
+                disguised[disguise] = b"# undeclared\n"
+                archive = make_package(self.tmp / f"disfarcado-{len(disguise)}.zip", disguised, manifest)
+
+                result = verify(archive, "-AllowMissingRuntime", "-SkipSmoke")
+
+                self.assertNotEqual(result.returncode, 0)
+
     def test_verifier_refuses_a_declared_file_that_is_absent(self):
         payload = product_payload()
         manifest = build_manifest(payload, CURRENT_BUILD)
@@ -284,6 +334,48 @@ class PackageProvenanceTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("source_dirty", result.stdout + result.stderr)
+
+    def test_release_verification_requires_the_expected_build(self):
+        dist_zip = REPO_ROOT / "dist" / "Atos-TCE-portable.zip"
+        if not dist_zip.is_file():
+            self.skipTest("dist/Atos-TCE-portable.zip ausente neste checkout")
+
+        result = verify(dist_zip, "-SkipSmoke")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ExpectedBuildId", result.stdout + result.stderr)
+
+    def test_verifier_refuses_release_bytes_that_differ_from_the_commit(self):
+        """A rewritten manifest cannot authenticate bytes the commit never had."""
+
+        product = repo_payload()
+        build_id = head_commit()
+        tampered = dict(product)
+        victim = next(name for name in sorted(tampered) if name.startswith("app/"))
+        tampered[victim] = tampered[victim] + b"\n# injected after the commit\n"
+        payload = release_payload(tampered)
+        manifest = build_manifest(tampered, build_id)
+        archive = make_package(self.tmp / "reescrito.zip", payload, manifest)
+
+        result = verify(archive, "-SkipSmoke", "-ExpectedBuildId", build_id)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(victim, result.stdout + result.stderr)
+
+    def test_verifier_refuses_release_bytes_missing_from_the_commit(self):
+        product = dict(repo_payload())
+        build_id = head_commit()
+        # Sorts before every real app/ path, so this file is the one the verifier
+        # reports when the rest of the tree is also clean or dirty.
+        product["app/aaa-untracked-extra.py"] = b"# never committed\n"
+        payload = release_payload(product)
+        manifest = build_manifest(product, build_id)
+        archive = make_package(self.tmp / "nao-commitado.zip", payload, manifest)
+
+        result = verify(archive, "-SkipSmoke", "-ExpectedBuildId", build_id)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("app/aaa-untracked-extra.py", result.stdout + result.stderr)
 
     def test_verifier_ignores_the_environment_build_pin_for_provenance(self):
         """The environment labels runs; it must not stand in for the manifest."""

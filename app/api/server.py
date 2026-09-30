@@ -85,14 +85,18 @@ def _reliability_build_id() -> str:
     """Identity the reliability ledger binds a run to.
 
     ``ATOS_TCE_BUILD_ID`` wins so a packaged runtime can be pinned to the same
-    identity as the qualification CLI. Next comes the checkout SHA, then the
-    packaged ``package-manifest.json``, so an extracted artefact still reports the
-    build it was produced from instead of an anonymous placeholder.
+    identity as the qualification CLI. Next comes the packaged
+    ``package-manifest.json``, so an extracted artefact reports the build it
+    contains even with no variable set and no checkout above it, and finally the
+    checkout SHA.
     """
 
     override = str(os.environ.get("ATOS_TCE_BUILD_ID") or "").strip()
     if override:
         return override
+    packaged = _packaged_build_id()
+    if packaged:
+        return packaged
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -103,11 +107,11 @@ def _reliability_build_id() -> str:
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
-        return _packaged_build_id() or UNKNOWN_BUILD_ID
+        return UNKNOWN_BUILD_ID
     sha = (result.stdout or "").strip()
     if result.returncode == 0 and sha:
         return sha
-    return _packaged_build_id() or UNKNOWN_BUILD_ID
+    return UNKNOWN_BUILD_ID
 
 
 def _packaged_build_id() -> str | None:
