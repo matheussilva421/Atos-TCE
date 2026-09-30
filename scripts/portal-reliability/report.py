@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import statistics
 import sys
 from pathlib import Path
@@ -23,6 +24,49 @@ from app.area_restrita.reliability import (  # noqa: E402 - after sys.path
     EVENTS_FILENAME,
     RELIABILITY_DIRNAME,
 )
+
+#: Codes the report may echo. Anything else collapses to OTHER, so a ledger
+#: that was tampered with can never push free text into a report.
+KNOWN_RESULT_CODES: frozenset[str] = frozenset(
+    {
+        "SUCCEEDED",
+        "FORM_NOT_AVAILABLE",
+        "FORM_AMBIGUOUS",
+        "IDENTITY_AMBIGUOUS",
+        "IDENTITY_MISMATCH",
+        "IDENTITY_MISMATCH_AFTER_WRITE",
+        "IDENTITY_MISSING",
+        "PROCESS_MISSING",
+        "STALE_GENERATION",
+        "REREAD_OK",
+        "REREAD_INCOMPLETE",
+        "BLOCKED",
+        "FAILED",
+        "PLAN_READY",
+        "REQUEST_CREATED",
+        "FORM_DETECTED",
+        "ROW_ACTION_NOT_FOUND",
+        "INTERESTED_NOT_FOUND",
+        "AMBIGUOUS",
+        "ACCESS_DENIED",
+        "SESSION_EXPIRED",
+        "TARGET_IDENTITY_MISMATCH",
+        "TRANSITION_TIMEOUT",
+        "UNKNOWN",
+        "UNFINISHED",
+        "OTHER",
+    }
+)
+
+#: A build id this report is willing to echo back.
+SAFE_BUILD = re.compile(r"^[A-Za-z0-9_.+\-]{1,128}$")
+
+
+def safe_code(value: object) -> str:
+    """Collapse any code that is not part of the known vocabulary."""
+
+    text = str(value or "").strip().upper()
+    return text if text in KNOWN_RESULT_CODES else "OTHER"
 
 
 def read_runs(events_path: Path) -> list[dict]:
@@ -59,12 +103,12 @@ def read_runs(events_path: Path) -> list[dict]:
             continue
         if kind == "run_finished":
             run["passed"] = bool(event.get("passed"))
-            run["result_code"] = str(event.get("result_code") or "UNKNOWN")
+            run["result_code"] = safe_code(event.get("result_code") or "UNKNOWN")
             run["finished"] = float(event.get("ts") or 0.0)
         elif kind == "intervention":
             run["intervened"] = True
         elif kind == "transition":
-            run["codes"].append(str(event.get("result_code") or "UNKNOWN"))
+            run["codes"].append(safe_code(event.get("result_code") or "UNKNOWN"))
     return [runs[run_id] for run_id in order]
 
 
@@ -142,8 +186,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--format", choices=("json", "markdown"), default="json")
     args = parser.parse_args(argv)
 
+    if args.build is not None and not SAFE_BUILD.fullmatch(args.build.strip()):
+        print(json.dumps({"ok": False, "error": "build inválido"}, sort_keys=True))
+        return 2
+
     report = build_report(
-        data_root=args.data_root, capability=args.capability, build=args.build
+        data_root=args.data_root,
+        capability=args.capability,
+        build=args.build.strip() if args.build is not None else None,
     )
     if args.format == "markdown":
         print(render_markdown(report))

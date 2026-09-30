@@ -25,8 +25,9 @@ if str(REPO_ROOT) not in sys.path:
 
 from app.area_restrita.reliability import (  # noqa: E402 - after sys.path
     CAPABILITIES,
-    ENVIRONMENTS,
     MIN_QUALIFICATION_RUNS,
+    PRODUCTION_ENVIRONMENT,
+    QUALIFICATION_ENVIRONMENT,
     ReliabilityError,
     ReliabilityRecorder,
 )
@@ -77,7 +78,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", required=True)
     parser.add_argument("--capability", required=True, choices=CAPABILITIES)
-    parser.add_argument("--environment", required=True, choices=ENVIRONMENTS)
+    # Only the two real environments can ever gate a capability: an offline
+    # sequence never proves a real qualification.
+    parser.add_argument(
+        "--environment",
+        required=True,
+        choices=(QUALIFICATION_ENVIRONMENT, PRODUCTION_ENVIRONMENT),
+    )
     parser.add_argument("--required", type=int, default=MIN_QUALIFICATION_RUNS)
     parser.add_argument("--build", default=None)
     args = parser.parse_args(argv)

@@ -485,6 +485,13 @@ class QualificationCliTests(unittest.TestCase):
         self.assertEqual(after["capabilities"]["open_act"]["state"], "UNQUALIFIED")
         self.assertNotIn("manual_form_fill", after["capabilities"])
 
+    def test_the_cli_refuses_a_non_real_environment(self):
+        self.seed(passes=20)
+
+        result = self.qualify(environment="offline")
+
+        self.assertEqual(result.returncode, 2)
+
 
 class ReportCliTests(unittest.TestCase):
     """The report is aggregate-only and never copies ledger text."""
@@ -610,6 +617,57 @@ class ReportCliTests(unittest.TestCase):
         self.assertNotIn("102390", result.stdout)
         self.assertNotIn("pessoa exemplo", result.stdout)
         self.assertIn("| tentativas | 3 |", result.stdout)
+
+    def test_report_collapses_unknown_codes_instead_of_echoing_them(self):
+        path = self.data / "reliability" / "events.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lines = [
+            json.dumps(
+                {
+                    "type": "run_start",
+                    "run_id": "x-0",
+                    "capability": "open_act",
+                    "environment": "real-dev",
+                    "build_id": "f" * 40,
+                    "ts": 1.0,
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "transition",
+                    "run_id": "x-0",
+                    "boundary": "b",
+                    "result_code": "PESSOAEXEMPLO",
+                    "ts": 1.1,
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "run_finished",
+                    "run_id": "x-0",
+                    "passed": False,
+                    "result_code": "1023902026",
+                    "ts": 1.2,
+                }
+            ),
+        ]
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        result = self.report()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["outcome_codes"], {"OTHER": 1})
+        self.assertEqual(payload["boundary_codes"], {"OTHER": 1})
+        markdown = self.report(fmt="markdown")
+        self.assertNotIn("PESSOAEXEMPLO", markdown.stdout)
+        self.assertNotIn("1023902026", markdown.stdout)
+        self.assertIn("result_code:OTHER", markdown.stdout)
+
+    def test_report_refuses_an_unsafe_build_filter(self):
+        result = self.report(build="102390/2026")
+
+        self.assertEqual(result.returncode, 2)
 
 
 
