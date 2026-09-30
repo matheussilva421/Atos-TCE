@@ -168,3 +168,36 @@ export async function pollForTargetForm({
 
   return null;
 }
+export const MANUAL_FILL_LABELS = Object.freeze({
+  UNQUALIFIED: "Indisponível — não qualificado",
+  EXPERIMENTAL: "Experimental",
+  QUALIFIED: "Qualificado",
+  PRODUCTION: "Produção",
+});
+
+/** Map a raw capability state to the four states the spec allows. */
+export function normalizeCapabilityState(value) {
+  const state = String(value ?? "").trim().toUpperCase();
+  return Object.hasOwn(MANUAL_FILL_LABELS, state) ? state : "UNQUALIFIED";
+}
+
+/**
+ * Describe assisted manual fill exactly as the spec's UX section requires:
+ * an UNQUALIFIED capability is never offered as a normal operator action.
+ */
+export function describeManualFillCapability(capabilities) {
+  const state = normalizeCapabilityState(capabilities?.manual_form_fill?.state);
+  return {
+    state,
+    enabled: state !== "UNQUALIFIED",
+    label: MANUAL_FILL_LABELS[state],
+  };
+}
+
+/**
+ * Automatic navigation is never offered to the operator during Phase 1,
+ * whatever the ledger says about next_process.
+ */
+export function describeNextProcessCapability() {
+  return { state: "INDISPONIVEL", enabled: false, label: "Indisponível" };
+}

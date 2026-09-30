@@ -277,5 +277,16 @@ export function createApi({
         error: response.ok ? null : response.error ?? "request_failed",
       };
     },
+
+    /** Read-only Area Restrita capability status (Reliability Reset). */
+    async reliabilityStatus() {
+      const response = await authenticatedRequest("/api/v1/portal/reliability");
+      return {
+        ok: response.ok,
+        status: response.status,
+        capabilities: response.ok ? response.payload?.capabilities ?? {} : null,
+        error: response.ok ? null : response.error ?? "request_failed",
+      };
+    },
   };
 }

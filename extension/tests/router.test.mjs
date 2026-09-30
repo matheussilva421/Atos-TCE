@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { executeCommand, installRouter, scanAreaPages } from "../background/router.js";
-import { MESSAGE_TYPES } from "../lib/protocol.js";
+import { COMMAND_TYPES, MESSAGE_TYPES } from "../lib/protocol.js";
 import { fakeChrome } from "./helpers.mjs";
 
 const PORTAL = "https://novaarearestrita.tce.rn.gov.br";
@@ -1700,4 +1700,34 @@ test("scanAreaPages freezes the scope and the marker of the first page", async (
   assert.equal(snapshot.role, "list");
   assert.equal(snapshot.source_scope, "sector_finalistic");
   assert.deepEqual(snapshot.marker, { label: "M", value: "6189" });
+});
+
+test("the router serves the reliability status through the service worker", async () => {
+  const chromeApi = fakeChrome();
+  const capabilities = {
+    manual_form_fill: { state: "UNQUALIFIED", real_dev_streak: 0, portable_streak: 0 },
+  };
+  let calls = 0;
+  installRouter({
+    api: {
+      reliabilityStatus: async () => {
+        calls += 1;
+        return { ok: true, status: 200, capabilities };
+      },
+      nextCommand: async () => ({ ok: true, command: null }),
+      reportResult: async () => {},
+    },
+    chromeApi,
+  });
+
+  const response = await sendRuntime(chromeApi, { type: MESSAGE_TYPES.RELIABILITY_STATUS });
+
+  assert.equal(calls, 1);
+  assert.equal(response.ok, true);
+  assert.deepEqual(response.capabilities, capabilities);
+});
+
+test("the reliability status route is a request, never a queued command", () => {
+  assert.equal(Object.hasOwn(MESSAGE_TYPES, "RELIABILITY_STATUS"), true);
+  assert.equal(Object.hasOwn(COMMAND_TYPES, "RELIABILITY_STATUS"), false);
 });

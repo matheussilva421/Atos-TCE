@@ -7,7 +7,9 @@
 import { MESA_ORIGIN, MESSAGE_TYPES, PORTAL_ORIGIN } from "../lib/protocol.js";
 import {
   describeMesaStatus,
+  describeManualFillCapability,
   describeNextActOutcome,
+  describeNextProcessCapability,
   pollForNextActCommand,
   hasFormIdentity,
   retainLastConfirmedIdentity,
@@ -18,6 +20,7 @@ let currentFormAvailable = false;
 let nextActInProgress = false;
 let acceptedNextTarget = null;
 let nextActFeedback = null;
+let reliabilityCapabilities = null;
 
 function setState(elementId, dotId, text, tone) {
   const label = document.getElementById(elementId);
@@ -31,6 +34,30 @@ async function refreshMesa() {
   const state = describeMesaStatus(status);
   setState("mesa-status", "mesa-dot", state.label, state.tone);
   return state;
+}
+
+/**
+ * The sidepanel never decides a capability's state: it reads the read-only
+ * ledger summary from the Mesa and reflects it on the operator controls.
+ */
+async function refreshReliability() {
+  try {
+    const outcome = await globalThis.chrome.runtime.sendMessage({
+      type: MESSAGE_TYPES.RELIABILITY_STATUS,
+    });
+    reliabilityCapabilities = outcome?.ok === true ? outcome.capabilities ?? {} : null;
+  } catch {
+    reliabilityCapabilities = null;
+  }
+  updateCapabilityStatus();
+  return reliabilityCapabilities;
+}
+
+function updateCapabilityStatus() {
+  const element = document.getElementById("capability-status");
+  const manualFill = describeManualFillCapability(reliabilityCapabilities);
+  if (element) element.textContent = `Preencher formulário atual: ${manualFill.label}`;
+  updateActionButtons();
 }
 
 async function refreshPortal() {
@@ -47,6 +74,7 @@ async function refresh() {
   const diagnostic = document.getElementById("diagnostic");
   try {
     const mesa = await refreshMesa();
+    await refreshReliability();
     await refreshPortal();
     await refreshCurrentForm();
     if (!nextActFeedback) {
@@ -90,10 +118,22 @@ async function refreshCurrentForm() {
 function updateActionButtons() {
   const fillButton = document.getElementById("fill-current");
   const nextButton = document.getElementById("next-process");
-  if (fillButton) fillButton.disabled = !currentFormAvailable || nextActInProgress || Boolean(acceptedNextTarget);
+  const manualFill = describeManualFillCapability(reliabilityCapabilities);
+  const nextProcess = describeNextProcessCapability(reliabilityCapabilities);
+  if (fillButton) {
+    fillButton.disabled =
+      !manualFill.enabled || !currentFormAvailable || nextActInProgress || Boolean(acceptedNextTarget);
+    fillButton.textContent = manualFill.enabled
+      ? `Preencher formulário atual — ${manualFill.label}`
+      : "Preencher formulário atual";
+  }
   if (nextButton) {
+    // Phase 1: automatic navigation is never offered to the operator.
     nextButton.disabled =
-      !hasFormIdentity(lastConfirmedFormIdentity) || nextActInProgress || Boolean(acceptedNextTarget);
+      !nextProcess.enabled ||
+      !hasFormIdentity(lastConfirmedFormIdentity) ||
+      nextActInProgress ||
+      Boolean(acceptedNextTarget);
   }
 }
 

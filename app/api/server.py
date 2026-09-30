@@ -28,7 +28,9 @@ from __future__ import annotations
 import ipaddress
 import json
 import mimetypes
+import os
 import re
+import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -45,6 +47,7 @@ from ..area_restrita import (
     PORTAL_ROLES,
 )
 from ..area_restrita import cdp_fallback
+from ..area_restrita.reliability import ReliabilityRecorder
 from ..area_restrita.fill_service import (
     OPEN_ACT_ACTIONS,
     OPEN_ACT_SCREENS,
@@ -73,6 +76,34 @@ DEFAULT_PORT = 18743
 WEB_ROOT = Path(__file__).resolve().parent.parent / "web"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MAX_BODY_BYTES = 8 * 1024 * 1024
+
+#: Fallback build identity when neither the override nor the checkout resolves.
+UNKNOWN_BUILD_ID = "unknown-build"
+
+
+def _reliability_build_id() -> str:
+    """Identity the reliability ledger binds a run to.
+
+    ``ATOS_TCE_BUILD_ID`` wins so a packaged runtime can be pinned to the same
+    identity as the qualification CLI; otherwise the checkout SHA is used.
+    """
+
+    override = str(os.environ.get("ATOS_TCE_BUILD_ID") or "").strip()
+    if override:
+        return override
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return UNKNOWN_BUILD_ID
+    sha = (result.stdout or "").strip()
+    return sha if result.returncode == 0 and sha else UNKNOWN_BUILD_ID
 
 #: Command types the Mesa may queue for the thin extension. There is never a
 #: submit type: the final completion click stays with the operator.
@@ -266,6 +297,7 @@ ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/acquisition/plan"), "handle_acquisition_plan", "public"),
     Route(re.compile(r"/api/v1/jobs/(?P<job_id>\d+)"), "handle_job_status", "public"),
     Route(re.compile(r"/api/v1/bridge/status"), "handle_bridge_status", "extension"),
+    Route(re.compile(r"/api/v1/portal/reliability"), "handle_portal_reliability", "extension"),
     Route(re.compile(r"/api/v1/extension/commands/next"), "handle_command_next", "extension"),
     Route(
         re.compile(r"/api/v1/extension/commands/(?P<command_id>\d+)/status"),
@@ -348,6 +380,7 @@ class MesaServer(ThreadingHTTPServer):
         self._fill: FillService | None = None
         self._archive: ArchiveManager | None = None
         self._navigation: NavigationService | None = None
+        self._reliability_build_id: str | None = None
 
     @property
     def analysis(self) -> AnalysisService:
@@ -356,6 +389,14 @@ class MesaServer(ThreadingHTTPServer):
         if self._analysis is None:
             self._analysis = AnalysisService(self.store, self.data_root)
         return self._analysis
+
+    @property
+    def reliability_build_id(self) -> str:
+        """Build identity the reliability ledger binds runs to (resolved once)."""
+
+        if self._reliability_build_id is None:
+            self._reliability_build_id = _reliability_build_id()
+        return self._reliability_build_id
 
     @property
     def fill(self) -> FillService:
@@ -602,6 +643,25 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
 
     def handle_health(self, query: dict[str, list[str]]) -> None:
         self._send_json(views.health_payload(self.mesa.store, self.mesa.data_root))
+
+    def handle_portal_reliability(self, query: dict[str, list[str]]) -> None:
+        """Read-only capability state: no identities, no events, no mutation."""
+
+        if self._require_extension() is None:
+            return
+        recorder = ReliabilityRecorder(self.mesa.data_root, self.mesa.reliability_build_id)
+        self._send_json(
+            {
+                "capabilities": {
+                    name: {
+                        "state": entry["state"],
+                        "real_dev_streak": entry["real_dev_streak"],
+                        "portable_streak": entry["portable_streak"],
+                    }
+                    for name, entry in recorder.capabilities().items()
+                }
+            }
+        )
 
     def handle_storage(self, query: dict[str, list[str]]) -> None:
         self._send_json(views.storage_payload(self.mesa.store, self.mesa.data_root))

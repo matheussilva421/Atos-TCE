@@ -41,3 +41,15 @@ test("the sidepanel never includes a target identity in its request", () => {
   assert.match(source, /payload:\s*\{\s*identity:\s*lastConfirmedFormIdentity\s*\}/u);
   assert.doesNotMatch(source, /target_identity\s*:/u);
 });
+
+test("the sidepanel gates the operator UI with the capability status", () => {
+  assert.match(source, /MESSAGE_TYPES\.RELIABILITY_STATUS/u);
+  assert.match(source, /describeManualFillCapability/u);
+  assert.match(source, /describeNextProcessCapability/u);
+  assert.match(source, /nextButton\.disabled\s*=/u);
+  assert.match(page, /id="capability-status"/u);
+});
+
+test("the sidepanel offers no hidden bypass for an unqualified capability", () => {
+  assert.doesNotMatch(source, /bypass|forceEnabled|overrideQualification/iu);
+});

@@ -20,6 +20,7 @@ export const MESSAGE_TYPES = Object.freeze({
   REQUEST_MANUAL_FILL: "REQUEST_MANUAL_FILL",
   REQUEST_NEXT_ACT: "REQUEST_NEXT_ACT",
   READ_NEXT_ACT_STATUS: "READ_NEXT_ACT_STATUS",
+  RELIABILITY_STATUS: "RELIABILITY_STATUS",
 });
 
 /** Command types the Mesa may queue. There is still no submit type. */

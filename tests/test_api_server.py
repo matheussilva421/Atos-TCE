@@ -19,6 +19,7 @@ from app.api.bridge import Bridge, TRUSTED_EXTENSION_ID
 from app.api.server import serve
 from app.archive.legacy_import import blob_path, sha256_file
 from app.area_restrita import cdp_fallback
+from app.area_restrita.reliability import ReliabilityRecorder
 from app.econtas.legacy_queue import read_frozen_queue
 from app.econtas.service import AcquisitionService
 from app.core.models import DocumentRecord, FieldRecord, ProcessRecord
@@ -2222,6 +2223,68 @@ class ArchiveRouteTests(ApiTestCase):
         )
         self.assertEqual(status, 404)
         self.assertEqual(payload["error"], "process_not_found")
+
+
+class PortalReliabilityRouteTests(ApiTestCase):
+    def test_reliability_endpoint_returns_only_sanitized_capability_state(self):
+        headers = self.register_extension()
+        status, _headers, payload = self.call_json("/api/v1/portal/reliability", headers=headers)
+
+        self.assertEqual(status, 200, payload)
+        self.assertEqual(set(payload), {"capabilities"})
+        capabilities = payload["capabilities"]
+        self.assertEqual(
+            set(capabilities),
+            {
+                "manual_form_fill",
+                "open_act",
+                "select_interested",
+                "return_to_list",
+                "pagination",
+                "next_process",
+                "area_restrita_end_to_end",
+            },
+        )
+        for name, entry in capabilities.items():
+            self.assertEqual(set(entry), {"state", "real_dev_streak", "portable_streak"}, name)
+            self.assertEqual(entry["state"], "UNQUALIFIED", name)
+            self.assertEqual(entry["real_dev_streak"], 0, name)
+
+    def test_reliability_endpoint_has_no_identity_or_event_payloads(self):
+        headers = self.register_extension()
+        recorder = ReliabilityRecorder(self.data_root, "test-build")
+        run_id = recorder.start("manual_form_fill", "real-dev", browser_session_id="session-sanitized")
+        recorder.transition(
+            run_id,
+            boundary="fill_command_completed",
+            state_before="FORM",
+            state_after="FORM_FILLED",
+            result_code="SUCCEEDED",
+            expected_identity={"processKey": "102390/2026", "interestedNormalized": "pessoa exemplo"},
+            observed_identity={"processKey": "102390/2026", "interestedNormalized": "pessoa exemplo"},
+        )
+        recorder.finish(run_id, passed=True, result_code="SUCCEEDED")
+
+        status, _headers, payload = self.call_json("/api/v1/portal/reliability", headers=headers)
+        self.assertEqual(status, 200, payload)
+        raw = json.dumps(payload)
+        self.assertNotIn("102390/2026", raw)
+        self.assertNotIn("pessoa exemplo", raw)
+        self.assertNotIn("events", raw)
+        self.assertEqual(payload["capabilities"]["manual_form_fill"]["real_dev_streak"], 1)
+        self.assertEqual(payload["capabilities"]["manual_form_fill"]["state"], "UNQUALIFIED")
+
+    def test_reliability_endpoint_requires_the_registered_extension(self):
+        self.assertEqual(self.status_of("/api/v1/portal/reliability"), 401)
+        wrong = {
+            "Origin": EXTENSION_ORIGIN,
+            "Authorization": "Bearer not-a-token",
+            "X-TCE-Client": "unknown-client",
+        }
+        self.assertEqual(self.status_of("/api/v1/portal/reliability"), 401)
+        status, _headers, _payload = self.call_json("/api/v1/portal/reliability", headers=wrong)
+        self.assertEqual(status, 401)
+
 
 
 if __name__ == "__main__":

@@ -1025,6 +1025,13 @@ export function installRouter({
         .catch((error) => sendResponse({ ok: false, error: String(error?.message ?? error) }));
       return true;
     }
+    if (message?.type === MESSAGE_TYPES.RELIABILITY_STATUS) {
+      api
+        .reliabilityStatus()
+        .then((outcome) => sendResponse(outcome))
+        .catch((error) => sendResponse({ ok: false, status: 0, error: String(error?.message ?? error) }));
+      return true;
+    }
     if (message?.type !== MESSAGE_TYPES.POLL_COMMANDS) return undefined;
     poll()
       .then((outcome) => sendResponse(outcome))
