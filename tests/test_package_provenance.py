@@ -16,6 +16,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 import unittest
 import zipfile
 from pathlib import Path
@@ -37,6 +38,56 @@ COVERED_FILES = (
     "LEIA-ME-OUTRO-PC.txt",
     "scripts/scan-area-cdp.ps1",
 )
+
+#: A stand-in for the packaged runtime. It answers /api/v1/health with a build id
+#: of its own choosing, so a test can prove the smoke refuses an artefact whose
+#: extracted runtime does not report the manifest build. It is only ever run from
+#: a throwaway extraction made by the verifier.
+FAKE_APP_MAIN = '''\
+import json
+import os
+import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+def argument(name, default=None):
+    if name in sys.argv:
+        return sys.argv[sys.argv.index(name) + 1]
+    return default
+
+
+port = int(argument("--port", "0"))
+data_root = argument("--data-root", os.path.join(os.getcwd(), "smoke-data"))
+os.makedirs(data_root, exist_ok=True)
+open(os.path.join(data_root, "atos-tce.db"), "wb").close()
+
+extract_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+with open(os.path.join(extract_root, "fake-health.pid"), "w", encoding="utf-8") as handle:
+    handle.write(str(os.getpid()))
+
+state = {}
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = json.dumps({"status": "ok", "build_id": "0" * 40}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        # One answered health probe is all the smoke needs; leaving right after
+        # keeps this stand-in from outliving the verification.
+        threading.Thread(target=state["server"].shutdown, daemon=True).start()
+
+    def log_message(self, *args):
+        pass
+
+
+state["server"] = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+state["server"].serve_forever()
+'''
 
 
 def product_payload() -> dict:
@@ -590,6 +641,68 @@ class PackageProvenanceTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("irregular", (result.stdout + result.stderr).lower())
+
+    def test_verifier_refuses_a_runtime_that_reports_a_foreign_build_id(self):
+        """The smoke must fail when the extracted runtime reports another build."""
+
+        payload = dict(product_payload(), **{"app/main.py": FAKE_APP_MAIN.encode("utf-8")})
+        manifest = build_manifest(payload, CURRENT_BUILD)
+        archive = make_package(self.tmp / "runtime-estranho.zip", payload, manifest)
+        extract = self.tmp / "smoke-extract"
+        stdout = self.tmp / "verify-stdout.log"
+        stderr = self.tmp / "verify-stderr.log"
+        self.addCleanup(self._release_extraction, extract)
+
+        # Output goes to files rather than pipes: a stand-in runtime that outlives
+        # the verifier would otherwise hold the pipe open and hang the read.
+        with stdout.open("wb") as out, stderr.open("wb") as err:
+            result = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(VERIFIER),
+                    "-ZipPath",
+                    str(archive),
+                    "-AllowMissingRuntime",
+                    "-ExpectedBuildId",
+                    CURRENT_BUILD,
+                    "-ExtractRoot",
+                    str(extract),
+                    "-HealthTimeoutSeconds",
+                    "60",
+                ],
+                stdout=out,
+                stderr=err,
+                cwd=str(REPO_ROOT),
+                env=powershell_env(),
+                timeout=240,
+            )
+        output = stdout.read_text(encoding="utf-8", errors="replace") + stderr.read_text(
+            encoding="utf-8", errors="replace"
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Runtime build_id", output)
+
+    def _release_extraction(self, extract: Path) -> None:
+        """Remove the smoke extraction once the stand-in drops its log handles.
+
+        The verifier redirects the launcher output into the extraction, so those
+        files stay locked for a moment after the stand-in has answered and left.
+        """
+
+        deadline = time.monotonic() + 30
+        while extract.exists() and time.monotonic() < deadline:
+            try:
+                shutil.rmtree(extract)
+                return
+            except OSError:
+                time.sleep(0.5)
 
 
 if __name__ == "__main__":
