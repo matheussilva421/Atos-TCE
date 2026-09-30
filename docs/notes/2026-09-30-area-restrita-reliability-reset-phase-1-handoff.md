@@ -2,7 +2,7 @@
 
 Data: 2026-09-30
 Branch: `codex/area-restrita-reliability-reset`
-HEAD de código: `b7a9f2f` (este handoff é o commit seguinte, na mesma branch)
+HEAD de código: `848ce38` (este handoff é o commit seguinte, na mesma branch)
 Base da reconciliação: `9fa3465` (`origin/codex/area-restrita-reliability-reset-spec`)
 
 ## 1. Reconciliação das branches
@@ -41,7 +41,7 @@ Nota: `docs/notes/2026-09-30-area-restrita-runtime-source.md`.
 ```text
 python -m unittest discover -s tests -p "test_*.py" -q  -> 677 OK
 npm test --prefix extension                             -> 208/208
-node --test app/web/tests/*.test.mjs                     -> 33/33
+node --test app/web/tests/*.test.mjs                     -> 34/34
 work\tce-extractor\verify-project.ps1                   -> 1260 executados, 1258 pass, 0 fail, 2 skip
 git diff --check                                         -> limpo
 ```
@@ -60,6 +60,7 @@ git diff --check                                         -> limpo
 | 2 (fix de review) | `f9b4315` | leitura pura não cria estado local |
 | 3 (fix de review) | `bf438f9` | snapshot sanitizado na criação, rota/refs/screen validados, membership de AR-1 durável |
 | 4 (fix de review) | `b7a9f2f` | CLI só aceita ambientes reais; relatório colapsa códigos desconhecidos e valida `--build` |
+| revisão final (fix) | `848ce38` | Mesa sem `Próximo processo` na Phase 1, recusa de AR-1 contada como falha, ledger com terminal único sob concorrência, bootstrap de `EXPERIMENTAL` |
 
 ### O que ficou implementado
 
@@ -74,9 +75,9 @@ git diff --check                                         -> limpo
 ## 5. Testes executados (estado atual, HEAD `3eca37e`)
 
 ```text
-python -m unittest discover -s tests -p "test_*.py" -q  -> 725 OK
+python -m unittest discover -s tests -p "test_*.py" -q  -> 736 OK
 npm test --prefix extension                             -> 221/221
-node --test app/web/tests/*.test.mjs                     -> 33/33
+node --test app/web/tests/*.test.mjs                     -> 34/34
 work\tce-extractor\verify-project.ps1                   -> 1260 executados, 1258 pass, 0 fail, 2 skip
 git diff --check                                         -> limpo
 ```
@@ -102,6 +103,12 @@ Login, seleção do marcador e o clique final **Complementar Ato** continuam hum
 Estado local de capability (`data/reliability/capabilities.json`): `manual_form_fill = EXPERIMENTAL` (streaks 0/0), marcado quando o contrato offline AR-1 ficou verde, com o SHA do build na razão. Isso **não** é qualificação.
 
 ## 7. Runbook para destravar a Task 5
+
+0. Em uma raiz de dados limpa a capability nasce `UNQUALIFIED`, então habilite o AR-1 para a sequência supervisionada (isso declara EXPERIMENTAL, não qualifica):
+
+```powershell
+python scripts/portal-reliability/capability-state.py --data-root data --capability manual_form_fill --experimental --build <HEAD>
+```
 
 1. Congelar o build (não alterar código durante a sequência):
 
@@ -170,6 +177,8 @@ python scripts/portal-reliability/qualification.py --data-root <portable-data-ro
 - O ambiente da execução é um rótulo gravado pelo runtime (`ATOS_TCE_RELIABILITY_ENVIRONMENT`), não algo não-forjável; um `real-dev` mal rotulado poderia, em tese, contar para o gate. É o modelo que o spec define e o ledger é local de operador único.
 - `docker`/`zip` não participam; o pacote portátil NÃO deve incluir o controlador experimental durante a Phase 1 (garantido pelo builder e agora também pelo verifier).
 - `git diff --check` pega fim de linha; uma escrita via PowerShell com `WriteAllLines` já introduziu CRLF uma vez e foi corrigida.
+- A sequência conta apenas tentativas que chegaram ao backend: uma recusa de identidade/processo na criação do pedido já vira execução falha, mas uma falha de **detecção no lado da extensão** (nenhum formulário, ou dois formulários visíveis, no momento da leitura) ainda não gera evento, porque o plano deriva o `run_id` do pedido criado. Enquanto isso não for fechado, o operador deve reiniciar a contagem manualmente quando a detecção falhar; a alternativa (registrar a tentativa antes da detecção) exige superfície nova e fica para a Phase 2.
+- A UI da Mesa também deixou de oferecer `Próximo processo` durante a Phase 1; o endpoint continua existindo para o tooling supervisionado de benchmark (Task 7), como o plano prevê.
 
 ## 10. Confirmação de segurança
 
