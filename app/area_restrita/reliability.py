@@ -23,6 +23,7 @@ import json
 import os
 import re
 import secrets
+import threading
 import time
 import uuid
 from collections.abc import Mapping, Sequence
@@ -57,6 +58,21 @@ MIN_QUALIFICATION_RUNS = 20
 CODE_PATTERN = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:\-]{1,128}$")
 MAX_REASON_LENGTH = 512
+
+#: One lock per local ledger, so a check-then-append is atomic inside the
+#: threaded Mesa: a run can never gain a second terminal event.
+_LOCKS_GUARD = threading.Lock()
+_ROOT_LOCKS: dict[str, threading.RLock] = {}
+
+
+def _lock_for(root: Path) -> threading.RLock:
+    key = os.path.abspath(str(root))
+    with _LOCKS_GUARD:
+        lock = _ROOT_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _ROOT_LOCKS[key] = lock
+        return lock
 
 RELIABILITY_DIRNAME = "reliability"
 EVENTS_FILENAME = "events.jsonl"
@@ -214,14 +230,19 @@ class ReliabilityRecorder:
 
         if self._key is not None:
             return self._key
-        self._ensure_root()
-        if self._key_path.exists():
-            self._key = bytes.fromhex(self._key_path.read_text(encoding="utf-8").strip())
-        else:
-            key = secrets.token_bytes(32)
-            self._key_path.write_text(key.hex(), encoding="utf-8")
-            self._key = key
-        return self._key
+        with _lock_for(self._root):
+            if self._key is not None:
+                return self._key
+            self._ensure_root()
+            if self._key_path.exists():
+                self._key = bytes.fromhex(
+                    self._key_path.read_text(encoding="utf-8").strip()
+                )
+            else:
+                key = secrets.token_bytes(32)
+                self._key_path.write_text(key.hex(), encoding="utf-8")
+                self._key = key
+            return self._key
 
     # ------------------------------------------------------------- recording
 
@@ -286,18 +307,22 @@ class ReliabilityRecorder:
 
     def finish(self, run_id: str, *, passed: bool, result_code: str) -> None:
         run_id = _require_run_id(run_id)
-        if self._has_finished(run_id):
-            raise ReliabilityError(
-                f"execução {run_id} já tem resultado terminal; um novo finish foi recusado"
+        if not isinstance(passed, bool):
+            # "false" is not False: a coerced string would silently record a pass.
+            raise ReliabilityError("passed precisa ser um booleano real")
+        with _lock_for(self._root):
+            if self._has_finished(run_id):
+                raise ReliabilityError(
+                    f"execução {run_id} já tem resultado terminal; um novo finish foi recusado"
+                )
+            self._append(
+                {
+                    "type": "run_finished",
+                    "run_id": run_id,
+                    "passed": passed,
+                    "result_code": _require_code(result_code, "result_code"),
+                }
             )
-        self._append(
-            {
-                "type": "run_finished",
-                "run_id": run_id,
-                "passed": bool(passed),
-                "result_code": _require_code(result_code, "result_code"),
-            }
-        )
 
     # ------------------------------------------------------------- state API
 
@@ -419,8 +444,11 @@ class ReliabilityRecorder:
     ) -> dict[str, Any]:
         capability = _require_member(capability, CAPABILITIES, "capability")
         environment = _require_member(environment, ENVIRONMENTS, "environment")
-        if int(required) < 1:
-            raise ReliabilityError("required precisa ser >= 1")
+        if int(required) < MIN_QUALIFICATION_RUNS:
+            # A read must never be able to answer "qualified" below the spec gate.
+            raise ReliabilityError(
+                f"required precisa ser >= {MIN_QUALIFICATION_RUNS} (recebido: {required})"
+            )
         streak, build_id = self._streak(capability, environment)
         qualified = streak >= int(required)
         return {
@@ -546,7 +574,9 @@ class ReliabilityRecorder:
                     raise ReliabilityError(
                         f"ledger com resultado terminal duplicado para a execução {run_id}"
                     )
-                run["passed"] = bool(event.get("passed"))
+                raw_passed = event.get("passed")
+                # Anything that is not a real boolean is unproven, never a pass.
+                run["passed"] = raw_passed if isinstance(raw_passed, bool) else None
                 run["result_code"] = event.get("result_code")
         # A still-open run is unproven, never a pass.
         return [runs[run_id] for run_id in order]
@@ -574,24 +604,25 @@ class ReliabilityRecorder:
         reason_text = str(reason)
         if len(reason_text) > MAX_REASON_LENGTH:
             raise ReliabilityError(f"reason excede {MAX_REASON_LENGTH} caracteres")
-        self._ensure_root()
-        stored = self._read_capabilities()
-        stored[capability] = {
-            "state": state.value,
-            "reason": reason_text,
-            "build_id": self._build_id,
-            "updated_at": time.time(),
-        }
-        payload = {
-            "build_id": self._build_id,
-            "updated_at": time.time(),
-            "capabilities": stored,
-        }
-        ensure_sanitized({"capabilities": stored}, path="capabilities")
-        temporary = self._capabilities_path.with_suffix(".json.tmp")
-        temporary.write_text(
-            json.dumps(payload, sort_keys=True, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        os.replace(temporary, self._capabilities_path)
+        with _lock_for(self._root):
+            self._ensure_root()
+            stored = self._read_capabilities()
+            stored[capability] = {
+                "state": state.value,
+                "reason": reason_text,
+                "build_id": self._build_id,
+                "updated_at": time.time(),
+            }
+            payload = {
+                "build_id": self._build_id,
+                "updated_at": time.time(),
+                "capabilities": stored,
+            }
+            ensure_sanitized({"capabilities": stored}, path="capabilities")
+            temporary = self._capabilities_path.with_suffix(".json.tmp")
+            temporary.write_text(
+                json.dumps(payload, sort_keys=True, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            os.replace(temporary, self._capabilities_path)
 

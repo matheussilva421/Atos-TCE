@@ -172,8 +172,10 @@ async function loadPdfjs() {
   function updateNextProcessButton() {
     const button = document.getElementById("next-process");
     if (!button) return;
-    button.disabled =
-      !state.selectedId || state.nextProcessRunning || state.nextProcessNeedsReview;
+    // Reliability Reset Phase 1: next_process is UNQUALIFIED, so the operator
+    // UI never offers automatic navigation. Supervised benchmark tooling calls
+    // the endpoint directly instead.
+    button.disabled = true;
   }
 
   async function startNextProcess() {

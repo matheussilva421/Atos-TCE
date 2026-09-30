@@ -12,6 +12,7 @@ the operator.
 from __future__ import annotations
 
 import re
+import uuid
 from collections.abc import Mapping
 from typing import Any
 
@@ -19,6 +20,7 @@ from ..analysis import MANDATORY_FIELDS
 from ..core.identity import normalize_interested
 from ..core.store import Store, StoreError
 from .preflight import FillBlocked, build_fill_plan
+from .reliability import ReliabilityError
 
 FILL_STATES: tuple[str, ...] = (
     "OPENING",
@@ -81,9 +83,13 @@ SAFE_DIAGNOSTIC_KEYS: tuple[str, ...] = (
 
 #: A persisted route is a path only: no scheme, no authority, no query.
 _ROUTE_PATH = re.compile(r"^/[A-Za-z0-9_\-./]{0,199}$")
-#: Synthetic tab/frame references (``tab-1``, ``frame-0``).
-_REFERENCE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
-_SESSION_REF = re.compile(r"^[A-Za-z0-9_.:\-]{1,128}$")
+#: Synthetic tab/frame references emitted by the router (``tab-1``, ``frame-0``).
+_REFERENCE = re.compile(r"^(?:tab|frame)-[0-9]{1,12}$")
+#: The opaque session id the router generates (a UUID, or its hex fallback).
+_SESSION_REF = re.compile(
+    r"^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    r"|[0-9a-fA-F]{16,64})$"
+)
 _CODE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 
 #: Structural screens a run may bind to.
@@ -363,11 +369,53 @@ class FillService:
 
         if run_id is None or self._reliability is None or run_id in self._ar1_finished:
             return
-        if self._reliability.has_finished(run_id):
-            self._ar1_finished.add(run_id)
-            return
+        try:
+            self._reliability.finish(run_id, passed=passed, result_code=result_code)
+        except ReliabilityError:
+            # Already terminal in the ledger (a restarted worker, or a duplicate
+            # concurrent delivery): the durable record stands and this attempt
+            # must never append a second terminal event.
+            pass
         self._ar1_finished.add(run_id)
-        self._reliability.finish(run_id, passed=passed, result_code=result_code)
+
+    def _record_ar1_refusal(self, snapshot: Mapping[str, Any], code: str) -> None:
+        """A manual attempt that never became a request still counts as a failure.
+
+        The operator started AR-1 and the trial did not proceed, so it has to
+        break the qualification sequence instead of disappearing from the ledger.
+        """
+
+        if self._reliability is None:
+            return
+        run_id = f"manual-fill-attempt:{uuid.uuid4().hex}"
+        diagnostics = sanitize_browser_diagnostics(
+            snapshot.get("diagnostics") if isinstance(snapshot, Mapping) else None
+        )
+        observed = snapshot.get("identity") if isinstance(snapshot, Mapping) else None
+        self._reliability.start(
+            AR1_CAPABILITY,
+            self._reliability_environment,
+            browser_session_id=(diagnostics or {}).get("browser_session_id"),
+            run_id=run_id,
+        )
+        self._ar1_transition(
+            run_id,
+            boundary="current_form_detected",
+            state_before=None,
+            state_after="FORM",
+            result_code="FORM_DETECTED",
+            observed_identity=observed,
+        )
+        refusal = _safe_code(code, "REFUSED")
+        self._ar1_transition(
+            run_id,
+            boundary="manual_fill_requested",
+            state_before="FORM",
+            state_after="REFUSED",
+            result_code=refusal,
+            observed_identity=observed,
+        )
+        self._ar1_finish(run_id, passed=False, result_code=refusal)
 
     def _ar1_close(
         self,
@@ -431,22 +479,27 @@ class FillService:
         snapshot = form_snapshot if isinstance(form_snapshot, Mapping) else {}
         identity = snapshot.get("identity")
         if not isinstance(identity, Mapping):
+            self._record_ar1_refusal(snapshot, "FORM_NOT_AVAILABLE")
             raise FillError("o formulário aberto não trouxe identidade")
         process_key = str(identity.get("processKey") or identity.get("process_key") or "").strip()
         interested = normalize_interested(
             identity.get("interestedNormalized") or identity.get("interested_normalized") or ""
         )
         if not process_key or not interested:
+            self._record_ar1_refusal(snapshot, "IDENTITY_INCOMPLETE")
             raise FillError("identidade incompleta no formulário aberto")
         try:
             process = self._store.resolve_process_identity(
                 process_key, interested, identity.get("portalActId") or identity.get("portal_act_id")
             )
         except StoreError as exc:
+            self._record_ar1_refusal(snapshot, "IDENTITY_AMBIGUOUS")
             raise FillError(str(exc)) from exc
         if process is None:
+            self._record_ar1_refusal(snapshot, "PROCESS_NOT_FOUND")
             raise FillError("nenhum processo PRONTO ou PREENCHIDO corresponde ao formulário aberto")
         if str(process.get("status")) not in FILLABLE_PROCESS_STATUSES:
+            self._record_ar1_refusal(snapshot, "PROCESS_NOT_FILLABLE")
             raise FillError("somente um processo PRONTO ou PREENCHIDO pode ser preenchido")
         process_id = int(process["id"])
         persisted = dict(snapshot)

@@ -3,6 +3,7 @@
 import json
 import subprocess
 import sys
+import threading
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -373,6 +374,60 @@ class ReliabilityRecorderTestCase(unittest.TestCase):
         )
         self.assertEqual(len([line for line in self.events_text().splitlines() if line.strip()]), 2)
 
+    def test_finish_requires_a_real_boolean(self):
+        run_id = self.recorder.start("manual_form_fill", "real-dev")
+
+        with self.assertRaises(ReliabilityError):
+            self.recorder.finish(run_id, passed="false", result_code="SUCCEEDED")
+
+    def test_evaluate_refuses_a_threshold_below_the_spec_gate(self):
+        with self.assertRaises(ReliabilityError):
+            self.recorder.evaluate("manual_form_fill", "real-dev", 1)
+
+    def test_a_concurrent_double_finish_records_one_terminal_event(self):
+        run_id = self.recorder.start("manual_form_fill", "real-dev")
+        outcomes = []
+
+        def close():
+            try:
+                self.recorder.finish(run_id, passed=True, result_code="SUCCEEDED")
+                outcomes.append("ok")
+            except ReliabilityError:
+                outcomes.append("refused")
+
+        threads = [threading.Thread(target=close) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        self.assertEqual(sorted(outcomes), ["ok", "refused"])
+        self.assertEqual(self.events_text().count('"type":"run_finished"'), 1)
+
+    def test_a_non_boolean_terminal_record_is_never_counted_as_a_pass(self):
+        path = self.data / "reliability" / "events.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lines = [
+            {
+                "type": "run_start",
+                "run_id": "tampered-0",
+                "capability": "manual_form_fill",
+                "environment": "real-dev",
+                "build_id": BUILD,
+                "ts": 1.0,
+            },
+            {
+                "type": "run_finished",
+                "run_id": "tampered-0",
+                "passed": "false",
+                "result_code": "SUCCEEDED",
+                "ts": 1.1,
+            },
+        ]
+        path.write_text("\n".join(json.dumps(line) for line in lines) + "\n", encoding="utf-8")
+
+        self.assertEqual(self.recorder.evaluate("manual_form_fill", "real-dev")["streak"], 0)
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 QUALIFICATION_CLI = REPO_ROOT / "scripts" / "portal-reliability" / "qualification.py"
@@ -474,6 +529,7 @@ class QualificationCliTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 2)
 
+
     def test_the_cli_does_not_mutate_capability_state(self):
         recorder = ReliabilityRecorder(self.data, "a" * 40)
         recorder.downgrade("open_act", reason="fixture")
@@ -491,6 +547,78 @@ class QualificationCliTests(unittest.TestCase):
         result = self.qualify(environment="offline")
 
         self.assertEqual(result.returncode, 2)
+
+    def test_the_cli_refuses_an_unsafe_build(self):
+        self.seed(passes=20)
+
+        result = self.qualify(build="102390/2026")
+
+        self.assertEqual(result.returncode, 2)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+CAPABILITY_STATE_CLI = REPO_ROOT / "scripts" / "portal-reliability" / "capability-state.py"
+
+
+class CapabilityStateCliTests(unittest.TestCase):
+    """The bootstrap CLI can only declare EXPERIMENTAL or downgrade."""
+
+    def setUp(self):
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.data = Path(self._tmp.name) / "data"
+
+    def run_cli(self, *extra):
+        return subprocess.run(
+            [
+                sys.executable,
+                str(CAPABILITY_STATE_CLI),
+                "--data-root",
+                str(self.data),
+                "--capability",
+                "manual_form_fill",
+                "--build",
+                "a" * 40,
+                *extra,
+            ],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_marking_experimental_records_the_state_without_qualifying(self):
+        result = self.run_cli("--experimental")
+
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["state"], "EXPERIMENTAL")
+        self.assertEqual(payload["real_dev_streak"], 0)
+        self.assertEqual(payload["portable_streak"], 0)
+        self.assertIn("a" * 40, payload["reason"])
+
+    def test_the_bootstrap_requires_exactly_one_action(self):
+        self.assertEqual(self.run_cli().returncode, 2)
+        self.assertEqual(self.run_cli("--experimental", "--downgrade").returncode, 2)
+
+    def test_downgrade_returns_the_capability_to_unqualified(self):
+        self.assertEqual(self.run_cli("--experimental").returncode, 0)
+
+        result = self.run_cli("--downgrade")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["state"], "UNQUALIFIED")
+
+    def test_the_bootstrap_never_offers_a_promotion(self):
+        source = CAPABILITY_STATE_CLI.read_text(encoding="utf-8")
+
+        # The docstring states the prohibition; the code must not import the
+        # state enum or reach the promotion method.
+        for forbidden in ("CapabilityState", ".promote("):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, source)
+        for method in ("mark_experimental", "downgrade"):
+            with self.subTest(method=method):
+                self.assertIn(method, source)
 
 
 class ReportCliTests(unittest.TestCase):

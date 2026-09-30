@@ -2253,7 +2253,7 @@ class PortalReliabilityRouteTests(ApiTestCase):
     def test_reliability_endpoint_has_no_identity_or_event_payloads(self):
         headers = self.register_extension()
         recorder = ReliabilityRecorder(self.data_root, "test-build")
-        run_id = recorder.start("manual_form_fill", "real-dev", browser_session_id="session-sanitized")
+        run_id = recorder.start("manual_form_fill", "real-dev", browser_session_id="7c2e5a19-33b4-4f80-a1d2-5e6c0b9f4a77")
         recorder.transition(
             run_id,
             boundary="fill_command_completed",
@@ -2302,7 +2302,7 @@ class PortalManualFormReliabilityTests(ApiTestCase):
                 "generation": 3,
                 "fields": {},
                 "diagnostics": {
-                    "browser_session_id": "session-1",
+                    "browser_session_id": "3f1c9b2e-0a44-4d5a-9c11-8b7f2e6a1d33",
                     "tab_ref": "tab-1",
                     "frame_ref": "frame-0",
                     "route": "/SISTEMAS/PROCESSO/ComplementarAto.asp?processo=102390&doc=9",

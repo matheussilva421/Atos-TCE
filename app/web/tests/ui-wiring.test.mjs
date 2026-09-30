@@ -193,3 +193,18 @@ test("a coded next-process refusal remains retryable and asks for a fresh analys
   assert.ok(body.includes("!isDefinitiveRefusal"), "a refusal does not trip the uncertain-result lock");
   assert.ok(body.includes("Atualize a Área Restrita e tente novamente"), "the operator gets a retry instruction");
 });
+
+test("the Mesa does not offer next-process while the capability is unqualified", () => {
+  const start = source.indexOf("function updateNextProcessButton");
+  const end = source.indexOf("async function startNextProcess");
+  assert.notEqual(start, -1, "the Mesa owns a next-process button updater");
+  assert.notEqual(end, -1, "the updater precedes the next-process action");
+  const body = source.slice(start, end);
+
+  assert.match(body, /button\.disabled = true/u, "Phase 1 keeps the action disabled");
+  assert.doesNotMatch(
+    body,
+    /!state\.selectedId/u,
+    "selecting a process must not enable an unqualified capability"
+  );
+});

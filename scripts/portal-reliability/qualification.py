@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -33,6 +34,9 @@ from app.area_restrita.reliability import (  # noqa: E402 - after sys.path
 )
 
 UNKNOWN_BUILD = "unknown-build"
+
+#: A build id this CLI is willing to echo back.
+SAFE_BUILD = re.compile(r"^[A-Za-z0-9_.+\-]{1,128}$")
 
 
 def resolve_build_id(repo_root: Path = REPO_ROOT) -> str:
@@ -102,6 +106,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     build = args.build or resolve_build_id()
+    if not SAFE_BUILD.fullmatch(build):
+        print(json.dumps({"ok": False, "error": "build inválido"}, sort_keys=True))
+        return 2
     try:
         payload = evaluate_request(
             data_root=args.data_root,
