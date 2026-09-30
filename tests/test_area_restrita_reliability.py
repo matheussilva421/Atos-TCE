@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 from app.area_restrita.reliability import (
     CAPABILITIES,
     ENVIRONMENTS,
+    MIN_QUALIFICATION_RUNS,
     CapabilityState,
     ReliabilityError,
     ReliabilityRecorder,
@@ -289,6 +290,68 @@ class ReliabilityRecorderTestCase(unittest.TestCase):
         with self.assertRaises(ReliabilityError):
             self.recorder.start("manual_form_fill", "producao")
         self.assertEqual(set(ENVIRONMENTS), {"offline", "real-dev", "portable-normal-chrome"})
+
+
+    def test_promote_refuses_a_threshold_below_the_spec_gate(self):
+        for _ in range(20):
+            self.record()
+        for required in (1, 19):
+            with self.subTest(required=required):
+                with self.assertRaises(ReliabilityError):
+                    self.recorder.promote(
+                        "manual_form_fill",
+                        CapabilityState.QUALIFIED,
+                        environment="real-dev",
+                        required=required,
+                        reason="gate rebaixado",
+                    )
+        self.recorder.promote(
+            "manual_form_fill",
+            CapabilityState.QUALIFIED,
+            environment="real-dev",
+            required=MIN_QUALIFICATION_RUNS,
+            reason="20/20 real-dev",
+        )
+        self.assertEqual(
+            self.recorder.capabilities()["manual_form_fill"]["state"],
+            CapabilityState.QUALIFIED.value,
+        )
+
+    def test_a_second_terminal_event_for_the_same_run_is_refused(self):
+        run_id = self.recorder.start("manual_form_fill", "real-dev")
+        self.recorder.finish(run_id, passed=False, result_code="FORM_NOT_AVAILABLE")
+
+        with self.assertRaises(ReliabilityError):
+            self.recorder.finish(run_id, passed=True, result_code="SUCCEEDED")
+
+        self.assertEqual(self.recorder.evaluate("manual_form_fill", "real-dev")["streak"], 0)
+
+    def test_free_form_codes_and_identifiers_are_refused(self):
+        run_id = self.recorder.start("manual_form_fill", "real-dev")
+
+        with self.assertRaises(ReliabilityError):
+            self.recorder.transition(
+                run_id,
+                boundary="manual_fill",
+                state_before="FORM",
+                state_after="FORM_FILLED",
+                result_code="Pessoa Exemplo, CPF 123",
+            )
+        with self.assertRaises(ReliabilityError):
+            self.recorder.intervention(run_id, "recovery manual")
+        with self.assertRaises(ReliabilityError):
+            self.recorder.start("manual_form_fill", "real-dev", browser_session_id="cookie=abc")
+
+        # A plain machine code is still accepted.
+        self.recorder.transition(
+            run_id,
+            boundary="manual_fill",
+            state_before="FORM",
+            state_after="FORM_FILLED",
+            result_code="FORM_NOT_AVAILABLE",
+        )
+        self.assertEqual(len([line for line in self.events_text().splitlines() if line.strip()]), 2)
+
 
 
 if __name__ == "__main__":  # pragma: no cover

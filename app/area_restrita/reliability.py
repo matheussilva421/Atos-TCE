@@ -21,6 +21,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import time
 import uuid
@@ -47,6 +48,15 @@ ENVIRONMENTS: tuple[str, ...] = ("offline", "real-dev", "portable-normal-chrome"
 #: normal-Chrome sequence. Nothing else may promote a capability.
 QUALIFICATION_ENVIRONMENT = "real-dev"
 PRODUCTION_ENVIRONMENT = "portable-normal-chrome"
+
+#: The spec's gate. ``promote`` can never be asked for a lower one.
+MIN_QUALIFICATION_RUNS = 20
+
+#: Persisted codes are short machine tokens, never free text: a private value
+#: smuggled into ``result_code``/``boundary``/``kind`` is refused, not stored.
+CODE_PATTERN = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
+RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:\-]{1,128}$")
+MAX_REASON_LENGTH = 512
 
 RELIABILITY_DIRNAME = "reliability"
 EVENTS_FILENAME = "events.jsonl"
@@ -152,6 +162,24 @@ def _require_member(value: str, allowed: Sequence[str], label: str) -> str:
     return text
 
 
+def _require_code(value: Any, label: str) -> str:
+    """Refuse anything that is not a short machine code."""
+
+    text = str(value).strip()
+    if not CODE_PATTERN.fullmatch(text):
+        raise ReliabilityError(
+            f"{label} inválido: use um código curto [A-Za-z0-9_-]: {text[:40]!r}"
+        )
+    return text
+
+
+def _require_run_id(value: Any, label: str = "run_id") -> str:
+    text = str(value).strip()
+    if not RUN_ID_PATTERN.fullmatch(text):
+        raise ReliabilityError(f"{label} inválido: {text[:40]!r}")
+    return text
+
+
 # ------------------------------------------------------------------- recorder
 
 
@@ -191,10 +219,13 @@ class ReliabilityRecorder:
         capability: str,
         environment: str,
         browser_session_id: str | None = None,
+        run_id: str | None = None,
     ) -> str:
         capability = _require_member(capability, CAPABILITIES, "capability")
         environment = _require_member(environment, ENVIRONMENTS, "environment")
-        run_id = uuid.uuid4().hex
+        run_id = uuid.uuid4().hex if run_id is None else _require_run_id(run_id)
+        if browser_session_id is not None:
+            browser_session_id = _require_run_id(browser_session_id, "browser_session_id")
         self._append(
             {
                 "type": "run_start",
@@ -224,11 +255,11 @@ class ReliabilityRecorder:
         self._append(
             {
                 "type": "transition",
-                "run_id": str(run_id),
-                "boundary": str(boundary),
-                "state_before": state_before,
-                "state_after": state_after,
-                "result_code": str(result_code),
+                "run_id": _require_run_id(run_id),
+                "boundary": _require_code(boundary, "boundary"),
+                "state_before": None if state_before is None else _require_code(state_before, "state_before"),
+                "state_after": None if state_after is None else _require_code(state_after, "state_after"),
+                "result_code": _require_code(result_code, "result_code"),
                 "elapsed_ms": elapsed_ms,
                 "expected_identity_hash": self._hash_identity(expected_identity),
                 "observed_identity_hash": self._hash_identity(observed_identity),
@@ -239,16 +270,21 @@ class ReliabilityRecorder:
 
     def intervention(self, run_id: str, kind: str) -> None:
         self._append(
-            {"type": "intervention", "run_id": str(run_id), "kind": str(kind)}
+            {"type": "intervention", "run_id": _require_run_id(run_id), "kind": _require_code(kind, "kind")}
         )
 
     def finish(self, run_id: str, *, passed: bool, result_code: str) -> None:
+        run_id = _require_run_id(run_id)
+        if self._has_finished(run_id):
+            raise ReliabilityError(
+                f"execução {run_id} já tem resultado terminal; um novo finish foi recusado"
+            )
         self._append(
             {
                 "type": "run_finished",
-                "run_id": str(run_id),
+                "run_id": run_id,
                 "passed": bool(passed),
-                "result_code": str(result_code),
+                "result_code": _require_code(result_code, "result_code"),
             }
         )
 
@@ -298,6 +334,16 @@ class ReliabilityRecorder:
 
         capability = _require_member(capability, CAPABILITIES, "capability")
         target = CapabilityState(target)
+        try:
+            required = int(required)
+        except (TypeError, ValueError) as error:
+            raise ReliabilityError("required precisa ser um inteiro") from error
+        if required < MIN_QUALIFICATION_RUNS:
+            # The spec's gate is not negotiable: a caller cannot lower it.
+            raise ReliabilityError(
+                f"promoção exige o gate de {MIN_QUALIFICATION_RUNS}/20; "
+                f"required={required} foi recusado"
+            )
         if target is CapabilityState.QUALIFIED:
             if str(environment) != QUALIFICATION_ENVIRONMENT:
                 raise ReliabilityError(
@@ -408,6 +454,14 @@ class ReliabilityRecorder:
         ).encode("utf-8")
         return hmac.new(self._key, payload, hashlib.sha256).hexdigest()
 
+    def _has_finished(self, run_id: str) -> bool:
+        """True when the ledger already holds a terminal result for this run."""
+
+        return any(
+            event.get("type") == "run_finished" and str(event.get("run_id") or "") == run_id
+            for event in self._read_events()
+        )
+
     def _append(self, event: Mapping[str, Any]) -> None:
         record = dict(event)
         record.setdefault("ts", time.time())
@@ -464,6 +518,10 @@ class ReliabilityRecorder:
             if kind == "intervention":
                 run["intervened"] = True
             elif kind == "run_finished":
+                if run["passed"] is not None:
+                    raise ReliabilityError(
+                        f"ledger com resultado terminal duplicado para a execução {run_id}"
+                    )
                 run["passed"] = bool(event.get("passed"))
                 run["result_code"] = event.get("result_code")
         # A still-open run is unproven, never a pass.
@@ -489,10 +547,13 @@ class ReliabilityRecorder:
     def _write_state(
         self, capability: str, state: CapabilityState, reason: str
     ) -> None:
+        reason_text = str(reason)
+        if len(reason_text) > MAX_REASON_LENGTH:
+            raise ReliabilityError(f"reason excede {MAX_REASON_LENGTH} caracteres")
         stored = self._read_capabilities()
         stored[capability] = {
             "state": state.value,
-            "reason": str(reason),
+            "reason": reason_text,
             "build_id": self._build_id,
             "updated_at": time.time(),
         }
