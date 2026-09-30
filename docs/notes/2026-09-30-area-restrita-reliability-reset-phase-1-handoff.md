@@ -2,7 +2,7 @@
 
 Data: 2026-09-30
 Branch: `codex/area-restrita-reliability-reset`
-HEAD de código: `dd46fd4` (este handoff é o commit seguinte, na mesma branch)
+HEAD de código: `bf75503` (este handoff é o commit seguinte, na mesma branch)
 Base da reconciliação: `9fa3465` (`origin/codex/area-restrita-reliability-reset-spec`)
 
 ## 1. Reconciliação das branches
@@ -63,6 +63,7 @@ git diff --check                                         -> limpo
 | revisão final (fix) | `848ce38` | Mesa sem `Próximo processo` na Phase 1, recusa de AR-1 contada como falha, ledger com terminal único sob concorrência, bootstrap de `EXPERIMENTAL` |
 | gate AR-1 (fix) | `3f1f1ef` | tentativa que falha na detecção também vira execução falha e zera a sequência |
 | re-revisão (fix) | `dd46fd4` | terminal malformado não pode ser substituído por um duplicado válido; falha de detecção não alega `current_form_detected` |
+| re-revisão 2 (fix) | `bf75503` | o leitor do relatório também fecha em falha: terminal duplicado é recusado e `passed` não-booleano conta como não comprovado |
 
 ### O que ficou implementado
 
@@ -77,7 +78,7 @@ git diff --check                                         -> limpo
 ## 5. Testes executados (estado atual, HEAD `3eca37e`)
 
 ```text
-python -m unittest discover -s tests -p "test_*.py" -q  -> 744 OK
+python -m unittest discover -s tests -p "test_*.py" -q  -> 746 OK
 npm test --prefix extension                             -> 225/225
 node --test app/web/tests/*.test.mjs                     -> 34/34
 work\tce-extractor\verify-project.ps1                   -> 1260 executados, 1258 pass, 0 fail, 2 skip
