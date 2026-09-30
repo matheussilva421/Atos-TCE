@@ -70,6 +70,15 @@ def safe_code(value: object) -> str:
     return text if text in KNOWN_RESULT_CODES else "OTHER"
 
 
+class ReportError(RuntimeError):
+    """Raised when the ledger is malformed or ambiguous.
+
+    The report reads the same append-only ledger as the qualification
+    evaluator, so it fails closed the same way: a duplicated or unreadable
+    terminal must never be summarised as a success.
+    """
+
+
 def read_runs(events_path: Path) -> list[dict]:
     """Group the append-only ledger into ordered runs."""
 
@@ -94,6 +103,7 @@ def read_runs(events_path: Path) -> list[dict]:
                 "started": float(event.get("ts") or 0.0),
                 "finished": None,
                 "passed": None,
+                "terminal_seen": False,
                 "result_code": None,
                 "intervened": False,
                 "codes": [],
@@ -103,7 +113,14 @@ def read_runs(events_path: Path) -> list[dict]:
         if run is None:
             continue
         if kind == "run_finished":
-            run["passed"] = bool(event.get("passed"))
+            if run["terminal_seen"]:
+                raise ReportError(
+                    f"ledger com resultado terminal duplicado para a execução {run_id}"
+                )
+            run["terminal_seen"] = True
+            raw_passed = event.get("passed")
+            # Anything that is not a real boolean is unproven, never a pass.
+            run["passed"] = raw_passed if isinstance(raw_passed, bool) else None
             run["result_code"] = safe_code(event.get("result_code") or "UNKNOWN")
             run["finished"] = float(event.get("ts") or 0.0)
         elif kind == "intervention":
@@ -151,6 +168,7 @@ def build_report(
         "attempts": len(runs),
         "passed": sum(1 for run in runs if run["passed"] is True),
         "failed": sum(1 for run in runs if run["passed"] is False),
+        "unproven": sum(1 for run in runs if run["passed"] is None),
         "interventions": sum(1 for run in runs if run["intervened"]),
         "median_ms": statistics.median(durations) if durations else None,
         "p95_ms": percentile(durations, 0.95),
@@ -166,6 +184,7 @@ def render_markdown(report: dict) -> str:
         ("tentativas", report["attempts"]),
         ("sucesso", report["passed"]),
         ("falhas", report["failed"]),
+        ("não comprovadas", report["unproven"]),
         ("intervenções", report["interventions"]),
         ("mediana_ms", report["median_ms"]),
         ("p95_ms", report["p95_ms"]),
@@ -191,11 +210,15 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"ok": False, "error": "build inválido"}, sort_keys=True))
         return 2
 
-    report = build_report(
-        data_root=args.data_root,
-        capability=args.capability,
-        build=args.build.strip() if args.build is not None else None,
-    )
+    try:
+        report = build_report(
+            data_root=args.data_root,
+            capability=args.capability,
+            build=args.build.strip() if args.build is not None else None,
+        )
+    except ReportError as error:
+        print(json.dumps({"ok": False, "error": str(error)}, sort_keys=True))
+        return 2
     if args.format == "markdown":
         print(render_markdown(report))
     else:

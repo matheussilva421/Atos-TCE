@@ -679,6 +679,8 @@ class ReportCliTests(unittest.TestCase):
         )
 
     def write_synthetic(self, durations_ms, *, capability="open_act"):
+        """Write a raw ledger with explicit timings, bypassing the recorder."""
+
         path = self.data / "reliability" / "events.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         base = 1_700_000_000.0
@@ -825,6 +827,75 @@ class ReportCliTests(unittest.TestCase):
         result = self.report(build="102390/2026")
 
         self.assertEqual(result.returncode, 2)
+
+    def write_ledger(self, lines):
+        path = self.data / "reliability" / "events.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "\n".join(json.dumps(line) for line in lines) + "\n", encoding="utf-8"
+        )
+
+    def test_the_report_refuses_a_duplicate_terminal_after_a_malformed_one(self):
+        self.write_ledger(
+            [
+                {
+                    "type": "run_start",
+                    "run_id": "r-0",
+                    "capability": "open_act",
+                    "environment": "real-dev",
+                    "build_id": "d" * 40,
+                    "ts": 1.0,
+                },
+                {
+                    "type": "run_finished",
+                    "run_id": "r-0",
+                    "passed": None,
+                    "result_code": "SUCCEEDED",
+                    "ts": 1.1,
+                },
+                {
+                    "type": "run_finished",
+                    "run_id": "r-0",
+                    "passed": True,
+                    "result_code": "SUCCEEDED",
+                    "ts": 1.2,
+                },
+            ]
+        )
+
+        result = self.report()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertFalse(json.loads(result.stdout)["ok"])
+
+    def test_a_malformed_terminal_is_reported_as_unproven_not_as_a_pass(self):
+        self.write_ledger(
+            [
+                {
+                    "type": "run_start",
+                    "run_id": "r-0",
+                    "capability": "open_act",
+                    "environment": "real-dev",
+                    "build_id": "d" * 40,
+                    "ts": 1.0,
+                },
+                {
+                    "type": "run_finished",
+                    "run_id": "r-0",
+                    "passed": None,
+                    "result_code": "SUCCEEDED",
+                    "ts": 1.5,
+                },
+            ]
+        )
+
+        result = self.report()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["attempts"], 1)
+        self.assertEqual(payload["passed"], 0)
+        self.assertEqual(payload["unproven"], 1)
 
 
 
