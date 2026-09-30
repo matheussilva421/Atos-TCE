@@ -2,7 +2,7 @@
 
 Data: 2026-09-30
 Branch: `codex/area-restrita-reliability-reset`
-HEAD: `3eca37e` (ver abaixo as atualizações de revisão)
+HEAD de código: `b7a9f2f` (este handoff é o commit seguinte, na mesma branch)
 Base da reconciliação: `9fa3465` (`origin/codex/area-restrita-reliability-reset-spec`)
 
 ## 1. Reconciliação das branches
@@ -57,6 +57,9 @@ git diff --check                                         -> limpo
 | 3 | `7bdbcfc` | AR-1 independente de navegação + telemetria sanitizada |
 | 2 (fix de review) | `f9b4315` | leitura pura não cria estado local |
 | 4 | `3eca37e` | tooling de qualificação/relatório + fronteiras de pacote |
+| 2 (fix de review) | `f9b4315` | leitura pura não cria estado local |
+| 3 (fix de review) | `bf438f9` | snapshot sanitizado na criação, rota/refs/screen validados, membership de AR-1 durável |
+| 4 (fix de review) | `b7a9f2f` | CLI só aceita ambientes reais; relatório colapsa códigos desconhecidos e valida `--build` |
 
 ### O que ficou implementado
 
@@ -71,7 +74,7 @@ git diff --check                                         -> limpo
 ## 5. Testes executados (estado atual, HEAD `3eca37e`)
 
 ```text
-python -m unittest discover -s tests -p "test_*.py" -q  -> 719 OK
+python -m unittest discover -s tests -p "test_*.py" -q  -> 725 OK
 npm test --prefix extension                             -> 221/221
 node --test app/web/tests/*.test.mjs                     -> 33/33
 work\tce-extractor\verify-project.ps1                   -> 1260 executados, 1258 pass, 0 fail, 2 skip
@@ -156,6 +159,11 @@ python scripts/portal-reliability/qualification.py --data-root <portable-data-ro
 - Revisão da Task 2: a rota `GET` criava estado local na primeira leitura. Corrigido: raiz do ledger e chave HMAC só na primeira escrita.
 - Achado próprio (Task 4): o guard de fronteira do produto reprovava o nome legítimo `handle_portal_reliability`; corrigido para checar apenas os caminhos de ferramenta.
 - Achado próprio (Task 4): `/scripts/*` do `.gitignore` deixava `scripts/portal-reliability/*.py` fora do versionamento; allowlist adicionada.
+- Revisão da Task 3: o snapshot bruto (com diagnostics não confiáveis) era persistido na criação do pedido antes da sanitização; um preflight que falhasse deixava query string e chave desconhecida no banco. Corrigido: a cópia persistida já sai sanitizada.
+- Revisão da Task 3: `route` era apenas "sem query", aceitando `https://host/path`. Corrigido: `route` precisa ser um caminho `/...`; `screen` restrito ao vocabulário estrutural; `tab_ref`/`frame_ref` no formato sintético; `browser_session_id` opaco.
+- Revisão da Task 3: a participação em AR-1 vivia só em memória, então um restart do serviço perdia o `run_finished`. Corrigido: a membership e a fase vêm do pedido persistido, e `has_finished()` evita terminal duplicado.
+- Revisão da Task 4: a CLI aceitava `offline` e podia sair 0 com 20 execuções offline. Corrigido: só `real-dev` e `portable-normal-chrome` são aceitos.
+- Revisão da Task 4: o relatório ecoava códigos do ledger e o filtro `--build` sem validação, podendo reproduzir identidade. Corrigido: código fora do vocabulário vira `OTHER` e `--build` é validado antes de aparecer na saída.
 
 ## 9. Limitações conhecidas
 
