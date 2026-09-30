@@ -82,7 +82,7 @@ Executados em `e059793a412f3fe4c8b403fb3a58cfa02e26553c` (AR1_BUILD), com árvor
 | Gate | Comando | Resultado |
 |---|---|---|
 | HEAD | `git rev-parse HEAD` | `e059793a412f3fe4c8b403fb3a58cfa02e26553c`, igual a `origin/...` |
-| Python | `python -m unittest discover -s tests -p "test_*.py" -q` | 772 testes, OK (0 falhas) |
+| Python | `python -m unittest discover -s tests -p "test_*.py" -q` | 773 testes, OK (0 falhas) |
 | extension | `npm test --prefix extension` | 225/225, 0 falhas |
 | web | `node --test app/web/tests/*.test.mjs` | 34/34, 0 falhas |
 | verify-project | `powershell -File .\work\tce-extractor\verify-project.ps1` | 1260 executados / 1258 pass / 0 fail / 2 skip, exit 0 |
@@ -214,7 +214,9 @@ python scripts/portal-reliability/qualification.py --data-root <portable-data-ro
 - `data/reliability/capabilities.json`: `manual_form_fill = EXPERIMENTAL` no build `e059793`; `real_dev_streak = 0`, `portable_streak = 0`.
 - `data/reliability/events.jsonl`: nenhum evento (denominador limpo; nenhuma tentativa AR-1 registrada).
 - ZIP congelado: `dist/Atos-TCE-portable.zip`, 520 entradas, 96.186.074 bytes, SHA-256 `77bcc873b3fa4e9d3743f9fe5171336bfbf0de7bc5b1cd4a92b22ef72594897c`, verificado com `-ExpectedBuildId e059793...` + smoke (`health.build_id` = build do manifesto).
-- Commits: código `e059793a412f3fe4c8b403fb3a58cfa02e26553c` (AR1_BUILD); documentação `3634fbad8c3166671068e5076c73f7dc7fd27ddb`. `main` intacta, sem force push.
+- Commits: código `e059793a412f3fe4c8b403fb3a58cfa02e26553c` (AR1_BUILD); documentação `3634fba`, `adebf67`; teste `df2bbcc`. Nenhum deles toca os bytes de produto (`app/`, `extension/`, launchers, `scripts/scan-area-cdp.ps1`). `main` intacta, sem force push.
+- Re-verificação depois dos commits de teste/documentação: `verify-package.ps1 -ZipPath .\dist\Atos-TCE-portable.zip -ExpectedBuildId e059793...` → PASS com smoke, `runtime_build_id = e059793...`. Como cada arquivo declarado é comparado com o blob do commit `e059793`, isso prova que o produto congelado continua sendo exatamente o do AR1_BUILD, mesmo com o HEAD já à frente em commits que não empacotam.
+- Cobertura nova do caso "runtime reporta build diferente do manifesto": `tests/test_package_provenance.py` monta um runtime de mentira que responde `/api/v1/health` com outro build id e prova que o smoke recusa (`Runtime build_id = ...`).
 - Uma instância antiga da Mesa fixada em `1d90b8d` foi encontrada ainda escutando na 18743 e precisou ser encerrada antes de subir a nova (no Windows dois sockets podem dividir a mesma porta). Se o painel voltar a mostrar o build antigo, conferir `health.build_id` antes de clicar.
 - Falta apenas o que é humano: recarregar a extensão descompactada de `extension/`, conferir no painel "Mesa conectada" e "Preencher formulário atual — Experimental", abrir o ato e clicar uma vez por tentativa (seção 7).
 
