@@ -79,9 +79,15 @@ SAFE_DIAGNOSTIC_KEYS: tuple[str, ...] = (
     "generation",
 )
 
-_OPAQUE_REF = re.compile(r"^[A-Za-z0-9_.:\-/]{1,128}$")
+#: A persisted route is a path only: no scheme, no authority, no query.
+_ROUTE_PATH = re.compile(r"^/[A-Za-z0-9_\-./]{0,199}$")
+#: Synthetic tab/frame references (``tab-1``, ``frame-0``).
+_REFERENCE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 _SESSION_REF = re.compile(r"^[A-Za-z0-9_.:\-]{1,128}$")
 _CODE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
+
+#: Structural screens a run may bind to.
+SAFE_SCREENS: frozenset[str] = frozenset({"form", "list", "interested", "buttons", "unknown"})
 
 
 def ar1_run_id(request_id: int) -> str:
@@ -120,12 +126,25 @@ def sanitize_browser_diagnostics(diagnostics: Any) -> dict[str, Any] | None:
         if not text_value:
             continue
         if key == "route":
-            text_value = text_value.split("#", 1)[0].split("?", 1)[0]
-            if not text_value:
+            candidate = text_value.split("#", 1)[0].split("?", 1)[0]
+            if not _ROUTE_PATH.fullmatch(candidate):
                 continue
-        if not _OPAQUE_REF.fullmatch(text_value[:128]):
+            safe[key] = candidate
             continue
-        safe[key] = text_value[:128]
+        if key == "screen":
+            lowered = text_value.lower()
+            if lowered not in SAFE_SCREENS:
+                continue
+            safe[key] = lowered
+            continue
+        if key == "browser_session_id":
+            if not _SESSION_REF.fullmatch(text_value):
+                continue
+            safe[key] = text_value
+            continue
+        if not _REFERENCE.fullmatch(text_value):
+            continue
+        safe[key] = text_value
     return safe or None
 
 
@@ -221,9 +240,14 @@ class FillService:
         self._preflight = preflight or build_fill_plan
         self._reliability = reliability
         self._reliability_environment = str(reliability_environment)
-        self._ar1_started: set[str] = set()
         self._ar1_finished: set[str] = set()
         self._ar1_phase: dict[str, str] = {}
+
+    #: Which boundary a run is expected to terminate on, per persisted state.
+    _AR1_PHASE_BY_STATE = {
+        "PREFLIGHT": "preflight_completed",
+        "FILLING": "fill_command_completed",
+    }
 
     # ------------------------------------------------- AR-1 reliability helper
 
@@ -242,8 +266,6 @@ class FillService:
             snapshot.get("diagnostics") if isinstance(snapshot, Mapping) else None
         )
         session_id = (diagnostics or {}).get("browser_session_id")
-        if session_id is not None and not _SESSION_REF.fullmatch(str(session_id)):
-            session_id = None
         observed = snapshot.get("identity") if isinstance(snapshot, Mapping) else None
         self._reliability.start(
             AR1_CAPABILITY,
@@ -251,7 +273,6 @@ class FillService:
             browser_session_id=session_id,
             run_id=run_id,
         )
-        self._ar1_started.add(run_id)
         self._ar1_transition(
             run_id,
             boundary="current_form_detected",
@@ -273,7 +294,12 @@ class FillService:
         return run_id
 
     def _ar1_run_id(self, request: Mapping[str, Any]) -> str | None:
-        """The AR-1 run of this request, or None when it is not a manual run."""
+        """The AR-1 run of this request, read from durable request metadata.
+
+        Membership is deliberately not process memory: a restarted service must
+        still finish the run it started, and must never invent one for the
+        automatic path.
+        """
 
         if self._reliability is None:
             return None
@@ -281,10 +307,25 @@ class FillService:
         if request_id is None:
             return None
         try:
-            run_id = ar1_run_id(int(request_id))
+            numeric_id = int(request_id)
         except (TypeError, ValueError):
             return None
-        return run_id if run_id in self._ar1_started else None
+        stored = self._store.get_fill_request(numeric_id)
+        if not isinstance(stored, Mapping) or str(stored.get("mode") or "") != "manual":
+            return None
+        return ar1_run_id(numeric_id)
+
+    def _ar1_phase_now(self, request: Mapping[str, Any]) -> str | None:
+        """The boundary this run should terminate on, recovered if needed."""
+
+        run_id = self._ar1_run_id(request)
+        if run_id is None:
+            return None
+        recorded = self._ar1_phase.get(run_id)
+        if recorded is not None:
+            return recorded
+        stored = self._store.get_fill_request(int(request["id"])) or {}
+        return self._AR1_PHASE_BY_STATE.get(str(stored.get("state") or ""), "preflight_completed")
 
     def _ar1_transition(
         self,
@@ -322,6 +363,9 @@ class FillService:
 
         if run_id is None or self._reliability is None or run_id in self._ar1_finished:
             return
+        if self._reliability.has_finished(run_id):
+            self._ar1_finished.add(run_id)
+            return
         self._ar1_finished.add(run_id)
         self._reliability.finish(run_id, passed=passed, result_code=result_code)
 
@@ -333,6 +377,7 @@ class FillService:
         result_code: str,
         state_after: str,
         code: str | None = None,
+        phase: str | None = None,
     ) -> None:
         """Record the terminal boundary for the current phase and finish the run."""
 
@@ -341,7 +386,7 @@ class FillService:
             return
         self._ar1_transition(
             run_id,
-            boundary=self._ar1_phase.get(run_id, "preflight_completed"),
+            boundary=phase or self._ar1_phase.get(run_id) or "preflight_completed",
             state_before=None,
             state_after=state_after,
             result_code=_safe_code(code, result_code),
@@ -404,8 +449,14 @@ class FillService:
         if str(process.get("status")) not in FILLABLE_PROCESS_STATUSES:
             raise FillError("somente um processo PRONTO ou PREENCHIDO pode ser preenchido")
         process_id = int(process["id"])
+        persisted = dict(snapshot)
+        safe_diagnostics = sanitize_browser_diagnostics(snapshot.get("diagnostics"))
+        if safe_diagnostics:
+            persisted["diagnostics"] = safe_diagnostics
+        else:
+            persisted.pop("diagnostics", None)
         request_id = self._store.create_fill_request(
-            process_id, state="PREFLIGHT", mode="manual", form_snapshot=dict(snapshot)
+            process_id, state="PREFLIGHT", mode="manual", form_snapshot=persisted
         )
         # AR-1 is navigation-independent: a manual request never queues
         # OPEN_ACT/OPEN_NEXT_ACT. The reliability run is bound to this request.
@@ -831,6 +882,7 @@ class FillService:
     def _block(
         self, request: Mapping[str, Any], reason: str, *, code: str | None = None
     ) -> None:
+        phase = self._ar1_phase_now(request)
         self._store.update_fill_request(
             int(request["id"]), state="BLOQUEADO", error=reason, current_command_id=None
         )
@@ -840,7 +892,12 @@ class FillService:
             {"fill_request_id": int(request["id"]), "reason": reason},
         )
         self._ar1_close(
-            request, passed=False, result_code="BLOCKED", state_after="BLOQUEADO", code=code
+            request,
+            passed=False,
+            result_code="BLOCKED",
+            state_after="BLOQUEADO",
+            code=code,
+            phase=phase,
         )
 
     def _refuse(
@@ -858,6 +915,7 @@ class FillService:
     def _fail(
         self, request: Mapping[str, Any], reason: str, *, code: str | None = None
     ) -> None:
+        phase = self._ar1_phase_now(request)
         self._store.update_fill_request(
             int(request["id"]), state="ERRO", error=reason, current_command_id=None
         )
@@ -867,5 +925,10 @@ class FillService:
             {"fill_request_id": int(request["id"]), "reason": reason},
         )
         self._ar1_close(
-            request, passed=False, result_code="FAILED", state_after="ERRO", code=code
+            request,
+            passed=False,
+            result_code="FAILED",
+            state_after="ERRO",
+            code=code,
+            phase=phase,
         )

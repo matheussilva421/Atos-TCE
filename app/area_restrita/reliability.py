@@ -473,6 +473,18 @@ class ReliabilityRecorder:
             for event in self._read_events()
         )
 
+    def has_finished(self, run_id: str) -> bool:
+        """Public, read-only form of :meth:`_has_finished`.
+
+        A worker that restarts mid-run must be able to tell that the terminal
+        event is already durable instead of appending a second one.
+        """
+
+        try:
+            return self._has_finished(_require_run_id(run_id))
+        except ReliabilityError:
+            return False
+
     def _append(self, event: Mapping[str, Any]) -> None:
         record = dict(event)
         record.setdefault("ts", time.time())

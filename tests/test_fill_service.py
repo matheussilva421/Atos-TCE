@@ -10,6 +10,7 @@ from app.area_restrita.fill_service import (
     FillError,
     FillService,
     ar1_run_id,
+    sanitize_browser_diagnostics,
     summarize_field_results,
 )
 from app.area_restrita.reliability import ReliabilityRecorder
@@ -1381,6 +1382,10 @@ class FillServicePreflightTests(FillRequestTestCase):
 AR1_BUILD = "task3-build"
 
 
+def _preflight_that_fails(process, snapshot):
+    raise RuntimeError("preflight fixture failure")
+
+
 class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
     """AR-1 must be navigation-independent and must emit sanitized telemetry."""
 
@@ -1500,6 +1505,20 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
         self.assertEqual(len(finished), 1)
         self.assertTrue(finished[0]["passed"])
         self.assertEqual(self.store.get_process(process_id)["status"], "PREENCHIDO")
+        run_id = ar1_run_id(request_id)
+        ordered = [event["type"] for event in self.events() if event.get("run_id") == run_id]
+        self.assertEqual(
+            ordered,
+            [
+                "run_start",
+                "transition",
+                "transition",
+                "transition",
+                "transition",
+                "transition",
+                "run_finished",
+            ],
+        )
         raw = (self.data / "reliability" / "events.jsonl").read_text(encoding="utf-8")
         self.assertNotIn("102390/2026", raw)
         self.assertNotIn("pessoa exemplo", raw)
@@ -1545,6 +1564,81 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
         self.assertIn(AR1_BUILD, capability["reason"])
         self.assertFalse(recorder.evaluate("manual_form_fill", "real-dev")["qualified"])
         self.assertFalse(recorder.evaluate("manual_form_fill", "offline")["qualified"])
+
+    def test_a_failed_preflight_never_persists_raw_diagnostics(self):
+        self.ready_process()
+        recorder = ReliabilityRecorder(self.data, AR1_BUILD)
+        service = FillService(
+            self.store,
+            preflight=_preflight_that_fails,
+            reliability=recorder,
+            reliability_environment="offline",
+        )
+
+        request_id = service.request_manual_fill(
+            self.snapshot(
+                diagnostics={
+                    "browser_session_id": "session-1",
+                    "tab_ref": "tab-1",
+                    "route": "https://portal.tce.rn.gov.br/SISTEMAS/ato.asp?processo=102390",
+                    "screen": "form",
+                    "cpf": "000.000.000-00",
+                }
+            )
+        )
+
+        request = self.store.get_fill_request(request_id)
+        raw = json.dumps(request)
+        self.assertEqual(request["state"], "ERRO")
+        self.assertNotIn("processo=", raw)
+        self.assertNotIn("https://", raw)
+        self.assertNotIn("cpf", raw.lower())
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0]["passed"])
+
+    def test_the_diagnostics_sanitizer_rejects_urls_unknown_screens_and_bad_refs(self):
+        self.assertIsNone(
+            sanitize_browser_diagnostics(
+                {
+                    "route": "https://host/path?x=1",
+                    "screen": "banana",
+                    "tab_ref": "tab 1 / x",
+                }
+            )
+        )
+        self.assertEqual(
+            sanitize_browser_diagnostics(
+                {"route": "/A/B.asp", "screen": "FORM", "tab_ref": "tab-1"}
+            ),
+            {"route": "/A/B.asp", "screen": "form", "tab_ref": "tab-1"},
+        )
+
+    def test_a_restarted_service_still_finishes_the_ar1_run(self):
+        self.ready_process()
+        recorder = ReliabilityRecorder(self.data, AR1_BUILD)
+        first = FillService(self.store, reliability=recorder, reliability_environment="offline")
+        request_id = first.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+
+        restarted = FillService(self.store, reliability=recorder, reliability_environment="offline")
+        restarted.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "field_results": {
+                    name: {"before": "", "proposed": value, "after": value, "status": "changed"}
+                    for name, value in command["payload"]["fields"].items()
+                },
+            },
+        )
+
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertTrue(finished[0]["passed"])
+        self.assertEqual(finished[0]["run_id"], ar1_run_id(request_id))
 
 
 
