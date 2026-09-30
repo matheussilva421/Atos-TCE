@@ -2,8 +2,8 @@
 
 Data: 2026-09-30
 Branch: `codex/area-restrita-reliability-reset`
-HEAD no início da sessão de qualificação: `5e9c2773c829a000523612c4753ad49fe360e7ff` (confirmado por `git fetch` + `git pull --ff-only`, árvore limpa, igual a `origin/codex/area-restrita-reliability-reset`)
-Build congelado para a sequência AR-1: o commit que contém este handoff. Depois de `5e9c277` só `docs/` mudou, então a árvore de código é idêntica; conferir com `git log -1 --format=%H` e `git diff 5e9c277..HEAD --stat`.
+AR1_BUILD (build congelado para a sequência AR-1): `f1cf5b49d548f1b3a21eebb75c2d857189072355`
+Builds congelados anteriores: `5e9c277` → `4cd848a` → `af8c1f2` → `4cd848a` (hardening de proveniência) → **`f1cf5b4` (AR1_BUILD em uso)**. Builds anteriores não devem ser usados para novos runs.
 Base da reconciliação: `9fa3465` (`origin/codex/area-restrita-reliability-reset-spec`)
 
 ## 1. Reconciliação das branches
@@ -77,12 +77,12 @@ git diff --check                                         -> limpo
 
 ## 5. Gates offline executados no HEAD congelado
 
-Executados em `5e9c2773c829a000523612c4753ad49fe360e7ff`, o mesmo HEAD que `origin/codex/area-restrita-reliability-reset` apontava no início desta sessão de qualificação, com árvore de trabalho limpa. A árvore de código do build congelado é idêntica a essa.
+Executados em `f1cf5b49d548f1b3a21eebb75c2d857189072355` (AR1_BUILD), com árvore de trabalho limpa e igual a `origin/codex/area-restrita-reliability-reset`.
 
 | Gate | Comando | Resultado |
 |---|---|---|
-| HEAD | `git rev-parse HEAD` | `5e9c2773c829a000523612c4753ad49fe360e7ff`, igual a `origin/...` |
-| Python | `python -m unittest discover -s tests -p "test_*.py" -q` | 746 testes, OK (0 falhas) |
+| HEAD | `git rev-parse HEAD` | `f1cf5b49d548f1b3a21eebb75c2d857189072355`, igual a `origin/...` |
+| Python | `python -m unittest discover -s tests -p "test_*.py" -q` | 764 testes, OK (0 falhas) |
 | extension | `npm test --prefix extension` | 225/225, 0 falhas |
 | web | `node --test app/web/tests/*.test.mjs` | 34/34, 0 falhas |
 | verify-project | `powershell -File .\work\tce-extractor\verify-project.ps1` | 1260 executados / 1258 pass / 0 fail / 2 skip, exit 0 |
@@ -91,6 +91,27 @@ Executados em `5e9c2773c829a000523612c4753ad49fe360e7ff`, o mesmo HEAD que `orig
 Revisões independentes por Task (subagentes isolados) foram executadas; os achados reproduzíveis foram corrigidos (ver seções 4 e 8).
 
 Instabilidade honesta de um gate legado: na primeira execução desta sessão o estágio `automation` falhou em `work/tce-extractor/test_automation_browser.py::test_simulated_pages_frames_and_send_block` com `Page.evaluate: Could not establish connection. Receiving end does not exist`. A reexecução do estágio e a execução completa seguinte passaram (0 falhas). O teste é do harness Playwright legado, carrega `work/tce-extractor/portable/extensao-complementar-ato` (uma cópia separada da extensão, que este Goal não altera) e o erro é de prontidão do canal de mensagens, não de comportamento. Nenhuma mudança deste Goal toca aquela árvore. Se esse estágio voltar a falhar de forma reproduzível, é regressão e precisa ser investigado antes de qualquer promoção.
+
+## 5b. Proveniência do pacote portátil (hardening)
+
+O ZIP antigo em `dist/` podia estar funcionalmente desatualizado e ainda passar no verifier: ele ressuscitou o gate de falha de detecção e o guarda de terminal que já estavam corrigidos na fonte. O hardening fecha essa classe:
+
+- o builder grava `package-manifest.json` com o SHA do Git e o sha256 de cada arquivo de produto copiado (schema 1, ordenação ordinal, bytes exatamente como entram no ZIP);
+- o builder recusa release sem SHA resolvível e com árvore suja; `-AllowDirtySource` existe apenas para fixtures `-SkipRuntime`;
+- o verifier exige o manifesto, valida schema/build_id/tamanhos/hashes/unicidade, recusa source fora do manifesto (inclusive com caixa ou `./` disfarçados e colisões de caixa) e recusa `source_dirty` em pacote com runtime embutido;
+- para pacote de release, exige `-ExpectedBuildId` e confere cada arquivo declarado contra o blob do commit nomeado, então um manifesto reescrito não autentica bytes que o commit não tem;
+- o runtime expõe `build_id` sanitizado em `GET /api/v1/health` e o smoke confere que o runtime extraído deriva o build do próprio manifesto, sem injeção de variável de ambiente.
+
+| Fato | Valor |
+|---|---|
+| AR1_BUILD | `f1cf5b49d548f1b3a21eebb75c2d857189072355` |
+| ZIP | `dist/Atos-TCE-portable.zip`, 520 entradas, 96.186.076 bytes |
+| SHA-256 do ZIP | `f6b9dfc451f6e1b04b193acaab6bfc2dfa95b72b140170137146d74dbdad8aa3` |
+| schema do manifesto | 1 (88 arquivos de produto) |
+| verificação `-ExpectedBuildId` + smoke | PASS; `health.build_id` = build do manifesto |
+| probe portátil `FORM_NOT_AVAILABLE` | `{"recorded": true}`; ledger com `build_id` = AR1_BUILD, `environment` = portable-normal-chrome, `passed` = false |
+
+Limite conhecido: o manifesto não é assinado. A comparação com o blob do commit nomeado protege contra pacote desatualizado, manifesto reescrito e arquivo não versionado, mas não substitui assinatura de release, que exigiria chave fora do escopo deste Goal.
 
 ## 6. Estado da execução real (AR-1)
 
@@ -111,6 +132,8 @@ Semântica da contagem: **cada clique em `Preencher formulário atual` é uma te
 Login, seleção do marcador e o clique final **Complementar Ato** continuam humanos. Nenhum banco real foi alterado, nenhum estado real foi fabricado e nenhuma capability foi promovida.
 
 ## 7. Runbook para destravar a Task 5
+
+Use sempre `AR1_BUILD = f1cf5b49d548f1b3a21eebb75c2d857189072355` nos passos abaixo (`<HEAD>` nos comandos).
 
 0. Em uma raiz de dados limpa a capability nasce `UNQUALIFIED`, então habilite o AR-1 para a sequência supervisionada (isso declara EXPERIMENTAL, não qualifica):
 
@@ -206,6 +229,10 @@ python scripts/portal-reliability/qualification.py --data-root <portable-data-ro
 - `git diff --check` pega fim de linha; uma escrita via PowerShell com `WriteAllLines` já introduziu CRLF uma vez e foi corrigida.
 - A sequência conta **toda** tentativa do operador. Como o plano deriva o `run_id` de uma tentativa que virou pedido (`manual-fill:<request_id>`), uma tentativa que nunca virou pedido — nenhum formulário, dois formulários visíveis, aba não autenticada, processo desconhecido — usa `manual-fill-attempt:<uuid>` e é gravada como execução falha, zerando a sequência do mesmo jeito. A extensão só reporta os códigos que honestamente observa antes de existir um pedido (FORM_NOT_AVAILABLE, FORM_AMBIGUOUS, PORTAL_TAB_NOT_ACTIVE).
 - A UI da Mesa também deixou de oferecer `Próximo processo` durante a Phase 1; o endpoint continua existindo para o tooling supervisionado de benchmark (Task 7), como o plano prevê.
+- Revisão adversarial do hardening: colisão de caixa em nome de entrada do ZIP escapava da cobertura (hashtable do PowerShell é case-insensitive e o predicado era case-sensitive) e ainda podia sobrescrever código na extração. Corrigido: nome canônico com minúsculas, remoção de `./`, recusa de duplicata/variação de caixa e cobertura sobre a lista completa de entradas.
+- Revisão adversarial do hardening: o smoke injetava o build id esperado em `ATOS_TCE_BUILD_ID` e comparava o health com o próprio valor injetado, o que era tautológico. Corrigido: o smoke limpa a variável e exige que o runtime extraído derive o build do manifesto empacotado (que passou a ter precedência sobre um checkout acima da extração).
+- Revisão adversarial do hardening: um manifesto reescrito dentro do ZIP autenticava bytes modificados e arquivos ignorados/não versionados entravam com identidade limpa. Corrigido: pacote de release exige `-ExpectedBuildId`, o commit precisa existir localmente e cada arquivo declarado precisa estar no commit com o mesmo blob git dos bytes do ZIP.
+- Revisão adversarial do hardening: `-ExpectedBuildId` era opcional, então um release antigo e autoconsistente passava. Corrigido: obrigatório para pacote com runtime embutido.
 - Um clique feito com a Mesa fora do ar não gera evento, porque o ledger vive na Mesa: por construção, nenhuma tentativa é registrada quando o serviço de registro está indisponível. O runbook exige conferir "Mesa conectada" e `runs = 0` antes de começar, e o painel mostra a linha da Mesa separadamente do resultado do preenchimento.
 
 ## 10. Confirmação de segurança
