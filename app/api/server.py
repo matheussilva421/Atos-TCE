@@ -47,7 +47,7 @@ from ..area_restrita import (
     PORTAL_ROLES,
 )
 from ..area_restrita import cdp_fallback
-from ..area_restrita.reliability import ReliabilityRecorder
+from ..area_restrita.reliability import ENVIRONMENTS, ReliabilityRecorder
 from ..area_restrita.fill_service import (
     OPEN_ACT_ACTIONS,
     OPEN_ACT_SCREENS,
@@ -104,6 +104,18 @@ def _reliability_build_id() -> str:
         return UNKNOWN_BUILD_ID
     sha = (result.stdout or "").strip()
     return sha if result.returncode == 0 and sha else UNKNOWN_BUILD_ID
+
+
+def _reliability_environment() -> str:
+    """Which environment this instance records its AR-1 runs under.
+
+    The packaged runtime sets ``ATOS_TCE_RELIABILITY_ENVIRONMENT`` so its runs
+    land under ``portable-normal-chrome``; a developer checkout defaults to the
+    real development environment.
+    """
+
+    value = str(os.environ.get("ATOS_TCE_RELIABILITY_ENVIRONMENT") or "").strip()
+    return value if value in ENVIRONMENTS else "real-dev"
 
 #: Command types the Mesa may queue for the thin extension. There is never a
 #: submit type: the final completion click stays with the operator.
@@ -381,6 +393,7 @@ class MesaServer(ThreadingHTTPServer):
         self._archive: ArchiveManager | None = None
         self._navigation: NavigationService | None = None
         self._reliability_build_id: str | None = None
+        self._reliability_environment: str | None = None
 
     @property
     def analysis(self) -> AnalysisService:
@@ -399,11 +412,23 @@ class MesaServer(ThreadingHTTPServer):
         return self._reliability_build_id
 
     @property
+    def reliability_environment(self) -> str:
+        """Environment the AR-1 ledger binds runs to (resolved once)."""
+
+        if self._reliability_environment is None:
+            self._reliability_environment = _reliability_environment()
+        return self._reliability_environment
+
+    @property
     def fill(self) -> FillService:
         """The fill workflow owner (M5); the extension never decides."""
 
         if self._fill is None:
-            self._fill = FillService(self.store)
+            self._fill = FillService(
+                self.store,
+                reliability=ReliabilityRecorder(self.data_root, self.reliability_build_id),
+                reliability_environment=self.reliability_environment,
+            )
         return self._fill
 
     @property

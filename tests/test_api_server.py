@@ -2287,5 +2287,61 @@ class PortalReliabilityRouteTests(ApiTestCase):
 
 
 
+
+
+class PortalManualFormReliabilityTests(ApiTestCase):
+    def test_manual_form_records_ar1_telemetry_without_navigation(self):
+        opener = self.mesa_opener()
+
+        status, _headers, payload = self.call_json(
+            "/api/v1/portal/manual-form",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={
+                "identity": {"processKey": "102390/2026", "interestedNormalized": "pessoa exemplo"},
+                "generation": 3,
+                "fields": {},
+                "diagnostics": {
+                    "browser_session_id": "session-1",
+                    "tab_ref": "tab-1",
+                    "frame_ref": "frame-0",
+                    "route": "/SISTEMAS/PROCESSO/ComplementarAto.asp?processo=102390&doc=9",
+                    "screen": "form",
+                    "generation": 3,
+                },
+            },
+            opener=opener,
+        )
+
+        self.assertEqual(status, 201, payload)
+        request_id = payload["fill_request_id"]
+        ledger = self.data_root / "reliability" / "events.jsonl"
+        self.assertTrue(ledger.is_file())
+        raw = ledger.read_text(encoding="utf-8")
+        events = [json.loads(line) for line in raw.splitlines() if line.strip()]
+        run_id = f"manual-fill:{request_id}"
+        run_events = [event for event in events if event.get("run_id") == run_id]
+        self.assertEqual(run_events[0]["type"], "run_start")
+        self.assertEqual(run_events[0]["environment"], "real-dev")
+        boundaries = [
+            event["boundary"] for event in run_events if event.get("type") == "transition"
+        ]
+        self.assertIn("current_form_detected", boundaries)
+        self.assertIn("manual_fill_requested", boundaries)
+
+        types = [
+            row[0]
+            for row in self.store._connection.execute(
+                "SELECT command_type FROM extension_commands ORDER BY id"
+            )
+        ]
+        self.assertNotIn("OPEN_ACT", types)
+        self.assertNotIn("OPEN_NEXT_ACT", types)
+        # The private route and identity never reach the ledger.
+        self.assertNotIn("processo=", raw)
+        self.assertNotIn("102390", raw)
+        self.assertNotIn("pessoa exemplo", raw)
+
+
 if __name__ == "__main__":
     unittest.main()

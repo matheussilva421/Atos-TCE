@@ -11,6 +11,7 @@ the operator.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -61,6 +62,71 @@ EXTENSION_BLOCK_CODES: frozenset[str] = frozenset(
 
 class FillError(RuntimeError):
     """Raised when a fill request cannot be created or advanced."""
+
+
+#: Reliability Reset AR-1: the assisted manual fill and its run vocabulary.
+AR1_CAPABILITY = "manual_form_fill"
+AR1_DEFAULT_ENVIRONMENT = "real-dev"
+
+#: Only these browser-diagnostic keys may ever be persisted; the rest, and any
+#: query string or fragment inside a route, are dropped before storage.
+SAFE_DIAGNOSTIC_KEYS: tuple[str, ...] = (
+    "browser_session_id",
+    "tab_ref",
+    "frame_ref",
+    "route",
+    "screen",
+    "generation",
+)
+
+_OPAQUE_REF = re.compile(r"^[A-Za-z0-9_.:\-/]{1,128}$")
+_SESSION_REF = re.compile(r"^[A-Za-z0-9_.:\-]{1,128}$")
+_CODE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
+
+
+def ar1_run_id(request_id: int) -> str:
+    """The AR-1 run id, derived from the fill request so the two cannot drift."""
+
+    return f"manual-fill:{int(request_id)}"
+
+
+def _safe_code(value: Any, fallback: str) -> str:
+    """Reduce an arbitrary code/reason to a short machine token."""
+
+    text = str(value or "").strip().upper()
+    return text if _CODE.fullmatch(text) else fallback
+
+
+def sanitize_browser_diagnostics(diagnostics: Any) -> dict[str, Any] | None:
+    """Keep only allowlisted structural diagnostics, with no private payload.
+
+    A ``route`` is reduced to its path: a query string or fragment never
+    persists, so a process number or document id cannot leak into the ledger.
+    """
+
+    if not isinstance(diagnostics, Mapping):
+        return None
+    safe: dict[str, Any] = {}
+    for key in SAFE_DIAGNOSTIC_KEYS:
+        if key not in diagnostics:
+            continue
+        value = diagnostics[key]
+        if key == "generation":
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                continue
+            safe[key] = value
+            continue
+        text_value = str(value or "").strip()
+        if not text_value:
+            continue
+        if key == "route":
+            text_value = text_value.split("#", 1)[0].split("?", 1)[0]
+            if not text_value:
+                continue
+        if not _OPAQUE_REF.fullmatch(text_value[:128]):
+            continue
+        safe[key] = text_value[:128]
+    return safe or None
 
 
 def identity_of(process: Mapping[str, Any]) -> dict[str, Any]:
@@ -143,9 +209,144 @@ def summarize_field_results(
 
 
 class FillService:
-    def __init__(self, store: Store, *, preflight: Any | None = None) -> None:
+    def __init__(
+        self,
+        store: Store,
+        *,
+        preflight: Any | None = None,
+        reliability: Any | None = None,
+        reliability_environment: str = AR1_DEFAULT_ENVIRONMENT,
+    ) -> None:
         self._store = store
         self._preflight = preflight or build_fill_plan
+        self._reliability = reliability
+        self._reliability_environment = str(reliability_environment)
+        self._ar1_started: set[str] = set()
+        self._ar1_finished: set[str] = set()
+        self._ar1_phase: dict[str, str] = {}
+
+    # ------------------------------------------------- AR-1 reliability helper
+
+    def _start_ar1_run(
+        self,
+        request_id: int,
+        process: Mapping[str, Any],
+        snapshot: Mapping[str, Any],
+    ) -> str | None:
+        """Open the AR-1 run for a manual request and record its first boundaries."""
+
+        if self._reliability is None:
+            return None
+        run_id = ar1_run_id(request_id)
+        diagnostics = sanitize_browser_diagnostics(
+            snapshot.get("diagnostics") if isinstance(snapshot, Mapping) else None
+        )
+        session_id = (diagnostics or {}).get("browser_session_id")
+        if session_id is not None and not _SESSION_REF.fullmatch(str(session_id)):
+            session_id = None
+        observed = snapshot.get("identity") if isinstance(snapshot, Mapping) else None
+        self._reliability.start(
+            AR1_CAPABILITY,
+            self._reliability_environment,
+            browser_session_id=session_id,
+            run_id=run_id,
+        )
+        self._ar1_started.add(run_id)
+        self._ar1_transition(
+            run_id,
+            boundary="current_form_detected",
+            state_before=None,
+            state_after="FORM",
+            result_code="FORM_DETECTED",
+            expected_identity=identity_of(process),
+            observed_identity=observed,
+        )
+        self._ar1_transition(
+            run_id,
+            boundary="manual_fill_requested",
+            state_before="FORM",
+            state_after="PREFLIGHT",
+            result_code="REQUEST_CREATED",
+            expected_identity=identity_of(process),
+            observed_identity=observed,
+        )
+        return run_id
+
+    def _ar1_run_id(self, request: Mapping[str, Any]) -> str | None:
+        """The AR-1 run of this request, or None when it is not a manual run."""
+
+        if self._reliability is None:
+            return None
+        request_id = request.get("id")
+        if request_id is None:
+            return None
+        try:
+            run_id = ar1_run_id(int(request_id))
+        except (TypeError, ValueError):
+            return None
+        return run_id if run_id in self._ar1_started else None
+
+    def _ar1_transition(
+        self,
+        run_id: str | None,
+        *,
+        boundary: str,
+        state_before: str | None = None,
+        state_after: str | None = None,
+        result_code: str,
+        expected_identity: Mapping[str, Any] | None = None,
+        observed_identity: Mapping[str, Any] | None = None,
+        generation_before: int | None = None,
+        generation_after: int | None = None,
+    ) -> None:
+        if run_id is None or self._reliability is None:
+            return
+        self._reliability.transition(
+            run_id,
+            boundary=boundary,
+            state_before=state_before,
+            state_after=state_after,
+            result_code=result_code,
+            expected_identity=expected_identity,
+            observed_identity=observed_identity,
+            generation_before=generation_before,
+            generation_after=generation_after,
+        )
+
+    def _ar1_set_phase(self, run_id: str | None, phase: str) -> None:
+        if run_id is not None:
+            self._ar1_phase[run_id] = phase
+
+    def _ar1_finish(self, run_id: str | None, *, passed: bool, result_code: str) -> None:
+        """Close an AR-1 run exactly once."""
+
+        if run_id is None or self._reliability is None or run_id in self._ar1_finished:
+            return
+        self._ar1_finished.add(run_id)
+        self._reliability.finish(run_id, passed=passed, result_code=result_code)
+
+    def _ar1_close(
+        self,
+        request: Mapping[str, Any],
+        *,
+        passed: bool,
+        result_code: str,
+        state_after: str,
+        code: str | None = None,
+    ) -> None:
+        """Record the terminal boundary for the current phase and finish the run."""
+
+        run_id = self._ar1_run_id(request)
+        if run_id is None or run_id in self._ar1_finished:
+            return
+        self._ar1_transition(
+            run_id,
+            boundary=self._ar1_phase.get(run_id, "preflight_completed"),
+            state_before=None,
+            state_after=state_after,
+            result_code=_safe_code(code, result_code),
+        )
+        self._ar1_finish(run_id, passed=passed, result_code=_safe_code(code, result_code))
 
     # ------------------------------------------------------------- entry points
 
@@ -206,6 +407,9 @@ class FillService:
         request_id = self._store.create_fill_request(
             process_id, state="PREFLIGHT", mode="manual", form_snapshot=dict(snapshot)
         )
+        # AR-1 is navigation-independent: a manual request never queues
+        # OPEN_ACT/OPEN_NEXT_ACT. The reliability run is bound to this request.
+        self._start_ar1_run(request_id, process, snapshot)
         self._store.add_workflow_event(
             process_id, "fill_requested", {"fill_request_id": request_id, "mode": "manual"}
         )
@@ -314,6 +518,10 @@ class FillService:
     ) -> None:
         """Decide the exact fields to write, or block without touching a control."""
 
+        run_id = self._ar1_run_id(request)
+        diagnostics = sanitize_browser_diagnostics(
+            snapshot.get("diagnostics") if isinstance(snapshot, Mapping) else None
+        )
         observed_identity = snapshot.get("identity") if isinstance(snapshot, Mapping) else None
         mismatch = self._identity_mismatch(process, observed_identity)
         if mismatch:
@@ -335,13 +543,24 @@ class FillService:
             if blocked.details:
                 reason = f"{blocked.code}: {', '.join(blocked.details)}"
             if blocked.code in {"IDENTITY_MISSING", "IDENTITY_MISMATCH", "PROCESS_MISSING"}:
-                self._block(request, reason)
+                self._block(request, reason, code=blocked.code)
             else:
-                self._fail(request, reason)
+                self._fail(request, reason, code=blocked.code)
             return
         except Exception as error:  # a broken plan must never reach the portal
             self._fail(request, f"preflight falhou: {type(error).__name__}")
             return
+        self._ar1_transition(
+            run_id,
+            boundary="preflight_completed",
+            state_before="PREFLIGHT",
+            state_after="FILLING",
+            result_code="PLAN_READY",
+            expected_identity=identity_of(process),
+            observed_identity=observed_identity,
+            generation_after=plan.generation,
+        )
+        self._ar1_set_phase(run_id, "fill_command_completed")
         # The identity was resolved to this canonical process above. Keep the
         # portal's exact displayed alias in the extension command so its form
         # readback is checked against the page the operator actually opened.
@@ -367,6 +586,8 @@ class FillService:
                 "warnings": plan.warnings,
                 "legal_decision": plan.legal_decision,
                 "modality_decision": plan.modality_decision,
+                "generation": plan.generation,
+                "diagnostics": diagnostics,
                 "stale_generation_retries": int(
                     (request.get("form_snapshot") or {}).get("stale_generation_retries", 0)
                     if isinstance(request.get("form_snapshot"), Mapping)
@@ -380,9 +601,18 @@ class FillService:
     ) -> None:
         """Record the field pass and promote only a fully satisfied process."""
 
+        run_id = self._ar1_run_id(request)
         process_id = int(request["process_id"])
         if result.get("ok") is not True:
             if str(result.get("code") or "").strip().upper() == "STALE_GENERATION":
+                self._ar1_transition(
+                    run_id,
+                    boundary="fill_command_completed",
+                    state_before="FILLING",
+                    state_after="READING",
+                    result_code="STALE_GENERATION",
+                )
+                self._ar1_set_phase(run_id, "preflight_completed")
                 self._retry_stale_generation(request)
                 return
             self._refuse(request, result, "preenchimento recusado pelo portal")
@@ -500,6 +730,33 @@ class FillService:
                 "operation_warnings": operation_warnings,
             }
         )
+        reread_ok = bool(summary["mandatory_satisfied"])
+        self._ar1_transition(
+            run_id,
+            boundary="fill_command_completed",
+            state_before="FILLING",
+            state_after="PREENCHIDO",
+            result_code="SUCCEEDED",
+            expected_identity=identity_of(process),
+            observed_identity=result.get("identity"),
+            generation_before=(snapshot.get("generation") if isinstance(snapshot.get("generation"), int) else None),
+            generation_after=generation_after,
+        )
+        self._ar1_transition(
+            run_id,
+            boundary="reread_completed",
+            state_before="FORM_FILLED",
+            state_after="FORM_FILLED",
+            result_code="REREAD_OK" if reread_ok else "REREAD_INCOMPLETE",
+            expected_identity=identity_of(process),
+            observed_identity=result.get("identity"),
+            generation_after=generation_after,
+        )
+        self._ar1_finish(
+            run_id,
+            passed=reread_ok,
+            result_code="SUCCEEDED" if reread_ok else "REREAD_INCOMPLETE",
+        )
         self._store.update_fill_request(
             int(request["id"]),
             state="PREENCHIDO",
@@ -571,7 +828,9 @@ class FillService:
             return "identidade divergente entre o ato aberto e o processo selecionado"
         return None
 
-    def _block(self, request: Mapping[str, Any], reason: str) -> None:
+    def _block(
+        self, request: Mapping[str, Any], reason: str, *, code: str | None = None
+    ) -> None:
         self._store.update_fill_request(
             int(request["id"]), state="BLOQUEADO", error=reason, current_command_id=None
         )
@@ -579,6 +838,9 @@ class FillService:
             int(request["process_id"]),
             "fill_blocked",
             {"fill_request_id": int(request["id"]), "reason": reason},
+        )
+        self._ar1_close(
+            request, passed=False, result_code="BLOCKED", state_after="BLOQUEADO", code=code
         )
 
     def _refuse(
@@ -589,11 +851,13 @@ class FillService:
         code = str(result.get("code") or "").strip().upper()
         reason = str(result.get("error") or code or fallback)
         if code in EXTENSION_BLOCK_CODES:
-            self._block(request, reason)
+            self._block(request, reason, code=code)
             return
-        self._fail(request, reason)
+        self._fail(request, reason, code=code)
 
-    def _fail(self, request: Mapping[str, Any], reason: str) -> None:
+    def _fail(
+        self, request: Mapping[str, Any], reason: str, *, code: str | None = None
+    ) -> None:
         self._store.update_fill_request(
             int(request["id"]), state="ERRO", error=reason, current_command_id=None
         )
@@ -601,4 +865,7 @@ class FillService:
             int(request["process_id"]),
             "fill_failed",
             {"fill_request_id": int(request["id"]), "reason": reason},
+        )
+        self._ar1_close(
+            request, passed=False, result_code="FAILED", state_after="ERRO", code=code
         )

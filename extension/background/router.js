@@ -116,6 +116,41 @@ function contextDrift(frozen, observed) {
  * Execute one command with injected collaborators, so the behaviour is testable
  * without a browser.
  */
+/** A stable per-worker session id: no credential, no tab data, no identity. */
+const BROWSER_SESSION_ID = (() => {
+  const cryptoRef = globalThis.crypto;
+  if (cryptoRef?.randomUUID) return cryptoRef.randomUUID();
+  const bytes = new Uint8Array(8);
+  if (cryptoRef?.getRandomValues) cryptoRef.getRandomValues(bytes);
+  return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+})();
+
+/** A route path with the query string and fragment removed. */
+function routePath(url) {
+  try {
+    return new URL(String(url)).pathname;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Sanitized structural diagnostics for one resolved form. The wrapper around
+ * the form never carries identity, field values, cookies or a URL query.
+ */
+function formDiagnostics(tab, match) {
+  const route = routePath(tab?.url);
+  const generation = match?.form?.generation;
+  return {
+    browser_session_id: BROWSER_SESSION_ID,
+    tab_ref: `tab-${Number(tab?.id) || 0}`,
+    frame_ref: `frame-${Number(match?.frameId) || 0}`,
+    ...(route ? { route } : {}),
+    screen: "form",
+    ...(Number.isInteger(generation) ? { generation } : {}),
+  };
+}
+
 export async function executeCommand(command, dependencies = {}) {
   const commandId = Number.isInteger(command?.id) ? command.id : null;
   const type = String(command?.type ?? "").trim().toUpperCase();
@@ -403,6 +438,10 @@ export function installRouter({
   nextActDependencies = {},
 } = {}) {
   let running = false;
+  // Diagnostics of the last form the operator's active tab resolved to. They
+  // ride along with a manual-fill request so the Mesa can bind the run to the
+  // exact frame it came from; they never carry identity or field values.
+  let lastFormDiagnostics = null;
   const retryAttempts = timing.retryAttempts ?? RETRY_ATTEMPTS;
   const retryDelayMs = timing.retryDelayMs ?? RETRY_DELAY_MS;
   const formReadAttempts = timing.formReadAttempts ?? FORM_READ_ATTEMPTS;
@@ -420,6 +459,14 @@ export function installRouter({
 
   async function portalTabs() {
     return (await chromeApi.tabs.query({ url: [`${PORTAL_ORIGIN}/*`] })) ?? [];
+  }
+
+  function manualFillPayload(payload) {
+    const body = { ...(payload && typeof payload === "object" ? payload : {}) };
+    if (body.diagnostics === undefined && lastFormDiagnostics) {
+      body.diagnostics = lastFormDiagnostics;
+    }
+    return body;
   }
 
   /** Every frame of one portal tab, addressed as (tabId, frameId). */
@@ -909,12 +956,17 @@ export function installRouter({
     for (const frame of await framesOfTab(tab.id)) {
       try {
         const response = await sendToFrame(tab.id, frame.frameId, { type: MESSAGE_TYPES.READ_FORM });
-        if (response?.ok === true && response.form) matches.push(response.form);
+        if (response?.ok === true && response.form) {
+          matches.push({ form: response.form, frameId: frame.frameId });
+        }
       } catch {
         // A frame that is navigating is simply not a candidate.
       }
     }
-    if (matches.length === 1) return { ok: true, form: matches[0] };
+    if (matches.length === 1) {
+      lastFormDiagnostics = formDiagnostics(tab, matches[0]);
+      return { ok: true, form: matches[0].form, diagnostics: lastFormDiagnostics };
+    }
     if (matches.length === 0) {
       return {
         ok: false,
@@ -979,7 +1031,7 @@ export function installRouter({
     }
     if (message?.type === MESSAGE_TYPES.REQUEST_MANUAL_FILL) {
       api
-        .requestManualFill(message.payload)
+        .requestManualFill(manualFillPayload(message.payload))
         .then((outcome) => sendResponse(outcome))
         .catch((error) => sendResponse({ ok: false, status: 0, error: String(error?.message ?? error) }));
       return true;

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { executeCommand, installRouter, scanAreaPages } from "../background/router.js";
-import { COMMAND_TYPES, MESSAGE_TYPES } from "../lib/protocol.js";
+import { COMMAND_TYPES, MESSAGE_TYPES, PORTAL_ORIGIN } from "../lib/protocol.js";
 import { fakeChrome } from "./helpers.mjs";
 
 const PORTAL = "https://novaarearestrita.tce.rn.gov.br";
@@ -1730,4 +1730,58 @@ test("the router serves the reliability status through the service worker", asyn
 test("the reliability status route is a request, never a queued command", () => {
   assert.equal(Object.hasOwn(MESSAGE_TYPES, "RELIABILITY_STATUS"), true);
   assert.equal(Object.hasOwn(COMMAND_TYPES, "RELIABILITY_STATUS"), false);
+});
+
+test("readCurrentForm returns only sanitized structural diagnostics", async () => {
+  const url = `${PORTAL_ORIGIN}/SISTEMAS/PROCESSO/ComplementarAto.asp?processo=102390&doc=9#top`;
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 1, url, active: true, lastFocusedWindow: true }],
+    frames: { 1: [{ frameId: 0, url }] },
+    onMessage: () => ({ ok: true, form: { identity: IDENTITY, generation: 4, fields: {} } }),
+  });
+  const router = installRouter({
+    api: { nextCommand: async () => ({ ok: true, command: null }) },
+    chromeApi,
+    timing: FAST,
+  });
+
+  const response = await router.readCurrentForm();
+
+  assert.equal(response.ok, true);
+  assert.deepEqual(Object.keys(response.diagnostics).sort(), [
+    "browser_session_id",
+    "frame_ref",
+    "generation",
+    "route",
+    "screen",
+    "tab_ref",
+  ]);
+  assert.equal(response.diagnostics.route, "/SISTEMAS/PROCESSO/ComplementarAto.asp");
+  assert.equal(response.diagnostics.screen, "form");
+  assert.equal(response.diagnostics.generation, 4);
+  assert.equal(response.diagnostics.tab_ref, "tab-1");
+  assert.equal(response.diagnostics.frame_ref, "frame-0");
+  assert.deepEqual(response.form.identity, IDENTITY);
+  const serialized = JSON.stringify(response);
+  assert.doesNotMatch(serialized, /processo=|doc=9|#top/u);
+});
+
+test("two visible forms in the active tab never become the current form", async () => {
+  const url = `${PORTAL_ORIGIN}/SISTEMAS/PROCESSO/ComplementarAto.asp`;
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 1, url, active: true, lastFocusedWindow: true }],
+    frames: { 1: [{ frameId: 0, url }, { frameId: 1, url }] },
+    onMessage: () => ({ ok: true, form: { identity: IDENTITY, generation: 4 } }),
+  });
+  const router = installRouter({
+    api: { nextCommand: async () => ({ ok: true, command: null }) },
+    chromeApi,
+    timing: FAST,
+  });
+
+  const response = await router.readCurrentForm();
+
+  assert.equal(response.ok, false);
+  assert.equal(response.code, "FORM_AMBIGUOUS");
+  assert.equal(response.diagnostics, undefined);
 });

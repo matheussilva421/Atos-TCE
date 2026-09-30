@@ -9,8 +9,10 @@ from app.area_restrita.fill_service import (
     FILL_STATES,
     FillError,
     FillService,
+    ar1_run_id,
     summarize_field_results,
 )
+from app.area_restrita.reliability import ReliabilityRecorder
 from app.area_restrita.preflight import FillBlocked, FillPlan, build_fill_plan
 from app.analysis.legal import RULES_VERSION, selectable_legal_options
 from app.core.models import DocumentRecord, FieldRecord, ProcessRecord
@@ -451,8 +453,8 @@ class ManualFillRequestTests(FillRequestTestCase):
             self.service.request_manual_fill(self.snapshot())
 
 
-class ManualFallbackTests(FillRequestTestCase):
-    """The operator-opened form must produce the same plan as the automatic path."""
+class ManualSnapshotMixin:
+    """Shared helpers for the manual-fill test classes."""
 
     def ready_process(self, *, values=None):
         process_id = self.make_process()
@@ -480,6 +482,10 @@ class ManualFallbackTests(FillRequestTestCase):
         }
         payload.update(overrides)
         return payload
+
+
+class ManualFallbackTests(ManualSnapshotMixin, FillRequestTestCase):
+    """The operator-opened form must produce the same plan as the automatic path."""
 
     def test_the_manual_path_queues_the_same_fill_command_as_the_automatic_path(self):
         process_id = self.ready_process()
@@ -1370,6 +1376,177 @@ class FillServicePreflightTests(FillRequestTestCase):
         request = self.store.get_fill_request(request_id)
         self.assertEqual(request["state"], "ERRO")
         self.assertIn("preflight falhou", request["error"])
+
+
+AR1_BUILD = "task3-build"
+
+
+class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
+    """AR-1 must be navigation-independent and must emit sanitized telemetry."""
+
+    def ar1_service(self):
+        self.recorder = ReliabilityRecorder(self.data, AR1_BUILD)
+        return FillService(
+            self.store, reliability=self.recorder, reliability_environment="offline"
+        )
+
+    def events(self):
+        path = self.data / "reliability" / "events.jsonl"
+        if not path.exists():
+            return []
+        return [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+
+    def boundaries(self, request_id):
+        run_id = ar1_run_id(request_id)
+        return [
+            event["boundary"]
+            for event in self.events()
+            if event.get("type") == "transition" and event.get("run_id") == run_id
+        ]
+
+    def finishes(self):
+        return [event for event in self.events() if event.get("type") == "run_finished"]
+
+    def test_manual_fill_never_queues_open_act_or_open_next_act(self):
+        self.ready_process()
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+
+        types = [
+            row[0]
+            for row in self.store._connection.execute(
+                "SELECT command_type FROM extension_commands ORDER BY id"
+            )
+        ]
+        self.assertEqual(types, ["FILL_FORM"])
+        self.assertNotIn("OPEN_ACT", types)
+        self.assertNotIn("OPEN_NEXT_ACT", types)
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "FILLING")
+
+    def test_manual_fill_rejects_identity_change_before_write(self):
+        process_id = self.ready_process()
+        service = self.ar1_service()
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": {"processKey": "outro/2026", "interestedNormalized": "outra pessoa"},
+                "generation_after": 4,
+                "field_results": {},
+            },
+        )
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "BLOQUEADO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0]["passed"])
+
+    def test_manual_fill_records_form_not_available_as_ar1_failure(self):
+        self.ready_process()
+        service = self.ar1_service()
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+
+        service.handle_command_result(
+            command["id"],
+            {"ok": False, "code": "FORM_NOT_AVAILABLE", "error": "sem formulário"},
+        )
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "ERRO")
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0]["passed"])
+        self.assertEqual(finished[0]["result_code"], "FORM_NOT_AVAILABLE")
+
+    def test_manual_fill_records_the_ar1_boundary_sequence(self):
+        process_id = self.ready_process()
+        service = self.ar1_service()
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "field_results": {
+                    name: {"before": "", "proposed": value, "after": value, "status": "changed"}
+                    for name, value in command["payload"]["fields"].items()
+                },
+            },
+        )
+
+        self.assertEqual(
+            self.boundaries(request_id),
+            [
+                "current_form_detected",
+                "manual_fill_requested",
+                "preflight_completed",
+                "fill_command_completed",
+                "reread_completed",
+            ],
+        )
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertTrue(finished[0]["passed"])
+        self.assertEqual(self.store.get_process(process_id)["status"], "PREENCHIDO")
+        raw = (self.data / "reliability" / "events.jsonl").read_text(encoding="utf-8")
+        self.assertNotIn("102390/2026", raw)
+        self.assertNotIn("pessoa exemplo", raw)
+
+    def test_ar1_never_persists_a_raw_route_or_identity_in_diagnostics(self):
+        self.ready_process()
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(
+            self.snapshot(
+                diagnostics={
+                    "browser_session_id": "session-1",
+                    "tab_ref": "tab-1",
+                    "frame_ref": "frame-0",
+                    "route": "/SISTEMAS/PROCESSO/ComplementarAto.asp?processo=102390&doc=9",
+                    "screen": "form",
+                    "generation": 3,
+                    "cpf": "000.000.000-00",
+                }
+            )
+        )
+
+        request = self.store.get_fill_request(request_id)
+        diagnostics = request["form_snapshot"]["diagnostics"]
+        self.assertEqual(
+            sorted(diagnostics),
+            ["browser_session_id", "frame_ref", "generation", "route", "screen", "tab_ref"],
+        )
+        self.assertEqual(diagnostics["route"], "/SISTEMAS/PROCESSO/ComplementarAto.asp")
+        raw = json.dumps(request)
+        self.assertNotIn("processo=", raw)
+        self.assertNotIn("cpf", raw.lower())
+
+    def test_marking_ar1_experimental_records_the_build_and_never_qualifies(self):
+        recorder = ReliabilityRecorder(self.data, AR1_BUILD)
+
+        recorder.mark_experimental(
+            "manual_form_fill", reason=f"contrato offline AR-1 verde em {AR1_BUILD}"
+        )
+
+        capability = recorder.capabilities()["manual_form_fill"]
+        self.assertEqual(capability["state"], "EXPERIMENTAL")
+        self.assertIn(AR1_BUILD, capability["reason"])
+        self.assertFalse(recorder.evaluate("manual_form_fill", "real-dev")["qualified"])
+        self.assertFalse(recorder.evaluate("manual_form_fill", "offline")["qualified"])
+
+
 
 
 if __name__ == "__main__":
