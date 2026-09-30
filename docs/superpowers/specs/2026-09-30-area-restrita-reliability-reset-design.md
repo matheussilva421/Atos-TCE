@@ -154,7 +154,35 @@ area_restrita_end_to_end: UNQUALIFIED
 
 Testes offline continuam obrigatórios, mas não promovem estado de capacidade.
 
-## 5. Escopo congelado
+### 4.1. Promoção de estado
+
+A promoção é sempre explícita:
+
+```text
+EXPERIMENTAL
+  -> 20/20 real consecutivo na mesma build
+  -> QUALIFIED
+  -> 20/20 real consecutivo no artefato distribuível/Chrome normal
+  -> PRODUCTION
+```
+
+Se uma capability PRODUCTION falhar de forma reproduzível no fluxo normal, ela volta para `UNQUALIFIED` até nova investigação e requalificação. Não existe grandfathering por release anterior.
+
+## 5. Fonte de runtime
+
+O plano de implementação deve começar com um gate de source-of-truth antes de alterar código.
+
+Existe histórico de divergência documental entre a árvore raiz (`app/`, `extension/`, `tests/`, `packaging/`) e `work/tce-extractor`. Portanto:
+
+1. identificar qual árvore o `START.cmd` e o builder portátil realmente empacotam no HEAD de execução;
+2. identificar onde vivem os testes que validam esse runtime;
+3. escolher **uma única árvore de produção** para as mudanças deste Reliability Reset;
+4. tratar a outra apenas como verifier/legado, salvo instrução autoritativa posterior;
+5. nunca aplicar a mesma correção manualmente nas duas árvores para “mantê-las parecidas”.
+
+Nenhuma Task de runtime começa antes de esse gate estar documentado no handoff.
+
+## 6. Escopo congelado
 
 Enquanto o Reliability Reset estiver ativo, ficam congelados:
 
@@ -177,7 +205,7 @@ São permitidos:
 - qualification;
 - packaging necessário para testar a abordagem vencedora.
 
-## 6. Regra de investigação
+## 7. Regra de investigação
 
 Toda falha real deve seguir:
 
@@ -197,7 +225,7 @@ Não adicionar uma correção se a causa não estiver identificada.
 
 Depois de três tentativas de correção diferentes para a mesma classe de falha sem resolver a confiabilidade real, parar e reavaliar o desenho daquela fronteira.
 
-## 7. Observabilidade
+## 8. Observabilidade
 
 Cada tentativa real deve produzir um registro sanitizado de transições, sem dados pessoais.
 
@@ -234,7 +262,7 @@ Nunca registrar em artefato versionado:
 - request/response body privado;
 - HTML bruto com dados.
 
-### 7.1. Fronteiras que devem ser distinguíveis
+### 8.1. Fronteiras que devem ser distinguíveis
 
 A telemetria deve permitir dizer se a falha ocorreu em:
 
@@ -257,7 +285,7 @@ pagination
 
 Códigos genéricos como `SCREEN_NOT_NAVIGABLE` podem continuar existindo apenas quando a estrutura realmente não permitir classificação mais específica.
 
-## 8. Máquina de estados do portal
+## 9. Máquina de estados do portal
 
 O Reliability Reset adota o vocabulário:
 
@@ -291,7 +319,7 @@ O controlador só avança depois de observar um predicado estrutural corresponde
 
 Timeout é limite superior da espera, não detector de sucesso.
 
-## 9. Qualification Ladder
+## 10. Qualification Ladder
 
 A automação deve ser reconstruída como composição de capacidades qualificadas.
 
@@ -397,11 +425,18 @@ Validar:
 - sessão expirada;
 - end of page.
 
-Cada subcapacidade precisa de matriz real consecutiva suficiente para o plano; o padrão é 20/20 quando houver casos naturais disponíveis. Casos raros impossíveis de obter com segurança ficam cobertos por testes sintéticos e explicitamente marcados como não observados em produção.
+As duas capabilities positivas são independentes e cada uma exige **20/20**:
+
+- `return_to_list`: 20/20;
+- `next_page`: 20/20.
+
+Casos negativos raros (por exemplo sessão expirando exatamente durante a troca de página) podem permanecer cobertos por testes sintéticos quando não surgirem naturalmente com segurança, mas isso deve ser marcado como `NOT_OBSERVED_REAL` e não pode ser apresentado como evidência live.
 
 ### AR-6 — Próximo processo
 
 Somente depois de AR-2 a AR-5 QUALIFIED.
+
+Gate: **20/20 execuções reais consecutivas** do fluxo composto na mesma build. Para promover a PRODUCTION, repetir **20/20** no artefato distribuível em Chrome normal. A amostra deve conter navegação same-page e cross-page; se cross-page não puder ser observado com segurança, a capability cross-page permanece não qualificada e não deve ser exposta como suportada.
 
 `Próximo processo` não terá lógica própria de navegação além de compor capacidades qualificadas:
 
@@ -417,7 +452,7 @@ resolve exact target
 
 O clique não preenche automaticamente.
 
-## 10. Benchmark MV3 × Portal Controller
+## 11. Benchmark MV3 × Portal Controller
 
 AR-2 e AR-3 serão executadas pelas duas abordagens quando tecnicamente possível:
 
@@ -439,7 +474,7 @@ Métricas mínimas:
 | ambiguidade |  |  |
 | intervenção técnica |  |  |
 
-### 10.1. Critério de decisão
+### 11.1. Critério de decisão
 
 A abordagem de produção será escolhida após AR-3.
 
@@ -454,7 +489,7 @@ Preferir a solução que:
 
 Se ambas passarem, preferir a de menor complexidade operacional.
 
-## 11. Portal Controller experimental
+## 12. Portal Controller experimental
 
 Estrutura sugerida:
 
@@ -507,7 +542,7 @@ Responsabilidades:
 
 Essa estrutura é proposta de design; o plano deverá reconciliá-la com o código real antes de criar arquivos.
 
-## 12. Ownership e reutilização
+## 13. Ownership e reutilização
 
 Não duplicar lógica de negócio.
 
@@ -522,7 +557,7 @@ Continuam como fontes existentes:
 
 Se o Portal Controller precisar reproduzir um predicado estrutural já documentado, o plano deve escolher uma fonte canônica ou gerar contrato compartilhado; não manter dois mapas manuais divergentes de seletores.
 
-## 13. Segurança
+## 14. Segurança
 
 Invariantes:
 
@@ -537,7 +572,7 @@ Invariantes:
 9. nenhuma capability pode assinar, tramitar ou enviar;
 10. automação nunca manipula credenciais do operador.
 
-## 14. Testes offline
+## 15. Testes offline
 
 Cada root-cause fix exige RED antes da implementação.
 
@@ -560,9 +595,9 @@ PRODUCTION QUALIFICATION
 
 É proibido concluir “Área Restrita funciona” apenas porque OFFLINE GREEN.
 
-## 15. Testes reais
+## 16. Testes reais
 
-### 15.1. Regras
+### 16.1. Regras
 
 - um comando de portal por vez;
 - operador presente;
@@ -571,7 +606,7 @@ PRODUCTION QUALIFICATION
 - não alterar banco para produzir ambiguidade/stale;
 - registrar apenas evidência sanitizada.
 
-### 15.2. Sequência consecutiva
+### 16.2. Sequência consecutiva
 
 Uma sequência de 20 é válida somente se:
 
@@ -584,7 +619,7 @@ Uma sequência de 20 é válida somente se:
 
 Depois de uma correção, o contador volta a zero.
 
-## 16. Qualificação em outro PC
+## 17. Qualificação em outro PC
 
 Uma capability QUALIFIED só vira PRODUCTION depois de teste no artefato distribuível.
 
@@ -602,7 +637,9 @@ O ambiente deve representar uso normal:
 
 AR-1 é o primeiro gate obrigatório nesse ambiente.
 
-## 17. Packaging
+Para qualquer capability exposta como PRODUCTION, o gate portátil é novamente **20/20 consecutivo**, sem DevTools, Codex, MCP, scripts de laboratório, reinício corretivo ou reload técnico.
+
+## 18. Packaging
 
 Se MV3 vencer o benchmark, preservar o modelo atual.
 
@@ -618,7 +655,7 @@ Se Playwright/Chromium fizer parte da produção:
 - smoke deve provar inicialização em extração limpa;
 - o usuário não instala ferramentas de desenvolvimento.
 
-## 18. UX
+## 19. UX
 
 Durante Reliability Reset, a UI deve comunicar capability real.
 
@@ -634,7 +671,7 @@ Não oferecer como ação normal uma capability UNQUALIFIED.
 
 O sistema deve preferir fallback manual funcional a automação aparentemente disponível que falha de forma imprevisível.
 
-## 19. Critério global de conclusão
+## 20. Critério global de conclusão
 
 O Reliability Reset termina quando:
 
@@ -655,7 +692,7 @@ O Reliability Reset termina quando:
 
 Se AR-2/AR-3 mostrarem que a arquitetura MV3 não atinge a confiabilidade necessária e o controller também não atingir, o projeto deve parar antes de AR-4 e revisar a estratégia do portal; não mascarar a falha com mais heurísticas.
 
-## 20. Resultado esperado
+## 21. Resultado esperado
 
 Ao final, o projeto terá uma afirmação verificável:
 
