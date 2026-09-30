@@ -2,7 +2,8 @@
 
 Data: 2026-09-30
 Branch: `codex/area-restrita-reliability-reset`
-HEAD de código: `bf75503` (este handoff é o commit seguinte, na mesma branch)
+HEAD no início da sessão de qualificação: `5e9c2773c829a000523612c4753ad49fe360e7ff` (confirmado por `git fetch` + `git pull --ff-only`, árvore limpa, igual a `origin/codex/area-restrita-reliability-reset`)
+Build congelado para a sequência AR-1: o commit que contém este handoff. Depois de `5e9c277` só `docs/` mudou, então a árvore de código é idêntica; conferir com `git log -1 --format=%H` e `git diff 5e9c277..HEAD --stat`.
 Base da reconciliação: `9fa3465` (`origin/codex/area-restrita-reliability-reset-spec`)
 
 ## 1. Reconciliação das branches
@@ -41,7 +42,7 @@ Nota: `docs/notes/2026-09-30-area-restrita-runtime-source.md`.
 ```text
 python -m unittest discover -s tests -p "test_*.py" -q  -> 677 OK
 npm test --prefix extension                             -> 208/208
-node --test app/web/tests/*.test.mjs                     -> 34/34
+node --test app/web/tests/*.test.mjs                     -> 33/33
 work\tce-extractor\verify-project.ps1                   -> 1260 executados, 1258 pass, 0 fail, 2 skip
 git diff --check                                         -> limpo
 ```
@@ -57,7 +58,6 @@ git diff --check                                         -> limpo
 | 3 | `7bdbcfc` | AR-1 independente de navegação + telemetria sanitizada |
 | 2 (fix de review) | `f9b4315` | leitura pura não cria estado local |
 | 4 | `3eca37e` | tooling de qualificação/relatório + fronteiras de pacote |
-| 2 (fix de review) | `f9b4315` | leitura pura não cria estado local |
 | 3 (fix de review) | `bf438f9` | snapshot sanitizado na criação, rota/refs/screen validados, membership de AR-1 durável |
 | 4 (fix de review) | `b7a9f2f` | CLI só aceita ambientes reais; relatório colapsa códigos desconhecidos e valida `--build` |
 | revisão final (fix) | `848ce38` | Mesa sem `Próximo processo` na Phase 1, recusa de AR-1 contada como falha, ledger com terminal único sob concorrência, bootstrap de `EXPERIMENTAL` |
@@ -75,25 +75,30 @@ git diff --check                                         -> limpo
 - `scripts/portal-reliability/report.py`: agrega tentativas/sucesso/falhas/intervenções, mediana, p95 e contagens de códigos; nunca copia identidade.
 - Fronteira de pacote: `packaging/verify-package.ps1` passa a recusar `profiles/`, `tmp/portal-reliability/` e `scripts/portal-reliability/`.
 
-## 5. Testes executados (estado atual, HEAD `3eca37e`)
+## 5. Gates offline executados no HEAD congelado
 
-```text
-python -m unittest discover -s tests -p "test_*.py" -q  -> 746 OK
-npm test --prefix extension                             -> 225/225
-node --test app/web/tests/*.test.mjs                     -> 34/34
-work\tce-extractor\verify-project.ps1                   -> 1260 executados, 1258 pass, 0 fail, 2 skip
-git diff --check                                         -> limpo
-```
+Executados em `5e9c2773c829a000523612c4753ad49fe360e7ff`, o mesmo HEAD que `origin/codex/area-restrita-reliability-reset` apontava no início desta sessão de qualificação, com árvore de trabalho limpa. A árvore de código do build congelado é idêntica a essa.
+
+| Gate | Comando | Resultado |
+|---|---|---|
+| HEAD | `git rev-parse HEAD` | `5e9c2773c829a000523612c4753ad49fe360e7ff`, igual a `origin/...` |
+| Python | `python -m unittest discover -s tests -p "test_*.py" -q` | 746 testes, OK (0 falhas) |
+| extension | `npm test --prefix extension` | 225/225, 0 falhas |
+| web | `node --test app/web/tests/*.test.mjs` | 34/34, 0 falhas |
+| verify-project | `powershell -File .\work\tce-extractor\verify-project.ps1` | 1260 executados / 1258 pass / 0 fail / 2 skip, exit 0 |
+| diff | `git diff --check` | limpo |
 
 Revisões independentes por Task (subagentes isolados) foram executadas; os achados reproduzíveis foram corrigidos (ver seções 4 e 8).
 
-## 6. Blocker atual — Task 5 não executada
+Instabilidade honesta de um gate legado: na primeira execução desta sessão o estágio `automation` falhou em `work/tce-extractor/test_automation_browser.py::test_simulated_pages_frames_and_send_block` com `Page.evaluate: Could not establish connection. Receiving end does not exist`. A reexecução do estágio e a execução completa seguinte passaram (0 falhas). O teste é do harness Playwright legado, carrega `work/tce-extractor/portable/extensao-complementar-ato` (uma cópia separada da extensão, que este Goal não altera) e o erro é de prontidão do canal de mensagens, não de comportamento. Nenhuma mudança deste Goal toca aquela árvore. Se esse estágio voltar a falhar de forma reproduzível, é regressão e precisa ser investigado antes de qualquer promoção.
 
-A Task 5 exige **qualificação real**: 20/20 consecutivos em `real-dev` e depois 20/20 no portátil/Chrome normal, com o operador abrindo manualmente o ato correto no portal autenticado.
+## 6. Estado da execução real (AR-1)
+
+Os gates offline passaram no HEAD congelado (seção 5) e `manual_form_fill` foi marcado `EXPERIMENTAL` nessa mesma build (seção 7, passo 0). A sequência real ainda não começou: ela exige o operador autenticado no portal.
 
 ```text
-AR-1 real-dev 20/20 ......... NÃO EXECUTADO (requer operador + login no portal)
-AR-1 portable 20/20 ......... NÃO EXECUTADO
+AR-1 real-dev 20/20 ......... AGUARDANDO O OPERADOR (preparado, streak 0)
+AR-1 portable 20/20 ......... NÃO INICIADO (depende de QUALIFIED)
 AR-1 QUALIFIED/PRODUCTION ... não promovida
 AR-2 MV3 / Controller ....... NÃO INICIADO (hard gate: Task 6 só após AR-1 PRODUCTION)
 AR-3 MV3 / Controller ....... NÃO INICIADO
@@ -101,9 +106,9 @@ arquitetura de navegação .... NÃO DECIDIDA
 Phase 2 ..................... NÃO ESCRITO (depende da decisão arquitetural por evidência)
 ```
 
-Login, seleção do marcador e o clique final **Complementar Ato** continuam humanos. Nenhum banco real foi alterado, nenhum estado real foi fabricado e nenhuma capability foi promovida.
+Semântica da contagem: **cada clique em `Preencher formulário atual` é uma tentativa**, mesmo quando nenhum formulário é detectado. Qualquer falha real zera a sequência; `19 PASS + 1 FAIL` não é 19/20, é `streak = 0`.
 
-Estado local de capability (`data/reliability/capabilities.json`): `manual_form_fill = EXPERIMENTAL` (streaks 0/0), marcado quando o contrato offline AR-1 ficou verde, com o SHA do build na razão. Isso **não** é qualificação.
+Login, seleção do marcador e o clique final **Complementar Ato** continuam humanos. Nenhum banco real foi alterado, nenhum estado real foi fabricado e nenhuma capability foi promovida.
 
 ## 7. Runbook para destravar a Task 5
 
@@ -178,7 +183,7 @@ python scripts/portal-reliability/qualification.py --data-root <portable-data-ro
 ## 9. Limitações conhecidas
 
 - O ambiente da execução é um rótulo gravado pelo runtime (`ATOS_TCE_RELIABILITY_ENVIRONMENT`), não algo não-forjável; um `real-dev` mal rotulado poderia, em tese, contar para o gate. É o modelo que o spec define e o ledger é local de operador único.
-- `docker`/`zip` não participam; o pacote portátil NÃO deve incluir o controlador experimental durante a Phase 1 (garantido pelo builder e agora também pelo verifier).
+- O pacote portátil não inclui o controlador experimental durante a Phase 1 (garantido pelo builder e agora também pelo `verify-package.ps1`); `scripts/portal-reliability/` também fica fora do ZIP por desenho.
 - `git diff --check` pega fim de linha; uma escrita via PowerShell com `WriteAllLines` já introduziu CRLF uma vez e foi corrigida.
 - A sequência conta **toda** tentativa do operador. Como o plano deriva o `run_id` de uma tentativa que virou pedido (`manual-fill:<request_id>`), uma tentativa que nunca virou pedido — nenhum formulário, dois formulários visíveis, aba não autenticada, processo desconhecido — usa `manual-fill-attempt:<uuid>` e é gravada como execução falha, zerando a sequência do mesmo jeito. A extensão só reporta os códigos que honestamente observa antes de existir um pedido (FORM_NOT_AVAILABLE, FORM_AMBIGUOUS, PORTAL_TAB_NOT_ACTIVE).
 - A UI da Mesa também deixou de oferecer `Próximo processo` durante a Phase 1; o endpoint continua existindo para o tooling supervisionado de benchmark (Task 7), como o plano prevê.
