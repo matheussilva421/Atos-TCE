@@ -127,7 +127,26 @@ git status --short
 
 2. Iniciar o runtime de desenvolvimento e autenticar no portal manualmente (sem DevTools, sem correção técnica durante a sequência).
 
-3. Para cada uma das 20 repetições: o operador abre manualmente o ato correto e o interessado e usa **Experimental — Preencher formulário atual**. O clique É a tentativa: se o painel não achar exatamente um formulário, a falha é registrada e a sequência reinicia. O painel deve detectar um único formulário, preencher, reler; conferir identidade e releitura na Mesa. Não clicar em **Complementar Ato**.
+2b. Pré-condições antes do primeiro clique (conferir na ordem):
+
+```text
+1) o painel mostra "Mesa conectada" e "Área Restrita detectada"
+2) o botão mostra "Preencher formulário atual — Experimental"
+3) o contador está em runs = 0 / streak = 0 para o build congelado
+4) o ato correto está aberto e com o interessado selecionado
+```
+
+Se qualquer item falhar, corrigir o ambiente antes de clicar. Um clique feito com a Mesa fora do ar **não pode ser registrado** (o ledger vive na Mesa), então ele não conta como tentativa e não zera a sequência: conferir o item 1 antes de cada clique é o que impede uma sequência "limpa" conviver com tentativas perdidas.
+
+3. Para cada uma das 20 repetições: o operador abre manualmente o ato correto e o interessado e usa **Experimental — Preencher formulário atual**. O clique É a tentativa: se o painel não achar exatamente um formulário, a falha é registrada e a sequência reinicia. Não clicar em **Complementar Ato**.
+
+3b. Conferir o resultado terminal de cada tentativa. O painel responde imediatamente com o estado do **pedido** (normalmente `FILLING`), o que não é o desfecho: o desfecho chega quando a extensão executa o `FILL_FORM` e reporta o resultado. Conferir no ledger (somente leitura):
+
+```powershell
+Get-Content data/reliability/events.jsonl -Tail 6 | Select-String 'run_finished'
+```
+
+Um `run_finished` com `"passed":true` é um sucesso contado; `"passed":false` zera a sequência e exige parada imediata. Se o painel disser que não há formulário, mas a linha "Mesa conectada" estiver ok, tratar como falha de detecção (registrada) e parar.
 
 4. Avaliar a sequência (o build precisa bater com o gravado):
 
@@ -187,6 +206,7 @@ python scripts/portal-reliability/qualification.py --data-root <portable-data-ro
 - `git diff --check` pega fim de linha; uma escrita via PowerShell com `WriteAllLines` já introduziu CRLF uma vez e foi corrigida.
 - A sequência conta **toda** tentativa do operador. Como o plano deriva o `run_id` de uma tentativa que virou pedido (`manual-fill:<request_id>`), uma tentativa que nunca virou pedido — nenhum formulário, dois formulários visíveis, aba não autenticada, processo desconhecido — usa `manual-fill-attempt:<uuid>` e é gravada como execução falha, zerando a sequência do mesmo jeito. A extensão só reporta os códigos que honestamente observa antes de existir um pedido (FORM_NOT_AVAILABLE, FORM_AMBIGUOUS, PORTAL_TAB_NOT_ACTIVE).
 - A UI da Mesa também deixou de oferecer `Próximo processo` durante a Phase 1; o endpoint continua existindo para o tooling supervisionado de benchmark (Task 7), como o plano prevê.
+- Um clique feito com a Mesa fora do ar não gera evento, porque o ledger vive na Mesa: por construção, nenhuma tentativa é registrada quando o serviço de registro está indisponível. O runbook exige conferir "Mesa conectada" e `runs = 0` antes de começar, e o painel mostra a linha da Mesa separadamente do resultado do preenchimento.
 
 ## 10. Confirmação de segurança
 
