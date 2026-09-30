@@ -16,7 +16,7 @@ from urllib.error import HTTPError
 from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
 from app.api.bridge import Bridge, TRUSTED_EXTENSION_ID
-from app.api.server import serve
+from app.api.server import _reliability_build_id, serve
 from app.archive.legacy_import import blob_path, sha256_file
 from app.area_restrita import cdp_fallback
 from app.area_restrita.reliability import ReliabilityRecorder
@@ -210,6 +210,14 @@ class HealthTests(ApiTestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["schema_version"], SCHEMA_VERSION)
         self.assertEqual(payload["process_count"], 1)
+
+    def test_health_reports_the_runtime_build_id(self):
+        """Sanitized provenance: a packaged smoke proves the artefact by this."""
+
+        payload = self.get_json("/api/v1/health")
+
+        self.assertEqual(payload["build_id"], _reliability_build_id())
+        self.assertNotIn("data_root", payload["build_id"])
 
 
 class ProcessRouteTests(ApiTestCase):
