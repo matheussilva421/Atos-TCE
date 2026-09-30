@@ -525,6 +525,72 @@ class PackageProvenanceTests(unittest.TestCase):
         self.assertIn("working tree", dirty.stdout + dirty.stderr)
         self.assertIn("recusado", dirty.stdout + dirty.stderr)
 
+    def test_verifier_refuses_a_runtime_tree_under_a_disguised_alias(self):
+        """A runtime tree must not escape the release-shape check by an alias."""
+
+        payload = product_payload()
+        manifest = build_manifest(payload, CURRENT_BUILD)
+        for alias in (
+            "./runtime/python/python.exe",
+            "RUNTIME/python/python.exe",
+            "runtime//python//python.exe",
+        ):
+            with self.subTest(alias=alias):
+                disguised = dict(payload)
+                disguised[alias] = b"binary"
+                archive = make_package(
+                    self.tmp / f"runtime-alias-{len(alias)}.zip", disguised, manifest
+                )
+
+                result = verify(archive, "-AllowMissingRuntime", "-SkipSmoke")
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("runtime", (result.stdout + result.stderr).lower())
+
+    def test_verifier_refuses_an_undeclared_licence_in_a_runtime_less_package(self):
+        """Absent the runtime contract a licence is product source like any other."""
+
+        payload = dict(product_payload(), **{"licenses/payload.exe": b"binary"})
+        manifest = build_manifest(payload, CURRENT_BUILD)
+        archive = make_package(self.tmp / "licenca-nao-declarada.zip", payload, manifest)
+
+        result = verify(archive, "-AllowMissingRuntime", "-SkipSmoke")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("licenses/payload.exe", result.stdout + result.stderr)
+
+    def test_a_runtime_less_package_that_declares_its_licence_passes(self):
+        """The stricter rule must still accept a package that declares the licence."""
+
+        licence = b"# licencas\n"
+        payload = dict(product_payload(), **{"licenses/README.md": licence})
+        manifest = build_manifest(payload, CURRENT_BUILD)
+        manifest["files"] = list(manifest["files"]) + [
+            {
+                "path": "licenses/README.md",
+                "size": len(licence),
+                "sha256": hashlib.sha256(licence).hexdigest(),
+            }
+        ]
+        archive = make_package(self.tmp / "licenca-declarada.zip", payload, manifest)
+
+        result = verify(archive, "-AllowMissingRuntime", "-SkipSmoke")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_verifier_refuses_an_entry_that_normalises_to_nothing(self):
+        """A name that canonicalises to blank must not silently vanish."""
+
+        payload = dict({"///": b""}, **product_payload())
+        archive = make_package(
+            self.tmp / "nome-vazio.zip", payload, build_manifest(payload, CURRENT_BUILD)
+        )
+
+        result = verify(archive, "-AllowMissingRuntime", "-SkipSmoke")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("irregular", (result.stdout + result.stderr).lower())
+
 
 if __name__ == "__main__":
     unittest.main()

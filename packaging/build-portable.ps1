@@ -285,6 +285,18 @@ try {
             $productPaths.Add($productSingle)
         }
     }
+    if ($SkipRuntime) {
+        # Without the embedded runtime there is no runtime contract, so the
+        # licences are product source like anything else and must be declared;
+        # with the runtime present they stay under runtime-manifest.json.
+        $licenceRoot = Join-Path $packageStaging 'licenses'
+        if (Test-Path -LiteralPath $licenceRoot -PathType Container) {
+            foreach ($licenceFile in @(Get-ChildItem -LiteralPath $licenceRoot -Recurse -Force -File)) {
+                $licenceRelative = $licenceFile.FullName.Substring($packageStaging.TrimEnd('\').Length).TrimStart('\')
+                $productPaths.Add($licenceRelative.Replace('\', '/'))
+            }
+        }
+    }
     $orderedProductPaths = @($productPaths | Select-Object -Unique)
     [Array]::Sort($orderedProductPaths, [System.StringComparer]::Ordinal)
     $manifestFiles = @()

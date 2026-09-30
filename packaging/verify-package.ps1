@@ -76,14 +76,12 @@ function Get-NormalizedEntryName {
     return ($Name.Replace('\', '/').TrimStart('/'))
 }
 
-# Product sources the package manifest is responsible for. The embedded runtime
-# and the licences stay under runtime-manifest.json, and the manifest itself is
-# not a source.
-# The embedded runtime and the licences are governed by runtime-manifest.json;
-# every other entry in a package is product source and must be declared in
-# package-manifest.json.
+# Product sources the package manifest is responsible for. A package that
+# carries the embedded runtime leaves its runtime tree and licences to
+# runtime-manifest.json; every other entry is product source and must be
+# declared in package-manifest.json.
 $runtimeOwnedPrefixes = @('runtime/', 'licenses/')
-$runtimeOwnedExact = @('runtime-manifest.json', 'package-manifest.json')
+$runtimeOwnedExact = @('runtime-manifest.json')
 
 function Get-CanonicalEntryName {
     param([Parameter(Mandatory)][string]$Name)
@@ -96,12 +94,21 @@ function Get-CanonicalEntryName {
 }
 
 function Test-CoveredProductPath {
-    param([Parameter(Mandatory)][string]$Name)
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][bool]$RuntimeContract
+    )
     $normalized = (Get-CanonicalEntryName -Name $Name).ToLowerInvariant()
-    foreach ($prefix in $runtimeOwnedPrefixes) {
-        if ($normalized.StartsWith($prefix)) { return $false }
+    if ($normalized -eq 'package-manifest.json') { return $false }
+    # Only a package that actually carries the runtime contract may leave its
+    # runtime and licence files to runtime-manifest.json; otherwise every entry
+    # is product source and has to be declared.
+    if ($RuntimeContract) {
+        foreach ($prefix in $runtimeOwnedPrefixes) {
+            if ($normalized.StartsWith($prefix)) { return $false }
+        }
+        if ($runtimeOwnedExact -contains $normalized) { return $false }
     }
-    if ($runtimeOwnedExact -contains $normalized) { return $false }
     return $true
 }
 
@@ -418,12 +425,25 @@ try {
     $seenNames = @{}
     $forbidden = New-Object System.Collections.ArrayList
     foreach ($entry in $archive.Entries) {
-        $name = Get-NormalizedEntryName -Name $entry.FullName
-        if ([string]::IsNullOrWhiteSpace($name)) { continue }
+        $rawName = $entry.FullName
+        $candidate = Get-NormalizedEntryName -Name $rawName
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            if (-not [string]::IsNullOrWhiteSpace($rawName)) {
+                throw "Pacote com entrada irregular (nome vazio após normalização): '$rawName'"
+            }
+            continue
+        }
+        # Canonicalize once: coverage, duplicate detection, the runtime-tree test
+        # and the manifest lookups all use this same form, so a disguised path is
+        # never handled differently by different checks.
+        $name = Get-CanonicalEntryName -Name $candidate
+        if ([string]::IsNullOrWhiteSpace($name)) {
+            throw "Pacote com entrada irregular: '$rawName'"
+        }
         # A path that repeats under a different case is an irregular package: it
         # would otherwise vanish from a case-insensitive lookup and smuggle an
         # undeclared source past the coverage check.
-        $nameKey = (Get-CanonicalEntryName -Name $name).ToLowerInvariant()
+        $nameKey = $name.ToLowerInvariant()
         if ($seenNames.ContainsKey($nameKey)) {
             throw "Pacote com entrada duplicada (ou variação de caixa): $name"
         }
@@ -483,7 +503,7 @@ try {
     # runtime tree makes this a release artefact that must prove its commit.
     # Release shape is deliberately not read from a switch, so a package cannot
     # opt out of provenance by omitting the manifest.
-    $hasRuntimeTree = @($entryNames | Where-Object { $_.StartsWith('runtime/') }).Count -gt 0
+    $hasRuntimeTree = @($entryNames | Where-Object { $_.ToLowerInvariant().StartsWith('runtime/') }).Count -gt 0
     if ($hasRuntimeTree -and -not $runtimeIncluded) {
         throw 'Pacote com árvore runtime/ mas sem runtime-manifest.json: artefato irregular.'
     }
@@ -508,7 +528,7 @@ try {
         }
         $declaredPaths = @{}
         foreach ($item in $declared) {
-            $declaredPath = Get-NormalizedEntryName -Name ([string]$item.path)
+            $declaredPath = Get-CanonicalEntryName -Name ([string]$item.path)
             if ($declaredPaths.ContainsKey($declaredPath)) { continue }
             $declaredPaths[$declaredPath] = $true
             if (-not $entries.ContainsKey($declaredPath)) {
@@ -572,7 +592,7 @@ try {
     }
     $declaredProductPaths = @{}
     foreach ($item in $declaredFiles) {
-        $declaredPath = Get-NormalizedEntryName -Name ([string]$item.path)
+        $declaredPath = Get-CanonicalEntryName -Name ([string]$item.path)
         if ($declaredProductPaths.ContainsKey($declaredPath)) {
             throw "package-manifest.json com caminho duplicado: $declaredPath"
         }
@@ -594,7 +614,7 @@ try {
         }
     }
     foreach ($name in $entryNames) {
-        if (-not (Test-CoveredProductPath -Name $name)) { continue }
+        if (-not (Test-CoveredProductPath -Name $name -RuntimeContract $runtimeIncluded)) { continue }
         if (-not $declaredProductPaths.ContainsKey($name)) {
             throw "Source empacotado não declarado no package-manifest.json: $name"
         }
@@ -619,7 +639,7 @@ try {
             throw "Proveniência não comprovada: o commit $packageBuildId não existe neste repositório."
         }
         foreach ($item in $declaredFiles) {
-            $relative = Get-NormalizedEntryName -Name ([string]$item.path)
+            $relative = Get-CanonicalEntryName -Name ([string]$item.path)
             if ($relative.Contains('"')) {
                 throw "Proveniência não comprovada: nome de entrada irregular em $relative."
             }

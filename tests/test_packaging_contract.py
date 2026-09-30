@@ -160,7 +160,27 @@ def runtime_entries(payload: bytes) -> dict:
     return entries
 
 
-PRODUCT_ROOTS = ("app/", "extension/")
+def declared_scope(name: str, runtime_contract: bool) -> bool:
+    """Mirror of the verifier's Test-CoveredProductPath rule.
+
+    A package that carries the runtime contract leaves runtime/ and licences to
+    runtime-manifest.json; every other entry, in every package, is product source
+    that package-manifest.json has to declare. A licence file in a package
+    without the runtime contract is product source like any other.
+    """
+
+    lowered = name.lower()
+    if lowered == "package-manifest.json":
+        return False
+    if runtime_contract and (
+        lowered.startswith("runtime/")
+        or lowered.startswith("licenses/")
+        or lowered == "runtime-manifest.json"
+    ):
+        return False
+    return True
+
+
 PRODUCT_FILES = (
     "START.cmd",
     "README.md",
@@ -176,7 +196,7 @@ def package_manifest(payload: dict, build_id: str = "c" * 40, *, drop=(), corrup
     for name in sorted(
         candidate
         for candidate in payload
-        if candidate.startswith(PRODUCT_ROOTS) or candidate in PRODUCT_FILES
+        if declared_scope(candidate, "runtime-manifest.json" in payload)
     ):
         if name in drop:
             continue
