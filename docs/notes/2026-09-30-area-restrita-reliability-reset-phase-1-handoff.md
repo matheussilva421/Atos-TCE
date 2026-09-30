@@ -208,6 +208,16 @@ python scripts/portal-reliability/qualification.py --data-root <portable-data-ro
 
 9. Só então Tasks 6–10 do plano (controlador experimental, adapters de benchmark, AR-2/AR-3 e decisão arquitetural).
 
+### Estado do ambiente preparado para o operador
+
+- Mesa de desenvolvimento já em execução, fixada no build novo: PID `34924`, `127.0.0.1:18743`, data root `data`, `ATOS_TCE_RELIABILITY_ENVIRONMENT=real-dev`, `health.build_id = e059793a412f3fe4c8b403fb3a58cfa02e26553c`.
+- `data/reliability/capabilities.json`: `manual_form_fill = EXPERIMENTAL` no build `e059793`; `real_dev_streak = 0`, `portable_streak = 0`.
+- `data/reliability/events.jsonl`: nenhum evento (denominador limpo; nenhuma tentativa AR-1 registrada).
+- ZIP congelado: `dist/Atos-TCE-portable.zip`, 520 entradas, 96.186.074 bytes, SHA-256 `77bcc873b3fa4e9d3743f9fe5171336bfbf0de7bc5b1cd4a92b22ef72594897c`, verificado com `-ExpectedBuildId e059793...` + smoke (`health.build_id` = build do manifesto).
+- Commits: código `e059793a412f3fe4c8b403fb3a58cfa02e26553c` (AR1_BUILD); documentação `3634fbad8c3166671068e5076c73f7dc7fd27ddb`. `main` intacta, sem force push.
+- Uma instância antiga da Mesa fixada em `1d90b8d` foi encontrada ainda escutando na 18743 e precisou ser encerrada antes de subir a nova (no Windows dois sockets podem dividir a mesma porta). Se o painel voltar a mostrar o build antigo, conferir `health.build_id` antes de clicar.
+- Falta apenas o que é humano: recarregar a extensão descompactada de `extension/`, conferir no painel "Mesa conectada" e "Preencher formulário atual — Experimental", abrir o ato e clicar uma vez por tentativa (seção 7).
+
 ## 8. Falhas encontradas e causas-raiz
 
 - Revisão da Task 1: `promote()` aceitava `required` arbitrário (um `required=1` burlava o gate). Corrigido: promoção recusa qualquer valor abaixo de 20.
