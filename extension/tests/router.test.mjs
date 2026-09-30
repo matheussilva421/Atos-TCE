@@ -1732,6 +1732,51 @@ test("the reliability status route is a request, never a queued command", () => 
   assert.equal(Object.hasOwn(COMMAND_TYPES, "RELIABILITY_STATUS"), false);
 });
 
+test("the router forwards a reported AR-1 attempt failure", async () => {
+  const chromeApi = fakeChrome();
+  let received = null;
+  installRouter({
+    api: {
+      reportAr1Attempt: async (payload) => {
+        received = payload;
+        return { ok: true, status: 201, payload: { recorded: true, code: payload.code } };
+      },
+      nextCommand: async () => ({ ok: true, command: null }),
+      reportResult: async () => {},
+    },
+    chromeApi,
+  });
+
+  const response = await sendRuntime(chromeApi, {
+    type: MESSAGE_TYPES.REPORT_AR1_ATTEMPT,
+    payload: { code: "form_not_available" },
+  });
+
+  assert.deepEqual(received, { code: "FORM_NOT_AVAILABLE" });
+  assert.equal(response.ok, true);
+});
+
+test("the router refuses an AR-1 attempt report without a code", async () => {
+  const chromeApi = fakeChrome();
+  let calls = 0;
+  installRouter({
+    api: {
+      reportAr1Attempt: async () => {
+        calls += 1;
+        return { ok: true };
+      },
+      nextCommand: async () => ({ ok: true, command: null }),
+      reportResult: async () => {},
+    },
+    chromeApi,
+  });
+
+  const response = await sendRuntime(chromeApi, { type: MESSAGE_TYPES.REPORT_AR1_ATTEMPT });
+
+  assert.deepEqual(response, { ok: false, error: "attempt_code_required" });
+  assert.equal(calls, 0);
+});
+
 test("readCurrentForm returns only sanitized structural diagnostics", async () => {
   const url = `${PORTAL_ORIGIN}/SISTEMAS/PROCESSO/ComplementarAto.asp?processo=102390&doc=9#top`;
   const chromeApi = fakeChrome({

@@ -1084,6 +1084,18 @@ export function installRouter({
         .catch((error) => sendResponse({ ok: false, status: 0, error: String(error?.message ?? error) }));
       return true;
     }
+    if (message?.type === MESSAGE_TYPES.REPORT_AR1_ATTEMPT) {
+      const code = String(message.payload?.code ?? "").trim().toUpperCase();
+      if (!code) {
+        sendResponse({ ok: false, error: "attempt_code_required" });
+        return false;
+      }
+      Promise.resolve()
+        .then(() => api.reportAr1Attempt({ code }))
+        .then((outcome) => sendResponse(outcome))
+        .catch((error) => sendResponse({ ok: false, status: 0, error: String(error?.message ?? error) }));
+      return true;
+    }
     if (message?.type !== MESSAGE_TYPES.POLL_COMMANDS) return undefined;
     poll()
       .then((outcome) => sendResponse(outcome))

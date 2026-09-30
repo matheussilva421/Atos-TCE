@@ -351,6 +351,11 @@ POST_ROUTES: tuple[Route, ...] = (
         "mesa",
     ),
     Route(re.compile(r"/api/v1/portal/manual-form"), "post_manual_form", "mesa"),
+    Route(
+        re.compile(r"/api/v1/portal/manual-form-attempt"),
+        "post_manual_form_attempt",
+        "mesa",
+    ),
     Route(re.compile(r"/api/v1/portal/next-act"), "post_next_act", "extension"),
 )
 
@@ -951,6 +956,32 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
                 "target_process_id": resolved["target_process_id"],
                 "target_identity": command_payload["target_identity"],
             },
+            status=201,
+        )
+
+    def post_manual_form_attempt(self) -> None:
+        """Record an AR-1 attempt the sidepanel could not turn into a request.
+
+        The operator opened the act by hand and the panel saw no single exact
+        form, so no fill request exists. Without this the failure would be
+        invisible to the qualification sequence, which could then report a
+        clean run while detection was in fact failing.
+        """
+
+        if not (self._require_session(silent=True) or self._require_extension()):
+            return
+        payload = self._read_json_body()
+        code = str(payload.get("code") or "").strip().upper()
+        diagnostics = payload.get("diagnostics")
+        try:
+            run_id = self.mesa.fill.record_manual_attempt_failure(code, diagnostics)
+        except FillError as error:
+            self._send_json(
+                {"error": "unknown_manual_attempt_code", "detail": str(error)}, status=400
+            )
+            return
+        self._send_json(
+            {"recorded": run_id is not None, "code": code},
             status=201,
         )
 

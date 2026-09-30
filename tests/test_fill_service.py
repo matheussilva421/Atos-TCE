@@ -1655,24 +1655,29 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
         self.assertEqual(finished[0]["result_code"], "PROCESS_NOT_FOUND")
         self.assertTrue(finished[0]["run_id"].startswith("manual-fill-attempt:"))
 
+    def run_successful_fill(self, service):
+        """One complete AR-1 trial: read the opened form, fill it, reread it."""
+
+        service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "field_results": {
+                    name: {"before": "", "proposed": value, "after": value, "status": "changed"}
+                    for name, value in command["payload"]["fields"].items()
+                },
+            },
+        )
+
     def test_a_refused_attempt_resets_a_nineteen_pass_streak(self):
         self.ready_process()
         service = self.ar1_service()
         for _ in range(19):
-            service.request_manual_fill(self.snapshot())
-            command = self.store.claim_extension_command("extension-test")
-            service.handle_command_result(
-                command["id"],
-                {
-                    "ok": True,
-                    "identity": dict(IDENTITY),
-                    "generation_after": 4,
-                    "field_results": {
-                        name: {"before": "", "proposed": value, "after": value, "status": "changed"}
-                        for name, value in command["payload"]["fields"].items()
-                    },
-                },
-            )
+            self.run_successful_fill(service)
         self.assertEqual(self.recorder.evaluate("manual_form_fill", "offline")["streak"], 19)
 
         unknown = self.snapshot()
@@ -1681,6 +1686,30 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
             service.request_manual_fill(unknown)
 
         self.assertEqual(self.recorder.evaluate("manual_form_fill", "offline")["streak"], 0)
+
+    def test_a_reported_attempt_failure_is_recorded_and_resets_the_streak(self):
+        self.ready_process()
+        service = self.ar1_service()
+        for _ in range(19):
+            self.run_successful_fill(service)
+        self.assertEqual(self.recorder.evaluate("manual_form_fill", "offline")["streak"], 19)
+
+        service.record_manual_attempt_failure("FORM_AMBIGUOUS")
+
+        self.assertEqual(self.recorder.evaluate("manual_form_fill", "offline")["streak"], 0)
+        finished = self.finishes()
+        self.assertFalse(finished[-1]["passed"])
+        self.assertEqual(finished[-1]["result_code"], "FORM_AMBIGUOUS")
+        self.assertTrue(finished[-1]["run_id"].startswith("manual-fill-attempt:"))
+
+    def test_an_unknown_attempt_code_is_refused(self):
+        self.ready_process()
+        service = self.ar1_service()
+
+        with self.assertRaises(FillError):
+            service.record_manual_attempt_failure("PESSOA EXEMPLO")
+
+        self.assertEqual(self.finishes(), [])
 
 
 

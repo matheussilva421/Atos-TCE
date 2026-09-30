@@ -288,5 +288,21 @@ export function createApi({
         error: response.ok ? null : response.error ?? "request_failed",
       };
     },
+
+    /** Record an AR-1 attempt that never produced a fill request. */
+    async reportAr1Attempt({ code } = {}) {
+      const response = await authenticatedRequest("/api/v1/portal/manual-form-attempt", {
+        method: "POST",
+        body: { code },
+      });
+      return {
+        ok: response.ok,
+        status: response.status,
+        payload: response.payload,
+        error: response.ok
+          ? null
+          : response.payload?.detail ?? response.error ?? "request_failed",
+      };
+    },
   };
 }

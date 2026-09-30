@@ -2270,6 +2270,7 @@ class PortalReliabilityRouteTests(ApiTestCase):
         raw = json.dumps(payload)
         self.assertNotIn("102390/2026", raw)
         self.assertNotIn("pessoa exemplo", raw)
+
         self.assertNotIn("events", raw)
         self.assertEqual(payload["capabilities"]["manual_form_fill"]["real_dev_streak"], 1)
         self.assertEqual(payload["capabilities"]["manual_form_fill"]["state"], "UNQUALIFIED")
@@ -2343,5 +2344,55 @@ class PortalManualFormReliabilityTests(ApiTestCase):
         self.assertNotIn("pessoa exemplo", raw)
 
 
+    def test_a_reported_manual_attempt_failure_is_recorded(self):
+        opener = self.mesa_opener()
+
+        status, _headers, payload = self.call_json(
+            "/api/v1/portal/manual-form-attempt",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={"code": "FORM_NOT_AVAILABLE"},
+            opener=opener,
+        )
+
+        self.assertEqual(status, 201, payload)
+        self.assertTrue(payload["recorded"])
+        self.assertEqual(payload["code"], "FORM_NOT_AVAILABLE")
+        ledger = self.data_root / "reliability" / "events.jsonl"
+        events = [
+            json.loads(line)
+            for line in ledger.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        finished = [event for event in events if event.get("type") == "run_finished"]
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0]["passed"])
+        self.assertEqual(finished[0]["result_code"], "FORM_NOT_AVAILABLE")
+
+    def test_an_unknown_manual_attempt_code_is_rejected(self):
+        opener = self.mesa_opener()
+
+        status, _headers, payload = self.call_json(
+            "/api/v1/portal/manual-form-attempt",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={"code": "PESSOA EXEMPLO"},
+            opener=opener,
+        )
+
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"], "unknown_manual_attempt_code")
+        self.assertFalse((self.data_root / "reliability" / "events.jsonl").exists())
+
+    def test_the_attempt_route_requires_a_credential(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/portal/manual-form-attempt",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={"code": "FORM_NOT_AVAILABLE"},
+        )
+
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "unauthorized")
 if __name__ == "__main__":
     unittest.main()

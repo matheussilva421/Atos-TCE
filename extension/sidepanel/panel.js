@@ -21,6 +21,7 @@ let nextActInProgress = false;
 let acceptedNextTarget = null;
 let nextActFeedback = null;
 let reliabilityCapabilities = null;
+let lastFormReadCode = null;
 
 function setState(elementId, dotId, text, tone) {
   const label = document.getElementById(elementId);
@@ -95,6 +96,7 @@ async function refreshCurrentForm() {
   const info = document.getElementById("form-info");
   try {
     const response = await globalThis.chrome.runtime.sendMessage({ type: MESSAGE_TYPES.READ_CURRENT_FORM });
+    lastFormReadCode = response?.ok === true ? null : String(response?.code ?? "FORM_NOT_AVAILABLE");
     lastConfirmedFormIdentity = retainLastConfirmedIdentity(lastConfirmedFormIdentity, response);
     currentFormAvailable = response?.ok === true && hasFormIdentity(response.form?.identity);
     if (currentFormAvailable) {
@@ -109,6 +111,7 @@ async function refreshCurrentForm() {
     return null;
   } catch {
     info.textContent = "Abra a Área Restrita autenticada para o modo manual.";
+    lastFormReadCode = "PORTAL_TAB_NOT_ACTIVE";
     currentFormAvailable = false;
     updateActionButtons();
     return null;
@@ -121,8 +124,9 @@ function updateActionButtons() {
   const manualFill = describeManualFillCapability(reliabilityCapabilities);
   const nextProcess = describeNextProcessCapability(reliabilityCapabilities);
   if (fillButton) {
-    fillButton.disabled =
-      !manualFill.enabled || !currentFormAvailable || nextActInProgress || Boolean(acceptedNextTarget);
+    // A press is a trial: with no form open the attempt still has to reach the
+    // Mesa and count as a failure, not silently leave the sequence untouched.
+    fillButton.disabled = !manualFill.enabled || nextActInProgress || Boolean(acceptedNextTarget);
     fillButton.textContent = manualFill.enabled
       ? `Preencher formulário atual — ${manualFill.label}`
       : "Preencher formulário atual";
@@ -154,7 +158,15 @@ document.getElementById("fill-current").addEventListener("click", async () => {
   try {
     const form = await refreshCurrentForm();
     if (!form) {
-      diagnostic.textContent = "Abra o formulário do ato antes de preencher.";
+      const code = lastFormReadCode ?? "FORM_NOT_AVAILABLE";
+      const reported = await globalThis.chrome.runtime.sendMessage({
+        type: MESSAGE_TYPES.REPORT_AR1_ATTEMPT,
+        payload: { code },
+      });
+      diagnostic.className = "error";
+      diagnostic.textContent = reported?.ok
+        ? `Tentativa registrada sem preenchimento (${code}). Abra o formulário do ato e tente novamente.`
+        : `Nenhum formulário disponível (${code}).`;
       return;
     }
     const outcome = await globalThis.chrome.runtime.sendMessage({

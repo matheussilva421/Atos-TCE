@@ -81,6 +81,17 @@ SAFE_DIAGNOSTIC_KEYS: tuple[str, ...] = (
     "generation",
 )
 
+#: Refusals the sidepanel may honestly report for a manual attempt that never
+#: produced a fill request. Anything else is a programming error, not a portal
+#: state, and is refused instead of being written as a qualification failure.
+AR1_ATTEMPT_FAILURE_CODES: frozenset[str] = frozenset(
+    {
+        "FORM_NOT_AVAILABLE",
+        "FORM_AMBIGUOUS",
+        "PORTAL_TAB_NOT_ACTIVE",
+    }
+)
+
 #: A persisted route is a path only: no scheme, no authority, no query.
 _ROUTE_PATH = re.compile(r"^/[A-Za-z0-9_\-./]{0,199}$")
 #: Synthetic tab/frame references emitted by the router (``tab-1``, ``frame-0``).
@@ -378,7 +389,9 @@ class FillService:
             pass
         self._ar1_finished.add(run_id)
 
-    def _record_ar1_refusal(self, snapshot: Mapping[str, Any], code: str) -> None:
+    def _record_ar1_refusal(
+        self, snapshot: Mapping[str, Any], code: str
+    ) -> str | None:
         """A manual attempt that never became a request still counts as a failure.
 
         The operator started AR-1 and the trial did not proceed, so it has to
@@ -386,7 +399,7 @@ class FillService:
         """
 
         if self._reliability is None:
-            return
+            return None
         run_id = f"manual-fill-attempt:{uuid.uuid4().hex}"
         diagnostics = sanitize_browser_diagnostics(
             snapshot.get("diagnostics") if isinstance(snapshot, Mapping) else None
@@ -416,6 +429,25 @@ class FillService:
             observed_identity=observed,
         )
         self._ar1_finish(run_id, passed=False, result_code=refusal)
+        return run_id
+
+    def record_manual_attempt_failure(
+        self, code: str, diagnostics: Mapping[str, Any] | None = None
+    ) -> str | None:
+        """Record an AR-1 attempt the operator made that never became a request.
+
+        The sidepanel sees these refusals before any fill request exists, so the
+        backend is told explicitly; otherwise a real failure would leave the
+        qualification sequence untouched and could be hidden by recorded passes.
+        """
+
+        normalized = str(code or "").strip().upper()
+        if normalized not in AR1_ATTEMPT_FAILURE_CODES:
+            raise FillError(f"código de falha desconhecido: {code!r}")
+        snapshot: dict[str, Any] = {}
+        if isinstance(diagnostics, Mapping):
+            snapshot["diagnostics"] = dict(diagnostics)
+        return self._record_ar1_refusal(snapshot, normalized)
 
     def _ar1_close(
         self,
