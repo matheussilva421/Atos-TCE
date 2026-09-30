@@ -4,7 +4,8 @@ param(
     [switch]$AllowMissingRuntime,
     [switch]$SkipSmoke,
     [string]$ExtractRoot,
-    [int]$HealthTimeoutSeconds = 90
+    [int]$HealthTimeoutSeconds = 90,
+    [string]$ExpectedBuildId
 )
 
 $ErrorActionPreference = 'Stop'
@@ -61,7 +62,8 @@ $requiredEntries = @(
     'START.cmd',
     'README.md',
     'LEIA-ME-OUTRO-PC.txt',
-    'scripts/scan-area-cdp.ps1'
+    'scripts/scan-area-cdp.ps1',
+    'package-manifest.json'
 )
 $runtimeRequiredEntries = @(
     'runtime-manifest.json',
@@ -72,6 +74,20 @@ $runtimeRequiredEntries = @(
 function Get-NormalizedEntryName {
     param([Parameter(Mandatory)][string]$Name)
     return ($Name.Replace('\', '/').TrimStart('/'))
+}
+
+# Product sources the package manifest is responsible for. The embedded runtime
+# and the licences stay under runtime-manifest.json, and the manifest itself is
+# not a source.
+$productPathPrefixes = @('app/', 'extension/')
+$productPathExact = @('START.cmd', 'README.md', 'LEIA-ME-OUTRO-PC.txt', 'scripts/scan-area-cdp.ps1')
+
+function Test-CoveredProductPath {
+    param([Parameter(Mandatory)][string]$Name)
+    foreach ($prefix in $productPathPrefixes) {
+        if ($Name.StartsWith($prefix)) { return $true }
+    }
+    return $productPathExact -contains $Name
 }
 
 function Get-EntrySha256 {
@@ -236,7 +252,8 @@ function Invoke-PackageSmoke {
     param(
         [Parameter(Mandatory)][string]$ArchivePath,
         [Parameter(Mandatory)][string]$DestinationRoot,
-        [Parameter(Mandatory)][int]$TimeoutSeconds
+        [Parameter(Mandatory)][int]$TimeoutSeconds,
+        [string]$ExpectedBuildId
     )
 
     if (Test-Path -LiteralPath $DestinationRoot) {
@@ -267,7 +284,17 @@ function Invoke-PackageSmoke {
         '--port', [string]$port,
         '--no-browser'
     )
-    $process = Start-Process -FilePath $launcher -ArgumentList $arguments -WorkingDirectory $DestinationRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+    # The smoke proves the extracted runtime reports the declared build, so it
+    # starts it with the manifest build id pinned.
+    $previousBuildId = $env:ATOS_TCE_BUILD_ID
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedBuildId)) {
+        $env:ATOS_TCE_BUILD_ID = $ExpectedBuildId
+    }
+    try {
+        $process = Start-Process -FilePath $launcher -ArgumentList $arguments -WorkingDirectory $DestinationRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+    } finally {
+        $env:ATOS_TCE_BUILD_ID = $previousBuildId
+    }
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $health = $null
     try {
@@ -295,6 +322,16 @@ function Invoke-PackageSmoke {
         if (-not (Test-Path -LiteralPath $database -PathType Leaf)) {
             throw "Smoke não criou o banco em raiz de dados isolada: $database"
         }
+
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedBuildId)) {
+            $reportedBuildId = [string]$health.build_id
+            if ([string]::IsNullOrWhiteSpace($reportedBuildId)) {
+                throw 'Runtime empacotado não reportou build_id em /api/v1/health: não é possível provar a proveniência do artefato.'
+            }
+            if ($reportedBuildId -ne $ExpectedBuildId) {
+                throw "Runtime build_id = $reportedBuildId / package-manifest build_id = $ExpectedBuildId"
+            }
+        }
     } finally {
         Stop-SmokeProcess -Process $process -DestinationRoot $DestinationRoot
     }
@@ -305,6 +342,7 @@ function Invoke-PackageSmoke {
         port = $port
         database = $database
         health = $health
+        runtime_build_id = [string]$health.build_id
         extension_version = [string]$extensionIdentity.version
     }
 }
@@ -424,6 +462,77 @@ try {
         throw 'Pacote sem runtime: runtime-manifest.json ausente (use -AllowMissingRuntime somente para fixtures de contrato)'
     }
 
+    # ------------------------------------------------- package provenance
+    # The manifest is the package's own claim about which build produced these
+    # bytes. Structural validity is not enough: every declared file must match
+    # the archive, and no covered source may exist without being declared.
+    $manifestEntry = $entries['package-manifest.json']
+    $manifestStream = $manifestEntry.Open()
+    try {
+        $manifestReader = New-Object IO.StreamReader($manifestStream)
+        try { $manifestText = $manifestReader.ReadToEnd() } finally { $manifestReader.Dispose() }
+    } finally {
+        $manifestStream.Dispose()
+    }
+    try {
+        $packageManifest = $manifestText | ConvertFrom-Json
+    } catch {
+        throw "package-manifest.json inválido: $($_.Exception.Message)"
+    }
+    if ([int]$packageManifest.schema -ne 1) {
+        throw "package-manifest.json com schema desconhecido: $($packageManifest.schema)"
+    }
+    $packageBuildId = [string]$packageManifest.build_id
+    if ($packageBuildId -notmatch '^[0-9a-fA-F]{7,64}$') {
+        throw "package-manifest.json sem build_id válido: '$packageBuildId'"
+    }
+    # A package that carries the embedded runtime is release-shaped, so it must
+    # come from a committed tree. A runtime-less package is a declared contract
+    # fixture and may honestly report a dirty source.
+    if ($packageManifest.source_dirty -ne $false -and $runtimeIncluded) {
+        throw 'package-manifest.json declara source_dirty: o pacote não corresponde a uma árvore commitada.'
+    }
+    $declaredFiles = @($packageManifest.files)
+    if ($declaredFiles.Count -eq 0) {
+        throw 'package-manifest.json sem arquivos declarados.'
+    }
+    $declaredProductPaths = @{}
+    foreach ($item in $declaredFiles) {
+        $declaredPath = Get-NormalizedEntryName -Name ([string]$item.path)
+        if ($declaredProductPaths.ContainsKey($declaredPath)) {
+            throw "package-manifest.json com caminho duplicado: $declaredPath"
+        }
+        $declaredProductPaths[$declaredPath] = $true
+        if (-not $entries.ContainsKey($declaredPath)) {
+            throw "Arquivo declarado no package-manifest.json está ausente do pacote: $declaredPath"
+        }
+        $declaredEntry = $entries[$declaredPath]
+        if ([long]$item.size -ne [long]$declaredEntry.Length) {
+            throw "Tamanho divergente para ${declaredPath}: manifesto $($item.size), pacote $($declaredEntry.Length)"
+        }
+        $declaredHash = ([string]$item.sha256).ToLowerInvariant()
+        if ($declaredHash -notmatch '^[0-9a-f]{64}$') {
+            throw "Hash inválido no package-manifest.json para ${declaredPath}: $declaredHash"
+        }
+        $actualHash = Get-EntrySha256 -Entry $declaredEntry
+        if ($actualHash -ne $declaredHash) {
+            throw "SHA-256 divergente para ${declaredPath}: manifesto $declaredHash, pacote $actualHash"
+        }
+    }
+    foreach ($name in @($entries.Keys)) {
+        if (-not (Test-CoveredProductPath -Name $name)) { continue }
+        if (-not $declaredProductPaths.ContainsKey($name)) {
+            throw "Source empacotado não declarado no package-manifest.json: $name"
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedBuildId)) {
+        $expected = $ExpectedBuildId.Trim()
+        if ($packageBuildId -ne $expected) {
+            throw "Build divergente: ExpectedBuildId = $expected / package build_id = $packageBuildId"
+        }
+    }
+
+
     if (-not $SkipSmoke) {
         if ([string]::IsNullOrWhiteSpace($ExtractRoot)) {
             $smokeRoot = Join-Path $RepositoryRoot ('tmp\package-test-' + [guid]::NewGuid().ToString('N'))
@@ -437,7 +546,7 @@ try {
 
 if (-not $SkipSmoke) {
     try {
-        $smokeResult = Invoke-PackageSmoke -ArchivePath $zipFullPath -DestinationRoot $smokeRoot -TimeoutSeconds $HealthTimeoutSeconds
+        $smokeResult = Invoke-PackageSmoke -ArchivePath $zipFullPath -DestinationRoot $smokeRoot -TimeoutSeconds $HealthTimeoutSeconds -ExpectedBuildId $packageBuildId
     } catch {
         Write-Host "Smoke falhou; extração preservada em $smokeRoot"
         throw
@@ -455,6 +564,7 @@ $summary = [pscustomobject]@{
     zip = $zipFullPath
     zip_sha256 = (Get-FileHash -LiteralPath $zipFullPath -Algorithm SHA256).Hash.ToLowerInvariant()
     entries = $entries.Count
+    build_id = $packageBuildId
     runtime_included = $runtimeIncluded
     runtime_files = $runtimeEntryCount
     smoke = if ($null -eq $smokeResult) { $null } else { $smokeResult }

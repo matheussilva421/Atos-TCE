@@ -85,7 +85,9 @@ def _reliability_build_id() -> str:
     """Identity the reliability ledger binds a run to.
 
     ``ATOS_TCE_BUILD_ID`` wins so a packaged runtime can be pinned to the same
-    identity as the qualification CLI; otherwise the checkout SHA is used.
+    identity as the qualification CLI. Next comes the checkout SHA, then the
+    packaged ``package-manifest.json``, so an extracted artefact still reports the
+    build it was produced from instead of an anonymous placeholder.
     """
 
     override = str(os.environ.get("ATOS_TCE_BUILD_ID") or "").strip()
@@ -101,9 +103,25 @@ def _reliability_build_id() -> str:
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
-        return UNKNOWN_BUILD_ID
+        return _packaged_build_id() or UNKNOWN_BUILD_ID
     sha = (result.stdout or "").strip()
-    return sha if result.returncode == 0 and sha else UNKNOWN_BUILD_ID
+    if result.returncode == 0 and sha:
+        return sha
+    return _packaged_build_id() or UNKNOWN_BUILD_ID
+
+
+def _packaged_build_id() -> str | None:
+    """The build recorded in the package manifest, when this tree is a package."""
+
+    manifest = REPO_ROOT / "package-manifest.json"
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+    build_id = str(payload.get("build_id") or "").strip()
+    return build_id or None
 
 
 def _reliability_environment() -> str:
@@ -672,7 +690,12 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
     # --------------------------------------------------------------- routes
 
     def handle_health(self, query: dict[str, list[str]]) -> None:
-        self._send_json(views.health_payload(self.mesa.store, self.mesa.data_root))
+        # The build id is sanitized provenance; it never carries private data.
+        self._send_json(
+            views.health_payload(
+                self.mesa.store, self.mesa.data_root, build_id=self.mesa.reliability_build_id
+            )
+        )
 
     def handle_portal_reliability(self, query: dict[str, list[str]]) -> None:
         """Read-only capability state: no identities, no events, no mutation."""
