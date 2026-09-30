@@ -171,7 +171,9 @@ git commit -m "docs: lock Area Restrita runtime source"
   - `ReliabilityRecorder.finish(run_id: str, *, passed: bool, result_code: str) -> None`.
   - `ReliabilityRecorder.summary(capability: str, environment: str) -> dict`.
   - `ReliabilityRecorder.evaluate(capability: str, environment: str, required: int = 20) -> dict`.
-  - `ReliabilityRecorder.set_state(capability: str, state: CapabilityState, *, reason: str) -> None`.
+  - `ReliabilityRecorder.mark_experimental(capability: str, *, reason: str) -> None`.
+  - `ReliabilityRecorder.promote(capability: str, target: CapabilityState, *, environment: str, required: int = 20, reason: str) -> None` — only permits `QUALIFIED` after a valid `real-dev` sequence and `PRODUCTION` after a valid `portable-normal-chrome` sequence; otherwise raises/refuses.
+  - `ReliabilityRecorder.downgrade(capability: str, *, reason: str) -> None` — returns a capability to `UNQUALIFIED`.
 - Storage under the local data root:
   - `reliability/events.jsonl`
   - `reliability/capabilities.json`
@@ -230,11 +232,22 @@ real-dev
 portable-normal-chrome
 ```
 
-- [ ] **Step 4: Implement the minimal reliability module**
+- [ ] **Step 4: Write RED tests for promotion safety**
 
-Use atomic replacement for `capabilities.json`; append JSONL events with flush. Generate `identity.key` locally if absent. Do not use SQLite or change schema in Phase 1.
+Tests:
 
-- [ ] **Step 5: Run the focused tests**
+```python
+def test_cannot_promote_to_qualified_without_valid_real_dev_20_of_20(): ...
+def test_cannot_promote_to_production_without_valid_portable_20_of_20(): ...
+def test_reproducible_regression_can_downgrade_to_unqualified(): ...
+```
+
+- [ ] **Step 5: Implement the minimal reliability module**
+
+Use atomic replacement for `capabilities.json`; append JSONL events with flush. Generate `identity.key` locally if absent. Do not use SQLite or change schema in Phase 1. Do not expose an unrestricted setter for capability state.
+
+
+- [ ] **Step 6: Run the focused tests**
 
 ```powershell
 python -m unittest tests.test_area_restrita_reliability -v
@@ -242,7 +255,7 @@ python -m unittest tests.test_area_restrita_reliability -v
 
 Expected: PASS.
 
-- [ ] **Step 6: Run root Python tests and commit**
+- [ ] **Step 7: Run root Python tests and commit**
 
 ```powershell
 python -m unittest discover -s tests -p "test_*.py" -q
@@ -271,6 +284,7 @@ git commit -m "feat: add Area Restrita reliability ledger"
 
 **Interfaces:**
 - Backend read-only route: `GET /api/v1/portal/reliability`.
+- Authentication: accept only an existing Mesa session or the registered trusted extension; do not create a new auth mechanism.
 - Response:
   ```json
   {
@@ -550,7 +564,7 @@ If it fails, stop. Use `superpowers:systematic-debugging`; produce one RED from 
 
 - [ ] **Step 4: Promote AR-1 to QUALIFIED**
 
-Use the explicit reliability state API/class from Task 1 with reason referencing the qualification report and HEAD. Do not hand-edit JSON.
+Call `ReliabilityRecorder.promote(... target=CapabilityState.QUALIFIED, environment="real-dev", required=20, ...)`. The call itself must re-evaluate the ledger and refuse if the gate is not satisfied. Do not hand-edit JSON.
 
 - [ ] **Step 5: Build a fresh portable artifact and verify it**
 
@@ -585,6 +599,8 @@ python scripts/portal-reliability/qualification.py --data-root <portable-data-ro
 Expected: exit 0.
 
 - [ ] **Step 8: Promote AR-1 to PRODUCTION and write the qualification note**
+
+Call `ReliabilityRecorder.promote(... target=CapabilityState.PRODUCTION, environment="portable-normal-chrome", required=20, ...)`; it must refuse promotion if the portable sequence is not valid.
 
 The note must record only:
 
@@ -624,7 +640,7 @@ git commit -m "docs: qualify assisted Area Restrita fill"
 - `openAct(browser, identity) -> Promise<NavigationOutcome>`.
 - `selectInterested(browser, identity) -> Promise<NavigationOutcome>`.
 - Controller actions never include fill, submit, return-list, pagination or next-process in Phase 1.
-- Structural code is reused by loading root `extension/lib/area-snapshot.js` and `extension/content/detect-form.js`; no controller selector map is permitted.
+- Structural code is reused by loading root `extension/lib/area-snapshot.js` and `extension/content/detect-form.js` plus the existing sanitized `devtools/area-restrita/portal-contract.json` where state metadata is needed; no new controller selector map is permitted.
 
 - [ ] **Step 1: Write RED for state model and forbidden actions**
 
