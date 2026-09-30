@@ -79,20 +79,30 @@ function Get-NormalizedEntryName {
 # Product sources the package manifest is responsible for. The embedded runtime
 # and the licences stay under runtime-manifest.json, and the manifest itself is
 # not a source.
-$productPathPrefixes = @('app/', 'extension/')
-$productPathExact = @('start.cmd', 'readme.md', 'leia-me-outro-pc.txt', 'scripts/scan-area-cdp.ps1')
+# The embedded runtime and the licences are governed by runtime-manifest.json;
+# every other entry in a package is product source and must be declared in
+# package-manifest.json.
+$runtimeOwnedPrefixes = @('runtime/', 'licenses/')
+$runtimeOwnedExact = @('runtime-manifest.json', 'package-manifest.json')
+
+function Get-CanonicalEntryName {
+    param([Parameter(Mandatory)][string]$Name)
+    # A disguised path ('./app/x', 'app//x', 'APP/x') must resolve to the same
+    # canonical form, or it could smuggle an undeclared source past the checks.
+    $normalized = $Name
+    while ($normalized.StartsWith('./')) { $normalized = $normalized.Substring(2) }
+    while ($normalized.Contains('//')) { $normalized = $normalized.Replace('//', '/') }
+    return $normalized.TrimStart('/')
+}
 
 function Test-CoveredProductPath {
     param([Parameter(Mandatory)][string]$Name)
-    # Case-insensitive and tolerant of a './' prefix: a disguised path must not
-    # smuggle an undeclared source past the coverage check.
-    $normalized = $Name
-    while ($normalized.StartsWith('./')) { $normalized = $normalized.Substring(2) }
-    $normalized = $normalized.ToLowerInvariant()
-    foreach ($prefix in $productPathPrefixes) {
-        if ($normalized.StartsWith($prefix)) { return $true }
+    $normalized = (Get-CanonicalEntryName -Name $Name).ToLowerInvariant()
+    foreach ($prefix in $runtimeOwnedPrefixes) {
+        if ($normalized.StartsWith($prefix)) { return $false }
     }
-    return $productPathExact -contains $normalized
+    if ($runtimeOwnedExact -contains $normalized) { return $false }
+    return $true
 }
 
 function Get-EntrySha256 {
@@ -111,6 +121,48 @@ function Get-EntrySha256 {
         $stream.Dispose()
     }
     return ([BitConverter]::ToString($hash)).Replace('-', '').ToLowerInvariant()
+}
+
+function Get-EntryBlobId {
+    param(
+        [Parameter(Mandatory)][System.IO.Compression.ZipArchiveEntry]$Entry,
+        [Parameter(Mandatory)][string]$RelativePath
+    )
+    # The packaged bytes are hashed with git's own rules, fed straight to git's
+    # stdin: no shell is involved, so a hostile path cannot inject a command.
+    $stream = $Entry.Open()
+    try {
+        $memory = New-Object System.IO.MemoryStream
+        try {
+            $stream.CopyTo($memory)
+            $bytes = $memory.ToArray()
+        } finally {
+            $memory.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
+    }
+
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = 'git'
+    $startInfo.Arguments = 'hash-object --path="{0}" --stdin' -f $RelativePath
+    $startInfo.WorkingDirectory = $RepositoryRoot
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    try {
+        $process.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
+        $process.StandardInput.BaseStream.Flush()
+        $process.StandardInput.Close()
+        $output = $process.StandardOutput.ReadToEnd()
+        $process.WaitForExit()
+    } finally {
+        $process.Dispose()
+    }
+    return ([string]$output).Trim()
 }
 
 function Get-SmokeChildProcesses {
@@ -371,7 +423,7 @@ try {
         # A path that repeats under a different case is an irregular package: it
         # would otherwise vanish from a case-insensitive lookup and smuggle an
         # undeclared source past the coverage check.
-        $nameKey = $name.ToLowerInvariant()
+        $nameKey = (Get-CanonicalEntryName -Name $name).ToLowerInvariant()
         if ($seenNames.ContainsKey($nameKey)) {
             throw "Pacote com entrada duplicada (ou variação de caixa): $name"
         }
@@ -427,6 +479,15 @@ try {
 
     $runtimeIncluded = $entries.ContainsKey('runtime-manifest.json')
     $runtimeEntryCount = 0
+    # A runtime tree without its manifest is an irregular package, and any
+    # runtime tree makes this a release artefact that must prove its commit.
+    # Release shape is deliberately not read from a switch, so a package cannot
+    # opt out of provenance by omitting the manifest.
+    $hasRuntimeTree = @($entryNames | Where-Object { $_.StartsWith('runtime/') }).Count -gt 0
+    if ($hasRuntimeTree -and -not $runtimeIncluded) {
+        throw 'Pacote com árvore runtime/ mas sem runtime-manifest.json: artefato irregular.'
+    }
+    $releaseShaped = $runtimeIncluded -or $hasRuntimeTree
     if ($runtimeIncluded) {
         $missingRuntime = @($runtimeRequiredEntries | Where-Object { -not $entries.ContainsKey($_) })
         if ($missingRuntime.Count -gt 0) {
@@ -502,7 +563,7 @@ try {
     # A package that carries the embedded runtime is release-shaped, so it must
     # come from a committed tree. A runtime-less package is a declared contract
     # fixture and may honestly report a dirty source.
-    if ($packageManifest.source_dirty -ne $false -and $runtimeIncluded) {
+    if ($packageManifest.source_dirty -ne $false -and $releaseShaped) {
         throw 'package-manifest.json declara source_dirty: o pacote não corresponde a uma árvore commitada.'
     }
     $declaredFiles = @($packageManifest.files)
@@ -549,7 +610,7 @@ try {
     # hashed with git's own rules and compared against that commit's blob: a
     # rewritten manifest cannot authenticate bytes the commit never had, and a
     # file that is not tracked at that commit cannot pass at all.
-    if ($runtimeIncluded) {
+    if ($releaseShaped) {
         if ([string]::IsNullOrWhiteSpace($ExpectedBuildId)) {
             throw 'Verificação de release exige -ExpectedBuildId <sha>: informe o commit esperado do artefato.'
         }
@@ -559,20 +620,15 @@ try {
         }
         foreach ($item in $declaredFiles) {
             $relative = Get-NormalizedEntryName -Name ([string]$item.path)
+            if ($relative.Contains('"')) {
+                throw "Proveniência não comprovada: nome de entrada irregular em $relative."
+            }
             $committed = @(& git -C $RepositoryRoot rev-parse "$($packageBuildId):$relative" 2>$null)
             if ($committed.Count -eq 0 -or [string]::IsNullOrWhiteSpace([string]$committed[0])) {
                 throw "Proveniência não comprovada: $relative não está no commit $packageBuildId."
             }
-            $entryFile = Join-Path ([IO.Path]::GetTempPath()) ('tce-entry-' + [guid]::NewGuid().ToString('N'))
-            try {
-                [IO.Compression.ZipFileExtensions]::ExtractToFile($entries[$relative], $entryFile, $true)
-                $hashCommand = 'git -C "{0}" hash-object --path={1} --stdin < "{2}"' -f $RepositoryRoot, $relative, $entryFile
-                $packaged = @(& cmd.exe /c $hashCommand 2>$null)
-            } finally {
-                if (Test-Path -LiteralPath $entryFile) { Remove-Item -LiteralPath $entryFile -Force -ErrorAction SilentlyContinue }
-            }
+            $packagedBlob = Get-EntryBlobId -Entry $entries[$relative] -RelativePath $relative
             $committedBlob = ([string]$committed[0]).Trim()
-            $packagedBlob = if ($packaged.Count -gt 0) { ([string]$packaged[0]).Trim() } else { '' }
             if ($packagedBlob -ne $committedBlob) {
                 throw "Proveniência não comprovada para ${relative}: commit $committedBlob, pacote $packagedBlob."
             }

@@ -377,6 +377,68 @@ class PackageProvenanceTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("app/aaa-untracked-extra.py", result.stdout + result.stderr)
 
+    def test_verifier_refuses_a_runtime_tree_without_its_manifest(self):
+        """A runtime tree cannot opt out of provenance by dropping its manifest."""
+
+        product = repo_payload()
+        build_id = head_commit()
+        payload = dict(product, **{"runtime/python/python.exe": b"binary"})
+        manifest = build_manifest(payload, build_id)
+        archive = make_package(self.tmp / "runtime-sem-manifesto.zip", payload, manifest)
+
+        result = verify(archive, "-AllowMissingRuntime", "-SkipSmoke")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("runtime-manifest.json", result.stdout + result.stderr)
+
+    def test_verifier_refuses_a_release_source_outside_the_named_roots(self):
+        """Any non-runtime package file must be declared, not only app/extension."""
+
+        product = dict(repo_payload())
+        build_id = head_commit()
+        product["scripts/untracked-probe.py"] = b"# never committed\n"
+        payload = release_payload(product)
+        manifest = build_manifest(product, build_id)
+        archive = make_package(self.tmp / "fora-das-raizes.zip", payload, manifest)
+
+        result = verify(archive, "-SkipSmoke", "-ExpectedBuildId", build_id)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scripts/untracked-probe.py", result.stdout + result.stderr)
+
+    def test_verifier_refuses_a_duplicate_under_a_canonical_alias(self):
+        payload = product_payload()
+        manifest = build_manifest(payload, CURRENT_BUILD)
+        for alias in ("app//main.py", "./app/main.py"):
+            with self.subTest(alias=alias):
+                aliased = dict(payload)
+                aliased[alias] = payload["app/main.py"]
+                archive = make_package(
+                    self.tmp / f"alias-{len(alias)}.zip", aliased, manifest
+                )
+
+                result = verify(archive, "-AllowMissingRuntime", "-SkipSmoke")
+
+                self.assertNotEqual(result.returncode, 0)
+
+    def test_a_metacharacter_path_never_reaches_a_shell(self):
+        """The provenance check feeds git directly; a hostile path must not run."""
+
+        product = dict(repo_payload())
+        build_id = head_commit()
+        marker = self.tmp / "injected-by-shell.txt"
+        hostile = f"app/hostile&echo pwned>{marker}.py"
+        product[hostile] = b"# hostile name\n"
+        payload = release_payload(product)
+        manifest = build_manifest(product, build_id)
+        archive = make_package(self.tmp / "meta.zip", payload, manifest)
+
+        result = verify(archive, "-SkipSmoke", "-ExpectedBuildId", build_id)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(marker.exists(), "a packaged path must never be executed")
+        self.assertFalse(any(self.tmp.glob("injected-by-shell*")))
+
     def test_verifier_ignores_the_environment_build_pin_for_provenance(self):
         """The environment labels runs; it must not stand in for the manifest."""
 
