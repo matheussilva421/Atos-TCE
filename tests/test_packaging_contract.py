@@ -53,6 +53,7 @@ FORBIDDEN_PREFIXES = (
     "acervo-tce/",
     "dados-locais/",
     "profile/",
+    "profiles/",
     "outputs/",
     "Versions/",
     "work/",
@@ -62,6 +63,8 @@ FORBIDDEN_PREFIXES = (
     ".playwright-cli/",
     "node_modules/",
     "tmp/portal-lab/",
+    "tmp/portal-reliability/",
+    "scripts/portal-reliability/",
 )
 
 BASE_FILES = {
@@ -240,6 +243,20 @@ class VerifierContractTests(unittest.TestCase):
                 result = self.verify(archive, "-AllowMissingRuntime", "-SkipSmoke")
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
 
+
+    def test_rejects_reliability_reset_dev_tooling(self):
+        cases = (
+            {"scripts/portal-reliability/controller-trial.mjs": b"// dev only\n"},
+            {"scripts/portal-reliability/qualification.py": b"# dev only\n"},
+            {"tmp/portal-reliability/raw/events.jsonl": b"{}\n"},
+            {"devtools/area-restrita/controller/navigation.mjs": b"// dev only\n"},
+            {"profiles/dev/Preferences": b"{}"},
+        )
+        for index, entries in enumerate(cases):
+            with self.subTest(entries=entries):
+                archive = make_package(self.tmp / f"reliability-{index}.zip", entries)
+                result = self.verify(archive, "-AllowMissingRuntime", "-SkipSmoke")
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
     def test_rejects_missing_required_entries(self):
         base = dict(BASE_FILES)
         base.pop("START.cmd")

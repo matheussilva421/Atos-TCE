@@ -111,6 +111,12 @@
 !/scripts/portal-lab/*.py
 !/scripts/portal-lab/*.js
 /tmp/portal-lab/
+# Reliability Reset tooling is versioned source; its raw captures under tmp/
+# are not.
+!/scripts/portal-reliability/
+!/scripts/portal-reliability/*.py
+!/scripts/portal-reliability/*.mjs
+/tmp/portal-lab/
 /.playwright-cli/
 
 **/dados-locais/

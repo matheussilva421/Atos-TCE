@@ -20,11 +20,14 @@ $forbiddenPrefixes = @(
     'acervo-tce/',
     'dados-locais/',
     'profile/',
+    'profiles/',
     'outputs/',
     'versions/',
     'work/',
     'logs/',
-    'tmp/portal-lab/'
+    'tmp/portal-lab/',
+    'tmp/portal-reliability/',
+    'scripts/portal-reliability/'
 )
 $forbiddenPathSegments = @(
     'devtools',
