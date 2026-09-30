@@ -188,12 +188,13 @@ class ReliabilityRecorder:
 
     def __init__(self, data_root: str | os.PathLike[str], build_id: str) -> None:
         self._root = Path(data_root) / RELIABILITY_DIRNAME
-        self._root.mkdir(parents=True, exist_ok=True)
         self._events_path = self._root / EVENTS_FILENAME
         self._capabilities_path = self._root / CAPABILITIES_FILENAME
         self._key_path = self._root / IDENTITY_KEY_FILENAME
         self._build_id = str(build_id)
-        self._key = self._load_or_create_key()
+        # Nothing touches the filesystem until a run or a state change is
+        # recorded: reading the ledger must never create local state.
+        self._key: bytes | None = None
 
     # ------------------------------------------------------------------ paths
 
@@ -205,12 +206,22 @@ class ReliabilityRecorder:
     def build_id(self) -> str:
         return self._build_id
 
-    def _load_or_create_key(self) -> bytes:
+    def _ensure_root(self) -> None:
+        self._root.mkdir(parents=True, exist_ok=True)
+
+    def _key_bytes(self) -> bytes:
+        """The local HMAC key, created on the first write only."""
+
+        if self._key is not None:
+            return self._key
+        self._ensure_root()
         if self._key_path.exists():
-            return bytes.fromhex(self._key_path.read_text(encoding="utf-8").strip())
-        key = secrets.token_bytes(32)
-        self._key_path.write_text(key.hex(), encoding="utf-8")
-        return key
+            self._key = bytes.fromhex(self._key_path.read_text(encoding="utf-8").strip())
+        else:
+            key = secrets.token_bytes(32)
+            self._key_path.write_text(key.hex(), encoding="utf-8")
+            self._key = key
+        return self._key
 
     # ------------------------------------------------------------- recording
 
@@ -452,7 +463,7 @@ class ReliabilityRecorder:
         payload = json.dumps(
             canonical, sort_keys=True, ensure_ascii=False, separators=(",", ":")
         ).encode("utf-8")
-        return hmac.new(self._key, payload, hashlib.sha256).hexdigest()
+        return hmac.new(self._key_bytes(), payload, hashlib.sha256).hexdigest()
 
     def _has_finished(self, run_id: str) -> bool:
         """True when the ledger already holds a terminal result for this run."""
@@ -470,6 +481,7 @@ class ReliabilityRecorder:
             line = json.dumps(record, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
         except (TypeError, ValueError) as error:  # pragma: no cover - defensive
             raise ReliabilityError(f"evento não serializável: {error}") from error
+        self._ensure_root()
         with self._events_path.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
             handle.flush()
@@ -550,6 +562,7 @@ class ReliabilityRecorder:
         reason_text = str(reason)
         if len(reason_text) > MAX_REASON_LENGTH:
             raise ReliabilityError(f"reason excede {MAX_REASON_LENGTH} caracteres")
+        self._ensure_root()
         stored = self._read_capabilities()
         stored[capability] = {
             "state": state.value,

@@ -1,6 +1,8 @@
 """RED tests for the Area Restrita reliability ledger (Reliability Reset Task 1)."""
 
 import json
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -69,13 +71,32 @@ class ReliabilityRecorderTestCase(unittest.TestCase):
             self.assertEqual(entry["portable_streak"], 0, name)
 
     def test_reliability_files_live_under_data_root(self):
-        self.recorder.start("manual_form_fill", "real-dev")
+        run_id = self.recorder.start("manual_form_fill", "real-dev")
+        self.recorder.transition(
+            run_id,
+            boundary="manual_fill",
+            state_before="FORM",
+            state_after="FORM_FILLED",
+            result_code="SUCCEEDED",
+            expected_identity={"processKey": "1/2", "interestedNormalized": "pessoa"},
+        )
         self.recorder.mark_experimental("manual_form_fill", reason="offline contract green")
         root = self.data / "reliability"
         self.assertTrue((root / "events.jsonl").is_file())
         self.assertTrue((root / "capabilities.json").is_file())
         self.assertTrue((root / "identity.key").is_file())
         self.assertEqual(list(root.parent.glob("*.jsonl")), [])
+
+    def test_a_pure_read_never_creates_local_state(self):
+        fresh = Path(self._tmp.name) / "fresh"
+        recorder = ReliabilityRecorder(fresh, BUILD)
+
+        capabilities = recorder.capabilities()
+        self.assertEqual(capabilities["manual_form_fill"]["state"], "UNQUALIFIED")
+        self.assertEqual(recorder.evaluate("manual_form_fill", "real-dev")["streak"], 0)
+        self.assertEqual(recorder.summary("manual_form_fill", "real-dev")["runs"], 0)
+
+        self.assertFalse((fresh / "reliability").exists())
 
     # ---------------------------------------------------------------- privacy
 
@@ -351,6 +372,246 @@ class ReliabilityRecorderTestCase(unittest.TestCase):
             result_code="FORM_NOT_AVAILABLE",
         )
         self.assertEqual(len([line for line in self.events_text().splitlines() if line.strip()]), 2)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+QUALIFICATION_CLI = REPO_ROOT / "scripts" / "portal-reliability" / "qualification.py"
+REPORT_CLI = REPO_ROOT / "scripts" / "portal-reliability" / "report.py"
+
+
+class QualificationCliTests(unittest.TestCase):
+    """The qualification CLI is a reader of the ledger, never a promoter."""
+
+    def setUp(self):
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.data = Path(self._tmp.name) / "data"
+
+    def seed(self, *, passes, failures=0, build="a" * 40, intervene=False):
+        recorder = ReliabilityRecorder(self.data, build)
+        total = passes + failures
+        for index in range(total):
+            run_id = f"{build[:6]}-{index}"
+            recorder.start("manual_form_fill", "real-dev", run_id=run_id)
+            recorder.transition(
+                run_id,
+                boundary="reread_completed",
+                state_before="FORM",
+                state_after="FORM_FILLED",
+                result_code="REREAD_OK",
+                elapsed_ms=100,
+            )
+            if intervene and index == total - 1:
+                recorder.intervention(run_id, "technical-recovery")
+            passed = index < passes
+            recorder.finish(
+                run_id,
+                passed=passed,
+                result_code="SUCCEEDED" if passed else "FORM_NOT_AVAILABLE",
+            )
+
+    def qualify(self, *, build="a" * 40, required=20, environment="real-dev"):
+        return subprocess.run(
+            [
+                sys.executable,
+                str(QUALIFICATION_CLI),
+                "--data-root",
+                str(self.data),
+                "--capability",
+                "manual_form_fill",
+                "--environment",
+                environment,
+                "--required",
+                str(required),
+                "--build",
+                build,
+            ],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_nineteen_passes_are_not_qualified(self):
+        self.seed(passes=19)
+
+        result = self.qualify()
+
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertFalse(json.loads(result.stdout)["ok"])
+
+    def test_twenty_consecutive_same_build_is_qualified(self):
+        self.seed(passes=20)
+
+        result = self.qualify()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["streak"], 20)
+        self.assertTrue(payload["same_build"])
+
+    def test_a_failure_inside_the_sequence_breaks_it(self):
+        self.seed(passes=19, failures=1)
+
+        self.assertNotEqual(self.qualify().returncode, 0)
+
+    def test_twenty_split_across_builds_is_not_qualified(self):
+        self.seed(passes=10, build="a" * 40)
+        self.seed(passes=10, build="b" * 40)
+
+        self.assertNotEqual(self.qualify(build="b" * 40).returncode, 0)
+        self.assertNotEqual(self.qualify(build="a" * 40).returncode, 0)
+
+    def test_an_intervention_breaks_the_sequence(self):
+        self.seed(passes=20, intervene=True)
+
+        self.assertNotEqual(self.qualify().returncode, 0)
+
+    def test_the_cli_refuses_a_threshold_below_the_spec_gate(self):
+        self.seed(passes=20)
+
+        result = self.qualify(required=1)
+
+        self.assertEqual(result.returncode, 2)
+
+    def test_the_cli_does_not_mutate_capability_state(self):
+        recorder = ReliabilityRecorder(self.data, "a" * 40)
+        recorder.downgrade("open_act", reason="fixture")
+        self.seed(passes=20)
+
+        self.assertEqual(self.qualify().returncode, 0)
+
+        after = json.loads((self.data / "reliability" / "capabilities.json").read_text(encoding="utf-8"))
+        self.assertEqual(after["capabilities"]["open_act"]["state"], "UNQUALIFIED")
+        self.assertNotIn("manual_form_fill", after["capabilities"])
+
+
+class ReportCliTests(unittest.TestCase):
+    """The report is aggregate-only and never copies ledger text."""
+
+    def setUp(self):
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.data = Path(self._tmp.name) / "data"
+
+    def report(self, *, capability="open_act", build=None, fmt="json"):
+        command = [
+            sys.executable,
+            str(REPORT_CLI),
+            "--data-root",
+            str(self.data),
+            "--capability",
+            capability,
+            "--format",
+            fmt,
+        ]
+        if build is not None:
+            command += ["--build", build]
+        return subprocess.run(
+            command,
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+    def write_synthetic(self, durations_ms, *, capability="open_act"):
+        path = self.data / "reliability" / "events.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        base = 1_700_000_000.0
+        lines = []
+        for index, duration in enumerate(durations_ms):
+            run_id = f"synth-{index}"
+            started = base + index * 10.0
+            lines.append(
+                json.dumps(
+                    {
+                        "type": "run_start",
+                        "run_id": run_id,
+                        "capability": capability,
+                        "environment": "real-dev",
+                        "build_id": "d" * 40,
+                        "ts": started,
+                    }
+                )
+            )
+            lines.append(
+                json.dumps(
+                    {
+                        "type": "transition",
+                        "run_id": run_id,
+                        "boundary": "fill_command_completed",
+                        "state_before": "FORM",
+                        "state_after": "FORM_FILLED",
+                        "result_code": "SUCCEEDED",
+                        "ts": started + 0.01,
+                    }
+                )
+            )
+            lines.append(
+                json.dumps(
+                    {
+                        "type": "run_finished",
+                        "run_id": run_id,
+                        "passed": True,
+                        "result_code": "SUCCEEDED",
+                        "ts": started + duration / 1000.0,
+                    }
+                )
+            )
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def test_report_computes_median_and_p95_deterministically(self):
+        self.write_synthetic([(index + 1) * 100 for index in range(20)])
+
+        result = self.report()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["attempts"], 20)
+        self.assertEqual(payload["passed"], 20)
+        self.assertEqual(payload["median_ms"], 1050.0)
+        self.assertEqual(payload["p95_ms"], 1900)
+        self.assertEqual(payload["outcome_codes"], {"SUCCEEDED": 20})
+
+    def test_report_markdown_contains_only_aggregates(self):
+        self.write_synthetic([100, 200])
+
+        result = self.report(fmt="markdown")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("| mediana_ms | 150.0 |", result.stdout)
+        self.assertIn("| result_code:SUCCEEDED | 2 |", result.stdout)
+
+    def test_report_never_copies_identity_text(self):
+        recorder = ReliabilityRecorder(self.data, "e" * 40)
+        for index in range(3):
+            run_id = f"priv-{index}"
+            recorder.start("open_act", "real-dev", run_id=run_id)
+            recorder.transition(
+                run_id,
+                boundary="open_act_completed",
+                state_before="LIST",
+                state_after="FORM",
+                result_code="SUCCEEDED",
+                expected_identity={
+                    "processKey": "102390/2026",
+                    "interestedNormalized": "pessoa exemplo",
+                },
+                observed_identity={
+                    "processKey": "102390/2026",
+                    "interestedNormalized": "pessoa exemplo",
+                },
+            )
+            recorder.finish(run_id, passed=True, result_code="SUCCEEDED")
+
+        result = self.report(fmt="markdown")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("102390", result.stdout)
+        self.assertNotIn("pessoa exemplo", result.stdout)
+        self.assertIn("| tentativas | 3 |", result.stdout)
+
+
 
 
 
