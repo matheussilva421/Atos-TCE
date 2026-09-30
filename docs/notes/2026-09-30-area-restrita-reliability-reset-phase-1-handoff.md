@@ -273,3 +273,29 @@ dados pessoais em artefatos .. nenhum
 
 Executar a seção 7 (Task 5) com o operador no portal. Enquanto isso, nenhuma Task 6–10 pode começar, e nenhum plano de Phase 2 deve ser escrito: a Phase 2 depende da decisão arquitetural que só o benchmark AR-2/AR-3 pode produzir.
 
+## 12. ZIP portátil limpo para uso em outro PC
+
+Gerado com o builder oficial a partir de um checkout temporário limpo no commit congelado `e059793`. Usei um clone local na pasta temporária do sistema em vez de `git worktree add` porque o `.git` do repositório é somente leitura neste ambiente e o git não consegue registrar em `.git/worktrees`; o HEAD do clone foi destacado em `e059793`, então o `build_id` saiu correto. O destino foi escrito direto em `dist/` do repositório principal para o artefato sobreviver à limpeza do checkout temporário. Nenhum commit de código, nenhuma mudança de branch, `main` intacta.
+
+| Fato | Valor |
+|---|---|
+| Arquivo | `dist/Atos-TCE-portable-clean.zip` |
+| build_id (AR1_BUILD) | `e059793a412f3fe4c8b403fb3a58cfa02e26553c` |
+| Entradas | 520 |
+| Tamanho | 96.186.074 bytes |
+| SHA-256 | `350b84abfa3b6686527325c65871cf58ce0061e4b08378a4170b500b7b163a51` |
+| `verify-package.ps1 -ExpectedBuildId e059793...` | PASS |
+| Smoke (`health.build_id`) | `e059793a412f3fe4c8b403fb3a58cfa02e26553c` |
+| `package-manifest.json` | schema 1, `source_dirty = false`, 88 arquivos |
+| `runtime-manifest.json` | 430 arquivos |
+| Conteúdo vs `Atos-TCE-portable.zip` | 520/520 entradas com bytes idênticos; só os timestamps do ZIP diferem (por isso o SHA-256 do arquivo difere) |
+| Instalação limpa em raiz descartável | PASS: nada pré-existente, `health = ok`, `schema_version = 7`, `process_count = 0`, data root e banco criados no primeiro START |
+| Acervo/processos no pacote | NÃO: nenhuma entrada `data/`, `acervo-tce/`, `dados-locais/`, `*.db`, `*.pdf`, profile, cookie ou token |
+| Extensão | `RELIABILITY_STATUS`, `REPORT_AR1_ATTEMPT` e `/api/v1/portal/manual-form-attempt` presentes; rótulo `Preencher formulário atual — Experimental` composto em `extension/sidepanel/panel.js` |
+| Ledger real AR-1 | intacto: sem eventos em `data/reliability/`, `manual_form_fill = EXPERIMENTAL`, streaks 0 |
+| Limpeza | checkout temporário removido (~278 MB), 0 extrações e 0 processos residuais |
+
+`app/archive/*.py` no pacote é o pacote Python da própria aplicação (3 arquivos versionados em `e059793`), não acervo de processos. Scripts de auditoria reexecutáveis: `tmp/audit_clean_zip.py` e `tmp/clean_install_check.py`.
+
+O AR1_BUILD continua `e059793`; este Goal não reescreveu o produto nem promoveu nenhuma capability.
+
