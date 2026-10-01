@@ -1895,6 +1895,75 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
         self.assertFalse(finished[0]["passed"])
         self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
 
+    def test_a_proposal_that_does_not_match_the_plan_keeps_the_run_failing(self):
+        """The extension must write the value the backend authorized, not one of its own."""
+
+        self.ready_process(values={"cargo": "Professor"})
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        self.assertEqual(command["payload"]["fields"], {"cargo": "Professor"})
+
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "field_results": {
+                    "cargo": {
+                        "before": "",
+                        "proposed": "Outro cargo",
+                        "after": "Outro cargo",
+                        "status": "changed",
+                    }
+                },
+            },
+        )
+
+        summary = self.store.get_fill_request(request_id)["form_snapshot"]["summary"]
+        self.assertFalse(summary["best_effort_satisfied"])
+        finished = self.finishes()
+        self.assertFalse(finished[-1]["passed"])
+        self.assertEqual(finished[-1]["result_code"], "BEST_EFFORT_FAILED")
+
+    def test_an_exhausted_stale_generation_keeps_the_run_failing(self):
+        self.ready_process()
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+        fill_command = self.store.claim_extension_command("extension-test")
+        self.assertEqual(fill_command["type"], "FILL_FORM")
+        service.handle_command_result(
+            fill_command["id"],
+            {"ok": False, "code": "STALE_GENERATION", "generation_after": 4},
+        )
+
+        read_command = self.store.claim_extension_command("extension-test")
+        self.assertEqual(read_command["type"], "READ_FORM")
+        service.handle_command_result(
+            read_command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation": 5,
+                "fields": form_controls(),
+            },
+        )
+
+        retried_fill = self.store.claim_extension_command("extension-test")
+        self.assertEqual(retried_fill["type"], "FILL_FORM")
+        service.handle_command_result(
+            retried_fill["id"],
+            {"ok": False, "code": "STALE_GENERATION", "generation_after": 6},
+        )
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "ERRO")
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0]["passed"])
+
     def run_successful_fill(self, service):
         """One complete AR-1 trial: read the opened form, fill it, reread it."""
 

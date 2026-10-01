@@ -759,14 +759,16 @@ class FillService:
         if not isinstance(planned_fields, Mapping) or not planned_fields:
             return True
         results = field_results if isinstance(field_results, Mapping) else {}
-        for name in planned_fields:
+        for name, authorized in planned_fields.items():
             entry = results.get(str(name))
             if not isinstance(entry, Mapping):
                 return False
             if str(entry.get("status") or "") not in {"changed", "preserved"}:
                 return False
             proposed = entry.get("proposed")
-            if proposed is None:
+            # The result must report the value the plan authorized: a different
+            # proposal means something was written that nobody approved.
+            if proposed is None or str(proposed) != str(authorized):
                 return False
             if entry.get("after") != proposed:
                 return False
