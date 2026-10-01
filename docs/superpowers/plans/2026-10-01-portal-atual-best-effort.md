@@ -131,7 +131,7 @@ git commit -m "feat: allow best-effort manual fill across process states"
 - Produces:
   - `PORTAL_SELECTION_TTL_SECONDS = 10.0`
   - `class PortalSelectionError(RuntimeError)` com `code: str`
-  - `PortalSelectionTracker(store: Store, *, ttl_seconds: float = 10.0, clock: Callable[[], float] = time.monotonic, utcnow: Callable[[], datetime] = ...)`
+  - `PortalSelectionTracker(store: Store, *, ttl_seconds: float = 10.0, clock: Callable[[], float] = time.monotonic, utcnow: Callable[[], datetime] = _utcnow)`; definir `_utcnow() -> datetime` como `datetime.now(timezone.utc)`
   - `observe(form_snapshot: Mapping[str, Any]) -> dict[str, Any]`
   - `clear(code: str = "FORM_NOT_AVAILABLE") -> dict[str, Any]`
   - `public_state() -> dict[str, Any]`
@@ -376,7 +376,7 @@ Testar:
 - todos os seis mandatory `found` → `COMPLETO`;
 - 1–5 mandatory `found` → `PARCIAL`;
 - zero `found` → `SEM_DADOS`;
-- processo/field com divergência reconhecida → `CONFLITO`.
+- `process.status == "DIVERGENCIA"` ou qualquer field com `status == "conflict"` → `CONFLITO`.
 
 - [ ] **Step 2: RED da decisão de follow (Review Focus #4)**
 
