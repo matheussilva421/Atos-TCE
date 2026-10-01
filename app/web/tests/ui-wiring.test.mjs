@@ -247,4 +247,3 @@ test("the follow decision comes from the pure helpers, not from inline rules", (
   assert.match(source, /classifyPortalProcess\(/u);
   assert.match(source, /KNOWN_PORTAL_FIELDS/u);
 });
-
