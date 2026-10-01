@@ -33,7 +33,11 @@ FILL_STATES: tuple[str, ...] = (
 )
 
 TERMINAL_FILL_STATES: frozenset[str] = frozenset({"PREENCHIDO", "BLOQUEADO", "ERRO"})
-FILLABLE_PROCESS_STATUSES: frozenset[str] = frozenset({"PRONTO", "PREENCHIDO"})
+
+#: Statuses the *automatic* path may start from. The manual best-effort path no
+#: longer depends on the local status: the operator already opened the exact
+#: act, so the observed identity/form authorizes the write, not the workflow.
+AUTOMATIC_FILLABLE_PROCESS_STATUSES: frozenset[str] = frozenset({"PRONTO", "PREENCHIDO"})
 
 #: Which command type each state is waiting for.
 EXPECTED_COMMAND: dict[str, str] = {
@@ -479,12 +483,16 @@ class FillService:
     # ------------------------------------------------------------- entry points
 
     def request_fill(self, process_id: int) -> int:
-        """Start an automatic fill for a PRONTO or previously PREENCHIDO process."""
+        """Start an automatic fill for a PRONTO or previously PREENCHIDO process.
+
+        The automatic path navigates the portal on the operator's behalf, so its
+        eligibility is unchanged; only the manual path stopped gating on status.
+        """
 
         process = self._store.get_process(process_id)
         if process is None:
             raise FillError(f"unknown process: {process_id}")
-        if str(process.get("status")) not in FILLABLE_PROCESS_STATUSES:
+        if str(process.get("status")) not in AUTOMATIC_FILLABLE_PROCESS_STATUSES:
             raise FillError("somente um processo PRONTO ou PREENCHIDO pode ser preenchido")
         request_id = self._store.create_fill_request(
             int(process_id), state="OPENING", mode="automatic"
@@ -507,8 +515,10 @@ class FillService:
     def request_manual_fill(self, form_snapshot: Mapping[str, Any] | None) -> int:
         """Create a request from a form the operator opened by hand.
 
-        The snapshot must identify exactly one PRONTO or PREENCHIDO process; zero or several
-        matches block, because filling the wrong act is worse than not filling.
+        The snapshot must identify exactly one process; zero or several matches
+        block, because filling the wrong act is worse than not filling. The local
+        status is deliberately not a gate here: every field the preflight can
+        prove is written, and everything else stays a pendency for review.
         """
 
         snapshot = form_snapshot if isinstance(form_snapshot, Mapping) else {}
@@ -532,10 +542,7 @@ class FillService:
             raise FillError(str(exc)) from exc
         if process is None:
             self._record_ar1_refusal(snapshot, "PROCESS_NOT_FOUND")
-            raise FillError("nenhum processo PRONTO ou PREENCHIDO corresponde ao formulário aberto")
-        if str(process.get("status")) not in FILLABLE_PROCESS_STATUSES:
-            self._record_ar1_refusal(snapshot, "PROCESS_NOT_FILLABLE")
-            raise FillError("somente um processo PRONTO ou PREENCHIDO pode ser preenchido")
+            raise FillError("nenhum processo corresponde ao formulário aberto")
         process_id = int(process["id"])
         persisted = dict(snapshot)
         safe_diagnostics = sanitize_browser_diagnostics(snapshot.get("diagnostics"))
@@ -735,6 +742,36 @@ class FillService:
             },
         )
 
+    @staticmethod
+    def _best_effort_satisfied(
+        planned_fields: Mapping[str, Any] | None,
+        field_results: Mapping[str, Any] | None,
+    ) -> bool:
+        """Did the run write and reread every field it actually authorized?
+
+        ``plan.fields`` only ever holds the fields the preflight authorized to
+        write, so this measures the automation's own contract and never the
+        documentary completeness of the process. A field outside the plan cannot
+        lower the result, and an empty plan is a legitimate success: the correct
+        behaviour was to invent nothing.
+        """
+
+        if not isinstance(planned_fields, Mapping) or not planned_fields:
+            return True
+        results = field_results if isinstance(field_results, Mapping) else {}
+        for name in planned_fields:
+            entry = results.get(str(name))
+            if not isinstance(entry, Mapping):
+                return False
+            if str(entry.get("status") or "") not in {"changed", "preserved"}:
+                return False
+            proposed = entry.get("proposed")
+            if proposed is None:
+                return False
+            if entry.get("after") != proposed:
+                return False
+        return True
+
     def _handle_fill_result(
         self, request: Mapping[str, Any], result: Mapping[str, Any]
     ) -> None:
@@ -857,6 +894,14 @@ class FillService:
             }
 
         summary = summarize_field_results(field_results, MANDATORY_FIELDS)
+        # Completeness and best-effort success answer different questions: the
+        # first may promote the process, the second grades this attempt. A field
+        # with no proposal, a preserved divergence or a control the portal
+        # disabled is a pendency; a field this run *was* authorized to write and
+        # then could not write, or wrote differently, is a genuine failure.
+        summary["best_effort_satisfied"] = self._best_effort_satisfied(
+            snapshot.get("plan"), field_results
+        )
         extension_warnings = result.get("warnings")
         if isinstance(extension_warnings, list):
             operation_warnings = [*preflight_warnings, *extension_warnings]
@@ -869,7 +914,8 @@ class FillService:
                 "operation_warnings": operation_warnings,
             }
         )
-        reread_ok = bool(summary["mandatory_satisfied"])
+        reread_ok = bool(summary["best_effort_satisfied"])
+        best_effort_code = "BEST_EFFORT_OK" if reread_ok else "BEST_EFFORT_FAILED"
         self._ar1_transition(
             run_id,
             boundary="fill_command_completed",
@@ -886,7 +932,7 @@ class FillService:
             boundary="reread_completed",
             state_before="FORM_FILLED",
             state_after="FORM_FILLED",
-            result_code="REREAD_OK" if reread_ok else "REREAD_INCOMPLETE",
+            result_code=best_effort_code,
             expected_identity=identity_of(process),
             observed_identity=result.get("identity"),
             generation_after=generation_after,
@@ -894,7 +940,7 @@ class FillService:
         self._ar1_finish(
             run_id,
             passed=reread_ok,
-            result_code="SUCCEEDED" if reread_ok else "REREAD_INCOMPLETE",
+            result_code=best_effort_code,
         )
         self._store.update_fill_request(
             int(request["id"]),

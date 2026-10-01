@@ -332,8 +332,8 @@ class FillStateMachineTests(FillRequestTestCase):
 
 
 class ManualFillRequestTests(FillRequestTestCase):
-    def ready_process(self, *, status="PRONTO"):
-        process_id = self.make_process(status=status)
+    def ready_process(self, *, status="PRONTO", process_key="102390/2026"):
+        process_id = self.make_process(status=status, process_key=process_key)
         self.store.replace_fields(
             process_id,
             [
@@ -413,6 +413,26 @@ class ManualFillRequestTests(FillRequestTestCase):
         self.assertEqual(request["process_id"], process_id)
         self.assertEqual(request["state"], "FILLING")
 
+    def test_manual_fill_is_not_gated_by_the_local_process_status(self):
+        """Best-effort is authorized by the observed form, never by the status."""
+
+        statuses = ("PENDENTE", "IDENTIFICADO", "BAIXADO", "REVISAR", "ERRO", "PREENCHIDO")
+        for index, status in enumerate(statuses):
+            with self.subTest(status=status):
+                process_key = f"10239{index}/2026"
+                process_id = self.ready_process(status=status, process_key=process_key)
+
+                request_id = self.service.request_manual_fill(
+                    self.snapshot(process_key=process_key)
+                )
+
+                request = self.store.get_fill_request(request_id)
+                self.assertEqual(request["state"], "FILLING")
+                self.assertEqual(request["process_id"], process_id)
+                # A best-effort pass is not documentary completion: the local
+                # status must survive the attempt untouched.
+                self.assertEqual(self.store.get_process(process_id)["status"], status)
+
     def test_zero_matches_block(self):
         self.make_process()
 
@@ -420,8 +440,8 @@ class ManualFillRequestTests(FillRequestTestCase):
             self.service.request_manual_fill(self.snapshot(process_key="999999/2026"))
 
     def test_another_interested_person_does_not_match_the_same_process(self):
-        self.make_process()
-        self.store.upsert_process(
+        first = self.make_process()
+        second = self.store.upsert_process(
             ProcessRecord(
                 process_key="102390/2026",
                 interested="Outra Pessoa",
@@ -429,10 +449,20 @@ class ManualFillRequestTests(FillRequestTestCase):
                 status="REVISAR",
             )
         )
+        self.store.replace_fields(
+            second,
+            [
+                FieldRecord(field_name=name, value=value, status="found", confidence=1.0)
+                for name, value in MANDATORY_VALUES.items()
+            ],
+        )
 
         # Two rows share the process key, so matching must use the person too.
-        with self.assertRaises(FillError):
-            self.service.request_manual_fill(self.snapshot(interested="outra pessoa"))
+        request_id = self.service.request_manual_fill(self.snapshot(interested="outra pessoa"))
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["process_id"], second)
+        self.assertNotEqual(request["process_id"], first)
 
     def test_the_identity_is_matched_through_the_canonical_normalization(self):
         self.ready_process()
@@ -447,13 +477,6 @@ class ManualFillRequestTests(FillRequestTestCase):
         with self.assertRaises(FillError):
             self.service.request_manual_fill({"generation": 1})
 
-    def test_a_process_that_is_not_pronto_never_matches(self):
-        self.ready_process(status="REVISAR")
-
-        with self.assertRaises(FillError):
-            self.service.request_manual_fill(self.snapshot())
-
-
 class ManualSnapshotMixin:
     """Shared helpers for the manual-fill test classes."""
 
@@ -463,7 +486,7 @@ class ManualSnapshotMixin:
             process_id,
             [
                 FieldRecord(field_name=name, value=value, status="found", confidence=1.0)
-                for name, value in (values or MANDATORY_VALUES).items()
+                for name, value in (MANDATORY_VALUES if values is None else values).items()
             ],
         )
         return process_id
@@ -583,8 +606,8 @@ class FillResultSummaryTests(unittest.TestCase):
 
 
 class FillServiceOutcomeTests(FillRequestTestCase):
-    def ready_process(self, values=None):
-        process_id = self.make_process()
+    def ready_process(self, values=None, *, status="PRONTO"):
+        process_id = self.make_process(status=status)
         values = dict(MANDATORY_VALUES if values is None else values)
         self.store.replace_fields(
             process_id,
@@ -609,6 +632,21 @@ class FillServiceOutcomeTests(FillRequestTestCase):
                 "generation": 3,
                 "fields": form_controls() if controls is None else controls,
             },
+        )
+        fill_command = self.store.claim_extension_command("extension-test")
+        self.assertEqual(fill_command["type"], "FILL_FORM")
+        return process_id, request_id, fill_command
+
+    def reach_manual_filling(self, *, values=None, controls=None, status="PRONTO"):
+        """The operator already opened the act, so no OPEN_ACT/READ_FORM happens."""
+
+        process_id = self.ready_process(values, status=status)
+        request_id = self.service.request_manual_fill(
+            {
+                "identity": dict(IDENTITY),
+                "generation": 3,
+                "fields": form_controls() if controls is None else controls,
+            }
         )
         fill_command = self.store.claim_extension_command("extension-test")
         self.assertEqual(fill_command["type"], "FILL_FORM")
@@ -659,6 +697,48 @@ class FillServiceOutcomeTests(FillRequestTestCase):
         retry_id = self.service.request_fill(process_id)
         self.assertEqual(self.store.get_fill_request(retry_id)["state"], "OPENING")
         self.assertEqual(self.store.claim_extension_command("extension-test")["type"], "OPEN_ACT")
+
+    def test_a_partial_manual_fill_in_revisar_never_launders_the_process_status(self):
+        process_id, request_id, fill_command = self.reach_manual_filling(
+            values={"cargo": "Professor", "matricula": "78.710-8/2"}, status="REVISAR"
+        )
+
+        self.service.handle_command_result(
+            fill_command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "field_results": {
+                    "cargo": {
+                        "before": "",
+                        "proposed": "Professor",
+                        "after": "Professor",
+                        "status": "changed",
+                    },
+                    "matricula": {
+                        "before": "",
+                        "proposed": "78.710-8/2",
+                        "after": "",
+                        "status": "disabled",
+                        "warning": "control_disabled",
+                    },
+                },
+            },
+        )
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "PREENCHIDO")
+        summary = request["form_snapshot"]["summary"]
+        self.assertFalse(summary["mandatory_satisfied"])
+        self.assertFalse(summary["best_effort_satisfied"])
+        # The attempt finished; the document did not become complete.
+        self.assertEqual(self.store.get_process(process_id)["status"], "REVISAR")
+        event_types = [
+            event["event_type"] for event in self.store.list_workflow_events(process_id)
+        ]
+        self.assertIn("form_filled_partial", event_types)
+        self.assertNotIn("form_filled", event_types)
 
     def test_a_fully_satisfied_mandatory_plan_marks_the_process_filled(self):
         process_id, request_id, fill_command = self.reach_filling()
@@ -1654,6 +1734,166 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
         self.assertFalse(finished[0]["passed"])
         self.assertEqual(finished[0]["result_code"], "PROCESS_NOT_FOUND")
         self.assertTrue(finished[0]["run_id"].startswith("manual-fill-attempt:"))
+
+    def test_a_best_effort_run_passes_when_mandatory_fields_have_no_proposal(self):
+        """A run passes on what it authorized, not on what the document lacks."""
+
+        process_id = self.ready_process(values={"cargo": "Professor"})
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        self.assertEqual(command["type"], "FILL_FORM")
+        self.assertEqual(sorted(command["payload"]["fields"]), ["cargo"])
+
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "field_results": {
+                    "cargo": {
+                        "before": "",
+                        "proposed": "Professor",
+                        "after": "Professor",
+                        "status": "changed",
+                    }
+                },
+            },
+        )
+
+        summary = self.store.get_fill_request(request_id)["form_snapshot"]["summary"]
+        self.assertFalse(summary["mandatory_satisfied"])
+        self.assertTrue(summary["best_effort_satisfied"])
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertTrue(finished[0]["passed"])
+        self.assertEqual(finished[0]["result_code"], "BEST_EFFORT_OK")
+        # Best-effort success is not documentary completion.
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+
+    def test_a_disabled_planned_field_keeps_the_run_failing(self):
+        self.ready_process(values={"cargo": "Professor"})
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "field_results": {
+                    "cargo": {
+                        "before": "",
+                        "proposed": "Professor",
+                        "after": "",
+                        "status": "disabled",
+                        "warning": "control_disabled",
+                    }
+                },
+            },
+        )
+
+        summary = self.store.get_fill_request(request_id)["form_snapshot"]["summary"]
+        self.assertFalse(summary["best_effort_satisfied"])
+        finished = self.finishes()
+        self.assertFalse(finished[-1]["passed"])
+        self.assertEqual(finished[-1]["result_code"], "BEST_EFFORT_FAILED")
+
+    def test_a_planned_field_diverging_from_the_proposal_keeps_the_run_failing(self):
+        self.ready_process(values={"cargo": "Professor"})
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "field_results": {
+                    "cargo": {
+                        "before": "",
+                        "proposed": "Professor",
+                        "after": "Outro cargo",
+                        "status": "changed",
+                    }
+                },
+            },
+        )
+
+        summary = self.store.get_fill_request(request_id)["form_snapshot"]["summary"]
+        self.assertFalse(summary["best_effort_satisfied"])
+        self.assertFalse(self.finishes()[-1]["passed"])
+
+    def test_a_planned_field_missing_from_the_results_keeps_the_run_failing(self):
+        self.ready_process(values={"cargo": "Professor"})
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "field_results": {},
+            },
+        )
+
+        summary = self.store.get_fill_request(request_id)["form_snapshot"]["summary"]
+        self.assertFalse(summary["best_effort_satisfied"])
+        self.assertFalse(self.finishes()[-1]["passed"])
+
+    def test_an_empty_plan_succeeds_as_best_effort_without_inventing_values(self):
+        process_id = self.ready_process(values={})
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        self.assertEqual(command["type"], "FILL_FORM")
+        # Nothing was authorized, so nothing may be written.
+        self.assertEqual(command["payload"]["fields"], {})
+
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "field_results": {},
+            },
+        )
+
+        summary = self.store.get_fill_request(request_id)["form_snapshot"]["summary"]
+        self.assertFalse(summary["mandatory_satisfied"])
+        self.assertTrue(summary["best_effort_satisfied"])
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertTrue(finished[0]["passed"])
+        self.assertEqual(finished[0]["result_code"], "BEST_EFFORT_OK")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+
+    def test_an_ambiguous_form_keeps_the_run_failing_before_any_write(self):
+        process_id = self.ready_process()
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(
+            command["id"], {"ok": False, "code": "FORM_AMBIGUOUS"}
+        )
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "BLOQUEADO")
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0]["passed"])
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
 
     def run_successful_fill(self, service):
         """One complete AR-1 trial: read the opened form, fill it, reread it."""
