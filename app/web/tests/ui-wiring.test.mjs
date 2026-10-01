@@ -208,3 +208,43 @@ test("the Mesa does not offer next-process while the capability is unqualified",
     "selecting a process must not enable an unqualified capability"
   );
 });
+
+test("the Mesa follows the current portal form and can pause the follow", () => {
+  assert.match(page, /data-tab="portal"/u);
+  assert.match(page, /id="portal-follow-toggle"/u);
+  assert.match(page, /id="portal-follow-status"/u);
+  assert.match(page, /Portal atual/u);
+  assert.match(source, /state\.followPortal/u);
+  assert.match(source, /state\.portalProcessId/u);
+  assert.match(source, /function refreshPortalSelection/u);
+  assert.match(source, /PORTAL_SELECTION_POLL_MS/u);
+  assert.match(source, /portalPollRunning/u);
+  assert.match(source, /Acompanhando portal/u);
+  assert.match(source, /Pausar acompanhamento/u);
+  assert.match(source, /Acompanhamento pausado/u);
+  assert.match(source, /Retomar acompanhamento/u);
+});
+
+test("the follow polls every second and cannot overlap itself", () => {
+  assert.match(source, /PORTAL_SELECTION_POLL_MS,\s*\n?\s*window\.setInterval|setInterval\(refreshPortalSelection/u);
+  assert.match(source, /if \(state\.portalPollRunning\) return/u);
+  assert.match(source, /state\.portalPollRunning = false/u);
+});
+
+test("a manual selection pauses the follow while a portal selection does not", () => {
+  const select = source.slice(source.indexOf("async function selectProcess"));
+  const body = select.slice(0, select.indexOf("function debounce"));
+
+  assert.match(body, /source = "manual"/u);
+  assert.match(body, /state\.followPortal = false/u);
+  assert.match(body, /source === "manual"/u);
+  assert.match(body, /selectProcess\(decision\.selectProcessId|openTab/u);
+});
+
+test("the follow decision comes from the pure helpers, not from inline rules", () => {
+  assert.match(source, /import \{[\s\S]*followAction[\s\S]*\} from "\/portal-current\.js"/u);
+  assert.match(source, /followAction\(/u);
+  assert.match(source, /classifyPortalProcess\(/u);
+  assert.match(source, /KNOWN_PORTAL_FIELDS/u);
+});
+

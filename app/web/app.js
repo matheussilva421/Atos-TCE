@@ -8,6 +8,12 @@
  * parear). Every document is reached by SQLite id, never by a file path.
  */
 import { clampScale, normalizeRotation, renderPdfPage, viewerUrl } from "/pdf-viewer.js";
+import {
+  KNOWN_PORTAL_FIELDS,
+  PORTAL_SELECTION_POLL_MS,
+  classifyPortalProcess,
+  followAction,
+} from "/portal-current.js";
 
 let pdfjsPromise = null;
 
@@ -165,6 +171,12 @@ async function loadPdfjs() {
     detail: null,
     fillResults: {},
     viewer: { documentId: null, page: 1, pageCount: 1, scale: 1.5, rotation: 0, rects: [] },
+    // Portal Atual: the follow is local UI state. The observation it reads is
+    // memory-only on the server and expires on its own after ten seconds.
+    followPortal: true,
+    portalProcessId: null,
+    portalObservation: null,
+    portalPollRunning: false,
   };
 
   const numberFormat = new Intl.NumberFormat("pt-BR");
@@ -765,6 +777,7 @@ async function loadPdfjs() {
           element("h4", { text: `Histórico (${process.events.length})` }),
           historyList(process.events),
         ]),
+        portal: () => portalCurrentPanel(process),
     };
     host.replaceChildren(
       element("h3", { text: `${process.process_key}` }),
@@ -859,6 +872,125 @@ async function loadPdfjs() {
       return panel;
     }
     return panel;
+  }
+
+  // ----------------------------------------------------------- Portal atual
+
+  const PORTAL_STATE_MESSAGES = {
+    NO_ACTIVE_FORM: "Área Restrita conectada · nenhum formulário aberto.",
+    NOT_FOUND: "Processo identificado no portal, mas não encontrado no acervo local.",
+    AMBIGUOUS: "Correspondência ambígua. Nenhum processo foi selecionado automaticamente.",
+    INVALID: "Observação estrutural inválida no portal. Nada foi preenchido.",
+  };
+
+  const PORTAL_VERDICT_CLASS = {
+    ENCONTRADO: "chip-ok",
+    REVISAR: "chip-warn",
+    PENDENTE: "chip-neutral",
+  };
+
+  /** The follow controls live outside the detail, so they survive a re-render. */
+  function renderPortalFollow() {
+    const status = document.getElementById("portal-follow-status");
+    const button = document.getElementById("portal-follow-toggle");
+    if (!status || !button) return;
+    button.textContent = state.followPortal
+      ? "Pausar acompanhamento"
+      : "Retomar acompanhamento";
+    if (!state.followPortal) {
+      status.textContent = "○ Acompanhamento pausado";
+      return;
+    }
+    const observed = state.portalObservation;
+    const detail =
+      observed && observed.state !== "MATCHED"
+        ? ` ${PORTAL_STATE_MESSAGES[observed.state] || ""}`
+        : "";
+    status.textContent = `● Acompanhando portal${detail}`.trimEnd();
+  }
+
+  /** One model per known field. A value is never invented for a missing one. */
+  function portalFieldModels(process) {
+    const fields = Array.isArray(process.fields) ? process.fields : [];
+    const byName = new Map(fields.map((field) => [String(field.field_name), field]));
+    return KNOWN_PORTAL_FIELDS.map((field) => {
+      const entry = byName.get(field.name) || null;
+      const value = entry && String(entry.value ?? "").trim() !== "" ? String(entry.value) : "";
+      const conflict = entry?.status === "conflict";
+      const verdict = conflict ? "REVISAR" : value ? "ENCONTRADO" : "PENDENTE";
+      return { name: field.name, label: field.label, entry, value, verdict };
+    });
+  }
+
+  /** The "Portal atual" view: what the analysis found, and what is missing. */
+  function portalCurrentPanel(process) {
+    const quality = classifyPortalProcess(process);
+    const models = portalFieldModels(process);
+    return element("section", { className: "portal-current" }, [
+      element("h4", { text: `Portal atual — ${quality.state}` }),
+      element("p", {
+        className: "muted",
+        text:
+          `${numberFormat.format(quality.foundCount)} campo(s) encontrado(s), ` +
+          `${numberFormat.format(quality.pendingCount)} pendente(s).`,
+      }),
+      element(
+        "ul",
+        { className: "portal-fields" },
+        models.map((model) =>
+          element("li", { className: `portal-field portal-field-${model.verdict.toLowerCase()}` }, [
+            element("span", { className: "portal-field-label", text: model.label }),
+            element("span", { className: `chip ${PORTAL_VERDICT_CLASS[model.verdict]}`, text: model.verdict }),
+            element("span", { className: "portal-field-value", text: model.value || "Não localizado com segurança" }),
+          ])
+        )
+      ),
+    ]);
+  }
+
+  /** Poll the observed form and follow it, without ever stealing the sub-tab. */
+  async function refreshPortalSelection() {
+    if (state.portalPollRunning) return;
+    state.portalPollRunning = true;
+    try {
+      const observation = await getJson("/api/v1/portal/current-selection");
+      state.portalObservation = observation;
+      const decision = followAction(
+        {
+          followPortal: state.followPortal,
+          selectedId: state.selectedId,
+          portalProcessId: state.portalProcessId,
+          activeTab: state.tab,
+        },
+        observation
+      );
+      state.portalProcessId = decision.portalProcessId;
+      renderPortalFollow();
+      if (decision.selectProcessId !== null && decision.selectProcessId !== state.selectedId) {
+        await selectProcess(decision.selectProcessId, {
+          source: "portal",
+          openTab: decision.openPortalTab ? "portal" : null,
+        });
+      }
+    } catch {
+      // The Mesa keeps working when the observation endpoint is unavailable.
+    } finally {
+      state.portalPollRunning = false;
+    }
+  }
+
+  function togglePortalFollow() {
+    if (state.followPortal) {
+      // Pausing never forgets the last matched process, so resuming returns to it.
+      state.followPortal = false;
+      renderPortalFollow();
+      return;
+    }
+    state.followPortal = true;
+    renderPortalFollow();
+    if (state.portalProcessId !== null) {
+      selectProcess(state.portalProcessId, { source: "portal", openTab: "portal" });
+    }
   }
 
   function refreshTabBar() {
@@ -976,6 +1108,13 @@ async function loadPdfjs() {
   }
 
   async function selectProcess(processId) {
+  async function selectProcess(processId, { source = "manual", openTab = null } = {}) {
+    // Picking a process that is not the observed one hands control back to the
+    // operator, so the follow pauses instead of stealing the selection.
+    if (source === "manual" && processId !== state.portalProcessId) {
+      state.followPortal = false;
+    }
+    if (openTab) state.tab = openTab;
     state.selectedId = processId;
     state.detail = null;
     updateNextProcessButton();
@@ -1059,16 +1198,21 @@ async function loadPdfjs() {
     });
     document.getElementById("handoff-session").addEventListener("click", handoffSession);
     document.getElementById("resume-acquisition").addEventListener("click", resumeAcquisition);
+    document.getElementById("portal-follow-toggle").addEventListener("click", togglePortalFollow);
 
     refreshHealth();
     refreshStorage();
     refreshProcesses();
     refreshArea();
     refreshAcquisition();
+    refreshPortalSelection();
     window.setInterval(() => {
       refreshHealth();
       if (!state.acquisitionRunning) refreshAcquisition();
     }, 5000);
+    // The follow polls faster than the 5 s dashboard refresh so a form the
+    // operator opens is picked up while its 10 s server-side TTL is still valid.
+    window.setInterval(refreshPortalSelection, PORTAL_SELECTION_POLL_MS);
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
