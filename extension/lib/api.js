@@ -304,5 +304,21 @@ export function createApi({
           : response.payload?.detail ?? response.error ?? "request_failed",
       };
     },
+
+    /** Publish (or clear) the portal form the operator currently has open. */
+    async publishCurrentSelection(observation) {
+      const response = await authenticatedRequest("/api/v1/portal/current-selection", {
+        method: "POST",
+        body: observation,
+      });
+      return {
+        ok: response.ok,
+        status: response.status,
+        payload: response.payload,
+        error: response.ok
+          ? null
+          : response.payload?.detail ?? response.error ?? "request_failed",
+      };
+    },
   };
 }

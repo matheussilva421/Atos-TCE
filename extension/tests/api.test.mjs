@@ -378,3 +378,48 @@ test("the public API has no manual pairing or credential clearing methods", () =
   assert.equal(api.clear, undefined);
   assert.equal(api.credentials, undefined);
 });
+
+const OBSERVED_FORM = {
+  identity: { processKey: "102390/2026", interestedNormalized: "pessoa exemplo" },
+  generation: 4,
+  fields: { cargo: { value: "", disabled: false, readOnly: false, options: [] } },
+};
+
+test("publishCurrentSelection posts the observed form to the current-selection route", async () => {
+  const { api, fetchImpl } = build({
+    data: pairedData(),
+    routes: [{ path: "/api/v1/portal/current-selection", method: "POST", body: { state: "MATCHED" } }],
+  });
+  const observation = { active: true, form: OBSERVED_FORM };
+
+  const outcome = await api.publishCurrentSelection(observation);
+
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.status, 200);
+  const call = fetchImpl.calls[0];
+  assert.equal(call.url, "http://127.0.0.1:18743/api/v1/portal/current-selection");
+  assert.equal(call.method, "POST");
+  assert.equal(call.headers.Authorization, "Bearer token-123");
+  assert.equal(call.headers["X-TCE-Client"], CLIENT_ID);
+  assert.equal(call.headers["X-TCE-Extension-ID"], EXTENSION_ID);
+  assert.deepEqual(JSON.parse(call.body), observation);
+});
+
+test("publishCurrentSelection reports a refused observation without throwing", async () => {
+  const { api } = build({
+    data: pairedData(),
+    routes: [
+      {
+        path: "/api/v1/portal/current-selection",
+        method: "POST",
+        body: { status: 400, body: { error: "invalid_current_selection" } },
+      },
+    ],
+  });
+
+  const outcome = await api.publishCurrentSelection({ active: false, code: "FORM_NOT_AVAILABLE" });
+
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.status, 400);
+  assert.equal(outcome.error, "invalid_current_selection");
+});

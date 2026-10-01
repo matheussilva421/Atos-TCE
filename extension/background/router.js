@@ -37,6 +37,10 @@ const PAGE_READY_DELAY_MS = 500;
 const PAGE_ADVANCE_ATTEMPTS = 3;
 const PAGE_ADVANCE_RETRY_DELAY_MS = 750;
 
+//: An unchanged observation only has to renew the server's 10 s TTL. Publishing
+//: more often than this would be one loopback call per heartbeat tick.
+export const PORTAL_SELECTION_KEEPALIVE_MS = 5000;
+
 function delay(milliseconds) {
   return new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds));
 }
@@ -436,8 +440,13 @@ export function installRouter({
   verbose = false,
   timing = {},
   nextActDependencies = {},
+  now = Date.now,
 } = {}) {
   let running = false;
+  // The last observation this worker published and when it did so. Worker
+  // memory only: it is a dedupe key, never a second copy of the form.
+  let lastSelectionSignature = null;
+  let lastSelectionAt = 0;
   // Diagnostics of the last form the operator's active tab resolved to. They
   // ride along with a manual-fill request so the Mesa can bind the run to the
   // exact frame it came from; they never carry identity or field values.
@@ -981,10 +990,105 @@ export function installRouter({
     };
   }
 
+  /**
+   * Read the one form the operator actually has open, for the Mesa's follow.
+   *
+   * ``readCurrentForm`` is bound to the active tab, which is exactly what makes
+   * it the right reader for a follow: it can never resolve a form the operator
+   * is not looking at. When the active tab is not the portal (the operator is on
+   * the Mesa, about to click "Preencher dados encontrados"), the observation is
+   * renewed from the all-tabs reader as long as exactly one form is still open;
+   * zero forms clears it and two or more never resolve to a process.
+   */
+  async function readCurrentObservation() {
+    const outcome = await readCurrentForm();
+    if (outcome?.ok === true && outcome.form) {
+      return { active: true, form: outcome.form };
+    }
+    if (outcome?.code !== "PORTAL_TAB_NOT_ACTIVE") {
+      return {
+        active: false,
+        code: outcome?.code === "FORM_AMBIGUOUS" ? "FORM_AMBIGUOUS" : "FORM_NOT_AVAILABLE",
+      };
+    }
+    if ((await portalTabs()).length === 0) {
+      return { active: false, code: "PORTAL_TAB_NOT_ACTIVE" };
+    }
+    const current = await readCurrentPortalForm();
+    if (current?.ok === true && current.form) {
+      return { active: true, form: current.form };
+    }
+    return {
+      active: false,
+      code: current?.code === "FORM_AMBIGUOUS" ? "FORM_AMBIGUOUS" : "FORM_NOT_AVAILABLE",
+    };
+  }
+
+  /**
+   * The identity of an observation: process, person, act, generation, screen.
+   *
+   * Field values and the interested person's raw name are deliberately absent.
+   */
+  function selectionSignature(observation) {
+    if (observation.active !== true) {
+      return JSON.stringify(["clear", observation.code ?? "FORM_NOT_AVAILABLE"]);
+    }
+    const form = observation.form ?? {};
+    const identity = form.identity ?? {};
+    return JSON.stringify([
+      "form",
+      identity.processKey ?? identity.process_key ?? "",
+      identity.interestedNormalized ?? identity.interested_normalized ?? "",
+      identity.portalActId ?? identity.portal_act_id ?? "",
+      form.generation ?? "",
+      form.screen ?? "form",
+    ]);
+  }
+
+  /**
+   * Publish the current form, deduplicated and renewed on a keepalive.
+   *
+   * An unchanged observation is published once and then only every
+   * ``PORTAL_SELECTION_KEEPALIVE_MS``, which keeps the server's TTL alive
+   * without a publish per heartbeat tick. A changed form is published on the
+   * tick that saw it, and a refused publish is never treated as done.
+   */
+  async function observeCurrentForm() {
+    if (typeof api.publishCurrentSelection !== "function") {
+      return { published: false, signature: null, active: null };
+    }
+    const observation = await readCurrentObservation();
+    const signature = selectionSignature(observation);
+    const at = now();
+    if (
+      signature === lastSelectionSignature &&
+      at - lastSelectionAt < PORTAL_SELECTION_KEEPALIVE_MS
+    ) {
+      return { published: false, signature, active: observation.active };
+    }
+    const outcome = await api.publishCurrentSelection(observation);
+    if (outcome?.ok === false) {
+      // A refused publish must not be deduplicated away for a whole window.
+      lastSelectionSignature = null;
+      return { published: false, signature, active: observation.active, outcome };
+    }
+    lastSelectionSignature = signature;
+    lastSelectionAt = at;
+    return { published: true, signature, active: observation.active, outcome };
+  }
+
   async function poll() {
     if (running) return { ok: true, skipped: true };
     running = true;
     try {
+      // The heartbeat's first job is the read-only observation, so the Mesa
+      // follows the open form even with the side panel closed. A failure here
+      // must never break command polling.
+      try {
+        await observeCurrentForm();
+      } catch {
+        // The next tick retries; a command already claimed still runs.
+      }
       const outcome = await api.nextCommand();
       if (!outcome.ok) return { ok: false, error: outcome.error, status: outcome.status };
       if (!outcome.command) return { ok: true, command: null };
@@ -1110,7 +1214,16 @@ export function installRouter({
     if (alarm?.name === "tce-recovery-poll") poll();
   });
 
-  return { poll, scanPortal, openAct, openNextAct, readForm, fillForm, readCurrentForm };
+  return {
+    poll,
+    scanPortal,
+    openAct,
+    openNextAct,
+    readForm,
+    fillForm,
+    readCurrentForm,
+    observeCurrentForm,
+  };
 }
 
 if (globalThis.chrome?.runtime?.onMessage?.addListener) {

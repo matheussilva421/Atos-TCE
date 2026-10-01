@@ -1,11 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { executeCommand, installRouter, scanAreaPages } from "../background/router.js";
+import {
+  executeCommand,
+  installRouter,
+  scanAreaPages,
+  PORTAL_SELECTION_KEEPALIVE_MS,
+} from "../background/router.js";
 import { COMMAND_TYPES, MESSAGE_TYPES, PORTAL_ORIGIN } from "../lib/protocol.js";
 import { fakeChrome } from "./helpers.mjs";
 
 const PORTAL = "https://novaarearestrita.tce.rn.gov.br";
+
+//: The exact shape ``readCurrentForm`` resolves for one open act form.
+const OBSERVED_FORM = {
+  identity: { processKey: "102390/2026", interestedNormalized: "pessoa exemplo" },
+  generation: 4,
+};
 
 function page(rows, { page: number = 1, total_pages = 1 } = {}) {
   return { role: "list", source_scope: "sector_finalistic", marker: null, page: number, total_pages, rows };
@@ -1829,4 +1840,206 @@ test("two visible forms in the active tab never become the current form", async 
   assert.equal(response.ok, false);
   assert.equal(response.code, "FORM_AMBIGUOUS");
   assert.equal(response.diagnostics, undefined);
+});
+
+function observingApi(published) {
+  return {
+    nextCommand: async () => ({ ok: true, command: null }),
+    reportResult: async () => {},
+    publishCurrentSelection: async (observation) => {
+      published.push(observation);
+      return { ok: true, status: 200 };
+    },
+  };
+}
+
+test("the heartbeat publishes the open form with no sidepanel message at all", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  const published = [];
+  const router = installRouter({ api: observingApi(published), chromeApi });
+
+  await router.poll();
+
+  assert.equal(published.length, 1);
+  assert.deepEqual(published[0], { active: true, form: OBSERVED_FORM });
+});
+
+test("an identical observation is deduplicated until the keepalive window", async () => {
+  let clock = 0;
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  const published = [];
+  const router = installRouter({ api: observingApi(published), chromeApi, now: () => clock });
+
+  await router.poll();
+  assert.equal(published.length, 1);
+
+  clock = 1500;
+  await router.poll();
+  assert.equal(published.length, 1, "a repeat inside the window is not republished");
+
+  clock = PORTAL_SELECTION_KEEPALIVE_MS;
+  await router.poll();
+  assert.equal(published.length, 2, "the keepalive renews the TTL");
+  assert.deepEqual(published[1], { active: true, form: OBSERVED_FORM });
+});
+
+test("a changed form is published immediately, without waiting for the keepalive", async () => {
+  let clock = 0;
+  let current = OBSERVED_FORM;
+  const other = {
+    identity: { processKey: "100/2026", interestedNormalized: "outra pessoa" },
+    generation: 9,
+  };
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) => (message.type === "READ_FORM" ? { ok: true, form: current } : { ok: false }),
+  });
+  const published = [];
+  const router = installRouter({ api: observingApi(published), chromeApi, now: () => clock });
+
+  await router.poll();
+  clock = 1500;
+  current = other;
+  await router.poll();
+
+  assert.equal(published.length, 2);
+  assert.deepEqual(published[1], { active: true, form: other });
+});
+
+test("the selection is cleared when no single form is open", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: () => ({ ok: false }),
+  });
+  const published = [];
+  const router = installRouter({ api: observingApi(published), chromeApi });
+
+  await router.poll();
+  await router.poll();
+
+  assert.equal(published.length, 1, "an identical clear is deduplicated");
+  assert.deepEqual(published[0], { active: false, code: "FORM_NOT_AVAILABLE" });
+});
+
+test("two candidate forms are published as ambiguous, never as a match", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    frames: {
+      7: [
+        { frameId: 0, url: `${PORTAL}/complementarato.asp` },
+        { frameId: 4, url: `${PORTAL}/formulario.asp` },
+      ],
+    },
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  const published = [];
+  const router = installRouter({ api: observingApi(published), chromeApi });
+
+  await router.poll();
+
+  assert.equal(published.length, 1);
+  assert.deepEqual(published[0], { active: false, code: "FORM_AMBIGUOUS" });
+});
+
+test("the keepalive still renews while the operator is looking at the Mesa", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [
+      { id: 1, active: true, url: "http://127.0.0.1:18743/" },
+      { id: 7, active: false, url: `${PORTAL}/complementarato.asp` },
+    ],
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  const published = [];
+  const router = installRouter({ api: observingApi(published), chromeApi });
+
+  await router.poll();
+
+  assert.equal(published.length, 1);
+  assert.deepEqual(published[0], { active: true, form: OBSERVED_FORM });
+});
+
+test("no Área Restrita tab at all is reported as an inactive portal tab", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 1, active: true, url: "http://127.0.0.1:18743/" }],
+  });
+  const published = [];
+  const router = installRouter({ api: observingApi(published), chromeApi });
+
+  await router.poll();
+
+  assert.deepEqual(published[0], { active: false, code: "PORTAL_TAB_NOT_ACTIVE" });
+});
+
+test("publishing never replaces command polling", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  const reported = [];
+  const published = [];
+  const router = installRouter({
+    api: {
+      nextCommand: async () => ({ ok: true, command: { id: 11, type: "STATUS", payload: {} } }),
+      reportResult: async (commandId, result) => reported.push({ commandId, result }),
+      publishCurrentSelection: async (observation) => {
+        published.push(observation);
+        return { ok: true };
+      },
+    },
+    chromeApi,
+  });
+
+  const outcome = await router.poll();
+
+  assert.equal(published.length, 1);
+  assert.equal(outcome.command, 11);
+  assert.equal(reported.length, 1);
+  assert.equal(reported[0].result.ok, true);
+  assert.equal(reported[0].result.command_id, 11);
+});
+
+test("a slow observation cannot let an older tick overwrite a newer one", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const published = [];
+  const router = installRouter({
+    api: {
+      nextCommand: async () => {
+        await gate;
+        return { ok: true, command: null };
+      },
+      reportResult: async () => {},
+      publishCurrentSelection: async (observation) => {
+        published.push(observation);
+        return { ok: true };
+      },
+    },
+    chromeApi,
+  });
+
+  const first = router.poll();
+  const second = await router.poll();
+
+  assert.deepEqual(second, { ok: true, skipped: true }, "poll is serialized by its latch");
+  release();
+  await first;
+  assert.equal(published.length, 1);
 });
