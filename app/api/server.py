@@ -31,6 +31,7 @@ import mimetypes
 import os
 import re
 import subprocess
+import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -49,7 +50,6 @@ from ..area_restrita import (
 from ..area_restrita import cdp_fallback
 from ..area_restrita.reliability import ENVIRONMENTS, ReliabilityRecorder
 from ..area_restrita.current_selection import (
-    NO_ACTIVE_FORM,
     PortalSelectionError,
     PortalSelectionTracker,
 )
@@ -401,6 +401,12 @@ POST_ROUTES: tuple[Route, ...] = (
     ),
 )
 
+#: The only inactive observations the extension may publish. Anything else is
+#: a malformed payload, not an instruction to forget a good selection.
+PORTAL_INACTIVE_CODES: frozenset[str] = frozenset(
+    {"FORM_NOT_AVAILABLE", "FORM_AMBIGUOUS", "PORTAL_TAB_NOT_ACTIVE"}
+)
+
 
 def _is_loopback(host: str) -> bool:
     if host in {"localhost", ""}:
@@ -442,6 +448,8 @@ class MesaServer(ThreadingHTTPServer):
         self._reliability_build_id: str | None = None
         self._reliability_environment: str | None = None
         self._portal_selection: PortalSelectionTracker | None = None
+        # The lazy properties below are first touched by concurrent HTTP threads.
+        self._lazy_lock = threading.Lock()
 
     @property
     def analysis(self) -> AnalysisService:
@@ -472,11 +480,15 @@ class MesaServer(ThreadingHTTPServer):
         """The fill workflow owner (M5); the extension never decides."""
 
         if self._fill is None:
-            self._fill = FillService(
-                self.store,
-                reliability=ReliabilityRecorder(self.data_root, self.reliability_build_id),
-                reliability_environment=self.reliability_environment,
-            )
+            with self._lazy_lock:
+                if self._fill is None:
+                    self._fill = FillService(
+                        self.store,
+                        reliability=ReliabilityRecorder(
+                            self.data_root, self.reliability_build_id
+                        ),
+                        reliability_environment=self.reliability_environment,
+                    )
         return self._fill
 
     @property
@@ -486,7 +498,9 @@ class MesaServer(ThreadingHTTPServer):
         # Created once per server process and never persisted: the snapshot it
         # holds exists only to answer the Mesa's "fill what you found" click.
         if self._portal_selection is None:
-            self._portal_selection = PortalSelectionTracker(self.store)
+            with self._lazy_lock:
+                if self._portal_selection is None:
+                    self._portal_selection = PortalSelectionTracker(self.store)
         return self._portal_selection
 
     @property
@@ -1064,14 +1078,19 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         if not isinstance(active, bool):
             self._send_json({"error": "invalid_current_selection"}, status=400)
             return
+        if not active:
+            code = str(payload.get("code") or "").strip().upper()
+            if code not in PORTAL_INACTIVE_CODES:
+                self._send_json({"error": "invalid_current_selection"}, status=400)
+                return
+            self._send_json(self.mesa.portal_selection.clear(code))
+            return
+        form = payload.get("form")
+        if not isinstance(form, Mapping):
+            self._send_json({"error": "invalid_current_selection"}, status=400)
+            return
         try:
-            if active:
-                form = payload.get("form")
-                if not isinstance(form, Mapping):
-                    raise PortalSelectionError("INVALID", "a observação não trouxe formulário")
-                state = self.mesa.portal_selection.observe(form)
-            else:
-                state = self.mesa.portal_selection.clear(str(payload.get("code") or ""))
+            state = self.mesa.portal_selection.observe(form)
         except PortalSelectionError as error:
             self._send_json(
                 {"error": "invalid_current_selection", "detail": error.code}, status=400
@@ -1095,7 +1114,9 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         try:
             snapshot = tracker.require_fill_snapshot()
         except PortalSelectionError as error:
-            if str(tracker.public_state().get("state")) == NO_ACTIVE_FORM:
+            # The tracker decided atomically whether the Mesa could have rendered
+            # this button; a click nobody could make is not an operator attempt.
+            if error.offered:
                 self.mesa.fill.record_manual_attempt_failure("FORM_NOT_AVAILABLE")
             self._send_json(
                 {"error": "current_selection_not_fillable", "detail": error.code},

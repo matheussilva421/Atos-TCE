@@ -477,6 +477,23 @@ class ManualFillRequestTests(FillRequestTestCase):
         with self.assertRaises(FillError):
             self.service.request_manual_fill({"generation": 1})
 
+    def test_the_observed_form_is_never_persisted_on_the_fill_request(self):
+        """Only the authorized plan may reach SQLite, never the raw observation."""
+
+        self.ready_process()
+        snapshot = self.snapshot()
+        snapshot["generation"] = 0  # an invalid generation fails inside the preflight
+
+        request_id = self.service.request_manual_fill(snapshot)
+        request = self.store.get_fill_request(request_id)
+
+        self.assertEqual(request["state"], "ERRO")
+        stored = request["form_snapshot"]
+        self.assertNotIn("identity", stored)
+        self.assertNotIn("fields", stored)
+        self.assertNotIn("pessoa exemplo", json.dumps(stored))
+        self.assertNotIn("102390", json.dumps(stored))
+
 class ManualSnapshotMixin:
     """Shared helpers for the manual-fill test classes."""
 

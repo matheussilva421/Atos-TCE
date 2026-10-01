@@ -2683,6 +2683,25 @@ class PortalCurrentSelectionTests(ApiTestCase):
         # The Mesa never renders the button here, so nothing is recorded.
         self.assertEqual(self.reliability_events(), [])
 
+    def test_a_click_with_no_observation_at_all_is_never_an_attempt(self):
+        status, _headers, payload = self.click_fill_current()
+
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["error"], "current_selection_not_fillable")
+        self.assertEqual(self.store.list_fill_requests(), [])
+        self.assertEqual(self.reliability_events(), [])
+
+    def test_a_malformed_inactive_code_never_clears_the_selection(self):
+        self.publish(self.observation())
+
+        status, _headers, payload = self.publish({"active": False, "code": "typo"})
+
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"], "invalid_current_selection")
+        # The good observation is still served, and still fillable.
+        self.assertEqual(self.selection()["state"], "MATCHED")
+        self.assertEqual(self.click_fill_current()[0], 201)
+
     def claim(self):
         status, _headers, payload = self.call_json(
             "/api/v1/extension/commands/next", headers=self.extension
@@ -2693,4 +2712,3 @@ class PortalCurrentSelectionTests(ApiTestCase):
             self.claim_tokens = getattr(self, "claim_tokens", {})
             self.claim_tokens[int(command["id"])] = command.get("claim_token")
         return command
-

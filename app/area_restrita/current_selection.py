@@ -53,8 +53,11 @@ _CLEAR_CODES: frozenset[str] = frozenset(
 class PortalSelectionError(RuntimeError):
     """A current-selection observation could not be used as asked."""
 
-    def __init__(self, code: str, detail: str | None = None) -> None:
+    def __init__(self, code: str, detail: str | None = None, *, offered: bool = False) -> None:
         self.code = str(code or "").strip().upper() or "INVALID"
+        #: True when the Mesa could actually have rendered the fill action for
+        #: the refused selection. A click on a button nobody saw is not a trial.
+        self.offered = bool(offered)
         super().__init__(detail or self.code)
 
 
@@ -88,6 +91,8 @@ class PortalSelectionTracker:
         self._observed_at: str | None = None
         self._expires_at: float | None = None
         self._snapshot: dict[str, Any] | None = None
+        # Survives expiry: an expired MATCHED was still offered to the operator.
+        self._offered = False
 
     # ------------------------------------------------------------ entry points
 
@@ -170,6 +175,7 @@ class PortalSelectionTracker:
                 raise PortalSelectionError(
                     _FILL_REFUSAL_BY_STATE.get(self._state, _FILL_REFUSAL_DEFAULT),
                     "nenhuma seleção atual pode ser preenchida",
+                    offered=self._offered,
                 )
             return copy.deepcopy(self._snapshot)
 
@@ -223,6 +229,7 @@ class PortalSelectionTracker:
     ) -> dict[str, Any]:
         self._state = state
         self._code = code
+        self._offered = state == MATCHED
         self._process_id = process_id
         self._process_key = process_key
         self._generation = generation

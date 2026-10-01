@@ -280,3 +280,41 @@ class PortalSelectionClearTests(PortalSelectionTrackerTestCase):
         self.assertEqual(self.tracker.public_state()["state"], "NO_ACTIVE_FORM")
         self.assertNotIn("code", self.tracker.public_state())
 
+    def test_an_expired_match_still_reports_that_a_fill_was_offered(self):
+        """A stale click on a rendered button is a real operator attempt."""
+
+        self.make_process()
+        self.tracker.observe(self.snapshot())
+        self.clock.advance(PORTAL_SELECTION_TTL_SECONDS)
+
+        with self.assertRaises(PortalSelectionError) as raised:
+            self.tracker.require_fill_snapshot()
+
+        self.assertEqual(raised.exception.code, "FORM_NOT_AVAILABLE")
+        self.assertTrue(raised.exception.offered)
+
+    def test_an_unobserved_tracker_never_reports_an_offered_fill(self):
+        with self.assertRaises(PortalSelectionError) as raised:
+            self.tracker.require_fill_snapshot()
+
+        self.assertFalse(raised.exception.offered)
+
+    def test_a_cleared_selection_is_never_offered(self):
+        self.make_process()
+        self.tracker.observe(self.snapshot())
+        self.tracker.clear("FORM_NOT_AVAILABLE")
+
+        with self.assertRaises(PortalSelectionError) as raised:
+            self.tracker.require_fill_snapshot()
+
+        self.assertFalse(raised.exception.offered)
+
+    def test_an_unmatched_selection_is_never_offered(self):
+        self.make_process(process_key="999999/2026")
+        self.tracker.observe(self.snapshot())
+
+        with self.assertRaises(PortalSelectionError) as raised:
+            self.tracker.require_fill_snapshot()
+
+        self.assertFalse(raised.exception.offered)
+

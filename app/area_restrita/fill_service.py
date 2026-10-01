@@ -544,12 +544,13 @@ class FillService:
             self._record_ar1_refusal(snapshot, "PROCESS_NOT_FOUND")
             raise FillError("nenhum processo corresponde ao formulário aberto")
         process_id = int(process["id"])
-        persisted = dict(snapshot)
+        # The observed form stays in the caller's memory until the preflight turns
+        # it into an authorized plan: only the sanitized diagnostics are persisted
+        # first, so no raw portal identity or field value ever reaches SQLite.
+        persisted: dict[str, Any] = {}
         safe_diagnostics = sanitize_browser_diagnostics(snapshot.get("diagnostics"))
         if safe_diagnostics:
             persisted["diagnostics"] = safe_diagnostics
-        else:
-            persisted.pop("diagnostics", None)
         request_id = self._store.create_fill_request(
             process_id, state="PREFLIGHT", mode="manual", form_snapshot=persisted
         )
