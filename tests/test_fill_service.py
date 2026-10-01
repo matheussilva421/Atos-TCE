@@ -1981,6 +1981,73 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
         self.assertEqual(len(finished), 1)
         self.assertFalse(finished[0]["passed"])
 
+    def test_a_form_that_changes_to_another_process_blocks_without_touching_it(self):
+        """Review Focus #2: the act moved to B while A was being written."""
+
+        first = self.ready_process(values={"cargo": "Professor"})
+        second = self.make_process(status="PRONTO", process_key="200000/2026")
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": {"processKey": "200000/2026", "interestedNormalized": "pessoa exemplo"},
+                "generation_after": 4,
+                "field_results": {
+                    "cargo": {
+                        "before": "",
+                        "proposed": "Professor",
+                        "after": "Professor",
+                        "status": "changed",
+                    }
+                },
+            },
+        )
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "BLOQUEADO")
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0]["passed"])
+        # Neither act was promoted: the write never belonged to B.
+        self.assertEqual(self.store.get_process(first)["status"], "PRONTO")
+        self.assertEqual(self.store.get_process(second)["status"], "PRONTO")
+
+    def test_an_exceptional_process_with_no_useful_field_still_passes_best_effort(self):
+        """Review Focus #5: ERRO/REVISAR without proposals is a pendency, not a failure."""
+
+        for index, status in enumerate(("ERRO", "REVISAR")):
+            with self.subTest(status=status):
+                process_key = f"30000{index}/2026"
+                process_id = self.make_process(status=status, process_key=process_key)
+                service = self.ar1_service()
+
+                request_id = service.request_manual_fill(
+                    self.snapshot(identity={**IDENTITY, "processKey": process_key})
+                )
+                command = self.store.claim_extension_command("extension-test")
+                self.assertEqual(command["type"], "FILL_FORM")
+                # Nothing was found, so nothing may be written.
+                self.assertEqual(command["payload"]["fields"], {})
+                service.handle_command_result(
+                    command["id"],
+                    {
+                        "ok": True,
+                        "identity": {**IDENTITY, "processKey": process_key},
+                        "generation_after": 4,
+                        "field_results": {},
+                    },
+                )
+
+                summary = self.store.get_fill_request(request_id)["form_snapshot"]["summary"]
+                self.assertFalse(summary["mandatory_satisfied"])
+                self.assertTrue(summary["best_effort_satisfied"])
+                self.assertTrue(self.finishes()[-1]["passed"])
+                # The attempt never rewrites the incomplete local status.
+                self.assertEqual(self.store.get_process(process_id)["status"], status)
+
     def run_successful_fill(self, service):
         """One complete AR-1 trial: read the opened form, fill it, reread it."""
 
