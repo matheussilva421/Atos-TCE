@@ -2,8 +2,8 @@
 
 Data: 2026-09-30
 Branch: `codex/area-restrita-reliability-reset`
-AR1_BUILD (build congelado para a sequência AR-1): `e059793a412f3fe4c8b403fb3a58cfa02e26553c`
-Builds congelados anteriores: `5e9c277` → `4cd848a` → `af8c1f2` → `f1cf5b4` → `1d90b8d` → **`e059793` (AR1_BUILD em uso)**. Builds anteriores não devem ser usados para novos runs.
+AR1_BUILD (build congelado para a sequência AR-1): `c3933536a2b60f73b2cee71542bec9740b8303dd`
+Builds congelados anteriores: `5e9c277` → `4cd848a` → `af8c1f2` → `f1cf5b4` → `1d90b8d` → `e059793` (substituído: a semântica de AR-1 mudou) → **`c393353` (AR1_BUILD em uso)**. Builds anteriores não devem ser usados para novos runs.
 Base da reconciliação: `9fa3465` (`origin/codex/area-restrita-reliability-reset-spec`)
 
 ## 1. Reconciliação das branches
@@ -271,7 +271,7 @@ dados pessoais em artefatos .. nenhum
 
 ## 11. Próximo passo
 
-Executar a seção 7 (Task 5) com o operador no portal. Enquanto isso, nenhuma Task 6–10 pode começar, e nenhum plano de Phase 2 deve ser escrito: a Phase 2 depende da decisão arquitetural que só o benchmark AR-2/AR-3 pode produzir.
+Executar a seção 7 (Task 5) com o operador no portal, agora pelo fluxo **Portal atual** descrito na seção 13.5: a Mesa acompanha o formulário aberto e o operador clica uma única vez em "Preencher dados encontrados". Enquanto isso, nenhuma Task 6–10 pode começar, e nenhum plano de Phase 2 deve ser escrito: a Phase 2 depende da decisão arquitetural que só o benchmark AR-2/AR-3 pode produzir.
 
 ## 12. ZIP portátil limpo para uso em outro PC
 
@@ -297,5 +297,86 @@ Gerado com o builder oficial a partir de um checkout temporário limpo no commit
 
 `app/archive/*.py` no pacote é o pacote Python da própria aplicação (3 arquivos versionados em `e059793`), não acervo de processos. Scripts de auditoria reexecutáveis: `tmp/audit_clean_zip.py` e `tmp/clean_install_check.py`.
 
-O AR1_BUILD continua `e059793`; este Goal não reescreveu o produto nem promoveu nenhuma capability.
+
+## 13. Portal Atual + preenchimento manual best-effort (2026-10-01)
+
+Spec e plano autoritativos: `docs/superpowers/specs/2026-10-01-portal-atual-best-effort-design.md` e `docs/superpowers/plans/2026-10-01-portal-atual-best-effort.md`. As 8 Tasks do plano foram executadas com TDD (RED → correção mínima → GREEN), com revisão independente por Task e um review final adversarial da branch inteira.
+
+### 13.1 O que mudou
+
+- `request_manual_fill()` deixou de exigir `PRONTO`/`PREENCHIDO`: a autorização passa a vir do formulário observado. `request_fill(process_id)` continua exatamente como antes (constante renomeada para `AUTOMATIC_FILLABLE_PROCESS_STATUSES`).
+- `mandatory_satisfied` (completude documental — ainda a única que promove `process.status → PREENCHIDO`) ficou separada de `best_effort_satisfied` (todos os campos de `plan.fields` escritos/preservados e relidos conforme a proposta autorizada). O AR-1 passa a usar `BEST_EFFORT_OK`/`BEST_EFFORT_FAILED`; plano vazio pode passar, porque a decisão correta foi não inventar valor.
+- `app/area_restrita/current_selection.py` (novo): tracker **somente em memória**, TTL de 10 s, resolução exata via `Store.resolve_process_identity()`, snapshot privado nunca gravado em SQLite/log/telemetria e nunca ecoado no GET público.
+- Três rotas novas: `GET /api/v1/portal/current-selection` (sessão da Mesa), `POST /api/v1/portal/current-selection` (token da extensão) e `POST /api/v1/portal/current-selection/fill` (sessão da Mesa). Nenhuma cria `OPEN_ACT`/`OPEN_NEXT_ACT`.
+- Heartbeat da extensão publica o formulário aberto mesmo com o sidepanel fechado; observação idêntica é deduplicada e renovada a cada 5000 ms; troca A→B é publicada imediatamente.
+- Mesa: aba **Portal atual**, acompanhamento com Pausar/Retomar, layout PDF/evidência à esquerda e ficha à direita (uma coluna em tela estreita), ações Copiar valor e Ver evidência reutilizando o viewer existente, e o botão **Preencher dados encontrados** usando exclusivamente a rota transitória.
+- Um poll repetido do mesmo processo nunca rouba a subaba escolhida pelo operador; só a mudança de processo observado ou o Retomar explícito abrem Portal atual.
+- Nenhum `SUBMIT`/`SEND`/`AUTO_SUBMIT`/`COMPLEMENT_ACT`/`FINALIZE` foi introduzido; `Complementar Ato` continua manual.
+
+### 13.2 Achados de review corrigidos
+
+- **Bloqueador**: `request_manual_fill()` persistia o snapshot bruto da observação em `fill_requests.form_snapshot`. Agora apenas os diagnósticos sanitizados são persistidos antes do plano.
+- **Bloqueador** (review final): uma declaração duplicada de `selectProcess` aninhava `init()` e a Mesa simplesmente não inicializava (`ReferenceError: init is not defined`). Corrigido, e agora existe `app/web/tests/app-boot.test.mjs`, que importa o shell real contra um DOM mínimo — os testes de texto não detectavam isso.
+- A reserva da seleção para o fill é atômica (`PortalSelectionTracker.fill_window()`): nem uma observação mais nova nem o TTL podem substituir a seleção entre o clique e a criação da fill request.
+- `Retomar acompanhamento` volta apenas ao formulário que o portal está mostrando agora (`resumeAction`), nunca a um id expirado.
+- Um valor que a análise não confirmou não é mais rotulado ENCONTRADO nos cards (o card e a contagem do cabeçalho agora concordam).
+- `{"active": false}` com código fora dos três permitidos é recusado com 400 e não apaga uma seleção válida.
+- O preenchimento só conta uma tentativa AR-1 quando a Mesa poderia realmente ter mostrado o botão (atributo `offered`), e a decisão é atômica com a recusa.
+- Um campo presente em `plan.fields` cuja proposta não seja o valor autorizado pelo plano agora falha o AR-1.
+
+### 13.3 Gates (contagens reais desta build)
+
+| Gate | Resultado |
+|---|---|
+| `python -m unittest discover -s tests -p "test_*.py" -q` | 829 testes, 0 falhas |
+| `npm test --prefix extension` | 236 testes, 0 falhas |
+| `node --test app/web/tests/*.test.mjs` | 65 testes, 0 falhas |
+| `work/tce-extractor/verify-project.ps1` | 7/7 estágios, 1260 executados, 1258 passaram, 0 falhas, 2 skips |
+| `git diff --check` | limpo |
+
+Os cinco Review Focus têm teste explícito: TTL expirado antes do clique; A→B durante o write; heartbeat duplicado/concorrente; follow não rouba a navegação manual; processo sem campos úteis em estado excepcional.
+
+### 13.4 Novo AR1_BUILD e ZIP limpo
+
+```text
+AR1_BUILD: c3933536a2b60f73b2cee71542bec9740b8303dd
+Árvore: limpa no momento do congelamento
+```
+
+| Fato | Valor |
+|---|---|
+| Arquivo | `dist/Atos-TCE-portable-clean.zip` |
+| Entradas | 524 |
+| Tamanho | 96.205.704 bytes |
+| SHA-256 | `fbb815d363783cb0f44c955760dd95e3c5cb42abd3aa12f62ed72181e9b4b7e8` |
+| `verify-package.ps1 -ExpectedBuildId c393353…` | PASS |
+| `package-manifest.json` / `health.build_id` / `runtime_build_id` | todos `c3933536a2b60f73b2cee71542bec9740b8303dd` |
+| Instalação limpa | PASS: `health = ok`, `schema_version = 7`, `process_count = 0`, extensão 0.1.0 |
+| Acervo no pacote | NÃO: nenhuma entrada `data/`, `acervo-tce/`, `dados-locais/`, `*.db`, profile, cookie, HAR ou trace |
+| Smoke do artefato | PASS: 15/15 `PortalCurrentSelectionTests` contra o código extraído do próprio ZIP (NO_ACTIVE_FORM → MATCHED → GET mínimo → current-selection/fill → TTL/clear) |
+| Ledger real | histórico preservado; `manual_form_fill = EXPERIMENTAL`, `real_dev_streak = 0`, `portable_streak = 0` |
+
+O ZIP foi construído a partir da árvore limpa em `c393353`. O commit final deste handoff é **docs-only** e deixa a branch à frente desse SHA: os **bytes do pacote correspondem a `c393353`**, não ao topo da branch.
+
+### 13.5 Primeiro run real (ação do operador)
+
+```text
+1. iniciar a Mesa com ATOS_TCE_BUILD_ID=c3933536a2b60f73b2cee71542bec9740b8303dd
+   e ATOS_TCE_RELIABILITY_ENVIRONMENT=real-dev
+2. recarregar a extensão
+3. abrir um formulário real na Área Restrita
+4. confirmar que a Mesa acompanha automaticamente o processo correto
+5. clicar UMA vez em "Preencher dados encontrados"
+6. inspecionar um único run_finished
+```
+
+Se `passed:true`, a sequência passa a 1/20. Se `passed:false` ou não houver terminal, parar e usar `superpowers:systematic-debugging`.
+
+**Nenhum run real foi executado por este Goal.** `Complementar Ato` permanece manual. AR-2, AR-3 e Tasks 6–10 continuam fechados até AR-1 atingir `PRODUCTION` na nova semântica.
+
+### 13.6 Limitação conhecida
+
+A observação não carrega número de sequência — o contrato congelado é `{active, form}` / `{active, code}`. Dentro de um worker o `poll()` é serializado, então uma publicação antiga nunca chega depois de uma mais nova; com dois publicadores independentes (por exemplo dois perfis de Chrome com a extensão) a última publicação vence, ainda que seja a mais antiga. A identidade continua exata e o AR-1 revalida identidade/geração antes de qualquer escrita.
+
+Este Goal reescreveu o produto e substituiu o AR1_BUILD: a build `e059793` fica aposentada e `c393353` passa a ser a build de qualification. Nenhuma capability foi promovida — `manual_form_fill` segue EXPERIMENTAL em 0/20.
 
