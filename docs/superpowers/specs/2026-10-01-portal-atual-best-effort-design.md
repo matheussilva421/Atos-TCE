@@ -255,6 +255,8 @@ Payload conceitual:
 
 O endpoint valida o payload, resolve a identidade e atualiza o estado transitório.
 
+Para viabilizar o botão **Preencher dados encontrados** sem criar navegação automática, a observação ativa também pode transportar o snapshot sanitizado que `readCurrentForm()` já produz. Esse snapshot fica **somente em memória**, associado à observação e sujeito ao mesmo TTL de 10 segundos. Ele não entra em SQLite, logs, reliability telemetry nem na resposta do GET público da seleção.
+
 Respostas não devem ecoar PII desnecessária.
 
 ### 10.2. `GET /api/v1/portal/current-selection`
@@ -277,6 +279,22 @@ Resposta conceitual MATCHED:
 ```
 
 Outros estados não devem inventar `process_id`.
+
+### 10.3. `POST /api/v1/portal/current-selection/fill`
+
+Uso: Mesa UI solicita o preenchimento manual best-effort da observação MATCHED que ainda esteja dentro do TTL.
+
+Autenticação: sessão normal da Mesa.
+
+O backend deve:
+
+1. exigir uma seleção MATCHED e não expirada;
+2. recuperar o snapshot transitório mantido apenas em memória;
+3. revalidar identidade/generation através do fluxo normal de `request_manual_fill()`;
+4. criar a `fill_request` manual existente;
+5. devolver `fill_request_id` e estado.
+
+O endpoint não cria `OPEN_ACT`, `OPEN_NEXT_ACT` ou qualquer navegação. Se a observação expirar entre a renderização e o clique, a solicitação falha fechada e nenhuma escrita ocorre.
 
 ## 11. Detecção automática na extensão
 
