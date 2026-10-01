@@ -48,6 +48,11 @@ from ..area_restrita import (
 )
 from ..area_restrita import cdp_fallback
 from ..area_restrita.reliability import ENVIRONMENTS, ReliabilityRecorder
+from ..area_restrita.current_selection import (
+    NO_ACTIVE_FORM,
+    PortalSelectionError,
+    PortalSelectionTracker,
+)
 from ..area_restrita.fill_service import (
     OPEN_ACT_ACTIONS,
     OPEN_ACT_SCREENS,
@@ -332,6 +337,11 @@ ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/jobs/(?P<job_id>\d+)"), "handle_job_status", "public"),
     Route(re.compile(r"/api/v1/bridge/status"), "handle_bridge_status", "extension"),
     Route(re.compile(r"/api/v1/portal/reliability"), "handle_portal_reliability", "extension"),
+    Route(
+        re.compile(r"/api/v1/portal/current-selection"),
+        "handle_portal_current_selection",
+        "mesa",
+    ),
     Route(re.compile(r"/api/v1/extension/commands/next"), "handle_command_next", "extension"),
     Route(
         re.compile(r"/api/v1/extension/commands/(?P<command_id>\d+)/status"),
@@ -379,6 +389,16 @@ POST_ROUTES: tuple[Route, ...] = (
         "mesa",
     ),
     Route(re.compile(r"/api/v1/portal/next-act"), "post_next_act", "extension"),
+    Route(
+        re.compile(r"/api/v1/portal/current-selection"),
+        "post_portal_current_selection",
+        "extension",
+    ),
+    Route(
+        re.compile(r"/api/v1/portal/current-selection/fill"),
+        "post_portal_current_selection_fill",
+        "mesa",
+    ),
 )
 
 
@@ -421,6 +441,7 @@ class MesaServer(ThreadingHTTPServer):
         self._navigation: NavigationService | None = None
         self._reliability_build_id: str | None = None
         self._reliability_environment: str | None = None
+        self._portal_selection: PortalSelectionTracker | None = None
 
     @property
     def analysis(self) -> AnalysisService:
@@ -457,6 +478,16 @@ class MesaServer(ThreadingHTTPServer):
                 reliability_environment=self.reliability_environment,
             )
         return self._fill
+
+    @property
+    def portal_selection(self) -> PortalSelectionTracker:
+        """The transient "current portal form" the Mesa follows."""
+
+        # Created once per server process and never persisted: the snapshot it
+        # holds exists only to answer the Mesa's "fill what you found" click.
+        if self._portal_selection is None:
+            self._portal_selection = PortalSelectionTracker(self.store)
+        return self._portal_selection
 
     @property
     def navigation(self) -> NavigationService:
@@ -1009,6 +1040,83 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_json(
             {"recorded": run_id is not None, "code": code},
+            status=201,
+        )
+
+    def handle_portal_current_selection(self, query: dict[str, list[str]]) -> None:
+        """Mesa: the transient form the extension last observed.
+
+        The answer is the minimal public state only. The sanitized form snapshot
+        stays in the server's memory and is never part of a response body.
+        """
+
+        if not self._require_session():
+            return
+        self._send_json(self.mesa.portal_selection.public_state())
+
+    def post_portal_current_selection(self) -> None:
+        """Extension: publish the form the operator has open, or clear it."""
+
+        if not self._require_extension():
+            return
+        payload = self._read_json_body()
+        active = payload.get("active")
+        if not isinstance(active, bool):
+            self._send_json({"error": "invalid_current_selection"}, status=400)
+            return
+        try:
+            if active:
+                form = payload.get("form")
+                if not isinstance(form, Mapping):
+                    raise PortalSelectionError("INVALID", "a observação não trouxe formulário")
+                state = self.mesa.portal_selection.observe(form)
+            else:
+                state = self.mesa.portal_selection.clear(str(payload.get("code") or ""))
+        except PortalSelectionError as error:
+            self._send_json(
+                {"error": "invalid_current_selection", "detail": error.code}, status=400
+            )
+            return
+        self._send_json(state)
+
+    def post_portal_current_selection_fill(self) -> None:
+        """Mesa: best-effort fill of the exact form still inside the TTL.
+
+        Nothing is navigated and nothing is invented: the snapshot comes from the
+        transient observation, and a selection that expired between the render and
+        this click fails closed. A stale click is still a real operator attempt, so
+        it is recorded as an AR-1 failure; NOT_FOUND and AMBIGUOUS never render the
+        button, so they are not counted as attempts.
+        """
+
+        if not self._require_session():
+            return
+        tracker = self.mesa.portal_selection
+        try:
+            snapshot = tracker.require_fill_snapshot()
+        except PortalSelectionError as error:
+            if str(tracker.public_state().get("state")) == NO_ACTIVE_FORM:
+                self.mesa.fill.record_manual_attempt_failure("FORM_NOT_AVAILABLE")
+            self._send_json(
+                {"error": "current_selection_not_fillable", "detail": error.code},
+                status=409,
+            )
+            return
+        try:
+            request_id = self.mesa.fill.request_manual_fill(snapshot)
+        except FillError as error:
+            self._send_json(
+                {"error": "current_selection_not_fillable", "detail": str(error)},
+                status=409,
+            )
+            return
+        request = self.mesa.store.get_fill_request(request_id) or {}
+        self._send_json(
+            {
+                "fill_request_id": request_id,
+                "state": request.get("state"),
+                "mode": "manual",
+            },
             status=201,
         )
 

@@ -2404,3 +2404,293 @@ class PortalManualFormReliabilityTests(ApiTestCase):
         self.assertEqual(payload["error"], "unauthorized")
 if __name__ == "__main__":
     unittest.main()
+
+
+class PortalCurrentSelectionTests(ApiTestCase):
+    """The form the operator opened, as the Mesa sees it, and its fill button.
+
+    The tracker is memory-only: the public GET must never expose the private
+    snapshot, and NOT_FOUND/AMBIGUOUS must never invent a process."""
+
+    def setUp(self):
+        super().setUp()
+        self.store.replace_fields(
+            self.process_id,
+            [
+                FieldRecord(field_name=name, value=value, status="found", confidence=1.0)
+                for name, value in FILL_FIELDS.items()
+            ],
+        )
+        self.extension = self.register_extension()
+        self.opener = self.mesa_opener()
+
+    # ---------------------------------------------------------------- helpers
+
+    def observation(self, **overrides):
+        """The sanitized snapshot the extension really produces."""
+
+        fields = {
+            name: {"value": "", "disabled": False, "readOnly": False, "options": []}
+            for name in list(FILL_FIELDS) + ["genero"]
+        }
+        fields["modalidade"]["options"] = [
+            {"value": "M", "label": FILL_FIELDS["modalidade"]},
+        ]
+        fields["fundamento_legal"]["options"] = [
+            {"value": "A", "label": FILL_FIELDS["fundamento_legal"]},
+        ]
+        form = {
+            "identity": dict(FILL_IDENTITY),
+            "generation": 4,
+            "screen": "form",
+            "fields": fields,
+            "options": {},
+        }
+        form.update(overrides)
+        return {"active": True, "form": form}
+
+    def publish(self, body):
+        return self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=self.extension,
+            body=body,
+        )
+
+    def selection(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/portal/current-selection",
+            headers=self.mesa_headers(),
+            opener=self.opener,
+        )
+        self.assertEqual(status, 200, payload)
+        return payload
+
+    def click_fill_current(self, opener=True):
+        return self.call_json(
+            "/api/v1/portal/current-selection/fill",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={},
+            **({"opener": self.opener} if opener else {}),
+        )
+
+    def command_types(self):
+        return [
+            row[0]
+            for row in self.store._connection.execute(
+                "SELECT command_type FROM extension_commands ORDER BY id"
+            )
+        ]
+
+    def reliability_events(self):
+        ledger = self.data_root / "reliability" / "events.jsonl"
+        if not ledger.is_file():
+            return []
+        return [
+            json.loads(line)
+            for line in ledger.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+
+    # -------------------------------------------------------------------- auth
+
+    def test_the_observation_route_requires_the_registered_extension(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=self.mesa_headers(),
+            body=self.observation(),
+        )
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "unauthorized")
+
+        status, _headers, _payload = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers={**self.extension, "Authorization": "Bearer not-the-token"},
+            body=self.observation(),
+        )
+        self.assertEqual(status, 401)
+
+    def test_the_read_and_fill_routes_require_a_mesa_session(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/portal/current-selection", headers=self.mesa_headers()
+        )
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "session_required")
+
+        status, _headers, payload = self.click_fill_current(opener=False)
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "session_required")
+
+    # ------------------------------------------------------------ public state
+
+    def test_a_matched_observation_exposes_only_the_minimum(self):
+        status, _headers, payload = self.publish(self.observation())
+        self.assertEqual(status, 200, payload)
+        self.assertEqual(payload["state"], "MATCHED")
+        self.assertEqual(payload["process_id"], self.process_id)
+
+        state = self.selection()
+        self.assertEqual(
+            set(state),
+            {"state", "process_id", "process_key", "generation", "screen", "observed_at"},
+        )
+        self.assertEqual(state["state"], "MATCHED")
+        self.assertEqual(state["process_id"], self.process_id)
+        self.assertEqual(state["process_key"], "102390/2026")
+        self.assertEqual(state["generation"], 4)
+        self.assertEqual(state["screen"], "form")
+        self.assertTrue(state["observed_at"])
+        serialized = json.dumps(state)
+        for private in ("interestedNormalized", "cargo", "pessoa exemplo"):
+            self.assertNotIn(private, serialized)
+
+    def test_the_observed_fill_is_available_for_a_process_that_is_not_pronto(self):
+        self.store.set_process_status(self.process_id, "REVISAR")
+        self.publish(self.observation())
+
+        status, _headers, payload = self.click_fill_current()
+
+        self.assertEqual(status, 201, payload)
+        self.assertEqual(payload["mode"], "manual")
+        self.assertEqual(self.store.get_process(self.process_id)["status"], "REVISAR")
+
+    def test_a_missing_process_is_reported_without_a_process_id(self):
+        self.publish(
+            self.observation(
+                identity={"processKey": "999999/2026", "interestedNormalized": "pessoa exemplo"}
+            )
+        )
+
+        state = self.selection()
+
+        self.assertEqual(state["state"], "NOT_FOUND")
+        self.assertNotIn("process_id", state)
+
+    def test_a_conflicting_alias_is_ambiguous_without_a_process_id(self):
+        self.store._connection.execute(
+            "UPDATE processes SET portal_act_id = ? WHERE id = ?",
+            ("act-fixture-1", self.process_id),
+        )
+        self.publish(
+            self.observation(
+                identity={**FILL_IDENTITY, "portalActId": "act-fixture-2"}
+            )
+        )
+
+        state = self.selection()
+
+        self.assertEqual(state["state"], "AMBIGUOUS")
+        self.assertNotIn("process_id", state)
+
+    def test_a_cleared_observation_is_never_matched(self):
+        for code in ("FORM_NOT_AVAILABLE", "PORTAL_TAB_NOT_ACTIVE"):
+            with self.subTest(code=code):
+                self.publish(self.observation())
+                status, _headers, _payload = self.publish({"active": False, "code": code})
+                self.assertEqual(status, 200)
+
+                state = self.selection()
+                self.assertEqual(state["state"], "NO_ACTIVE_FORM")
+                self.assertEqual(state["code"], code)
+                self.assertNotIn("process_id", state)
+
+    def test_an_ambiguous_clear_is_never_matched(self):
+        self.publish({"active": False, "code": "FORM_AMBIGUOUS"})
+
+        state = self.selection()
+
+        self.assertEqual(state["state"], "AMBIGUOUS")
+        self.assertNotIn("process_id", state)
+
+    def test_an_unobserved_mesa_reports_no_active_form(self):
+        self.assertEqual(self.selection(), {"state": "NO_ACTIVE_FORM"})
+
+    def test_an_invalid_observation_is_refused_without_replacing_the_selection(self):
+        self.publish(self.observation())
+
+        for body in (
+            {"active": True, "form": {"generation": 4}},
+            {"active": True, "form": {**self.observation()["form"], "generation": 0}},
+            {"active": True},
+            {"active": "sim"},
+        ):
+            with self.subTest(body=str(body)):
+                status, _headers, payload = self.publish(body)
+                self.assertEqual(status, 400)
+                self.assertEqual(payload["error"], "invalid_current_selection")
+
+        # A body that is not an object is refused by the shared parser first.
+        status, _headers, payload = self.publish([])
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"], "invalid_body")
+
+        # The last good observation is still the one being served.
+        self.assertEqual(self.selection()["state"], "MATCHED")
+
+    # ------------------------------------------------------- the fill button
+
+    def test_the_fill_button_uses_only_the_transient_snapshot(self):
+        self.publish(self.observation())
+
+        status, _headers, payload = self.click_fill_current()
+
+        self.assertEqual(status, 201, payload)
+        self.assertEqual(payload["mode"], "manual")
+        self.assertEqual(payload["state"], "FILLING")
+        request = self.store.get_fill_request(payload["fill_request_id"])
+        self.assertEqual(request["process_id"], self.process_id)
+        self.assertEqual(request["mode"], "manual")
+        # Best-effort never navigates: only the one write command is queued.
+        self.assertEqual(self.command_types(), ["FILL_FORM"])
+
+        command = self.claim()
+        self.assertEqual(command["type"], "FILL_FORM")
+        self.assertEqual(command["payload"]["fields"]["cargo"], "Professor")
+
+    def test_a_click_after_the_ttl_refuses_without_writing(self):
+        self.publish(self.observation())
+        tracker = self.server.portal_selection
+        tracker._expires_at = tracker._clock() - 1.0  # the 10 s TTL elapsed
+
+        status, _headers, payload = self.click_fill_current()
+
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["error"], "current_selection_not_fillable")
+        self.assertEqual(self.store.list_fill_requests(), [])
+        self.assertEqual(self.command_types(), [])
+        finished = [
+            event for event in self.reliability_events() if event.get("type") == "run_finished"
+        ]
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0]["passed"])
+        self.assertEqual(finished[0]["result_code"], "FORM_NOT_AVAILABLE")
+
+    def test_a_not_found_selection_is_never_an_attempt(self):
+        self.publish(
+            self.observation(
+                identity={"processKey": "999999/2026", "interestedNormalized": "pessoa exemplo"}
+            )
+        )
+
+        status, _headers, payload = self.click_fill_current()
+
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["error"], "current_selection_not_fillable")
+        self.assertEqual(self.store.list_fill_requests(), [])
+        # The Mesa never renders the button here, so nothing is recorded.
+        self.assertEqual(self.reliability_events(), [])
+
+    def claim(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/extension/commands/next", headers=self.extension
+        )
+        self.assertEqual(status, 200, payload)
+        command = payload["command"]
+        if command:
+            self.claim_tokens = getattr(self, "claim_tokens", {})
+            self.claim_tokens[int(command["id"])] = command.get("claim_token")
+        return command
+
