@@ -94,3 +94,89 @@ export function followAction({ followPortal, selectedId, portalProcessId, active
   };
 }
 
+
+/** The three verdicts a "Portal atual" field card can carry. */
+export const PORTAL_VERDICT = Object.freeze({
+  FOUND: "ENCONTRADO",
+  REVIEW: "REVISAR",
+  PENDING: "PENDENTE",
+});
+
+/**
+ * One model per known field, for the "Portal atual" cards.
+ *
+ * A field the analysis never resolved stays PENDENTE with an empty value: the
+ * view explains the pendency instead of inventing something to show.
+ */
+export function portalFieldModels(process) {
+  const fields = Array.isArray(process?.fields) ? process.fields : [];
+  const byName = new Map(fields.map((field) => [String(field?.field_name), field]));
+  return KNOWN_PORTAL_FIELDS.map((field) => {
+    const entry = byName.get(field.name) || null;
+    const value = entry && String(entry.value ?? "").trim() !== "" ? String(entry.value) : "";
+    const conflict = entry?.status === "conflict";
+    const verdict = conflict
+      ? PORTAL_VERDICT.REVIEW
+      : value
+        ? PORTAL_VERDICT.FOUND
+        : PORTAL_VERDICT.PENDING;
+    return {
+      name: field.name,
+      label: field.label,
+      mandatory: field.mandatory,
+      entry,
+      value,
+      verdict,
+    };
+  });
+}
+
+/**
+ * Whether the "Portal atual" tab may offer "Preencher dados encontrados".
+ *
+ * Offered only when the form the extension observed is the process on screen.
+ * Every other state explains itself, so the operator never sees a button that
+ * would fail and no click is ever attributed to a form that was not shown.
+ */
+export function currentFillAvailability(observation, processId) {
+  const state = String(observation?.state ?? "NO_ACTIVE_FORM");
+  const observedId = Number.isInteger(observation?.process_id) ? observation.process_id : null;
+  if (state === "MATCHED" && observedId !== null && observedId === processId) {
+    return {
+      available: true,
+      message: "O formulário aberto na Área Restrita corresponde a este processo.",
+    };
+  }
+  if (state === "MATCHED" && observedId === null) {
+    return {
+      available: false,
+      message: "O formulário aberto não pôde ser associado a um processo.",
+    };
+  }
+  if (state === "MATCHED") {
+    return {
+      available: false,
+      message: "O formulário aberto na Área Restrita pertence a outro processo.",
+    };
+  }
+  if (state === "NOT_FOUND") {
+    return {
+      available: false,
+      message: "Processo identificado no portal, mas não encontrado no acervo local.",
+    };
+  }
+  if (state === "AMBIGUOUS") {
+    return {
+      available: false,
+      message: "Correspondência ambígua. Nenhum processo foi selecionado automaticamente.",
+    };
+  }
+  if (state === "INVALID") {
+    return {
+      available: false,
+      message: "Observação estrutural inválida no portal. Nada foi preenchido.",
+    };
+  }
+  return { available: false, message: "Nenhum formulário aberto na Área Restrita." };
+}
+

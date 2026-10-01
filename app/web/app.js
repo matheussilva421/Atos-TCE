@@ -9,10 +9,11 @@
  */
 import { clampScale, normalizeRotation, renderPdfPage, viewerUrl } from "/pdf-viewer.js";
 import {
-  KNOWN_PORTAL_FIELDS,
   PORTAL_SELECTION_POLL_MS,
   classifyPortalProcess,
+  currentFillAvailability,
   followAction,
+  portalFieldModels,
 } from "/portal-current.js";
 
 let pdfjsPromise = null;
@@ -133,24 +134,59 @@ async function loadPdfjs() {
     status.textContent = "Solicitando o preenchimento…";
     try {
       const created = await postJson(`/api/v1/processes/${processId}/fill`, {});
-      const deadline = Date.now() + 300000;
-      for (;;) {
-        await sleep(1000);
-        const request = await getJson(`/api/v1/fill-requests/${created.fill_request_id}`);
-        status.textContent = FILL_STATE_LABELS[request.state] || request.state;
-        if (request.error) status.textContent += ` (${request.error})`;
-        if (["PREENCHIDO", "BLOQUEADO", "ERRO"].includes(request.state)) {
-          state.fillResults[processId] = request;
-          renderFillSummary(request);
-          break;
-        }
-        if (Date.now() > deadline) {
-          status.textContent = "O preenchimento não respondeu a tempo. Verifique a extensão.";
-          break;
-        }
-      }
+      await followFillRequest(processId, created.fill_request_id, status);
       await refreshProcesses();
       if (state.selectedId === processId) await selectProcess(processId);
+    } catch (error) {
+      status.textContent = `Não foi possível preencher: ${error.message}`;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  /** Follow one fill request to its terminal state, for both entry points. */
+  async function followFillRequest(processId, fillRequestId, status) {
+    const deadline = Date.now() + 300000;
+    for (;;) {
+      await sleep(1000);
+      const request = await getJson(`/api/v1/fill-requests/${fillRequestId}`);
+      if (status) status.textContent = FILL_STATE_LABELS[request.state] || request.state;
+      if (status && request.error) status.textContent += ` (${request.error})`;
+      if (["PREENCHIDO", "BLOQUEADO", "ERRO"].includes(request.state)) {
+        state.fillResults[processId] = request;
+        renderFillSummary(request);
+        return request;
+      }
+      if (Date.now() > deadline) {
+        if (status) {
+          status.textContent = "O preenchimento não respondeu a tempo. Verifique a extensão.";
+        }
+        return null;
+      }
+    }
+  }
+
+  /**
+   * Best-effort fill of the exact form the extension observed.
+   *
+   * It uses only the transient selection route: no navigation is queued and no
+   * per-process fill is requested. If the observation expired between the render
+   * and this click, the backend refuses before writing anything.
+   */
+  async function startCurrentPortalFill() {
+    const button = document.getElementById("portal-fill");
+    const status = document.getElementById("portal-fill-status");
+    if (!state.selectedId || !button || !status) return;
+    const processId = state.selectedId;
+    delete state.fillResults[processId];
+    renderFillSummary(null);
+    button.disabled = true;
+    status.textContent = "Solicitando o preenchimento do formulário aberto…";
+    try {
+      const created = await postJson("/api/v1/portal/current-selection/fill", {});
+      await followFillRequest(processId, created.fill_request_id, status);
+      await refreshProcesses();
+      if (state.selectedId === processId) await selectProcess(processId, { source: "portal" });
     } catch (error) {
       status.textContent = `Não foi possível preencher: ${error.message}`;
     } finally {
@@ -777,8 +813,11 @@ async function loadPdfjs() {
           element("h4", { text: `Histórico (${process.events.length})` }),
           historyList(process.events),
         ]),
-        portal: () => portalCurrentPanel(process),
+      portal: () => renderPortalCurrent(process),
     };
+    // The workspace moves the shared viewer; return it before the detail is
+    // replaced, or the renderer would be removed from the document with it.
+    restoreViewerHome();
     host.replaceChildren(
       element("h3", { text: `${process.process_key}` }),
       element("p", { className: "detail-sub", text: process.interested }),
@@ -909,42 +948,113 @@ async function loadPdfjs() {
     status.textContent = `● Acompanhando portal${detail}`.trimEnd();
   }
 
-  /** One model per known field. A value is never invented for a missing one. */
-  function portalFieldModels(process) {
-    const fields = Array.isArray(process.fields) ? process.fields : [];
-    const byName = new Map(fields.map((field) => [String(field.field_name), field]));
-    return KNOWN_PORTAL_FIELDS.map((field) => {
-      const entry = byName.get(field.name) || null;
-      const value = entry && String(entry.value ?? "").trim() !== "" ? String(entry.value) : "";
-      const conflict = entry?.status === "conflict";
-      const verdict = conflict ? "REVISAR" : value ? "ENCONTRADO" : "PENDENTE";
-      return { name: field.name, label: field.label, entry, value, verdict };
-    });
+  /** Put the shared viewer back before the detail is re-rendered. */
+  function restoreViewerHome() {
+    const viewer = document.getElementById("pdf-viewer");
+    const home = document.getElementById("viewer-home");
+    if (viewer && home && viewer.parentElement !== home) home.append(viewer);
   }
 
-  /** The "Portal atual" view: what the analysis found, and what is missing. */
-  function portalCurrentPanel(process) {
+  /** Copy a value the analysis actually found. A pendency offers no copy. */
+  function portalCopyButton(model) {
+    const button = element("button", {
+      className: "ghost",
+      text: "Copiar valor",
+      attrs: { type: "button" },
+    });
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(model.value);
+      } catch {
+        // Clipboard access can be denied; the value stays on screen to copy by hand.
+      }
+    });
+    return button;
+  }
+
+  function portalEvidenceButton(process, model) {
+    const button = element("button", {
+      className: "ghost",
+      text: "Ver evidência",
+      attrs: { type: "button" },
+    });
+    button.addEventListener("click", () => openFieldEvidence(process.id, model.name));
+    return button;
+  }
+
+  /** One card per known field: a found value offers copy and evidence. */
+  function portalFieldCard(process, model) {
+    const children = [
+      element("span", { className: "portal-field-label", text: model.label }),
+      element("span", { className: `chip ${PORTAL_VERDICT_CLASS[model.verdict]}`, text: model.verdict }),
+      element("span", {
+        className: "portal-field-value",
+        text: model.value || "Não localizado com segurança",
+      }),
+    ];
+    if (model.verdict !== "PENDENTE") {
+      const actions = [portalEvidenceButton(process, model)];
+      if (model.verdict === "ENCONTRADO") actions.unshift(portalCopyButton(model));
+      children.push(element("div", { className: "portal-field-actions" }, actions));
+    }
+    return element(
+      "li",
+      { className: `portal-field portal-field-${model.verdict.toLowerCase()}` },
+      children
+    );
+  }
+
+  /** The "Portal atual" workspace: the one viewer beside the process sheet. */
+  function renderPortalCurrent(process) {
     const quality = classifyPortalProcess(process);
     const models = portalFieldModels(process);
-    return element("section", { className: "portal-current" }, [
+    const availability = currentFillAvailability(state.portalObservation, process.id);
+
+    const viewerColumn = element("div", { className: "portal-viewer-column" }, [
+      element("p", {
+        className: "muted",
+        text: "Abra um documento ou uma evidência para vê-la aqui.",
+      }),
+    ]);
+    // The workspace adopts the existing renderer; a second one is never created.
+    const viewer = document.getElementById("pdf-viewer");
+    if (viewer) viewerColumn.append(viewer);
+
+    const fillButton = element("button", {
+      className: "primary",
+      text: "Preencher dados encontrados",
+      attrs: { type: "button", id: "portal-fill" },
+    });
+    if (availability.available) {
+      fillButton.addEventListener("click", startCurrentPortalFill);
+    } else {
+      fillButton.hidden = true;
+    }
+
+    const sheet = element("div", { className: "portal-ficha" }, [
       element("h4", { text: `Portal atual — ${quality.state}` }),
       element("p", {
         className: "muted",
         text:
           `${numberFormat.format(quality.foundCount)} campo(s) encontrado(s), ` +
-          `${numberFormat.format(quality.pendingCount)} pendente(s).`,
+          `${numberFormat.format(quality.pendingCount)} pendente(s), ` +
+          `${numberFormat.format(quality.conflictCount)} em conflito.`,
       }),
       element(
         "ul",
         { className: "portal-fields" },
-        models.map((model) =>
-          element("li", { className: `portal-field portal-field-${model.verdict.toLowerCase()}` }, [
-            element("span", { className: "portal-field-label", text: model.label }),
-            element("span", { className: `chip ${PORTAL_VERDICT_CLASS[model.verdict]}`, text: model.verdict }),
-            element("span", { className: "portal-field-value", text: model.value || "Não localizado com segurança" }),
-          ])
-        )
+        models.map((model) => portalFieldCard(process, model))
       ),
+      element("div", { className: "portal-fill-actions" }, [
+        fillButton,
+        element("span", { className: "muted", attrs: { id: "portal-fill-status" } }),
+      ]),
+      element("p", { className: "muted", text: availability.message }),
+    ]);
+
+    return element("div", { className: "detail-workspace portal-layout" }, [
+      viewerColumn,
+      sheet,
     ]);
   }
 

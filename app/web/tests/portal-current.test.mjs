@@ -5,7 +5,9 @@ import {
   KNOWN_PORTAL_FIELDS,
   PORTAL_SELECTION_POLL_MS,
   classifyPortalProcess,
+  currentFillAvailability,
   followAction,
+  portalFieldModels,
 } from "../portal-current.js";
 
 const MANDATORY = KNOWN_PORTAL_FIELDS.filter((field) => field.mandatory).map(
@@ -174,5 +176,51 @@ test("a non-matched state never selects or opens anything", () => {
     assert.equal(decision.openPortalTab, false, JSON.stringify(observation));
     assert.equal(decision.portalProcessId, 7, "the last matched process is remembered");
   }
+});
+
+
+test("each known field becomes one model, and no value is ever invented", () => {
+  const models = portalFieldModels(portalProcess({ found: ["cargo"], conflicts: ["matricula"] }));
+
+  assert.equal(models.length, 7);
+  const byName = new Map(models.map((model) => [model.name, model]));
+  assert.equal(byName.get("cargo").verdict, "ENCONTRADO");
+  assert.equal(byName.get("cargo").value, "valor cargo");
+  assert.equal(byName.get("matricula").verdict, "REVISAR");
+  assert.equal(byName.get("genero").verdict, "PENDENTE");
+  assert.equal(byName.get("genero").value, "");
+  for (const model of models) {
+    if (model.verdict === "PENDENTE") assert.equal(model.value, "");
+    assert.equal(typeof model.label, "string");
+  }
+});
+
+test("a process without the expected shape still yields seven pending models", () => {
+  for (const process of [null, undefined, {}, { fields: null }]) {
+    const models = portalFieldModels(process);
+    assert.equal(models.length, 7);
+    assert.ok(models.every((model) => model.verdict === "PENDENTE" && model.value === ""));
+  }
+});
+
+test("the fill button is offered only for the process the portal is showing", () => {
+  assert.equal(currentFillAvailability({ state: "MATCHED", process_id: 7 }, 7).available, true);
+  assert.equal(currentFillAvailability({ state: "MATCHED", process_id: 9 }, 7).available, false);
+  assert.equal(currentFillAvailability({ state: "MATCHED" }, 7).available, false);
+  assert.equal(currentFillAvailability(null, 7).available, false);
+  for (const state of ["NOT_FOUND", "AMBIGUOUS", "INVALID", "NO_ACTIVE_FORM"]) {
+    assert.equal(currentFillAvailability({ state }, 7).available, false, state);
+  }
+});
+
+test("every unavailable state explains itself instead of failing silently", () => {
+  assert.match(currentFillAvailability({ state: "NO_ACTIVE_FORM" }, 7).message, /[Nn]enhum formulário/u);
+  assert.match(currentFillAvailability({ state: "NOT_FOUND" }, 7).message, /não encontrado/u);
+  assert.match(currentFillAvailability({ state: "AMBIGUOUS" }, 7).message, /[Aa]mbígua/u);
+  assert.match(currentFillAvailability({ state: "INVALID" }, 7).message, /inválida/u);
+  assert.match(
+    currentFillAvailability({ state: "MATCHED", process_id: 9 }, 7).message,
+    /outro processo/u
+  );
 });
 

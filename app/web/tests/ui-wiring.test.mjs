@@ -245,5 +245,64 @@ test("the follow decision comes from the pure helpers, not from inline rules", (
   assert.match(source, /import \{[\s\S]*followAction[\s\S]*\} from "\/portal-current\.js"/u);
   assert.match(source, /followAction\(/u);
   assert.match(source, /classifyPortalProcess\(/u);
-  assert.match(source, /KNOWN_PORTAL_FIELDS/u);
+  assert.match(source, /portalFieldModels\(/u);
+});
+
+test("the portal tab reuses the single PDF viewer inside a two-column workspace", () => {
+  assert.match(source, /detail-workspace/u);
+  assert.match(source, /portal-layout/u);
+  assert.match(page, /id="viewer-home"/u);
+  assert.equal(
+    (page.match(/id="viewer-canvas"/gu) || []).length,
+    1,
+    "there must never be a second PDF renderer"
+  );
+  assert.match(source, /function renderPortalCurrent\(process\)/u);
+  assert.match(source, /getElementById\("pdf-viewer"\)/u);
+});
+
+test("a found field offers copy and evidence, a pending one offers nothing", () => {
+  assert.match(source, /navigator\.clipboard\.writeText\(/u);
+  assert.match(source, /openFieldEvidence\(process\.id, model\.name\)/u);
+  assert.match(source, /Copiar valor/u);
+  assert.match(source, /Ver evidência/u);
+
+  const card = source.slice(source.indexOf("function portalFieldCard"));
+  const body = card.slice(0, card.indexOf("function renderPortalCurrent"));
+  assert.match(body, /model\.verdict === "ENCONTRADO"/u);
+  assert.doesNotMatch(body, /PENDENTE[\s\S]{0,200}clipboard/u);
+});
+
+test("the current fill uses only the transient selection route", () => {
+  const start = source.indexOf("async function startCurrentPortalFill");
+  assert.notEqual(start, -1, "the portal tab owns its own fill action");
+  const body = source.slice(start, source.indexOf("const state = {", start));
+
+  assert.match(body, /postJson\("\/api\/v1\/portal\/current-selection\/fill",\s*\{\s*\}\)/u);
+  assert.doesNotMatch(body, /\/api\/v1\/processes\/[^`]*\/fill/u);
+  assert.doesNotMatch(body, /next-act|openAct|OPEN_ACT/u);
+  assert.match(body, /followFillRequest\(/u);
+  assert.match(source, /Preencher dados encontrados/u);
+});
+
+test("both fill entry points share one follow loop", () => {
+  assert.match(
+    source,
+    /async function followFillRequest\(processId, fillRequestId, status\)/u
+  );
+  const auto = source.slice(
+    source.indexOf("async function startFill"),
+    source.indexOf("async function startCurrentPortalFill")
+  );
+  assert.match(auto, /followFillRequest\(processId, created\.fill_request_id/u);
+  assert.match(source, /renderFillSummary\(request\)/u);
+  assert.match(source, /para revisar/u);
+});
+
+test("the current fill button is hidden whenever the observation is not fillable", () => {
+  assert.match(source, /currentFillAvailability\(state\.portalObservation, process\.id\)/u);
+  assert.match(source, /availability\.available/u);
+  assert.match(source, /fillButton\.hidden = true/u);
+  assert.match(source, /availability\.message/u);
+  assert.match(source, /attrs: \{ type: "button", id: "portal-fill" \}/u);
 });
