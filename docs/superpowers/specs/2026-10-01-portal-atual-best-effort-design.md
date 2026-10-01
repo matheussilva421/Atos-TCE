@@ -193,6 +193,22 @@ A UI deve diferenciar claramente:
 - **sem dados aproveitáveis** — nenhum campo foi escrito;
 - **bloqueado por segurança** — identidade/formulário não seguro.
 
+### 8.3. Completude do processo vs. sucesso best-effort
+
+`mandatory_satisfied` continua sendo a métrica de completude do processo e pode promover o processo para `PREENCHIDO` quando todos os campos obrigatórios forem satisfeitos.
+
+O sucesso operacional do AR-1 passa a medir outra coisa: **todos os campos que o preflight realmente autorizou em `plan.fields` foram escritos/preservados conforme a proposta e relidos corretamente**.
+
+Consequências:
+
+- campo sem proposta, opção indisponível, controle ausente ou divergência preservada continuam como pendência, mas não tornam o AR-1 uma falha por si só;
+- um campo que estava em `plan.fields` e falhou, ficou disabled durante o write, não apareceu no resultado ou teve readback diferente da proposta torna o AR-1 falho;
+- identidade/generation insegura continua falha;
+- plano vazio pode terminar como sucesso best-effort sem escrita, porque o comportamento correto é não inventar valor; a UI deve deixar explícito “sem dados aproveitáveis”;
+- a qualification mede confiabilidade do comportamento best-effort, não completude documental do processo.
+
+O resumo persistido da fill request deve expor as duas dimensões separadamente, por exemplo `mandatory_satisfied` e `best_effort_satisfied`.
+
 ## 9. Estado transitório “Portal atual”
 
 O acompanhamento do portal é um estado operacional transitório, não uma nova fonte de verdade do domínio.
@@ -463,7 +479,9 @@ Consequências:
 - após implementação, review e gates completos, deve ser criado um novo AR1_BUILD;
 - deve ser gerado novo ZIP com provenance;
 - `manual_form_fill` volta/permanece `EXPERIMENTAL`;
-- a sequência real começa novamente em 0/20.
+- a sequência real começa novamente em 0/20;
+- um run parcial **pode contar como pass** quando `best_effort_satisfied == true`, mesmo com `mandatory_satisfied == false`;
+- falha de qualquer campo presente em `plan.fields`, mismatch de identidade, generation inválida/stale, formulário ambíguo ou erro estrutural continua `passed:false`.
 
 AR-2, AR-3 e Tasks 6–10 continuam fora de escopo até AR-1 atingir `PRODUCTION` na nova semântica.
 
