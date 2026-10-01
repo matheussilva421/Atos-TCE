@@ -14,6 +14,7 @@ import {
   currentFillAvailability,
   followAction,
   portalFieldModels,
+  resumeAction,
 } from "/portal-current.js";
 
 let pdfjsPromise = null;
@@ -1060,7 +1061,7 @@ async function loadPdfjs() {
 
   /** Poll the observed form and follow it, without ever stealing the sub-tab. */
   async function refreshPortalSelection() {
-    if (state.portalPollRunning) return;
+    if (state.portalPollRunning) return null;
     state.portalPollRunning = true;
     try {
       const observation = await getJson("/api/v1/portal/current-selection");
@@ -1082,24 +1083,31 @@ async function loadPdfjs() {
           openTab: decision.openPortalTab ? "portal" : null,
         });
       }
+      return observation;
     } catch {
       // The Mesa keeps working when the observation endpoint is unavailable.
+      return null;
     } finally {
       state.portalPollRunning = false;
     }
   }
 
-  function togglePortalFollow() {
+  async function togglePortalFollow() {
     if (state.followPortal) {
-      // Pausing never forgets the last matched process, so resuming returns to it.
       state.followPortal = false;
       renderPortalFollow();
       return;
     }
     state.followPortal = true;
     renderPortalFollow();
-    if (state.portalProcessId !== null) {
-      selectProcess(state.portalProcessId, { source: "portal", openTab: "portal" });
+    // Resume returns to the form the portal is showing right now, never to a
+    // process id remembered from an observation that already expired.
+    const decision = resumeAction(await refreshPortalSelection());
+    if (decision.selectProcessId !== null) {
+      await selectProcess(decision.selectProcessId, {
+        source: "portal",
+        openTab: decision.openPortalTab ? "portal" : null,
+      });
     }
   }
 
@@ -1217,7 +1225,6 @@ async function loadPdfjs() {
     }
   }
 
-  async function selectProcess(processId) {
   async function selectProcess(processId, { source = "manual", openTab = null } = {}) {
     // Picking a process that is not the observed one hands control back to the
     // operator, so the follow pauses instead of stealing the selection.

@@ -293,6 +293,37 @@ class PortalSelectionClearTests(PortalSelectionTrackerTestCase):
         self.assertEqual(raised.exception.code, "FORM_NOT_AVAILABLE")
         self.assertTrue(raised.exception.offered)
 
+    def test_the_fill_window_refuses_an_expired_selection(self):
+        self.make_process()
+        self.tracker.observe(self.snapshot())
+        self.clock.advance(PORTAL_SELECTION_TTL_SECONDS)
+
+        with self.assertRaises(PortalSelectionError) as raised:
+            with self.tracker.fill_window() as snapshot:
+                self.fail(f"the window must not open: {snapshot!r}")
+
+        self.assertEqual(raised.exception.code, "FORM_NOT_AVAILABLE")
+        self.assertTrue(raised.exception.offered)
+
+    def test_the_fill_window_refuses_a_cleared_selection(self):
+        self.make_process()
+        self.tracker.observe(self.snapshot())
+        self.tracker.clear("FORM_NOT_AVAILABLE")
+
+        with self.assertRaises(PortalSelectionError) as raised:
+            with self.tracker.fill_window():
+                self.fail("the window must not open")
+
+        self.assertFalse(raised.exception.offered)
+
+    def test_the_fill_window_yields_the_reserved_snapshot(self):
+        self.make_process()
+        self.tracker.observe(self.snapshot())
+
+        with self.tracker.fill_window() as snapshot:
+            self.assertEqual(snapshot["identity"]["processKey"], "102390/2026")
+            self.assertEqual(snapshot["generation"], 3)
+
     def test_an_unobserved_tracker_never_reports_an_offered_fill(self):
         with self.assertRaises(PortalSelectionError) as raised:
             self.tracker.require_fill_snapshot()

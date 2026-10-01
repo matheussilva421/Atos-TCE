@@ -1112,7 +1112,11 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             return
         tracker = self.mesa.portal_selection
         try:
-            snapshot = tracker.require_fill_snapshot()
+            # The reservation is held until the request exists, so neither a
+            # newer observation nor the TTL can slip in between the check and
+            # the write; a replaced selection never produces a fill.
+            with tracker.fill_window() as snapshot:
+                request_id = self.mesa.fill.request_manual_fill(snapshot)
         except PortalSelectionError as error:
             # The tracker decided atomically whether the Mesa could have rendered
             # this button; a click nobody could make is not an operator attempt.
@@ -1123,8 +1127,6 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
                 status=409,
             )
             return
-        try:
-            request_id = self.mesa.fill.request_manual_fill(snapshot)
         except FillError as error:
             self._send_json(
                 {"error": "current_selection_not_fillable", "detail": str(error)},

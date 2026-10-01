@@ -115,11 +115,13 @@ export function portalFieldModels(process) {
     const entry = byName.get(field.name) || null;
     const value = entry && String(entry.value ?? "").trim() !== "" ? String(entry.value) : "";
     const conflict = entry?.status === "conflict";
-    const verdict = conflict
-      ? PORTAL_VERDICT.REVIEW
-      : value
-        ? PORTAL_VERDICT.FOUND
-        : PORTAL_VERDICT.PENDING;
+    const confirmed = entry?.status === "found" && value !== "";
+    // A value the analysis did not confirm is never presented as found, so the
+    // card and the completeness count above it always agree.
+    let verdict = PORTAL_VERDICT.PENDING;
+    if (conflict) verdict = PORTAL_VERDICT.REVIEW;
+    else if (confirmed) verdict = PORTAL_VERDICT.FOUND;
+    else if (value) verdict = PORTAL_VERDICT.REVIEW;
     return {
       name: field.name,
       label: field.label,
@@ -129,6 +131,22 @@ export function portalFieldModels(process) {
       verdict,
     };
   });
+}
+
+/**
+ * What "Retomar acompanhamento" may select.
+ *
+ * Resume returns to the form the portal is showing right now — never to a
+ * process id remembered from an observation that already expired or was
+ * replaced. With nothing matched, resuming only restores the follow state.
+ */
+export function resumeAction(observation) {
+  const state = String(observation?.state ?? "NO_ACTIVE_FORM");
+  const observedId = Number.isInteger(observation?.process_id) ? observation.process_id : null;
+  if (state !== "MATCHED" || observedId === null) {
+    return { selectProcessId: null, openPortalTab: false };
+  }
+  return { selectProcessId: observedId, openPortalTab: true };
 }
 
 /**
@@ -179,4 +197,3 @@ export function currentFillAvailability(observation, processId) {
   }
   return { available: false, message: "Nenhum formulário aberto na Área Restrita." };
 }
-

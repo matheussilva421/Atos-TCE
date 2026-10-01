@@ -8,6 +8,7 @@ import {
   currentFillAvailability,
   followAction,
   portalFieldModels,
+  resumeAction,
 } from "../portal-current.js";
 
 const MANDATORY = KNOWN_PORTAL_FIELDS.filter((field) => field.mandatory).map(
@@ -203,6 +204,44 @@ test("a process without the expected shape still yields seven pending models", (
   }
 });
 
+test("a value the analysis did not confirm is never labelled as found", () => {
+  const stale = portalProcess({ found: [] });
+  stale.fields[3].value = "valor antigo";
+  stale.fields[3].status = "missing";
+
+  const models = portalFieldModels(stale);
+  const cargo = models.find((model) => model.name === "cargo");
+
+  assert.equal(cargo.verdict, "REVISAR", "an unconfirmed value must not claim to be found");
+  assert.equal(cargo.value, "valor antigo");
+  // The header count already excludes it, so the card must agree.
+  assert.equal(classifyPortalProcess(stale).foundCount, 0);
+});
+
+test("resuming never returns to a process the portal no longer shows", () => {
+  for (const observation of [
+    { state: "NO_ACTIVE_FORM" },
+    { state: "NOT_FOUND" },
+    { state: "AMBIGUOUS" },
+    { state: "INVALID" },
+    { state: "MATCHED" },
+    null,
+  ]) {
+    assert.deepEqual(
+      resumeAction(observation),
+      { selectProcessId: null, openPortalTab: false },
+      JSON.stringify(observation)
+    );
+  }
+});
+
+test("resuming returns to the form the portal is showing right now", () => {
+  assert.deepEqual(resumeAction({ state: "MATCHED", process_id: 9 }), {
+    selectProcessId: 9,
+    openPortalTab: true,
+  });
+});
+
 test("the fill button is offered only for the process the portal is showing", () => {
   assert.equal(currentFillAvailability({ state: "MATCHED", process_id: 7 }, 7).available, true);
   assert.equal(currentFillAvailability({ state: "MATCHED", process_id: 9 }, 7).available, false);
@@ -223,4 +262,3 @@ test("every unavailable state explains itself instead of failing silently", () =
     /outro processo/u
   );
 });
-

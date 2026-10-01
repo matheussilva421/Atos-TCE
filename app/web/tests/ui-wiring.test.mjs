@@ -209,6 +209,27 @@ test("the Mesa does not offer next-process while the capability is unqualified",
   );
 });
 
+test("every top-level function is declared exactly once", () => {
+  // A duplicated declaration silently nests every later function inside the
+  // first one, so ``init()`` is never reachable and the whole shell dies with a
+  // ReferenceError. Text assertions cannot see that; counting can.
+  for (const name of [
+    "selectProcess",
+    "init",
+    "renderDetail",
+    "renderPortalCurrent",
+    "refreshPortalSelection",
+    "startFill",
+    "startCurrentPortalFill",
+    "followFillRequest",
+    "togglePortalFollow",
+    "restoreViewerHome",
+  ]) {
+    const declarations = source.match(new RegExp(`function ${name}\\(`, "gu")) || [];
+    assert.equal(declarations.length, 1, `${name} must be declared exactly once`);
+  }
+});
+
 test("the Mesa follows the current portal form and can pause the follow", () => {
   assert.match(page, /data-tab="portal"/u);
   assert.match(page, /id="portal-follow-toggle"/u);

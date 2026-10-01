@@ -10,10 +10,11 @@ logged, never returned by the public state, and it dies with the TTL.
 from __future__ import annotations
 
 import copy
+import contextlib
 import re
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from datetime import datetime, timezone
 from typing import Any
 
@@ -169,6 +170,19 @@ class PortalSelectionTracker:
         before any write is even attempted.
         """
 
+        with self.fill_window() as snapshot:
+            return snapshot
+
+    @contextlib.contextmanager
+    def fill_window(self) -> Iterator[dict[str, Any]]:
+        """Reserve the current selection for the duration of one fill.
+
+        The reservation is atomic: while the caller holds the window, a newer
+        observation cannot replace the selection and the TTL cannot expire it,
+        so the fill request is always built from the observation the operator
+        actually clicked on.
+        """
+
         with self._lock:
             self._sweep_locked()
             if self._state != MATCHED or self._snapshot is None:
@@ -177,7 +191,7 @@ class PortalSelectionTracker:
                     "nenhuma seleção atual pode ser preenchida",
                     offered=self._offered,
                 )
-            return copy.deepcopy(self._snapshot)
+            yield copy.deepcopy(self._snapshot)
 
     # ----------------------------------------------------------------- internals
 
