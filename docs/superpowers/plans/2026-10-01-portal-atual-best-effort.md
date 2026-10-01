@@ -70,7 +70,7 @@
 
 **Interfaces:**
 - Consumes: `Store.resolve_process_identity(process_key, interested_normalized, portal_act_id=None)`, `build_fill_plan(process, form_snapshot)`.
-- Produces: `FillService.request_manual_fill(form_snapshot: Mapping[str, Any] | None) -> int` aceitando qualquer status local quando a identidade é exata; `FillService.request_fill(process_id: int) -> int` mantém a guarda automática.
+- Produces: `FillService.request_manual_fill(form_snapshot: Mapping[str, Any] | None) -> int` aceitando qualquer status local quando a identidade é exata; `FillService.request_fill(process_id: int) -> int` mantém a guarda automática; helper interno `_best_effort_satisfied(planned_fields: Mapping[str, Any] | None, field_results: Mapping[str, Any] | None) -> bool` separa sucesso da escrita de completude documental.
 
 - [ ] **Step 1: Escrever RED para status não-PRONTO no manual fill**
 
@@ -84,7 +84,17 @@ Atualizar/expandir `test_a_process_that_is_not_pronto_is_refused` para provar qu
 
 Criar teste em `FillServiceOutcomeTests`: processo começa `REVISAR`, dois campos são `found`, um write é parcial, a `fill_request` termina `PREENCHIDO`, mas `process.status` continua `REVISAR` e o evento `form_filled_partial` existe.
 
-- [ ] **Step 4: Rodar os RED**
+- [ ] **Step 4: Escrever RED para a nova semântica AR-1 best-effort**
+
+Em `Ar1ManualFillReliabilityTests`, cobrir:
+- plano com `cargo` elegível escrito/relido corretamente + outros mandatory sem proposta → `mandatory_satisfied == false`, `best_effort_satisfied == true`, `run_finished.passed == true`;
+- campo presente em `plan.fields` com status `disabled`, resultado ausente ou `after != proposed` → `best_effort_satisfied == false`, `passed == false`;
+- plano vazio → `best_effort_satisfied == true`, `mandatory_satisfied == false`, sem valor inventado;
+- mismatch/generation/form ambiguity continuam `passed == false`.
+
+Também substituir o teste antigo `test_a_process_that_is_not_pronto_never_matches`, que contradiz a nova regra.
+
+- [ ] **Step 5: Rodar os RED**
 
 Run:
 ~~~powershell
@@ -93,16 +103,19 @@ python -m unittest tests.test_fill_service.ManualFillRequestTests tests.test_fil
 
 Expected: os novos testes de status manual falham pela guarda `PRONTO/PREENCHIDO`; os testes de identidade existentes continuam passando.
 
-- [ ] **Step 5: Implementar a separação mínima**
+- [ ] **Step 6: Implementar a separação mínima e o critério best-effort**
 
 Em `app/area_restrita/fill_service.py`:
 - renomear `FILLABLE_PROCESS_STATUSES` para `AUTOMATIC_FILLABLE_PROCESS_STATUSES`;
 - usar essa constante somente em `request_fill()`;
 - remover o gate de status de `request_manual_fill()`;
 - atualizar docstrings/mensagens para “processo correspondente ao formulário” sem mencionar `PRONTO`;
-- não alterar `_run_preflight()`, `_handle_fill_result()` nem os guards de identidade/generation.
+- adicionar `_best_effort_satisfied(planned_fields, field_results)`: para cada chave de `plan.fields`, exigir resultado mapping com `status` `changed` ou `preserved`, `proposed` não-nulo e `after == proposed`; plano vazio retorna `true`; campos fora de `plan.fields` não reduzem esse resultado;
+- em `_handle_fill_result()`, manter `mandatory_satisfied` como único critério de promoção de `process.status`, persistir `summary["best_effort_satisfied"]` e usar essa nova métrica para `reread_completed`/`run_finished.passed`;
+- usar códigos `BEST_EFFORT_OK` e `BEST_EFFORT_FAILED` no boundary/final do AR-1;
+- preservar todos os guards de identidade/generation.
 
-- [ ] **Step 6: GREEN focal**
+- [ ] **Step 7: GREEN focal**
 
 Run:
 ~~~powershell
@@ -111,7 +124,7 @@ python -m unittest tests.test_fill_service -v
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ~~~bash
 git add app/area_restrita/fill_service.py tests/test_fill_service.py
@@ -546,7 +559,7 @@ Criar/ajustar teste integrado do fill: request criada para A, resultado/readback
 
 - [ ] **Step 2: Testar seleção excepcional sem dados (Review Focus #5)**
 
-Processo `ERRO` ou `REVISAR` com zero campos `found`, identidade exata → manual request não falha por status, não inventa fields e termina com pendências quando o writer retorna mapa vazio.
+Processo `ERRO` ou `REVISAR` com zero campos `found`, identidade exata → manual request não falha por status, não inventa fields, termina com pendências, `mandatory_satisfied == false`, `best_effort_satisfied == true` e AR-1 `passed:true`.
 
 - [ ] **Step 3: Testar stale current-selection após render (Review Focus #1)**
 
@@ -738,6 +751,8 @@ Se `passed:true`, sequência = 1/20. Se `passed:false` ou terminal ausente, para
 - [ ] Manual fill não depende de `PRONTO/PREENCHIDO`.
 - [ ] Automatic fill mantém a guarda anterior.
 - [ ] Partial fill preserva status incompleto do processo.
+- [ ] `mandatory_satisfied` e `best_effort_satisfied` permanecem separados.
+- [ ] Partial/no-op seguro pode passar AR-1; falha de campo presente em `plan.fields` continua falhando AR-1.
 - [ ] Tracker atual é 100% transitório e TTL=10 s.
 - [ ] Snapshot privado nunca aparece no GET, DB, logs ou reliability telemetry.
 - [ ] Heartbeat publica com sidepanel fechado.
