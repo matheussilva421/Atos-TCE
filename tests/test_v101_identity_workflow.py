@@ -47,6 +47,18 @@ class V101IdentityWorkflowTests(unittest.TestCase):
             fields={},
         )
 
+    @staticmethod
+    def production_navigation_capabilities():
+        class Provider:
+            @staticmethod
+            def capabilities():
+                return {
+                    "open_act": {"state": "PRODUCTION"},
+                    "select_interested": {"state": "PRODUCTION"},
+                }
+
+        return Provider()
+
     def test_strong_id_keeps_scan_manual_fill_automatic_fill_and_next_target_canonical(self):
         canonical_id = self.add_process(
             SOURCE_KEY,
@@ -92,9 +104,17 @@ class V101IdentityWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(self.store.get_process(canonical_id)["interested"], "Pessoa Exemplo Nome Completo")
 
-        fill_service = FillService(self.store, preflight=self.identity_only_preflight)
+        fill_service = FillService(
+            self.store,
+            preflight=self.identity_only_preflight,
+            capability_provider=self.production_navigation_capabilities(),
+        )
         manual_request_id = fill_service.request_manual_fill(
-            {"identity": SOURCE_ALIAS, "generation": 7}
+            {
+                "identity": SOURCE_ALIAS,
+                "generation": 7,
+                "documentNonce": "0123456789abcdef0123456789abcdef",
+            }
         )
         manual_request = self.store.get_fill_request(manual_request_id)
         manual_command = self.store.get_extension_command(manual_request["current_command_id"])
