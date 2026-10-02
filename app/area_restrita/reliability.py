@@ -351,6 +351,18 @@ class ReliabilityRecorder:
         capability = _require_member(capability, CAPABILITIES, "capability")
         self._write_state(capability, CapabilityState.EXPERIMENTAL, reason)
 
+    def bootstrap_experimental_if_unset(
+        self, capability: str, *, reason: str
+    ) -> bool:
+        """Initialize a packaged capability once without overriding local state."""
+
+        capability = _require_member(capability, CAPABILITIES, "capability")
+        with _lock_for(self._root):
+            if capability in self._read_capabilities():
+                return False
+            self._write_state(capability, CapabilityState.EXPERIMENTAL, reason)
+            return True
+
     def downgrade(self, capability: str, *, reason: str) -> None:
         """Return a capability to UNQUALIFIED after a reproducible regression."""
 

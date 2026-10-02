@@ -6,7 +6,8 @@ param(
     [switch]$SkipRuntime,
     [switch]$Force,
     [switch]$KeepStaging,
-    [switch]$AllowDirtySource
+    [switch]$AllowDirtySource,
+    [switch]$EnableManualFormFillQualificationBootstrap
 )
 
 $ErrorActionPreference = 'Stop'
@@ -196,6 +197,10 @@ if (-not $AllowDirtySource) {
 if ($AllowDirtySource -and -not $SkipRuntime) {
     throw 'AllowDirtySource é apenas para fixtures de contrato (-SkipRuntime); um artefato de release precisa de árvore commitada.'
 }
+$bootstrapSource = Join-Path $RepositoryRoot 'app\reliability-bootstrap.json'
+if (Test-Path -LiteralPath $bootstrapSource) {
+    throw 'app/reliability-bootstrap.json é gerado pelo empacotador e não pode existir na árvore-fonte.'
+}
 
 $packageStaging = Assert-ValidStagingRoot -Path $StagingRoot -RepositoryRoot $RepositoryRoot
 $runtimeStagingRoot = Assert-ValidStagingRoot -Path $RuntimeStaging -RepositoryRoot $RepositoryRoot
@@ -250,6 +255,18 @@ if (Test-Path -LiteralPath $temporaryZip) { Remove-Item -LiteralPath $temporaryZ
 try {
     Copy-Tree -SourcePath (Join-Path $RepositoryRoot 'app') -DestinationPath (Join-Path $packageStaging 'app') -Label 'app' -ExcludedDirectoryNames $sourceExcludedDirectories -ExcludedFileSuffixes $sourceExcludedSuffixes -ForbiddenFileSuffixes $sourceForbiddenSuffixes
     Copy-Tree -SourcePath (Join-Path $RepositoryRoot 'extension') -DestinationPath (Join-Path $packageStaging 'extension') -Label 'extension' -ExcludedDirectoryNames $sourceExcludedDirectories -ExcludedFileSuffixes $sourceExcludedSuffixes -ForbiddenFileSuffixes $sourceForbiddenSuffixes
+    if ($EnableManualFormFillQualificationBootstrap) {
+        $bootstrapPayload = [pscustomobject]@{
+            schema = 1
+            build_id = $buildId
+            capabilities = [pscustomobject]@{ manual_form_fill = 'EXPERIMENTAL' }
+        } | ConvertTo-Json -Depth 4
+        [IO.File]::WriteAllText(
+            (Join-Path $packageStaging 'app\reliability-bootstrap.json'),
+            $bootstrapPayload,
+            (New-Object System.Text.UTF8Encoding($false))
+        )
+    }
     Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'START.cmd') -Destination (Join-Path $packageStaging 'START.cmd') -Force
     Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'README.md') -Destination (Join-Path $packageStaging 'README.md') -Force
     Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'LEIA-ME-OUTRO-PC.txt') -Destination (Join-Path $packageStaging 'LEIA-ME-OUTRO-PC.txt') -Force
@@ -333,6 +350,9 @@ try {
 
 $verifyArguments = @{ ZipPath = $outputZip; SkipSmoke = $true; ExpectedBuildId = $buildId }
 if ($SkipRuntime) { $verifyArguments['AllowMissingRuntime'] = $true }
+if ($EnableManualFormFillQualificationBootstrap) {
+    $verifyArguments['RequireManualFormFillQualificationBootstrap'] = $true
+}
 $verification = & (Join-Path $PSScriptRoot 'verify-package.ps1') @verifyArguments
 
 $zipItem = Get-Item -LiteralPath $outputZip

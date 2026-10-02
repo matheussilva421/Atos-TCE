@@ -305,6 +305,87 @@ class PackageProvenanceTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_release_provenance_accepts_only_the_build_bound_bootstrap(self):
+        build_id = head_commit()
+        payload = repo_payload()
+        payload["app/reliability-bootstrap.json"] = json.dumps(
+            {
+                "schema": 1,
+                "build_id": build_id,
+                "capabilities": {"manual_form_fill": "EXPERIMENTAL"},
+            }
+        ).encode("utf-8")
+        release = release_payload(payload)
+        archive = make_package(
+            self.tmp / "release-bootstrap.zip",
+            release,
+            build_manifest(release, build_id),
+        )
+
+        accepted = verify(
+            archive,
+            "-SkipSmoke",
+            "-ExpectedBuildId",
+            build_id,
+            "-RequireManualFormFillQualificationBootstrap",
+        )
+
+        self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
+
+        payload["app/reliability-bootstrap.json"] = json.dumps(
+            {
+                "schema": 1,
+                "build_id": build_id,
+                "capabilities": {
+                    "manual_form_fill": "EXPERIMENTAL",
+                    "open_act": "EXPERIMENTAL",
+                },
+            }
+        ).encode("utf-8")
+        release = release_payload(payload)
+        rejected_archive = make_package(
+            self.tmp / "release-bootstrap-extra-capability.zip",
+            release,
+            build_manifest(release, build_id),
+        )
+        rejected = verify(
+            rejected_archive,
+            "-SkipSmoke",
+            "-ExpectedBuildId",
+            build_id,
+            "-RequireManualFormFillQualificationBootstrap",
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("manual_form_fill", rejected.stdout + rejected.stderr)
+
+    def test_release_provenance_rejects_bootstrap_with_wrong_json_types(self):
+        build_id = head_commit()
+        invalid_bootstraps = (
+            {"schema": "1", "build_id": build_id, "capabilities": {"manual_form_fill": "EXPERIMENTAL"}},
+            {"schema": 1, "build_id": build_id, "capabilities": {"manual_form_fill": 1}},
+            {"schema": 1, "build_id": 123, "capabilities": {"manual_form_fill": "EXPERIMENTAL"}},
+        )
+        for index, bootstrap in enumerate(invalid_bootstraps):
+            with self.subTest(index=index):
+                payload = repo_payload()
+                payload["app/reliability-bootstrap.json"] = json.dumps(bootstrap).encode("utf-8")
+                release = release_payload(payload)
+                archive = make_package(
+                    self.tmp / f"release-bootstrap-invalid-types-{index}.zip",
+                    release,
+                    build_manifest(release, build_id),
+                )
+
+                rejected = verify(
+                    archive,
+                    "-SkipSmoke",
+                    "-ExpectedBuildId",
+                    build_id,
+                    "-RequireManualFormFillQualificationBootstrap",
+                )
+
+                self.assertNotEqual(rejected.returncode, 0, rejected.stdout + rejected.stderr)
+
     def test_verifier_refuses_a_source_the_manifest_does_not_declare(self):
         payload = product_payload()
         manifest = build_manifest(payload, CURRENT_BUILD)

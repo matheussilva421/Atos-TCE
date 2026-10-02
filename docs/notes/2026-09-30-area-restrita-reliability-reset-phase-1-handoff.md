@@ -380,3 +380,17 @@ A observação não carrega número de sequência — o contrato congelado é `{
 
 Este Goal reescreveu o produto e substituiu o AR1_BUILD: a build `e059793` fica aposentada e `c393353` passa a ser a build de qualification. Nenhuma capability foi promovida — `manual_form_fill` segue EXPERIMENTAL em 0/20.
 
+
+## 14. Follow-up offline: detecção de formulário e bootstrap AR-1 (2026-10-02)
+
+O relato do primeiro teste humano da build `c3933536a2b60f73b2cee71542bec9740b8303dd` registra formulário visível não detectado e `manual_form_fill = UNQUALIFIED`; essa build fica SUPERSEDED / FAILED REAL VALIDATION para qualification. Neste Goal não houve novo acesso ao portal nem execução real.
+
+Causas reproduzidas offline: (A) o detector anterior usava IDs globais e rádio marcado em todo o documento, contaminando a leitura por formulário antigo; (B) a ausência de manifesto de capability deixava uma instalação limpa em UNQUALIFIED. Os testes RED de DOM sintético e servidor local confirmaram os dois caminhos antes das correções.
+
+Estado incremental: detector e resolução do interessado agora são escopados a candidatos estruturais visíveis e suas tabelas de interessados; ambiguidades de formulário são preservadas pelo router. O bootstrap aceita somente manifesto schema 1 com build_id correspondente e `manual_form_fill=EXPERIMENTAL`, executa uma vez sem substituir estado existente, e o builder só o inclui com opt-in explícito. O manifesto não cria runs nem chave HMAC. Há também um smoke sintético combinado do detector, heartbeat, API local e `FILL_FORM`/readback usando OLD oculto + CURRENT visível.
+
+Review adversarial encontrou e ajudou a corrigir: bootstrap vinculado diretamente ao build do `package-manifest.json` mesmo quando `ATOS_TCE_BUILD_ID` diverge; seleção limitada à tabela visível única; validação estrita dos tipos JSON do manifesto; exclusão de formulário zero-size; e rádio condicionado à própria linha/tabela visível. Cada achado recebeu teste de regressão RED antes da correção. Também foi corrigido o alvo do `FILL_FORM` para resolver o controle dentro do formulário cuja identidade e geração foram lidas.
+
+Validações sobre a versão atual: smoke integrado detector→heartbeat→API local→listener real `FILL_FORM`/readback passou; Node focado 73/73; `npm test --prefix extension` 254/254; `node --test app/web/tests/*.test.mjs` 65/65; `python -m unittest discover -s tests -p "test_*.py" -q` 837/837; bootstrap API 4/4; provenance rejeitou os tipos JSON incorretos; `git diff --check` limpo. `verify-project.ps1` final: 1.260 verificações, 1.258 aprovações, zero falhas e dois skips. O review de follow-up terminou sem achados críticos/importantes; o único achado menor (`flatMap` usando índice como callback) recebeu teste RED e correção confirmada.
+
+Ainda pendentes: commit da fonte validada; build opt-in do novo manifesto; verificação de instalação limpa e smoke offline do ZIP; SHA/tamanho/entradas do artefato; handoff definitivo, commit e push. O ZIP presente ainda corresponde à build c393353 e não contém os edits locais de 2026-10-02.

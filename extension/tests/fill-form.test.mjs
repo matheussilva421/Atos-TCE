@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { buildActFormDocument, FakeElement } from "./fake-dom.mjs";
+import { ACT_FIELD_IDS, buildActFormDocument, FakeDocument, FakeElement } from "./fake-dom.mjs";
 import { COMMAND_TYPES, FORBIDDEN_COMMAND_TYPES } from "../lib/protocol.js";
 
 await import("../lib/area-snapshot.js");
@@ -20,6 +20,70 @@ function preparedForm(options = {}) {
   const documentRef = buildActFormDocument({ selected: "Pessoa Exemplo", ...options });
   return { documentRef, form: reader.readForm(documentRef) };
 }
+
+test("the filler writes only to the visible current form when IDs repeat in a hidden stale form", () => {
+  const documentRef = new FakeDocument({ screen: "form" });
+  documentRef.defaultView = {
+    location: { href: "https://portal.test/complementarato.asp" },
+    frameElement: null,
+    parent: null,
+    getComputedStyle: () => ({}),
+  };
+  documentRef.defaultView.parent = documentRef.defaultView;
+
+  const addCandidate = (processKey, interested, hidden = false) => {
+    const root = new FakeElement("form", { id: "complementarAtoForm" });
+    const [number, year] = processKey.split("/");
+    root.append(
+      new FakeElement("input", { id: "txtNumeroProcesso", value: number }),
+      new FakeElement("input", { id: "txtAnoProcesso", value: year }),
+    );
+    for (const id of Object.values(ACT_FIELD_IDS)) {
+      root.append(new FakeElement("input", { id, value: "" }));
+    }
+    const table = new FakeElement("table", { id: "PessoasAssocicadas" });
+    const row = new FakeElement("tr");
+    const radio = new FakeElement("input", { attrs: { type: "radio" } });
+    radio.checked = true;
+    radio.setAttribute("data-interested-name", interested);
+    row.append(new FakeElement("td", { text: interested }), radio);
+    table.append(row);
+    root.append(table);
+    if (hidden) {
+      const wrapper = new FakeElement("div", { attrs: { "aria-hidden": "true" } });
+      wrapper.append(root);
+      documentRef.body.append(wrapper);
+    } else {
+      documentRef.body.append(root);
+    }
+    return root;
+  };
+
+  const oldForm = addCandidate("999999/2025", "Pessoa Antiga", true);
+  const currentForm = addCandidate("102390/2026", "Pessoa Exemplo");
+  const oldCargo = oldForm.querySelector("#txtCargo");
+  const currentCargo = currentForm.querySelector("#txtCargo");
+  const form = reader.readForm(documentRef);
+  assert.equal(form.identity.processKey, "102390/2026");
+  assert.equal(reader.findFieldControl(documentRef, "cargo", form.identity, form.generation), currentCargo);
+  assert.equal(
+    reader.findFieldControl(documentRef, "cargo", { ...form.identity, processKey: "999999/2025" }, form.generation),
+    null,
+  );
+  assert.equal(reader.findFieldControl(documentRef, "cargo", form.identity, form.generation + 1), null);
+
+  const result = filler.applyFill({
+    documentRef,
+    identity: form.identity,
+    generation: form.generation,
+    fields: { cargo: "Professor" },
+  });
+
+  assert.equal(result.field_results.cargo.status, "changed");
+  assert.equal(oldCargo.writeCount, 0, "the hidden stale form is never a write target");
+  assert.equal(currentCargo.value, "Professor");
+  assert.equal(currentCargo.writeCount, 1);
+});
 
 test("the native value setter is used and the events bubble", () => {
   const { documentRef, form } = preparedForm();
@@ -209,6 +273,7 @@ test("a reread failure is field-local and a later field still runs", () => {
       if (calls !== 2) return real;
       return { ...real, fields: { ...real.fields, cargo: { ...real.fields.cargo, value: "" } } };
     },
+    findFieldControl: reader.findFieldControl,
   };
 
   const result = filler.applyFill({
@@ -237,6 +302,7 @@ test("a field reread exception is local when identity can still be confirmed", (
       if (calls === 2) throw new Error("releitura do cargo falhou");
       return reader.readForm(documentReference);
     },
+    findFieldControl: reader.findFieldControl,
     readProcess: reader.readProcess,
     readInterested: reader.readInterested,
     isVisibleForm: reader.isVisibleForm,

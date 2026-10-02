@@ -95,11 +95,9 @@
     dispatchBubblingEvents(documentRef, control);
   }
 
-  function controlOf(documentRef, field) {
-    const reader = globalThis.TCEFormReader;
-    const id = reader?.FIELD_MAP?.[field];
-    if (!id) return null;
-    return typeof documentRef?.getElementById === "function" ? documentRef.getElementById(id) : null;
+  function controlOf(documentRef, field, reader, form) {
+    if (typeof reader?.findFieldControl !== "function") return null;
+    return reader.findFieldControl(documentRef, field, form.identity, form.generation);
   }
 
   function identityFromReader(reader, documentRef) {
@@ -156,7 +154,7 @@
     const fieldResults = {};
     const plans = Object.entries(fields).map(([field, proposedValue]) => {
       const proposal = proposedValue === null || proposedValue === undefined ? "" : String(proposedValue);
-      const control = controlOf(documentRef, field);
+      const control = controlOf(documentRef, field, reader, before);
       const current = String(before.fields?.[field]?.value ?? control?.value ?? "");
       const entry = {
         before: current,

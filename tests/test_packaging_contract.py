@@ -468,6 +468,57 @@ class BuilderContractTests(unittest.TestCase):
         verification = powershell(VERIFIER, "-ZipPath", destination, "-SkipSmoke")
         self.assertNotEqual(verification.returncode, 0)
 
+    def test_manual_fill_bootstrap_is_opt_in_and_bound_to_the_package_build(self):
+        destination = self.tmp / "bootstrap.zip"
+        result = self.build(
+            "-OutputPath",
+            destination,
+            "-StagingRoot",
+            "staging-package-bootstrap",
+            "-EnableManualFormFillQualificationBootstrap",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        with zipfile.ZipFile(destination) as handle:
+            bootstrap = json.loads(
+                handle.read("app/reliability-bootstrap.json").decode("utf-8")
+            )
+            package = json.loads(handle.read("package-manifest.json").decode("utf-8"))
+        self.assertEqual(bootstrap["schema"], 1)
+        self.assertEqual(bootstrap["build_id"], package["build_id"])
+        self.assertEqual(
+            bootstrap["capabilities"], {"manual_form_fill": "EXPERIMENTAL"}
+        )
+        declared = {item["path"] for item in package["files"]}
+        self.assertIn("app/reliability-bootstrap.json", declared)
+        verified = powershell(
+            VERIFIER,
+            "-ZipPath",
+            destination,
+            "-AllowMissingRuntime",
+            "-SkipSmoke",
+            "-RequireManualFormFillQualificationBootstrap",
+        )
+        self.assertEqual(verified.returncode, 0, verified.stdout + verified.stderr)
+
+    def test_default_build_does_not_include_manual_fill_bootstrap(self):
+        destination = self.tmp / "without-bootstrap.zip"
+        result = self.build(
+            "-OutputPath", destination, "-StagingRoot", "staging-package-no-bootstrap"
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        with zipfile.ZipFile(destination) as handle:
+            self.assertNotIn("app/reliability-bootstrap.json", handle.namelist())
+        rejected = powershell(
+            VERIFIER,
+            "-ZipPath",
+            destination,
+            "-AllowMissingRuntime",
+            "-SkipSmoke",
+            "-RequireManualFormFillQualificationBootstrap",
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("bootstrap", (rejected.stdout + rejected.stderr).lower())
+
     def test_built_package_preserves_the_trusted_extension_identity(self):
         destination = self.tmp / "identity.zip"
 

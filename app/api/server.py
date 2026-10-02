@@ -84,6 +84,7 @@ MAX_BODY_BYTES = 8 * 1024 * 1024
 
 #: Fallback build identity when neither the override nor the checkout resolves.
 UNKNOWN_BUILD_ID = "unknown-build"
+RELIABILITY_BOOTSTRAP_MANIFEST = REPO_ROOT / "app" / "reliability-bootstrap.json"
 
 
 def _reliability_build_id() -> str:
@@ -143,6 +144,42 @@ def _reliability_environment() -> str:
 
     value = str(os.environ.get("ATOS_TCE_RELIABILITY_ENVIRONMENT") or "").strip()
     return value if value in ENVIRONMENTS else "real-dev"
+
+
+def _apply_packaged_reliability_bootstrap(data_root: Path) -> bool:
+    """Apply the one allowed package seed, bound to this exact build."""
+
+    manifest_path = Path(RELIABILITY_BOOTSTRAP_MANIFEST)
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(payload, Mapping) or set(payload) != {
+        "schema",
+        "build_id",
+        "capabilities",
+    }:
+        return False
+    schema = payload.get("schema")
+    if not isinstance(schema, int) or isinstance(schema, bool) or schema != 1:
+        return False
+    manifest_build = payload.get("build_id")
+    if not isinstance(manifest_build, str) or not re.fullmatch(
+        r"[0-9a-fA-F]{7,64}", manifest_build
+    ):
+        return False
+    package_build = _packaged_build_id()
+    if not package_build or manifest_build.lower() != package_build.lower():
+        return False
+    capabilities = payload.get("capabilities")
+    if not isinstance(capabilities, Mapping) or dict(capabilities) != {
+        "manual_form_fill": "EXPERIMENTAL"
+    }:
+        return False
+    recorder = ReliabilityRecorder(data_root, manifest_build)
+    return recorder.bootstrap_experimental_if_unset(
+        "manual_form_fill", reason="approved package bootstrap"
+    )
 
 #: Command types the Mesa may queue for the thin extension. There is never a
 #: submit type: the final completion click stays with the operator.
@@ -450,6 +487,7 @@ class MesaServer(ThreadingHTTPServer):
         self._portal_selection: PortalSelectionTracker | None = None
         # The lazy properties below are first touched by concurrent HTTP threads.
         self._lazy_lock = threading.Lock()
+        _apply_packaged_reliability_bootstrap(self.data_root)
 
     @property
     def analysis(self) -> AnalysisService:

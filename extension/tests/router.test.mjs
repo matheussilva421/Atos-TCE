@@ -959,6 +959,55 @@ test("the router answers the sidepanel READ_CURRENT_FORM message", async () => {
   assert.equal(response.form.identity.processKey, "102391/2026");
 });
 
+test("READ_CURRENT_FORM preserves FORM_AMBIGUOUS reported inside one frame", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 8, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) =>
+      message.type === "READ_FORM"
+        ? { ok: false, code: "FORM_AMBIGUOUS", error: "duas estruturas visíveis" }
+        : { ok: false },
+  });
+  installRouter({
+    api: { nextCommand: async () => ({ ok: true, command: null }), reportResult: async () => {} },
+    chromeApi,
+  });
+
+  const response = await sendRuntime(chromeApi, { type: "READ_CURRENT_FORM" });
+
+  assert.equal(response.ok, false);
+  assert.equal(response.code, "FORM_AMBIGUOUS");
+});
+
+test("the background heartbeat preserves a current-form ambiguity when Mesa is active", async () => {
+  const published = [];
+  const chromeApi = fakeChrome({
+    tabs: [
+      { id: 1, active: true, url: "http://127.0.0.1:18743/" },
+      { id: 2, active: false, url: `${PORTAL}/complementarato.asp` },
+    ],
+    onMessage: (message, tabId) =>
+      message.type === "READ_FORM" && tabId === 2
+        ? { ok: false, code: "FORM_AMBIGUOUS", error: "duas estruturas visíveis" }
+        : { ok: false },
+  });
+  const router = installRouter({
+    api: {
+      nextCommand: async () => ({ ok: true, command: null }),
+      reportResult: async () => {},
+      publishCurrentSelection: async (observation) => {
+        published.push(observation);
+        return { ok: true };
+      },
+    },
+    chromeApi,
+  });
+
+  await router.observeCurrentForm();
+
+  assert.equal(published.length, 1);
+  assert.deepEqual(published[0], { active: false, code: "FORM_AMBIGUOUS" });
+});
+
 test("the router answers MESA_STATUS through the Mesa API", async () => {
   const chromeApi = fakeChrome();
   installRouter({

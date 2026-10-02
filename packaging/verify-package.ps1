@@ -5,7 +5,8 @@ param(
     [switch]$SkipSmoke,
     [string]$ExtractRoot,
     [int]$HealthTimeoutSeconds = 90,
-    [string]$ExpectedBuildId
+    [string]$ExpectedBuildId,
+    [switch]$RequireManualFormFillQualificationBootstrap
 )
 
 $ErrorActionPreference = 'Stop'
@@ -580,6 +581,50 @@ try {
     if ($packageBuildId -notmatch '^[0-9a-fA-F]{7,64}$') {
         throw "package-manifest.json sem build_id válido: '$packageBuildId'"
     }
+    $bootstrapPath = 'app/reliability-bootstrap.json'
+    $bootstrapVerified = $false
+    if ($entries.ContainsKey($bootstrapPath)) {
+        $bootstrapStream = $entries[$bootstrapPath].Open()
+        try {
+            $bootstrapReader = New-Object IO.StreamReader($bootstrapStream)
+            try { $bootstrapText = $bootstrapReader.ReadToEnd() } finally { $bootstrapReader.Dispose() }
+        } finally {
+            $bootstrapStream.Dispose()
+        }
+        try {
+            $bootstrap = $bootstrapText | ConvertFrom-Json
+        } catch {
+            throw "Manifesto de bootstrap inválido: $($_.Exception.Message)"
+        }
+        $bootstrapKeys = @($bootstrap.PSObject.Properties.Name | Sort-Object)
+        if (($bootstrapKeys -join ',') -cne 'build_id,capabilities,schema') {
+            throw 'Manifesto de bootstrap deve conter somente schema, build_id e capabilities.'
+        }
+        $bootstrapSchemaType = if ($null -eq $bootstrap.schema) { '' } else { $bootstrap.schema.GetType().FullName }
+        if (@('System.Int32', 'System.Int64') -notcontains $bootstrapSchemaType -or [long]$bootstrap.schema -ne 1) {
+            throw 'Manifesto de bootstrap com schema desconhecido.'
+        }
+        $bootstrapBuildType = if ($null -eq $bootstrap.build_id) { '' } else { $bootstrap.build_id.GetType().FullName }
+        if ($bootstrapBuildType -cne 'System.String' -or $bootstrap.build_id -cne $packageBuildId) {
+            throw 'Manifesto de bootstrap declara build_id divergente do pacote.'
+        }
+        $bootstrapCapabilityProperties = @($bootstrap.capabilities.PSObject.Properties)
+        if (
+            $null -eq $bootstrap.capabilities -or
+            $bootstrapCapabilityProperties.Count -ne 1 -or
+            $bootstrapCapabilityProperties[0].Name -cne 'manual_form_fill' -or
+            $bootstrapCapabilityProperties[0].Value.GetType().FullName -cne 'System.String' -or
+            [string]$bootstrapCapabilityProperties[0].Value -cne 'EXPERIMENTAL'
+        ) {
+            throw 'Manifesto de bootstrap pode habilitar somente manual_form_fill=EXPERIMENTAL.'
+        }
+        $bootstrapVerified = $true
+    } elseif ($RequireManualFormFillQualificationBootstrap) {
+        throw 'Pacote sem o manifesto de bootstrap exigido para manual_form_fill.'
+    }
+    if ($RequireManualFormFillQualificationBootstrap -and -not $bootstrapVerified) {
+        throw 'Manifesto de bootstrap de manual_form_fill não foi validado.'
+    }
     # A package that carries the embedded runtime is release-shaped, so it must
     # come from a committed tree. A runtime-less package is a declared contract
     # fixture and may honestly report a dirty source.
@@ -643,6 +688,10 @@ try {
             if ($relative.Contains('"')) {
                 throw "Proveniência não comprovada: nome de entrada irregular em $relative."
             }
+            # This exact file is generated after the commit from its build ID;
+            # its strict schema and payload were validated above. Every other
+            # product byte still has to match the named Git tree.
+            if ($bootstrapVerified -and $relative -ceq $bootstrapPath) { continue }
             $committed = @(& git -C $RepositoryRoot rev-parse "$($packageBuildId):$relative" 2>$null)
             if ($committed.Count -eq 0 -or [string]::IsNullOrWhiteSpace([string]$committed[0])) {
                 throw "Proveniência não comprovada: $relative não está no commit $packageBuildId."

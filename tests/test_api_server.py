@@ -15,6 +15,7 @@ from unittest import mock
 from urllib.error import HTTPError
 from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
+from app.api import server as server_module
 from app.api.bridge import Bridge, TRUSTED_EXTENSION_ID
 from app.api.server import _reliability_build_id, serve
 from app.archive.legacy_import import blob_path, sha256_file
@@ -105,6 +106,8 @@ class ApiTestCase(unittest.TestCase):
                 )
             ],
         )
+
+
         self.store.add_workflow_event(self.process_id, "analysis_finished", {"status": "PRONTO"})
 
     def serve_kwargs(self) -> dict:
@@ -2712,3 +2715,175 @@ class PortalCurrentSelectionTests(ApiTestCase):
             self.claim_tokens = getattr(self, "claim_tokens", {})
             self.claim_tokens[int(command["id"])] = command.get("claim_token")
         return command
+
+    def test_hidden_old_form_through_real_detector_heartbeat_and_local_fill(self):
+        helper = REPO_ROOT / "extension" / "tests" / "helpers" / "current-selection-smoke.mjs"
+        client_id = self.extension["X-TCE-Client"]
+        token = self.extension["Authorization"].split(" ", 1)[1]
+        extension_id = TRUSTED_EXTENSION_ID
+        completed = subprocess.run(
+            ["node", str(helper), self.base, client_id, token, extension_id],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        smoke = json.loads(completed.stdout)
+        self.assertTrue(smoke["poll"]["ok"])
+        self.assertEqual(len(smoke["publications"]), 1)
+        published = smoke["publications"][0]
+        self.assertTrue(published["result"]["ok"], published["result"])
+        self.assertEqual(
+            published["observation"]["form"]["identity"]["processKey"],
+            "102390/2026",
+        )
+        self.assertEqual(published["result"]["payload"]["state"], "MATCHED")
+
+        state = self.selection()
+        self.assertEqual(state["state"], "MATCHED")
+        self.assertEqual(state["process_id"], self.process_id)
+        self.assertNotIn("fields", state)
+        self.assertEqual(self.command_types(), [])
+
+        status, _headers, started = self.click_fill_current()
+        self.assertEqual(status, 201, started)
+        self.assertEqual(started["mode"], "manual")
+        command = self.claim()
+        self.assertEqual(command["type"], "FILL_FORM")
+        planned = command["payload"]["fields"]
+        self.assertEqual(planned["cargo"], "Professor")
+        self.assertEqual(self.command_types(), ["FILL_FORM"])
+
+        completed = subprocess.run(
+            ["node", str(helper), "fill"],
+            cwd=str(REPO_ROOT),
+            input=json.dumps(command["payload"]),
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        applied = json.loads(completed.stdout)
+        result = applied["result"]
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["identity"], command["payload"]["identity"])
+        self.assertEqual(result["field_results"]["cargo"]["status"], "changed")
+        self.assertEqual(applied["oldCargo"], {"value": "", "writeCount": 0})
+        self.assertEqual(applied["currentCargo"]["value"], planned["cargo"])
+        self.assertEqual(applied["currentCargo"]["writeCount"], 1)
+        status, _headers, reported = self.call_json(
+            f"/api/v1/extension/commands/{command['id']}/result",
+            method="POST",
+            headers=self.extension,
+            body={**result, "claim_token": command.get("claim_token")},
+        )
+        self.assertEqual(status, 200, reported)
+
+        finished = self.store.get_fill_request(started["fill_request_id"])
+        self.assertEqual(finished["state"], "PREENCHIDO")
+        self.assertTrue(finished["form_snapshot"]["summary"]["best_effort_satisfied"])
+        self.assertTrue(finished["form_snapshot"]["summary"]["mandatory_satisfied"])
+        self.assertEqual(self.command_types(), ["FILL_FORM"])
+
+
+class PackagedReliabilityBootstrapTests(unittest.TestCase):
+    """A package-approved clean install can start AR-1 without synthetic runs."""
+
+    def write_bootstrap(self, path: Path, build: str) -> None:
+        path.write_text(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "build_id": build,
+                    "capabilities": {"manual_form_fill": "EXPERIMENTAL"},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def start_packaged_server(self, data_root: Path, manifest: Path, build: str) -> None:
+        store = Store.open(data_root / "atos-tce.db")
+        server = None
+        try:
+            with mock.patch.object(
+                server_module,
+                "RELIABILITY_BOOTSTRAP_MANIFEST",
+                manifest,
+                create=True,
+            ), mock.patch.object(
+                server_module, "_reliability_build_id", return_value=build
+            ), mock.patch.object(
+                server_module, "_packaged_build_id", return_value=build
+            ):
+                server = serve(store, data_root, port=0, bridge=Bridge())
+        finally:
+            if server is not None:
+                server.server_close()
+            store.close()
+
+    def test_clean_approved_install_bootstraps_only_manual_fill_and_preserves_downgrade(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            data_root = root / "data"
+            manifest = root / "reliability-bootstrap.json"
+            build = "a" * 40
+            self.write_bootstrap(manifest, build)
+
+            self.start_packaged_server(data_root, manifest, build)
+
+            recorder = ReliabilityRecorder(data_root, build)
+            capabilities = recorder.capabilities()
+            self.assertEqual(capabilities["manual_form_fill"]["state"], "EXPERIMENTAL")
+            self.assertEqual(capabilities["manual_form_fill"]["real_dev_streak"], 0)
+            self.assertEqual(capabilities["manual_form_fill"]["portable_streak"], 0)
+            for name, entry in capabilities.items():
+                if name != "manual_form_fill":
+                    self.assertEqual(entry["state"], "UNQUALIFIED", name)
+            self.assertFalse((recorder.root / "events.jsonl").exists())
+            self.assertFalse((recorder.root / "identity.key").exists())
+
+            recorder.downgrade("manual_form_fill", reason="downgrade explicit test")
+            self.start_packaged_server(data_root, manifest, build)
+
+            self.assertEqual(
+                ReliabilityRecorder(data_root, build).capabilities()["manual_form_fill"]["state"],
+                "UNQUALIFIED",
+            )
+
+    def test_bootstrap_from_another_build_does_not_apply(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            data_root = root / "data"
+            manifest = root / "reliability-bootstrap.json"
+            self.write_bootstrap(manifest, "b" * 40)
+
+            self.start_packaged_server(data_root, manifest, "a" * 40)
+
+            self.assertEqual(
+                ReliabilityRecorder(data_root, "a" * 40).capabilities()["manual_form_fill"]["state"],
+                "UNQUALIFIED",
+            )
+            self.assertFalse((data_root / "reliability" / "events.jsonl").exists())
+
+    def test_bootstrap_cannot_follow_environment_override_away_from_package_build(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            data_root = root / "data"
+            manifest = root / "reliability-bootstrap.json"
+            approved_build = "a" * 40
+            package_build = "b" * 40
+            self.write_bootstrap(manifest, approved_build)
+
+            with mock.patch.object(server_module, "RELIABILITY_BOOTSTRAP_MANIFEST", manifest), mock.patch.object(
+                server_module, "_packaged_build_id", return_value=package_build
+            ), mock.patch.dict(os.environ, {"ATOS_TCE_BUILD_ID": approved_build}):
+                applied = server_module._apply_packaged_reliability_bootstrap(data_root)
+
+            self.assertFalse(applied)
+            self.assertEqual(
+                ReliabilityRecorder(data_root, approved_build).capabilities()["manual_form_fill"]["state"],
+                "UNQUALIFIED",
+            )

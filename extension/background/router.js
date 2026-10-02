@@ -687,6 +687,9 @@ export function installRouter({
       return { ok: false, code: "PORTAL_NOT_AVAILABLE", error: "Nenhuma aba autenticada da Área Restrita está aberta." };
     }
     const formAnswers = await askFrames({ type: MESSAGE_TYPES.READ_FORM }, frames);
+    if (formAnswers.some((answer) => answer.response?.code === "FORM_AMBIGUOUS")) {
+      return { ok: false, code: "FORM_AMBIGUOUS", error: "há mais de uma estrutura de ato visível" };
+    }
     const exactForms = formAnswers.filter(
       (answer) => answer.response?.ok === true && answer.response.form &&
         sameIdentity(answer.response.form.identity, identity)
@@ -764,6 +767,8 @@ export function installRouter({
    */
   async function locateFormFrame(identity) {
     const answers = await askFrames({ type: MESSAGE_TYPES.READ_FORM, payload: { identity } });
+    const ambiguous = answers.filter((answer) => answer.response?.code === "FORM_AMBIGUOUS");
+    if (ambiguous.length > 0) return { ambiguous: ambiguous.length };
     const matches = answers.filter(
       (answer) =>
         answer.response?.ok === true &&
@@ -798,7 +803,11 @@ export function installRouter({
   }
 
   async function readCurrentPortalForm() {
-    const forms = (await askFrames({ type: MESSAGE_TYPES.READ_FORM })).filter(
+    const answers = await askFrames({ type: MESSAGE_TYPES.READ_FORM });
+    if (answers.some((answer) => answer.response?.code === "FORM_AMBIGUOUS")) {
+      return { ok: false, code: "FORM_AMBIGUOUS" };
+    }
+    const forms = answers.filter(
       (answer) => answer.response?.ok === true && answer.response.form
     );
     if (forms.length > 1) return { ok: false, code: "FORM_AMBIGUOUS" };
@@ -870,10 +879,14 @@ export function installRouter({
   }
 
   async function readExactTargetForm(identity) {
-    const forms = (await askFrames({
+    const answers = await askFrames({
       type: MESSAGE_TYPES.READ_FORM,
       payload: { identity },
-    })).filter((answer) => answer.response?.ok === true && answer.response.form);
+    });
+    if (answers.some((answer) => answer.response?.code === "FORM_AMBIGUOUS")) {
+      return { ok: false, code: "FORM_AMBIGUOUS" };
+    }
+    const forms = answers.filter((answer) => answer.response?.ok === true && answer.response.form);
     if (forms.length > 1) return { ok: false, code: "FORM_AMBIGUOUS" };
     if (forms.length === 0) return { ok: false, code: "FORM_NOT_AVAILABLE" };
     const found = forms[0];
@@ -962,15 +975,25 @@ export function installRouter({
       };
     }
     const matches = [];
+    let ambiguousFrame = false;
     for (const frame of await framesOfTab(tab.id)) {
       try {
         const response = await sendToFrame(tab.id, frame.frameId, { type: MESSAGE_TYPES.READ_FORM });
         if (response?.ok === true && response.form) {
           matches.push({ form: response.form, frameId: frame.frameId });
+        } else if (response?.code === "FORM_AMBIGUOUS") {
+          ambiguousFrame = true;
         }
       } catch {
         // A frame that is navigating is simply not a candidate.
       }
+    }
+    if (ambiguousFrame) {
+      return {
+        ok: false,
+        code: "FORM_AMBIGUOUS",
+        error: "mais de uma estrutura visível corresponde ao formulário do ato",
+      };
     }
     if (matches.length === 1) {
       lastFormDiagnostics = formDiagnostics(tab, matches[0]);

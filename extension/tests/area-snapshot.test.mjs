@@ -9,6 +9,7 @@ import {
   buildInterestedDocument,
   buildListDocument,
   cell,
+  FakeDocument,
   FakeElement,
   greenComplementIcon,
   listRow,
@@ -25,7 +26,24 @@ const {
   findNextPageControl,
   legacyPaginationPlan,
   submitLegacyPagination,
+  selectedInterestedInScope,
 } = globalThis.TCEAreaSnapshot;
+
+test("selectedInterestedInScope maps visible tables without treating the index as a predicate", () => {
+  const documentRef = new FakeDocument({ screen: "form" });
+  const table = new FakeElement("table", { id: "PessoasAssocicadas" });
+  const row = new FakeElement("tr");
+  const radio = new FakeElement("input", { attrs: { type: "radio" } });
+  radio.checked = true;
+  radio.setAttribute("data-interested-name", "Pessoa Exemplo");
+  row.append(cell("Pessoa Exemplo"), radio);
+  table.append(row);
+  documentRef.body.append(table);
+
+  assert.deepEqual(selectedInterestedInScope(documentRef), [
+    { original: "Pessoa Exemplo", normalized: "pessoa exemplo" },
+  ]);
+});
 
 test("a list page exposes scope, marker, page and rows", () => {
   const documentRef = buildListDocument({
