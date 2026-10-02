@@ -595,3 +595,23 @@ Revisão independente read-only foi concluída antes da reprodução HTTP stale 
 | `git diff --check` | PASS antes deste adendo; repetir após edição |
 
 Nenhum código de produto foi alterado. O ZIP continua sendo o produto até `db73386`; esta auditoria não autoriza usar o ZIP para qualification diante dos findings P0/P1. Próxima sequência: primeiro corrigir com RED/GREEN o vínculo do clique Portal Atual à observação A, a integridade das transições do ledger e o vínculo documento/generation; resolver a contradição de escopo e fechar AR-2/AR-3 por capability; depois cobrir perfis concorrentes e reconciliar documentação; rodar gates e CI; construir/verificar novo ZIP com SHA novo; só então aguardar autorização/ação humana para iniciar AR-1 real em 0/20. Continuam proibidos nesta tarefa: acesso real ao portal, teste AR-1, promoção, AR-2/AR-3 e merge em `main`.
+
+## 18. Execução do Goal 02-10 (2026-10-02)
+
+### Estado retomado
+
+- Branch canônica sincronizada após `git fetch origin --prune` e `git pull --ff-only`: baseline `4146bfbf4327c208875da6635597e07a1e627264`; árvore inicialmente limpa.
+- O objetivo deste Goal substitui o ZIP `db73386` para qualification. Nenhum novo `AR1_BUILD` ou ZIP foi criado ainda.
+- A Área Restrita real não foi acessada; login, navegador do portal, AR-1, AR-2, AR-3 e promoção de capability não foram executados.
+
+### P0 #1 — ledger de qualification: corrigido localmente
+
+- RED confirmado antes da implementação: `python -m unittest tests.test_area_restrita_reliability.ReliabilityRecorderTestCase` executou 36 testes e falhou em 11 casos novos. O caso de 20 pares `run_start`/`run_finished(passed=true)` sem transições chegou a `qualified=true`; também passaram incorretamente casos com boundary ausente, fora de ordem/duplicado, identidade ou generation incompatível, falha intermediária e transição após terminal.
+- A sequência aceita para `manual_form_fill` agora é validada pelo leitor do ledger: `current_form_detected → manual_fill_requested → preflight_completed → fill_command_completed → reread_completed`. O evaluator exige estados e códigos de sucesso esperados, identidade esperada/observada igual em todos os boundaries, generation contínua quando presente e ausência de boundaries extras ou após o terminal. Um terminal positivo sem essa estrutura vira falha para contagem e promoção.
+- GREEN: `python -m unittest tests.test_area_restrita_reliability tests.test_api_server.PortalReliabilityRouteTests` — 60 testes, todos aprovados; `python -m unittest tests.test_fill_service.Ar1ManualFillReliabilityTests` — 25/25; `git diff --check` — PASS. O teste do endpoint prova que um ledger parcial com `passed=true` retorna streak 0. Os gates completos e CI ainda estão pendentes.
+- Commits locais: `b3799ad test(reliability): require complete qualification evidence`; `68c116f fix(reliability): validate qualification transition sequence`. O handoff atual é este commit documental, ainda a registrar/push junto ao bloco.
+- Arquivos de produto/teste tocados neste bloco: `app/area_restrita/reliability.py`, `tests/test_area_restrita_reliability.py`, `tests/test_api_server.py`.
+
+### Próxima etapa
+
+Continuar pelo P0 #2: carregar no clique a expectativa da observação renderizada e comparar/reservar atomicamente no backend; provar A→B com teste HTTP sintético RED/GREEN e garantir 409 sem request/comando. Depois avançar em ordem para P1 #1, P1 #2, hardenings P2/P3, revisão adversarial, gates, CI, novo build/ZIP, provenance e smoke sintético. Não usar portal real.
