@@ -427,24 +427,24 @@ Correção em `3b05f0639c9c17c0352cf7bf6dc54c8d08257845`: o verificador agora us
 ### 15.1 AR1_BUILD e ZIP limpo
 
 ```text
-AR1_BUILD: 3b05f0639c9c17c0352cf7bf6dc54c8d08257845
+AR1_BUILD: db73386f4d99a7ba713e605e9439f2dd90e28a74
 Arquivo: dist/Atos-TCE-portable-clean.zip
-Build id do package-manifest: 3b05f0639c9c17c0352cf7bf6dc54c8d08257845
+Build id do package-manifest: db73386f4d99a7ba713e605e9439f2dd90e28a74
 source_dirty: false
 Entradas: 526
 Arquivos de produto declarados: 94
 Arquivos de runtime: 430
-Tamanho: 96.212.165 bytes
-SHA-256: ec68831a6e2efe29109824314d4813e6239fa10660d9e21c4faa047c39a5f65a
+Tamanho: 96.212.161 bytes
+SHA-256: c803f80c2ad989037570fd5464216af9b4241dba72043d585c2e3734aa197c38
 Sidecar: dist/Atos-TCE-portable-clean.zip.sha256 (confere)
 Provenance bruta independente: 0 divergências em 93 arquivos de commit; bootstrap validado separadamente
 Bootstrap: schema 1, build correspondente, somente manual_form_fill=EXPERIMENTAL
 Arquivos privados/proibidos: 0
 ```
 
-O `verify-package.ps1 -ExpectedBuildId 3b05f06... -RequireManualFormFillQualificationBootstrap` passou com smoke (`health=ok`, schema 7, zero processos, build/runtime id correspondente, extensão 0.1.0). O encerramento do processo temporário emitiu aviso de acesso negado; verificação posterior confirmou pasta de extração removida, porta 60544 fechada e nenhum processo do smoke remanescente. O ZIP contém `current_selection.py`, heartbeat e `portal-current.js`.
+O `verify-package.ps1 -ExpectedBuildId db73386... -RequireManualFormFillQualificationBootstrap` passou com smoke (`health=ok`, schema 7, zero processos, build/runtime id correspondente, extensão 0.1.0). O encerramento do processo temporário emitiu aviso de acesso negado; verificação posterior confirmou pasta de extração removida, porta 49306 fechada e nenhum processo do smoke remanescente. O ZIP contém `current_selection.py`, heartbeat e `portal-current.js`.
 
-O ZIP anterior `88bc4ad` e seu sidecar foram preservados em `dist/archive/Atos-TCE-portable-clean-88bc4ad-pre-raw-provenance-fix.zip[.sha256]`. O artefato `e059793` também foi preservado em `dist/archive/Atos-TCE-portable-e059793-pre-raw-provenance-fix.zip`. Para fazer o contrato local exercitar o pacote atual, `dist/Atos-TCE-portable.zip` agora é uma cópia byte idêntica do ZIP clean; seu SHA-256 e sidecar são iguais ao clean.
+Os ZIPs anteriores `88bc4ad`, `e059793` e `3b05f06` foram preservados em `dist/archive/`, junto dos sidecars existentes. Para fazer o contrato local exercitar o pacote atual, `dist/Atos-TCE-portable.zip` é uma cópia byte idêntica do ZIP clean; seu SHA-256 e sidecar são iguais ao clean.
 
 ### 15.2 Gates locais e reliability
 
@@ -456,18 +456,18 @@ O ZIP anterior `88bc4ad` e seu sidecar foram preservados em `dist/archive/Atos-T
 | `work/tce-extractor/verify-project.ps1` | 1.260 executados, 1.258 aprovados, 0 falhas, 2 skips; 7/7 estágios verdes |
 | `git diff --check` | limpo |
 
-`python scripts/portal-reliability/capability-state.py --data-root data --capability manual_form_fill --experimental --build 3b05f0639c9c17c0352cf7bf6dc54c8d08257845` passou. Estado atual: `EXPERIMENTAL`, real-dev `0/20`, portable `0/20`; `events.jsonl` não existia e nenhum histórico foi apagado. `identity.key` foi preservada.
+`python scripts/portal-reliability/capability-state.py --data-root data --capability manual_form_fill --experimental --build db73386f4d99a7ba713e605e9439f2dd90e28a74` passou. Estado atual: `EXPERIMENTAL`, real-dev `0/20`, portable `0/20`; `events.jsonl` não existia e nenhum histórico foi apagado. `identity.key` foi preservada.
 
 ### 15.3 GitHub e retomada
 
-O commit de correção `3b05f06` está local e ainda precisa ser enviado junto com este handoff final. Depois de registrar o handoff, faça push sem force para `codex/area-restrita-reliability-reset` e acompanhe o workflow mais recente até `SUCCESS`, conferindo os cinco passos de `Offline gates (Windows)`. Se algum falhar, preserve logs, ZIP e estado local antes de nova mudança.
+O run `37016795459` para `43deb18` falhou em `Root Python suite`; extensão, web, pacote e whitespace foram pulados. O commit corretivo `db73386` e esta atualização de handoff ainda precisam ser enviados sem force para `codex/area-restrita-reliability-reset`. Depois do push, acompanhe o novo workflow até `SUCCESS` e confira os cinco passos de `Offline gates (Windows)`. Se algum falhar, preserve logs, ZIP e estado local antes de nova mudança.
 
 Nenhum portal, login, DevTools/Playwright no portal ou AR-1 real foi executado. `manual_form_fill` permanece `EXPERIMENTAL`; o primeiro run real segue aguardando o operador humano.
 
-### 15.4 Follow-up do CI (2026-10-02; em andamento)
+### 15.4 Follow-up do CI (2026-10-02)
 
 O run remoto `37016795459`, commit `43deb18b247ffa8ef87a56e9b06597891b246e51`, ainda falhou em `Root Python suite`: 839 testes, 5 falhas, 4 skips; as cinco falhas reportaram o mesmo blob transformado `6fa4f53...` para `LEIA-ME-OUTRO-PC.txt`, e as etapas posteriores foram puladas. Isso ocorreu mesmo com `hash-object --stdin` sem `--path`; o comportamento só apareceu no runner GitHub/PowerShell, enquanto a mesma suíte local passou.
 
-Para remover essa dependência ambiental, `Get-EntryBlobId` agora calcula diretamente SHA-1 de `blob <tamanho-em-bytes>\0 + bytes-do-ZIP` em .NET. A consulta do blob de referência continua via `git rev-parse`; nenhum processo Git recebe os bytes do pacote. Os quatro casos que falharam no CI passaram localmente e `python -m unittest tests.test_package_provenance -v` passou 28/28 após essa alteração. O commit `43deb18` e o ZIP `3b05f06` não fecham o gate remoto; gere outro commit/AR1_BUILD/ZIP após validar a correção final.
+Para remover essa dependência ambiental, `Get-EntryBlobId` calcula diretamente SHA-1 de `blob <tamanho-em-bytes>\0 + bytes-do-ZIP` em .NET. A consulta do blob de referência continua via `git rev-parse`; nenhum processo Git recebe os bytes do pacote. Os quatro casos que falharam no CI passaram localmente e `python -m unittest tests.test_package_provenance -v` passou 28/28. Depois disso, foram repetidos todos os gates: Python 839/839, extensão 254/254, web 65/65 e `verify-project.ps1` 1.260 executados, 1.258 aprovados, 0 falhas e 2 skips. O ZIP `db73386` passou no verificador, smoke e auditoria byte a byte.
 
-Retomada: completar a suíte Python e os gates locais sobre o hash .NET; arquivar o ZIP `3b05f06`; gerar e verificar novo ZIP com bootstrap, executar o reset `EXPERIMENTAL 0/20` no novo AR1_BUILD, atualizar este handoff, commitar e enviar; acompanhar um novo workflow até `SUCCESS` em cada etapa. Não repetir nem promover qualquer AR-1 real.
+Retomada: commitar esta última atualização, enviar `db73386` e o commit documental, então acompanhar o workflow novo até sucesso em todas as etapas. O build anterior `3b05f06` foi arquivado. Não repetir nem promover qualquer AR-1 real.
