@@ -13,7 +13,8 @@ if (!fillOnly && ![baseUrl, clientId, token, extensionId].every(Boolean)) {
 
 const contentListeners = [];
 // Separate Node invocations stand in for one retained synthetic browser
-// document in this end-to-end fixture, so pin only this helper's nonce source.
+// document/worker in this fixture; deterministically pin document and publisher
+// randomness here, only for this test helper.
 Object.defineProperty(globalThis, "crypto", {
   configurable: true,
   value: {

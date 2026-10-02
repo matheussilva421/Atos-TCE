@@ -37,6 +37,8 @@ FILL_RESERVED = "FILL_RESERVED"
 #: a URL, a query string or the portal's own text.
 _SCREEN = re.compile(r"[a-z][a-z0-9_]{0,31}")
 _OBSERVATION_ID = re.compile(r"[A-Za-z0-9_-]{43}")
+_PUBLISHER_ID = re.compile(r"[a-f0-9]{32}")
+_MAX_PUBLISHER_SEQUENCE = 2**53 - 1
 
 #: Refusal codes the fill entry point may raise. Both are AR-1 attempt failure
 #: codes, so a stale click stays a recorded failure instead of a server error.
@@ -101,12 +103,20 @@ class PortalSelectionTracker:
         self._expires_at: float | None = None
         self._snapshot: dict[str, Any] | None = None
         self._observation_id: str | None = None
+        self._publisher_id: str | None = None
+        self._publisher_sequence: int | None = None
         # Survives expiry: an expired MATCHED was still offered to the operator.
         self._offered = False
 
     # ------------------------------------------------------------ entry points
 
-    def observe(self, form_snapshot: Mapping[str, Any]) -> dict[str, Any]:
+    def observe(
+        self,
+        form_snapshot: Mapping[str, Any],
+        *,
+        publisher_id: str,
+        sequence: int,
+    ) -> dict[str, Any]:
         """Resolve one observed form exactly and publish the public state.
 
         Zero matches is NOT_FOUND and several matches is AMBIGUOUS; neither
@@ -114,8 +124,10 @@ class PortalSelectionTracker:
         itself is only read: an observation never changes a status.
         """
 
+        publisher_id, sequence = self._validate_publisher(publisher_id, sequence)
         observation = self._validate(form_snapshot)
         with self._lock:
+            self._accept_publisher_locked(publisher_id, sequence)
             try:
                 process = self._store.resolve_process_identity(
                     observation["process_key"],
@@ -131,6 +143,8 @@ class PortalSelectionTracker:
                     portal_act_id=observation["portal_act_id"],
                     generation=observation["generation"],
                     screen=observation["screen"],
+                    publisher_id=publisher_id,
+                    sequence=sequence,
                 )
             if process is None:
                 return self._publish_locked(
@@ -141,6 +155,8 @@ class PortalSelectionTracker:
                     portal_act_id=observation["portal_act_id"],
                     generation=observation["generation"],
                     screen=observation["screen"],
+                    publisher_id=publisher_id,
+                    sequence=sequence,
                 )
             return self._publish_locked(
                 MATCHED,
@@ -153,11 +169,20 @@ class PortalSelectionTracker:
                 # The private copy exists only to serve the fill of this exact
                 # form, and only while the observation is still fresh.
                 snapshot=copy.deepcopy(dict(form_snapshot)),
+                publisher_id=publisher_id,
+                sequence=sequence,
             )
 
-    def clear(self, code: str = "FORM_NOT_AVAILABLE") -> dict[str, Any]:
+    def clear(
+        self,
+        code: str = "FORM_NOT_AVAILABLE",
+        *,
+        publisher_id: str,
+        sequence: int,
+    ) -> dict[str, Any]:
         """Publish that no single fillable form is observed any more."""
 
+        publisher_id, sequence = self._validate_publisher(publisher_id, sequence)
         normalized = str(code or "").strip().upper() or "FORM_NOT_AVAILABLE"
         if normalized not in _CLEAR_CODES:
             normalized = "FORM_NOT_AVAILABLE"
@@ -168,7 +193,13 @@ class PortalSelectionTracker:
         else:
             state = NO_ACTIVE_FORM
         with self._lock:
-            return self._publish_locked(state, code=normalized)
+            self._accept_publisher_locked(publisher_id, sequence)
+            return self._publish_locked(
+                state,
+                code=normalized,
+                publisher_id=publisher_id,
+                sequence=sequence,
+            )
 
     def public_state(self) -> dict[str, Any]:
         """The minimum the Mesa may read: never the snapshot, never a name."""
@@ -259,6 +290,11 @@ class PortalSelectionTracker:
             self._snapshot = None
             self._observation_id = None
             self._expires_at = None
+            # The exact observation was consumed under this lock; release its
+            # publisher lease with the snapshot so the next observation can
+            # establish a fresh owner.
+            self._publisher_id = None
+            self._publisher_sequence = None
             self._observed_at = self._utcnow().isoformat()
 
     # ----------------------------------------------------------------- internals
@@ -310,6 +346,8 @@ class PortalSelectionTracker:
         generation: int | None = None,
         screen: str | None = None,
         snapshot: dict[str, Any] | None = None,
+        publisher_id: str,
+        sequence: int,
     ) -> dict[str, Any]:
         self._state = state
         self._code = code
@@ -321,6 +359,8 @@ class PortalSelectionTracker:
         self._generation = generation
         self._screen = screen
         self._snapshot = snapshot
+        self._publisher_id = publisher_id
+        self._publisher_sequence = sequence
         self._observed_at = self._utcnow().isoformat()
         self._expires_at = self._clock() + self._ttl
         self._observation_id = secrets.token_urlsafe(32) if state == MATCHED else None
@@ -361,4 +401,39 @@ class PortalSelectionTracker:
         self._expires_at = None
         self._snapshot = None
         self._observation_id = None
+        self._publisher_id = None
+        self._publisher_sequence = None
+
+    @staticmethod
+    def _validate_publisher(publisher_id: Any, sequence: Any) -> tuple[str, int]:
+        if not isinstance(publisher_id, str) or not _PUBLISHER_ID.fullmatch(publisher_id):
+            raise PortalSelectionError("INVALID_PUBLISHER", "publisher_id ausente ou inválido")
+        if (
+            isinstance(sequence, bool)
+            or not isinstance(sequence, int)
+            or sequence < 1
+            or sequence > _MAX_PUBLISHER_SEQUENCE
+        ):
+            raise PortalSelectionError("INVALID_SEQUENCE", "sequence ausente ou inválida")
+        return publisher_id, sequence
+
+    def _accept_publisher_locked(self, publisher_id: str, sequence: int) -> None:
+        self._sweep_locked()
+        if self._publisher_id is None:
+            self._publisher_id = publisher_id
+            self._publisher_sequence = sequence
+            return
+        if publisher_id != self._publisher_id:
+            raise PortalSelectionError(
+                "PUBLISHER_OWNED",
+                "a seleção atual ainda pertence a outro publisher ativo",
+                offered=self._offered,
+            )
+        if self._publisher_sequence is not None and sequence <= self._publisher_sequence:
+            raise PortalSelectionError(
+                "STALE_PUBLISHER",
+                "sequence do publisher não avançou",
+                offered=self._offered,
+            )
+        self._publisher_sequence = sequence
 

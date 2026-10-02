@@ -2481,6 +2481,8 @@ class PortalCurrentSelectionTests(ApiTestCase):
     def setUp(self):
         super().setUp()
         self.current_observation_id = None
+        self.publisher_id = "a" * 32
+        self.publisher_sequence = 0
         self.store.replace_fields(
             self.process_id,
             [
@@ -2517,12 +2519,25 @@ class PortalCurrentSelectionTests(ApiTestCase):
         form.update(overrides)
         return {"active": True, "form": form}
 
-    def publish(self, body):
+    def publish(self, body, *, publisher_id=None, sequence=None):
+        selected_publisher = publisher_id or self.publisher_id
+        if sequence is None:
+            self.publisher_sequence += 1
+            selected_sequence = self.publisher_sequence
+        else:
+            selected_sequence = sequence
+            if selected_publisher == self.publisher_id:
+                self.publisher_sequence = max(self.publisher_sequence, sequence)
+        published_body = (
+            {**body, "publisher_id": selected_publisher, "sequence": selected_sequence}
+            if isinstance(body, dict)
+            else body
+        )
         result = self.call_json(
             "/api/v1/portal/current-selection",
             method="POST",
             headers=self.extension,
-            body=body,
+            body=published_body,
         )
         if result[0] == 200:
             self.current_observation_id = result[2].get("observation_id")
@@ -2630,6 +2645,171 @@ class PortalCurrentSelectionTests(ApiTestCase):
         serialized = json.dumps(state)
         for private in ("interestedNormalized", "cargo", "pessoa exemplo"):
             self.assertNotIn(private, serialized)
+
+    def test_a_second_publisher_cannot_replace_a_live_selection(self):
+        publisher_a = "a" * 32
+        publisher_b = "b" * 32
+        status, _headers, first = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=self.extension,
+            body={**self.observation(), "publisher_id": publisher_a, "sequence": 10},
+        )
+        self.assertEqual(status, 200, first)
+
+        status, _headers, refused = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=self.extension,
+            body={
+                **self.observation(generation=5),
+                "publisher_id": publisher_b,
+                "sequence": 1,
+            },
+        )
+
+        self.assertEqual(status, 409, refused)
+        self.assertEqual(refused["detail"], "PUBLISHER_OWNED")
+        current = self.selection()
+        self.assertEqual(current["observation_id"], first["observation_id"])
+        self.assertEqual(current["generation"], 4)
+
+    def test_a_publisher_replay_cannot_regress_its_sequence(self):
+        publisher = "c" * 32
+        status, _headers, first = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=self.extension,
+            body={**self.observation(), "publisher_id": publisher, "sequence": 10},
+        )
+        self.assertEqual(status, 200, first)
+
+        status, _headers, refused = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=self.extension,
+            body={
+                **self.observation(generation=5),
+                "publisher_id": publisher,
+                "sequence": 9,
+            },
+        )
+
+        self.assertEqual(status, 409, refused)
+        self.assertEqual(refused["detail"], "STALE_PUBLISHER")
+        current = self.selection()
+        self.assertEqual(current["observation_id"], first["observation_id"])
+        self.assertEqual(current["generation"], 4)
+
+    def test_publisher_identity_and_sequence_are_validated_by_the_http_route(self):
+        cases = (
+            ({"active": True, "form": self.observation()["form"]}, "INVALID_PUBLISHER"),
+            (
+                {**self.observation(), "publisher_id": "A" * 32, "sequence": 1},
+                "INVALID_PUBLISHER",
+            ),
+            (
+                {**self.observation(), "publisher_id": "d" * 32, "sequence": True},
+                "INVALID_SEQUENCE",
+            ),
+            (
+                {**self.observation(), "publisher_id": "d" * 32, "sequence": 0},
+                "INVALID_SEQUENCE",
+            ),
+            (
+                {**self.observation(), "publisher_id": "d" * 32, "sequence": "1"},
+                "INVALID_SEQUENCE",
+            ),
+            (
+                {
+                    **self.observation(),
+                    "publisher_id": "d" * 32,
+                    "sequence": 2**53,
+                },
+                "INVALID_SEQUENCE",
+            ),
+        )
+        for body, detail in cases:
+            with self.subTest(detail=detail, body=body):
+                status, _headers, payload = self.call_json(
+                    "/api/v1/portal/current-selection",
+                    method="POST",
+                    headers=self.extension,
+                    body=body,
+                )
+                self.assertEqual(status, 400, payload)
+                self.assertEqual(payload["error"], "invalid_current_selection")
+                self.assertEqual(payload["detail"], detail)
+
+        self.assertEqual(self.selection()["state"], "NO_ACTIVE_FORM")
+
+    def test_publisher_metadata_is_transient_and_never_public_or_logged(self):
+        publisher_id = "e" * 32
+        status, _headers, _payload = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=self.extension,
+            body={
+                **self.observation(),
+                "publisher_id": publisher_id,
+                "sequence": 1,
+            },
+        )
+        self.assertEqual(status, 200)
+
+        public_state = self.selection()
+        serialized_state = json.dumps(public_state)
+        self.assertNotIn("publisher_id", serialized_state)
+        self.assertNotIn("sequence", serialized_state)
+        self.assertNotIn(publisher_id, serialized_state)
+        self.assertEqual(self.reliability_events(), [])
+        self.assertFalse((self.data_root / "reliability" / "events.jsonl").exists())
+
+    def test_a_conflicting_or_replayed_publisher_cannot_clear_an_observation(self):
+        publisher_a = "a" * 32
+        publisher_b = "b" * 32
+        status, _headers, matched = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=self.extension,
+            body={**self.observation(), "publisher_id": publisher_a, "sequence": 10},
+        )
+        self.assertEqual(status, 200, matched)
+
+        for publisher, sequence, detail in (
+            (publisher_b, 1, "PUBLISHER_OWNED"),
+            (publisher_a, 10, "STALE_PUBLISHER"),
+        ):
+            with self.subTest(detail=detail):
+                status, _headers, payload = self.call_json(
+                    "/api/v1/portal/current-selection",
+                    method="POST",
+                    headers=self.extension,
+                    body={
+                        "active": False,
+                        "code": "FORM_NOT_AVAILABLE",
+                        "publisher_id": publisher,
+                        "sequence": sequence,
+                    },
+                )
+                self.assertEqual(status, 409, payload)
+                self.assertEqual(payload["error"], "current_selection_refused")
+                self.assertEqual(payload["detail"], detail)
+                self.assertEqual(self.selection()["observation_id"], matched["observation_id"])
+
+        status, _headers, cleared = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=self.extension,
+            body={
+                "active": False,
+                "code": "FORM_NOT_AVAILABLE",
+                "publisher_id": publisher_a,
+                "sequence": 11,
+            },
+        )
+        self.assertEqual(status, 200, cleared)
+        self.assertEqual(cleared["state"], "NO_ACTIVE_FORM")
 
     def test_the_observed_fill_is_available_for_a_process_that_is_not_pronto(self):
         self.store.set_process_status(self.process_id, "REVISAR")
@@ -2885,6 +3065,28 @@ class PortalCurrentSelectionTests(ApiTestCase):
         self.assertEqual(len(finished), 1)
         self.assertFalse(finished[0]["passed"])
         self.assertEqual(finished[0]["result_code"], "FORM_NOT_AVAILABLE")
+
+    def test_two_simultaneous_clicks_consume_one_observation_once(self):
+        self.publish(self.observation())
+        observation_id = self.current_observation_id
+        gate = threading.Barrier(3)
+        results = []
+
+        def click():
+            gate.wait(timeout=5)
+            results.append(self.click_fill_current(observation_id=observation_id))
+
+        workers = [threading.Thread(target=click) for _ in range(2)]
+        for worker in workers:
+            worker.start()
+        gate.wait(timeout=5)
+        for worker in workers:
+            worker.join(timeout=10)
+
+        self.assertTrue(all(not worker.is_alive() for worker in workers))
+        self.assertCountEqual([result[0] for result in results], [201, 409])
+        self.assertEqual(len(self.store.list_fill_requests()), 1)
+        self.assertEqual(self.command_types(), ["FILL_FORM"])
 
     def test_a_not_found_selection_is_never_an_attempt(self):
         self.publish(

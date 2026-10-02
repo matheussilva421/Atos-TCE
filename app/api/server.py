@@ -1134,22 +1134,45 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         if not isinstance(active, bool):
             self._send_json({"error": "invalid_current_selection"}, status=400)
             return
+        publisher_id = payload.get("publisher_id")
+        sequence = payload.get("sequence")
         if not active:
             code = str(payload.get("code") or "").strip().upper()
             if code not in PORTAL_INACTIVE_CODES:
                 self._send_json({"error": "invalid_current_selection"}, status=400)
                 return
-            self._send_json(self.mesa.portal_selection.clear(code))
+            try:
+                state = self.mesa.portal_selection.clear(
+                    code, publisher_id=publisher_id, sequence=sequence
+                )
+            except PortalSelectionError as error:
+                conflict = error.code in {"PUBLISHER_OWNED", "STALE_PUBLISHER"}
+                self._send_json(
+                    {
+                        "error": "current_selection_refused" if conflict else "invalid_current_selection",
+                        "detail": error.code,
+                    },
+                    status=409 if conflict else 400,
+                )
+                return
+            self._send_json(state)
             return
         form = payload.get("form")
         if not isinstance(form, Mapping):
             self._send_json({"error": "invalid_current_selection"}, status=400)
             return
         try:
-            state = self.mesa.portal_selection.observe(form)
+            state = self.mesa.portal_selection.observe(
+                form, publisher_id=publisher_id, sequence=sequence
+            )
         except PortalSelectionError as error:
+            conflict = error.code in {"PUBLISHER_OWNED", "STALE_PUBLISHER"}
             self._send_json(
-                {"error": "invalid_current_selection", "detail": error.code}, status=400
+                {
+                    "error": "current_selection_refused" if conflict else "invalid_current_selection",
+                    "detail": error.code,
+                },
+                status=409 if conflict else 400,
             )
             return
         self._send_json(state)

@@ -1005,7 +1005,7 @@ test("the background heartbeat preserves a current-form ambiguity when Mesa is a
   await router.observeCurrentForm();
 
   assert.equal(published.length, 1);
-  assert.deepEqual(published[0], { active: false, code: "FORM_AMBIGUOUS" });
+  assertPublishedObservation(published[0], { active: false, code: "FORM_AMBIGUOUS" }, 1);
 });
 
 test("the router answers MESA_STATUS through the Mesa API", async () => {
@@ -1967,6 +1967,14 @@ function observingApi(published) {
   };
 }
 
+function assertPublishedObservation(actual, expected, sequence) {
+  const { publisher_id: publisherId, sequence: actualSequence, ...observation } = actual;
+  assert.match(publisherId, /^[a-f0-9]{32}$/u);
+  assert.equal(actualSequence, sequence);
+  assert.deepEqual(observation, expected);
+  return publisherId;
+}
+
 test("the heartbeat publishes the open form with no sidepanel message at all", async () => {
   const chromeApi = fakeChrome({
     tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
@@ -1979,7 +1987,7 @@ test("the heartbeat publishes the open form with no sidepanel message at all", a
   await router.poll();
 
   assert.equal(published.length, 1);
-  assert.deepEqual(published[0], { active: true, form: OBSERVED_FORM });
+  assertPublishedObservation(published[0], { active: true, form: OBSERVED_FORM }, 1);
 });
 
 test("an identical observation is deduplicated until the keepalive window", async () => {
@@ -2002,7 +2010,93 @@ test("an identical observation is deduplicated until the keepalive window", asyn
   clock = PORTAL_SELECTION_KEEPALIVE_MS;
   await router.poll();
   assert.equal(published.length, 2, "the keepalive renews the TTL");
-  assert.deepEqual(published[1], { active: true, form: OBSERVED_FORM });
+  const publisherId = assertPublishedObservation(published[0], { active: true, form: OBSERVED_FORM }, 1);
+  assert.equal(assertPublishedObservation(published[1], { active: true, form: OBSERVED_FORM }, 2), publisherId);
+});
+
+test("a new router lifecycle receives a distinct publisher identity", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  const firstPublished = [];
+  const secondPublished = [];
+  const firstRouter = installRouter({ api: observingApi(firstPublished), chromeApi });
+  const secondRouter = installRouter({ api: observingApi(secondPublished), chromeApi });
+
+  await firstRouter.poll();
+  await secondRouter.poll();
+
+  const firstPublisher = assertPublishedObservation(
+    firstPublished[0],
+    { active: true, form: OBSERVED_FORM },
+    1,
+  );
+  const secondPublisher = assertPublishedObservation(
+    secondPublished[0],
+    { active: true, form: OBSERVED_FORM },
+    1,
+  );
+  assert.notEqual(secondPublisher, firstPublisher);
+});
+
+test("the router fails closed when secure publisher randomness is unavailable", async () => {
+  const originalCrypto = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  const published = [];
+  try {
+    Object.defineProperty(globalThis, "crypto", { configurable: true, value: undefined });
+    const router = installRouter({ api: observingApi(published), chromeApi });
+
+    const outcome = await router.poll();
+
+    assert.equal(outcome.ok, true);
+    assert.equal(published.length, 0);
+  } finally {
+    if (originalCrypto) Object.defineProperty(globalThis, "crypto", originalCrypto);
+    else delete globalThis.crypto;
+  }
+});
+
+test("a refused publisher retries with a new sequence and deduplicates after acceptance", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  const published = [];
+  let attempt = 0;
+  const api = {
+    ...observingApi(published),
+    publishCurrentSelection: async (observation) => {
+      published.push(observation);
+      attempt += 1;
+      return attempt === 1
+        ? { ok: false, status: 409, error: "PUBLISHER_OWNED" }
+        : { ok: true, status: 200 };
+    },
+  };
+  const router = installRouter({ api, chromeApi, now: () => 0 });
+
+  await router.poll();
+  await router.poll();
+  await router.poll();
+
+  assert.equal(published.length, 2);
+  const publisherId = assertPublishedObservation(
+    published[0],
+    { active: true, form: OBSERVED_FORM },
+    1,
+  );
+  assert.equal(
+    assertPublishedObservation(published[1], { active: true, form: OBSERVED_FORM }, 2),
+    publisherId,
+  );
 });
 
 test("a changed form is published immediately, without waiting for the keepalive", async () => {
@@ -2025,12 +2119,14 @@ test("a changed form is published immediately, without waiting for the keepalive
   await router.poll();
 
   assert.equal(published.length, 2);
-  assert.deepEqual(published[1], { active: true, form: other });
+  const publisherId = assertPublishedObservation(published[0], { active: true, form: OBSERVED_FORM }, 1);
+  assert.equal(assertPublishedObservation(published[1], { active: true, form: other }, 2), publisherId);
 });
 
 test("a new document nonce republishes even when identity and generation repeat", async () => {
   let clock = 0;
   let current = { ...OBSERVED_FORM, documentNonce: "a".repeat(32) };
+  const firstDocument = current;
   const nextDocument = { ...OBSERVED_FORM, documentNonce: "b".repeat(32) };
   const chromeApi = fakeChrome({
     tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
@@ -2045,7 +2141,8 @@ test("a new document nonce republishes even when identity and generation repeat"
   await router.poll();
 
   assert.equal(published.length, 2);
-  assert.deepEqual(published[1], { active: true, form: nextDocument });
+  const publisherId = assertPublishedObservation(published[0], { active: true, form: firstDocument }, 1);
+  assert.equal(assertPublishedObservation(published[1], { active: true, form: nextDocument }, 2), publisherId);
 });
 
 test("the selection is cleared when no single form is open", async () => {
@@ -2060,7 +2157,7 @@ test("the selection is cleared when no single form is open", async () => {
   await router.poll();
 
   assert.equal(published.length, 1, "an identical clear is deduplicated");
-  assert.deepEqual(published[0], { active: false, code: "FORM_NOT_AVAILABLE" });
+  assertPublishedObservation(published[0], { active: false, code: "FORM_NOT_AVAILABLE" }, 1);
 });
 
 test("two candidate forms are published as ambiguous, never as a match", async () => {
@@ -2081,7 +2178,7 @@ test("two candidate forms are published as ambiguous, never as a match", async (
   await router.poll();
 
   assert.equal(published.length, 1);
-  assert.deepEqual(published[0], { active: false, code: "FORM_AMBIGUOUS" });
+  assertPublishedObservation(published[0], { active: false, code: "FORM_AMBIGUOUS" }, 1);
 });
 
 test("the keepalive still renews while the operator is looking at the Mesa", async () => {
@@ -2099,7 +2196,7 @@ test("the keepalive still renews while the operator is looking at the Mesa", asy
   await router.poll();
 
   assert.equal(published.length, 1);
-  assert.deepEqual(published[0], { active: true, form: OBSERVED_FORM });
+  assertPublishedObservation(published[0], { active: true, form: OBSERVED_FORM }, 1);
 });
 
 test("no Área Restrita tab at all is reported as an inactive portal tab", async () => {
@@ -2111,7 +2208,7 @@ test("no Área Restrita tab at all is reported as an inactive portal tab", async
 
   await router.poll();
 
-  assert.deepEqual(published[0], { active: false, code: "PORTAL_TAB_NOT_ACTIVE" });
+  assertPublishedObservation(published[0], { active: false, code: "PORTAL_TAB_NOT_ACTIVE" }, 1);
 });
 
 test("publishing never replaces command polling", async () => {

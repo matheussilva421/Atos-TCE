@@ -46,6 +46,17 @@ function delay(milliseconds) {
   return new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds));
 }
 
+function newPublisherId(cryptoRef = globalThis.crypto) {
+  if (typeof cryptoRef?.getRandomValues !== "function") return null;
+  try {
+    const bytes = new Uint8Array(16);
+    cryptoRef.getRandomValues(bytes);
+    return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return null;
+  }
+}
+
 function pageSnapshotSignature(snapshot) {
   return JSON.stringify({
     page: Number(snapshot?.page ?? 0),
@@ -448,6 +459,10 @@ export function installRouter({
   // memory only: it is a dedupe key, never a second copy of the form.
   let lastSelectionSignature = null;
   let lastSelectionAt = 0;
+  // A fresh opaque publisher identity and monotonic sequence are scoped to this
+  // service-worker lifecycle. Neither is stored in extension storage.
+  const selectionPublisherId = newPublisherId();
+  let selectionSequence = 0;
   // Diagnostics of the last form the operator's active tab resolved to. They
   // ride along with a manual-fill request so the Mesa can bind the run to the
   // exact frame it came from; they never carry identity or field values.
@@ -1108,7 +1123,19 @@ export function installRouter({
     ) {
       return { published: false, signature, active: observation.active };
     }
-    const outcome = await api.publishCurrentSelection(observation);
+    if (!selectionPublisherId || !Number.isSafeInteger(selectionSequence + 1)) {
+      return {
+        published: false,
+        signature,
+        active: observation.active,
+        outcome: { ok: false, error: "publisher_identity_unavailable" },
+      };
+    }
+    const outcome = await api.publishCurrentSelection({
+      ...observation,
+      publisher_id: selectionPublisherId,
+      sequence: ++selectionSequence,
+    });
     if (outcome?.ok === false) {
       // A refused publish must not be deduplicated away for a whole window.
       lastSelectionSignature = null;
