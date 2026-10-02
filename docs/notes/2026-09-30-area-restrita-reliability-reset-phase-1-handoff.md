@@ -2,8 +2,8 @@
 
 Data: 2026-09-30
 Branch: `codex/area-restrita-reliability-reset`
-AR1_BUILD (build congelado para a sequência AR-1): `c3933536a2b60f73b2cee71542bec9740b8303dd`
-Builds congelados anteriores: `5e9c277` → `4cd848a` → `af8c1f2` → `f1cf5b4` → `1d90b8d` → `e059793` (substituído: a semântica de AR-1 mudou) → **`c393353` (AR1_BUILD em uso)**. Builds anteriores não devem ser usados para novos runs.
+AR1_BUILD atual (pacote offline verificado; nenhum run real ainda): `88bc4adbb1bf9f0e2762a0cbd330adb88c351d26`
+Builds congelados anteriores: `5e9c277` → `4cd848a` → `af8c1f2` → `f1cf5b4` → `1d90b8d` → `e059793` (semântica antiga) → `c393353` (SUPERSEDED / FAILED REAL VALIDATION em 2026-10-02) → **`88bc4ad` (AR1_BUILD atual, somente offline qualificado)**. Não iniciar novos runs em builds anteriores.
 Base da reconciliação: `9fa3465` (`origin/codex/area-restrita-reliability-reset-spec`)
 
 ## 1. Reconciliação das branches
@@ -271,7 +271,7 @@ dados pessoais em artefatos .. nenhum
 
 ## 11. Próximo passo
 
-Executar a seção 7 (Task 5) com o operador no portal, agora pelo fluxo **Portal atual** descrito na seção 13.5: a Mesa acompanha o formulário aberto e o operador clica uma única vez em "Preencher dados encontrados". Enquanto isso, nenhuma Task 6–10 pode começar, e nenhum plano de Phase 2 deve ser escrito: a Phase 2 depende da decisão arquitetural que só o benchmark AR-2/AR-3 pode produzir.
+Quando o operador decidir fazer a validação humana, executar a seção 7 (Task 5) usando exclusivamente o build `88bc4ad...` e o pacote da seção 14.1. A Mesa acompanha o formulário aberto; login e o clique em "Preencher dados encontrados" permanecem manuais. Nenhuma Task 6–10 pode começar, e nenhum plano de Phase 2 deve ser escrito antes do benchmark AR-2/AR-3.
 
 ## 12. ZIP portátil limpo para uso em outro PC
 
@@ -336,7 +336,7 @@ Spec e plano autoritativos: `docs/superpowers/specs/2026-10-01-portal-atual-best
 
 Os cinco Review Focus têm teste explícito: TTL expirado antes do clique; A→B durante o write; heartbeat duplicado/concorrente; follow não rouba a navegação manual; processo sem campos úteis em estado excepcional.
 
-### 13.4 Novo AR1_BUILD e ZIP limpo
+### 13.4 Build anterior c393353 (histórico; superseded em 2026-10-02)
 
 ```text
 AR1_BUILD: c3933536a2b60f73b2cee71542bec9740b8303dd
@@ -356,12 +356,14 @@ AR1_BUILD: c3933536a2b60f73b2cee71542bec9740b8303dd
 | Smoke do artefato | PASS: 15/15 `PortalCurrentSelectionTests` contra o código extraído do próprio ZIP (NO_ACTIVE_FORM → MATCHED → GET mínimo → current-selection/fill → TTL/clear) |
 | Ledger real | histórico preservado; `manual_form_fill = EXPERIMENTAL`, `real_dev_streak = 0`, `portable_streak = 0` |
 
-O ZIP foi construído a partir da árvore limpa em `c393353`. O commit final deste handoff é **docs-only** e deixa a branch à frente desse SHA: os **bytes do pacote correspondem a `c393353`**, não ao topo da branch.
+Este era o AR1_BUILD antes do primeiro teste humano. O relato do operador mostrou falha de detecção e estado `UNQUALIFIED`; não reutilizar esse ZIP. A build que o substitui está documentada na seção 14.1.
 
-### 13.5 Primeiro run real (ação do operador)
+### 13.5 Roteiro histórico do primeiro run (superseded)
+
+O primeiro run abaixo usava c393353 e falhou na validação humana; não repetir esse build. Para uma tentativa futura, seguir os mesmos limites manuais somente com o AR1_BUILD atual da seção 14.1.
 
 ```text
-1. iniciar a Mesa com ATOS_TCE_BUILD_ID=c3933536a2b60f73b2cee71542bec9740b8303dd
+1. iniciar a Mesa com ATOS_TCE_BUILD_ID=88bc4adbb1bf9f0e2762a0cbd330adb88c351d26
    e ATOS_TCE_RELIABILITY_ENVIRONMENT=real-dev
 2. recarregar a extensão
 3. abrir um formulário real na Área Restrita
@@ -378,7 +380,7 @@ Se `passed:true`, a sequência passa a 1/20. Se `passed:false` ou não houver te
 
 A observação não carrega número de sequência — o contrato congelado é `{active, form}` / `{active, code}`. Dentro de um worker o `poll()` é serializado, então uma publicação antiga nunca chega depois de uma mais nova; com dois publicadores independentes (por exemplo dois perfis de Chrome com a extensão) a última publicação vence, ainda que seja a mais antiga. A identidade continua exata e o AR-1 revalida identidade/geração antes de qualquer escrita.
 
-Este Goal reescreveu o produto e substituiu o AR1_BUILD: a build `e059793` fica aposentada e `c393353` passa a ser a build de qualification. Nenhuma capability foi promovida — `manual_form_fill` segue EXPERIMENTAL em 0/20.
+Em 2026-10-01, `c393353` substituiu `e059793` como build de qualification. O teste humano subsequente invalidou c393353 para novos runs; em 2026-10-02, `88bc4ad` passou a ser o AR1_BUILD offline atual. Nenhuma capability foi promovida: a instalação limpa inicia com `manual_form_fill=EXPERIMENTAL`, streaks 0/20.
 
 
 ## 14. Follow-up offline: detecção de formulário e bootstrap AR-1 (2026-10-02)
@@ -391,6 +393,27 @@ Estado incremental: detector e resolução do interessado agora são escopados a
 
 Review adversarial encontrou e ajudou a corrigir: bootstrap vinculado diretamente ao build do `package-manifest.json` mesmo quando `ATOS_TCE_BUILD_ID` diverge; seleção limitada à tabela visível única; validação estrita dos tipos JSON do manifesto; exclusão de formulário zero-size; e rádio condicionado à própria linha/tabela visível. Cada achado recebeu teste de regressão RED antes da correção. Também foi corrigido o alvo do `FILL_FORM` para resolver o controle dentro do formulário cuja identidade e geração foram lidas.
 
-Validações sobre a versão atual: smoke integrado detector→heartbeat→API local→listener real `FILL_FORM`/readback passou; Node focado 73/73; `npm test --prefix extension` 254/254; `node --test app/web/tests/*.test.mjs` 65/65; `python -m unittest discover -s tests -p "test_*.py" -q` 837/837; bootstrap API 4/4; provenance rejeitou os tipos JSON incorretos; `git diff --check` limpo. `verify-project.ps1` final: 1.260 verificações, 1.258 aprovações, zero falhas e dois skips. O review de follow-up terminou sem achados críticos/importantes; o único achado menor (`flatMap` usando índice como callback) recebeu teste RED e correção confirmada.
+Validações da versão final: smoke integrado detector→heartbeat→API local→listener real `FILL_FORM`/readback passou; Node focado 73/73; `npm test --prefix extension` 254/254; `node --test app/web/tests/*.test.mjs` 65/65; `python -m unittest discover -s tests -p "test_*.py" -q` 837/837; bootstrap API 4/4; provenance rejeitou manifesto com tipos JSON incorretos; `git diff --check` limpo. `verify-project.ps1`: 1.260 verificações, 1.258 aprovações, zero falhas e dois skips. Review final sem achados críticos/importantes; o achado menor de callback `flatMap` recebeu RED→GREEN.
 
-Ainda pendentes: commit da fonte validada; build opt-in do novo manifesto; verificação de instalação limpa e smoke offline do ZIP; SHA/tamanho/entradas do artefato; handoff definitivo, commit e push. O ZIP presente ainda corresponde à build c393353 e não contém os edits locais de 2026-10-02.
+### 14.1 Build AR-1 e instalação limpa
+
+```text
+Commit-fonte / AR1_BUILD: 88bc4adbb1bf9f0e2762a0cbd330adb88c351d26
+Arquivo: dist/Atos-TCE-portable-clean.zip
+Tamanho: 96.212.159 bytes
+SHA-256: 1b8abc84d8322559856852e88ec6b55b8d2ff1764e9e73b748d80e1e0e71a770
+Entradas: 526 (430 arquivos de runtime)
+package-manifest.source_dirty: false
+```
+
+`verify-package.ps1 -ExpectedBuildId 88bc4ad... -RequireManualFormFillQualificationBootstrap` passou: 526 entradas, build e runtime com o SHA esperado, saúde `ok`, schema 7, zero processos e extensão 0.1.0. O smoke registrou aviso de acesso negado ao encerrar um processo temporário; a porta 58528 não ficou ouvindo, não havia processo com caminho do smoke e a pasta temporária foi removida.
+
+Extraí o ZIP para um diretório temporário limpo e inicializei o servidor usando os módulos daquele ZIP. O ledger resultou em `manual_form_fill=EXPERIMENTAL`, streaks real/portable 0, demais capacidades `UNQUALIFIED`, sem `events.jsonl` nem `identity.key`. A auditoria dos nomes do ZIP encontrou zero entradas de `data`, acervo, PDFs, bancos, profiles, HAR, traces, logs, chave ou eventos. O manifesto presente é exatamente schema 1/build correspondente/`manual_form_fill=EXPERIMENTAL`. O sidecar `.sha256` confere com os bytes do ZIP.
+
+O ZIP anterior foi preservado em `dist/archive/Atos-TCE-portable-clean-c393353-superseded.zip`, SHA-256 `fbb815d363783cb0f44c955760dd95e3c5cb42abd3aa12f62ed72181e9b4b7e8`.
+
+### 14.2 GitHub e limite de validação
+
+O commit-fonte `88bc4ad` contém código e testes verificados. No snapshot antes do fechamento documental, `codex/area-restrita-reliability-reset` estava um commit à frente de `origin`; o handoff final é um commit documental subsequente. Publicar sem force e conferir que `origin/codex/area-restrita-reliability-reset` corresponde ao HEAD final.
+
+Nenhum portal, login, navegador ou formulário real foi aberto. Nenhum run AR-1 real foi criado. O bootstrap do ZIP só prepara a capacidade como `EXPERIMENTAL` 0/20 em instalação limpa; avaliação real continua humana e `Complementar Ato` continua manual.
