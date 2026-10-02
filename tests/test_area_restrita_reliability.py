@@ -21,6 +21,14 @@ from app.area_restrita.reliability import (
 
 BUILD = "a" * 40
 
+MANUAL_FORM_STEPS = (
+    "current_form_detected",
+    "manual_fill_requested",
+    "preflight_completed",
+    "fill_command_completed",
+    "reread_completed",
+)
+
 
 class ReliabilityRecorderTestCase(unittest.TestCase):
     def setUp(self):
@@ -41,22 +49,83 @@ class ReliabilityRecorderTestCase(unittest.TestCase):
     ):
         recorder = recorder or self.recorder
         run_id = recorder.start(capability, environment)
-        recorder.transition(
-            run_id,
-            boundary="fill_command_completed",
-            state_before="FORM",
-            state_after="FORM_FILLED",
-            result_code=result_code,
-            elapsed_ms=1200,
-            expected_identity={"processKey": "102390/2026", "interestedNormalized": "pessoa exemplo"},
-            observed_identity={"processKey": "102390/2026", "interestedNormalized": "pessoa exemplo"},
-            generation_before=7,
-            generation_after=7,
-        )
+        if capability == "manual_form_fill":
+            self.write_manual_form_evidence(run_id, recorder=recorder)
+        else:
+            recorder.transition(
+                run_id,
+                boundary="fill_command_completed",
+                state_before="FORM",
+                state_after="FORM_FILLED",
+                result_code=result_code,
+                elapsed_ms=1200,
+            )
         if intervene:
             recorder.intervention(run_id, "technical-recovery")
         recorder.finish(run_id, passed=passed, result_code=result_code)
         return run_id
+
+    def write_manual_form_evidence(
+        self,
+        run_id,
+        *,
+        recorder=None,
+        steps=MANUAL_FORM_STEPS,
+        identity_by_boundary=None,
+        result_by_boundary=None,
+        generation_before_override=None,
+    ):
+        recorder = recorder or self.recorder
+        identity = {"processKey": "102390/2026", "interestedNormalized": "pessoa exemplo"}
+        states = {
+            "current_form_detected": (None, "FORM"),
+            "manual_fill_requested": ("FORM", "PREFLIGHT"),
+            "preflight_completed": ("PREFLIGHT", "FILLING"),
+            "fill_command_completed": ("FILLING", "PREENCHIDO"),
+            "reread_completed": ("FORM_FILLED", "FORM_FILLED"),
+        }
+        results = {
+            "current_form_detected": "FORM_DETECTED",
+            "manual_fill_requested": "REQUEST_CREATED",
+            "preflight_completed": "PLAN_READY",
+            "fill_command_completed": "SUCCEEDED",
+            "reread_completed": "BEST_EFFORT_OK",
+        }
+        for boundary in steps:
+            before, after = states[boundary]
+            expected_identity = identity
+            observed_identity = identity
+            if identity_by_boundary and boundary in identity_by_boundary:
+                expected_identity, observed_identity = identity_by_boundary[boundary]
+            generation_before = None
+            generation_after = None
+            if boundary == "preflight_completed":
+                generation_after = 7
+            elif boundary == "fill_command_completed":
+                generation_before = (
+                    7 if generation_before_override is None else generation_before_override
+                )
+                generation_after = 8
+            elif boundary == "reread_completed":
+                generation_after = 8
+            recorder.transition(
+                run_id,
+                boundary=boundary,
+                state_before=before,
+                state_after=after,
+                result_code=(result_by_boundary or {}).get(boundary, results[boundary]),
+                elapsed_ms=1200,
+                expected_identity=expected_identity,
+                observed_identity=observed_identity,
+                generation_before=generation_before,
+                generation_after=generation_after,
+            )
+
+    def evaluate_single_run(self, *, steps=MANUAL_FORM_STEPS, **evidence_options):
+        run_id = self.recorder.start("manual_form_fill", "real-dev")
+        self.write_manual_form_evidence(run_id, steps=steps, **evidence_options)
+        self.recorder.finish(run_id, passed=True, result_code="SUCCEEDED")
+        return self.recorder.evaluate("manual_form_fill", "real-dev")
 
     def events_text(self):
         return (self.data / "reliability" / "events.jsonl").read_text(encoding="utf-8")
@@ -148,6 +217,108 @@ class ReliabilityRecorderTestCase(unittest.TestCase):
         evaluation = self.recorder.evaluate("manual_form_fill", "real-dev", 20)
         self.assertTrue(evaluation["qualified"])
         self.assertEqual(evaluation["streak"], 20)
+
+    def test_start_and_passed_finish_without_transitions_do_not_qualify(self):
+        run_id = self.recorder.start("manual_form_fill", "real-dev")
+        self.recorder.finish(run_id, passed=True, result_code="SUCCEEDED")
+
+        self.assertEqual(self.recorder.evaluate("manual_form_fill", "real-dev")["streak"], 0)
+
+    def test_twenty_fake_passes_without_required_evidence_do_not_qualify(self):
+        for _ in range(20):
+            run_id = self.recorder.start("manual_form_fill", "real-dev")
+            self.recorder.finish(run_id, passed=True, result_code="SUCCEEDED")
+
+        evaluation = self.recorder.evaluate("manual_form_fill", "real-dev", 20)
+
+        self.assertFalse(evaluation["qualified"])
+        self.assertEqual(evaluation["streak"], 0)
+        with self.assertRaises(ReliabilityError):
+            self.recorder.promote(
+                "manual_form_fill",
+                CapabilityState.QUALIFIED,
+                environment="real-dev",
+                required=20,
+                reason="fake passes lack required evidence",
+            )
+
+    def test_missing_form_detection_does_not_qualify(self):
+        evaluation = self.evaluate_single_run(steps=MANUAL_FORM_STEPS[1:])
+
+        self.assertEqual(evaluation["streak"], 0)
+
+    def test_missing_identity_confirmation_does_not_qualify(self):
+        evaluation = self.evaluate_single_run(
+            identity_by_boundary={"preflight_completed": (None, None)}
+        )
+
+        self.assertEqual(evaluation["streak"], 0)
+
+    def test_identity_mismatch_does_not_qualify(self):
+        identity = {"processKey": "102390/2026", "interestedNormalized": "pessoa exemplo"}
+        different_identity = {"processKey": "102390/2026", "interestedNormalized": "outra pessoa"}
+        evaluation = self.evaluate_single_run(
+            identity_by_boundary={"preflight_completed": (identity, different_identity)}
+        )
+
+        self.assertEqual(evaluation["streak"], 0)
+
+    def test_missing_fill_execution_does_not_qualify(self):
+        steps = tuple(step for step in MANUAL_FORM_STEPS if step != "fill_command_completed")
+        evaluation = self.evaluate_single_run(steps=steps)
+
+        self.assertEqual(evaluation["streak"], 0)
+
+    def test_missing_terminal_readback_does_not_qualify(self):
+        evaluation = self.evaluate_single_run(steps=MANUAL_FORM_STEPS[:-1])
+
+        self.assertEqual(evaluation["streak"], 0)
+
+    def test_out_of_order_boundaries_do_not_qualify(self):
+        steps = ("current_form_detected", "preflight_completed", "manual_fill_requested", *MANUAL_FORM_STEPS[3:])
+        evaluation = self.evaluate_single_run(steps=steps)
+
+        self.assertEqual(evaluation["streak"], 0)
+
+    def test_duplicate_boundary_does_not_qualify(self):
+        steps = (*MANUAL_FORM_STEPS[:3], "preflight_completed", *MANUAL_FORM_STEPS[3:])
+        evaluation = self.evaluate_single_run(steps=steps)
+
+        self.assertEqual(evaluation["streak"], 0)
+
+    def test_boundary_failure_cannot_be_overridden_by_passed_terminal(self):
+        evaluation = self.evaluate_single_run(
+            result_by_boundary={"preflight_completed": "IDENTITY_MISMATCH"}
+        )
+
+        self.assertEqual(evaluation["streak"], 0)
+
+    def test_inconsistent_generation_does_not_qualify(self):
+        evaluation = self.evaluate_single_run(generation_before_override=9)
+
+        self.assertEqual(evaluation["streak"], 0)
+
+    def test_transition_after_terminal_invalidates_a_pass(self):
+        run_id = self.recorder.start("manual_form_fill", "real-dev")
+        self.write_manual_form_evidence(run_id)
+        self.recorder.finish(run_id, passed=True, result_code="SUCCEEDED")
+        self.recorder.transition(
+            run_id,
+            boundary="preflight_completed",
+            state_before="PREFLIGHT",
+            state_after="FILLING",
+            result_code="PLAN_READY",
+        )
+
+        self.assertEqual(self.recorder.evaluate("manual_form_fill", "real-dev")["streak"], 0)
+
+    def test_transition_for_another_run_does_not_complete_this_run(self):
+        first = self.recorder.start("manual_form_fill", "real-dev")
+        other = self.recorder.start("manual_form_fill", "real-dev")
+        self.write_manual_form_evidence(other)
+        self.recorder.finish(first, passed=True, result_code="SUCCEEDED")
+
+        self.assertEqual(self.recorder.evaluate("manual_form_fill", "real-dev")["streak"], 0)
 
     def test_failure_resets_the_counted_sequence(self):
         for _ in range(19):
@@ -481,14 +652,30 @@ class QualificationCliTests(unittest.TestCase):
         for index in range(total):
             run_id = f"{build[:6]}-{index}"
             recorder.start("manual_form_fill", "real-dev", run_id=run_id)
-            recorder.transition(
-                run_id,
-                boundary="reread_completed",
-                state_before="FORM",
-                state_after="FORM_FILLED",
-                result_code="REREAD_OK",
-                elapsed_ms=100,
+            identity = {
+                "processKey": "102390/2026",
+                "interestedNormalized": "pessoa exemplo",
+            }
+            evidence = (
+                ("current_form_detected", None, "FORM", "FORM_DETECTED", None, None),
+                ("manual_fill_requested", "FORM", "PREFLIGHT", "REQUEST_CREATED", None, None),
+                ("preflight_completed", "PREFLIGHT", "FILLING", "PLAN_READY", None, 7),
+                ("fill_command_completed", "FILLING", "PREENCHIDO", "SUCCEEDED", 7, 8),
+                ("reread_completed", "FORM_FILLED", "FORM_FILLED", "BEST_EFFORT_OK", None, 8),
             )
+            for boundary, before, after, result_code, generation_before, generation_after in evidence:
+                recorder.transition(
+                    run_id,
+                    boundary=boundary,
+                    state_before=before,
+                    state_after=after,
+                    result_code=result_code,
+                    elapsed_ms=100,
+                    expected_identity=identity,
+                    observed_identity=identity,
+                    generation_before=generation_before,
+                    generation_after=generation_after,
+                )
             if intervene and index == total - 1:
                 recorder.intervention(run_id, "technical-recovery")
             passed = index < passes

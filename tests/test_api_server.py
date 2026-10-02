@@ -2261,7 +2261,7 @@ class PortalReliabilityRouteTests(ApiTestCase):
             self.assertEqual(entry["state"], "UNQUALIFIED", name)
             self.assertEqual(entry["real_dev_streak"], 0, name)
 
-    def test_reliability_endpoint_has_no_identity_or_event_payloads(self):
+    def test_reliability_endpoint_hides_private_events_and_ignores_partial_pass_evidence(self):
         headers = self.register_extension()
         recorder = ReliabilityRecorder(self.data_root, "test-build")
         run_id = recorder.start("manual_form_fill", "real-dev", browser_session_id="7c2e5a19-33b4-4f80-a1d2-5e6c0b9f4a77")
@@ -2283,7 +2283,7 @@ class PortalReliabilityRouteTests(ApiTestCase):
         self.assertNotIn("pessoa exemplo", raw)
 
         self.assertNotIn("events", raw)
-        self.assertEqual(payload["capabilities"]["manual_form_fill"]["real_dev_streak"], 1)
+        self.assertEqual(payload["capabilities"]["manual_form_fill"]["real_dev_streak"], 0)
         self.assertEqual(payload["capabilities"]["manual_form_fill"]["state"], "UNQUALIFIED")
 
     def test_reliability_endpoint_requires_the_registered_extension(self):
