@@ -503,8 +503,89 @@ Classificação: falha de integridade da evidência de qualificação, P2. A rep
 
 O ledger real permaneceu intacto: `manual_form_fill=EXPERIMENTAL`, real-dev `0/20`, portable `0/20`; `events.jsonl` ausente e `identity.key` preservada. A reprodução escreveu apenas no diretório temporário.
 
+### Revisão independente complementar (2026-10-02)
+
+- Um segundo revisor rastreou o achado do ledger até evaluate(), promote(), a CLI de qualificação e o relatório agregado: 20 pares locais start() + finish(passed=True) sem transições podem ser aceitos como qualificados. A revisão anterior o classificou P2; esta revisão o classificou P0 por permitir qualificação falsificada. Não há rubric de severidade no pedido e o caminho demonstrado é local/programático, sem rota HTTP de gravação arbitrária. A divergência P2/P0 fica registrada; por precaução, tratar como bloqueador de qualificação até corrigir e validar o ledger. O ZIP db73386 contém esse código.
+- Revisão adicional encontrou P3 em extension/lib/protocol.js: isPortalUrl usa startsWith(PORTAL_ORIGIN) e aceita um host com o domínio legítimo apenas como prefixo. Não foi demonstrado caminho daí para escrita em formulário errado; corrigir com comparação de origin exata e teste para host-sufixo antes de uma próxima build.
+- A suspeita de colisão entre /api/v1/portal/current-selection e /api/v1/portal/current-selection/fill não se confirmou: o dispatcher usa pattern.fullmatch(path).
+- Nesta continuação não houve alteração de código, execução de testes pelo agente principal, acesso ao portal, AR-1 real ou promoção de capability. O revisor do ledger fez análise estática e não repetiu a reprodução; a reprodução isolada de 20 runs já está registrada acima. O ledger real segue inalterado.
+- Estado do pacote confirmado nesta continuação: ZIP de 96.212.161 bytes, SHA-256 c803f80c2ad989037570fd5464216af9b4241dba72043d585c2e3734aa197c38, build db73386f4d99a7ba713e605e9439f2dd90e28a74. As diferenças entre esse build e o HEAD eram documentais; este registro também é documentation-only.
+
+### Próximo passo bloqueante
+
+Corrigir primeiro a integridade de evidência do ledger com teste RED/GREEN e revisar a classificação/ameaça do P0. Depois corrigir o teste de origem exata, executar os gates, reconstruir e verificar um novo ZIP. Não usar o ZIP atual para qualificação; manter manual_form_fill=EXPERIMENTAL e aguardar o operador para qualquer AR-1 real.
+
 ### Retomada
 
 1. Corrigir o ledger com teste RED que exija ao menos uma transição válida antes de contar um sucesso; então rodar as suítes focadas e gates completos.
 2. Regerar, verificar provenance e smoke do ZIP após a correção; atualizar SHA/build ID e handoff.
 3. Não executar o primeiro AR-1 real, não promover capability manualmente e não iniciar AR-2/AR-3. `manual_form_fill` continua experimental até validação humana real.
+
+## 17. Auditoria final independente (2026-10-02)
+
+### Veredito
+
+**NÃO PRONTO para o próximo teste humano AR-1.** Os gates offline e o ZIP físico passam, mas a auditoria encontrou um defeito de integridade no ledger (P0 pela definição de falsificação de qualification do pedido) e uma race P1 capaz de escrever em outro documento quando processo/interessado e geração reiniciada coincidem. Nenhum dos dois foi corrigido nesta auditoria. Não abrir o portal real, não iniciar AR-1, não promover capabilities e não iniciar AR-2/AR-3.
+
+### Findings
+
+1. **P0 — qualification pode ser falsificada sem transições.** `app/area_restrita/reliability.py:249-271,308-325,482-497,559-599`: o recorder aceita `run_start` seguido diretamente por `run_finished(passed=true)` e o avaliador conta esse run como sucesso sem validar boundaries de detecção, identidade, fill e readback. Reprodução anterior, isolada em diretório temporário: 20 pares `start`/`finish` sem transições produziram `qualified=true` e permitiram `promote()`. O helper normal dos testes sempre grava transições; falta o caso negativo. A reprodução usa a API local de código do recorder, sem rota HTTP de gravação arbitrária; ainda assim viola diretamente o critério P0 de evidência de qualificação do pedido. Revisões anteriores divergiram entre P2 e P0; adotar P0 até resolver com RED/GREEN. Ledger real não foi usado.
+2. **P1 — READ A / WRITE B ao mudar de documento mantendo a mesma identidade.** `extension/content/detect-form.js:228-232,344-352`, `extension/content/fill-form.js:32-38,121-145` e `extension/background/router.js:935-960`: identidade do form reader contém somente `processKey` e `interestedNormalized`; generation fica em `WeakMap` por `document` e recomeça em 1 no documento novo. A guarda de `findFieldControl`/`sameIdentity` compara identidade e geração, sem nonce estável de documento/formulário; `portalActId` não vem da observação do detector. Reprodução sintética com documentos A/B independentes, mesma identidade e generation 1: um plano produzido em A foi aceito por `applyFill` em B (`ok`, campo `changed`, uma escrita em B). A suíte cobre stale generation no mesmo documento e A→B com outro processo, mas não A→B em novo documento com identidade igual. Antes de AR-1, vincular o plano a um identificador não reutilizável de documento/formulário ou geração monotônica apropriada e adicionar teste RED para esse caso, incluindo readback.
+3. **P2 — dois perfis/extensões podem regredir o Portal atual.** O tracker guarda uma seleção global única (`app/area_restrita/current_selection.py:69-97,100-156`); cada worker serializa seu próprio `poll()`, mas publicação não tem publisher ID/sequence para ordenar observações entre perfis. O último POST pode substituir a observação mais nova por uma antiga. Identidades diferentes continuam falhando fechadas no fill, mas a Mesa pode exibir o processo errado; em identidade igual, o finding P1 cobre a escrita stale. Não há teste de dois publicadores. Mitigação: serialização/versão por instância e política explícita para perfil ativo, com teste de regressão.
+4. **P2 — instruções operacionais contraditórias sobre a árvore de runtime.** `AGENTS.md:10,19,27` declara `work/tce-extractor` como fonte, enquanto `START.cmd`, builder e `docs/notes/2026-09-30-area-restrita-runtime-source.md:43-48` demonstram que as fontes de produção deste trabalho são `app/`, `extension/`, `tests/`, `packaging/` e `scripts/`; `work/tce-extractor` é verificador/legacy. Um agente pode aplicar uma correção na cópia que não é empacotada. Propor correção documental; não alterar instruções durante esta auditoria.
+5. **P2 — handoff/plano contêm instruções ou estado antigo.** O topo do handoff e a seção 15.1 fixam corretamente `AR1_BUILD=db73386...`, mas a seção 7 ainda diz “Use sempre” `e059793...` e aponta um PID/runtime antigos (linhas 135-219). A seção 13.5 está explicitamente marcada como roteiro histórico/superseded, mas conserva comando com `88bc4ad`; ocorrências de `e059793`, `c393353`, `88bc4ad` e `3b05f06` nas seções históricas são cronologia, não builds atuais. O plano Portal Atual permanece com 99 checkboxes desmarcados e nenhum marcado, apesar da implementação registrada no handoff. Tornar o runbook antigo explicitamente não operacional e reconciliar o status do plano; não reutilizar instrução antiga.
+6. **P3 — validação de host por prefixo.** `extension/lib/protocol.js:67-69`: `isPortalUrl()` usa `startsWith(PORTAL_ORIGIN)` e aceita URL cujo host apenas começa pelo host permitido. Manifesto e consultas de tabs limitam a injeção/enumeração, e não foi demonstrado caminho de escrita por esse caso; tratar como hardening de origin exata e adicionar teste de host-sufixo antes da próxima build.
+
+Não foi encontrada rota ativa de submit/finalize, navegação automática da Mesa para o portal, fuzzy match ou seleção first-match. A suspeita de colisão de rotas current-selection foi descartada: o dispatcher usa `pattern.fullmatch(path)`. Os mapas de campo sobrepostos entre detector e scanner servem a responsabilidades diferentes e não divergem nos IDs atuais; não classificados como bug. O botão do fill é desabilitado antes do primeiro `await`; isso protege o duplo clique normal na UI. O endpoint não implementa deduplicação de POST independente, aspecto sem teste de concorrência entre janelas.
+
+Revisão independente read-only: concordou que o código não vincula geração/identidade ao documento e considerou plausível o stale write P1, mas não repetiu a reprodução. Ela não leu `evaluate()`/`_runs()` integralmente e deixou o ledger inconclusivo; este relatório mantém P0 com base na inspeção direta de `promote()` → `evaluate()` → `_streak()`/`_runs()` e na reprodução temporária de 20 runs sem transição. A revisão não encontrou evidência para elevar o caso cross-profile além de risco de regressão de seleção sem teste.
+
+### Matriz resumida e races
+
+| Requisito | Implementação e teste | Status |
+|---|---|---|
+| Manual best-effort independente do status; automático preserva gate; `mandatory_satisfied` separado de `best_effort_satisfied`; não inventar campos | `fill_service.py`; testes de status, campos vazios/parciais, preservação e resultados; suíte focada Python 351/351 | IMPLEMENTADO offline |
+| Identidade exata, candidatos visíveis, zero/um/múltiplos, IDs duplicados, rádio/linha/tabela ocultos, roots antigos/estruturais, frames | `detect-form.js`, `area-snapshot.js`; testes sintéticos do DOM e router | IMPLEMENTADO nos cenários cobertos |
+| Generation stale no mesmo documento, identidade/processo mudando, seleção TTL/clear, observação mínima e snapshot transitório | detector/filler, `current_selection.py`, API; testes Python/Node | IMPLEMENTADO nos cenários cobertos; **PARCIAL** para documento novo com identidade igual (P1) |
+| Heartbeat 1500 ms, dedupe/keepalive 5000 ms, publicação com sidepanel fechado, único formulário | `router.js`/`heartbeat.js`; testes de router; serialização por worker | IMPLEMENTADO por worker; **PARCIAL** entre perfis (P2) |
+| Follow default, pausa por seleção manual, retomar observação atual, não roubar subaba, fill só do MATCHED atual, cards/evidência/viewer compartilhado | `portal-current.js`, `app.js`, HTML; suites web 65/65 | IMPLEMENTADO offline |
+| Bootstrap apenas experimental, build correspondente, sem criar runs; AR-2/AR-3 indisponíveis | verifier/bootstrap e testes de contrato/UI | IMPLEMENTADO; nenhum gate real inferido |
+| Qualification 20/20 exige evidência real válida | evaluator e ledger atual; falta validar transições requeridas | **IMPLEMENTADO DIFERENTE DA SPEC / P0** |
+| ZIP, allowlist, provenance byte-cru, smoke/health | `verify-package.ps1 -ExpectedBuildId db73386...` PASS; 93 blobs de produto comparados sem divergência e bootstrap separado validado | IMPLEMENTADO para o ZIP local |
+| 20/20 real-dev + 20/20 portable; AR-1 humano | não executado por restrição do pedido | NÃO IMPLEMENTADO / gate humano pendente |
+
+| Race | Resultado da auditoria |
+|---|---|
+| TTL expira antes do clique / backend MATCHED vence | Guard atômico; recusa sem fill e tenta registrar falha AR-1. Protegido offline. |
+| A observado, B publicado, fill de A atrasado | Seleção é reservada até criar request; identidade diferente bloqueia no frame. Mesmo processo/interessado em documento novo é o P1 reproduzido. |
+| Duas leituras/heartbeats no mesmo worker; observação velha termina depois | `poll()` serializado; teste de tick lento versus novo. Protegido nesse escopo. |
+| Dois workers/perfis | Last-writer-wins sem sequência global. P2 residual. |
+| Form desaparece durante o write | Resolução de frame atual pode recusar; contexto de navegação diferente é coberto pelo P1 se identity/generation reiniciarem iguais. |
+| `processKey` muda sem generation mudar | Comparação exata da identidade bloqueia. Protegido. |
+| generation muda sem `processKey` mudar no mesmo documento | Guard de generation bloqueia; novo documento pode reiniciar contador e é o P1. |
+| Follow enquanto usuário escolhe subaba/processo | Pause/resume e preservação da subaba cobertos pela suite web. Protegido nos casos testados. |
+| Duplo clique manual | UI desabilita botão síncronamente; repetição paralela/replay do endpoint não tem chave idempotente e não foi testada. |
+
+### Gaps por camada e limites
+
+- **Unit:** falta teste de runs sem transitions e teste cross-document same-identity; detector cobre ampla matriz de DOM sintético, sem estes dois casos.
+- **Integration:** não há teste com duas extensões/perfis publicando na mesma Mesa, nem dedupe/idempotência de requests concorrentes.
+- **Browser synthetic:** smoke offline do detector→heartbeat→API→listener FILL_FORM/readback e repro sintética A/B; nenhum Chrome normal multiperfil foi usado.
+- **Packaging:** o ZIP físico passa independentemente do CI. `93` arquivos de produto conferem com blobs Git crus; bootstrap schema/build/opt-in passou separadamente; divergências: `0`; arquivos privados: `0`.
+- **CI:** o workflow valida código, suites e contrato do pacote, não o ZIP ignorado local. Run verificado antes deste adendo: `37046508077`, SHA `13895c3...`, sucesso nos passos Root Python, Extension, Mesa web, Package contract e Whitespace.
+- **Real-only:** zero execuções. O evaluator read-only retornou `streak=0`, sem build observado, para `real-dev` e `portable-normal-chrome`; capability persistida `EXPERIMENTAL`; `events.jsonl` não existe. Não afirmar PASS_REAL.
+
+### Gates desta auditoria (read-only para produto)
+
+| Comando | Resultado |
+|---|---|
+| `python -m unittest discover -s tests -p 'test_*.py' -q` | 839 executados, 839 passaram, 0 falharam |
+| `npm test --prefix extension` | 254/254 passaram |
+| `node --test app/web/tests/*.test.mjs` | 65/65 passaram; aviso não fatal `MODULE_TYPELESS_PACKAGE_JSON` |
+| Suíte focada Python (current selection, fill service, API, reliability, provenance, packaging contract) | 351/351 passaram |
+| Suíte focada de extensão (router, protocol, fill-form, portal contract) | 131/131 passaram |
+| Suíte focada web (Portal Current e UI wiring) | 55/55 passaram |
+| `work/tce-extractor/verify-project.ps1` | 7/7 estágios; 1.260 executados, 1.258 passaram, 0 falharam, 2 skips |
+| `git diff --check` | PASS antes deste adendo; repetir após edição |
+
+Nenhum código de produto foi alterado. O ZIP continua sendo o produto até `db73386`; esta auditoria não autoriza usar o ZIP para qualification diante dos findings P0/P1. Próxima sequência: primeiro corrigir com RED/GREEN o requisito de transições do ledger e o vínculo documento/generation; depois cobrir perfis concorrentes e reconciliar documentação; rodar gates e CI; construir/verificar novo ZIP com SHA novo; só então aguardar autorização/ação humana para iniciar AR-1 real em 0/20. Continuam proibidos nesta tarefa: acesso real ao portal, teste AR-1, promoção, AR-2/AR-3 e merge em `main`.
