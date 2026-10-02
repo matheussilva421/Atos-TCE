@@ -418,12 +418,48 @@ O commit-fonte `88bc4ad` contém código e testes verificados. No snapshot antes
 
 Nenhum portal, login, navegador ou formulário real foi aberto. Nenhum run AR-1 real foi criado. O bootstrap do ZIP só prepara a capacidade como `EXPERIMENTAL` 0/20 em instalação limpa; avaliação real continua humana e `Complementar Ato` continua manual.
 
-## 15. Correção do gate de provenance (2026-10-02; em andamento)
+## 15. Gate de provenance corrigido e build atual (2026-10-02)
 
-O workflow `Offline gates (Windows)` do run `37007534493` falhou no `Root Python suite` (837 testes; 4 falhas), embora o ZIP `88bc4ad...` tivesse passado na verificação local anterior. A reprodução isolada provou que `git hash-object --path=<arquivo> --stdin` aplica clean filters locais ao conteúdo do ZIP: um filtro externo que acrescenta BOM mudou `LEIA-ME-OUTRO-PC.txt` de `5e98de6...` para `6fa4f53...`, sem alteração no arquivo do pacote.
+O workflow `Offline gates (Windows)` do run `37007534493` falhou no `Root Python suite` (837 testes; 4 falhas), embora o ZIP `88bc4ad...` tivesse passado na verificação local anterior. A reprodução provou que `git hash-object --path=<arquivo> --stdin` aplica clean filters locais aos bytes do ZIP: um filtro externo que acrescenta BOM mudou o blob calculado para `LEIA-ME-OUTRO-PC.txt` de `5e98de6...` para `6fa4f53...` sem mudar o pacote.
 
-Correção preparada: o verificador calcula o blob dos bytes extraídos do ZIP com `git hash-object --stdin`, sem `--path`; o caminho continua usado somente para consultar o blob do commit. `START.cmd` também tinha bytes CRLF no pacote e LF no blob (`dafcbdc...` contra `5a080db...`). A regra `/START.cmd -text whitespace=cr-at-eol` preserva os bytes do launcher no Git e mantém `git diff --check` limpo; o blob CRLF está preparado no índice.
+Correção em `3b05f0639c9c17c0352cf7bf6dc54c8d08257845`: o verificador agora usa `git hash-object --stdin` sem `--path`, preservando a comparação com bytes brutos e mantendo o caminho fora dos argumentos de hashing. `START.cmd` foi commitado em CRLF byte a byte, com `/START.cmd -text whitespace=cr-at-eol`; antes, o ZIP tinha blob `dafcbdc...` e o commit `5a080db...`. Dois testes novos cobrem filtro externo e equivalência do launcher. A suíte focada de provenance passou **28/28**, depois dos RED reproduzirem as duas divergências.
 
-RED→GREEN local: o teste novo do filtro externo falhou primeiro com a divergência BOM esperada e passou após a correção; o teste do launcher também detectou o blob LF antigo e passou quando o índice passou a conter CRLF. `python -m unittest tests.test_package_provenance -v`: 28 testes, 28 passaram, 0 falharam. `git diff --cached --check`: limpo. As quatro alterações preparadas são `.gitattributes`, `START.cmd`, `packaging/verify-package.ps1` e `tests/test_package_provenance.py`.
+### 15.1 AR1_BUILD e ZIP limpo
 
-Ainda não gerar release a partir do ZIP antigo: ele deve falhar no novo critério estrito em `START.cmd`. Próxima retomada: revisar e commitar estas alterações; construir novo `AR1_BUILD` e `dist/Atos-TCE-portable-clean.zip`; validar com `-ExpectedBuildId` e `-RequireManualFormFillQualificationBootstrap`; rodar todos os gates locais; preservar o ZIP anterior; completar este handoff com entries/tamanho/SHA/provenance/smoke; fazer push e acompanhar o workflow remoto. Nenhum portal ou AR-1 real foi acessado.
+```text
+AR1_BUILD: 3b05f0639c9c17c0352cf7bf6dc54c8d08257845
+Arquivo: dist/Atos-TCE-portable-clean.zip
+Build id do package-manifest: 3b05f0639c9c17c0352cf7bf6dc54c8d08257845
+source_dirty: false
+Entradas: 526
+Arquivos de produto declarados: 94
+Arquivos de runtime: 430
+Tamanho: 96.212.165 bytes
+SHA-256: ec68831a6e2efe29109824314d4813e6239fa10660d9e21c4faa047c39a5f65a
+Sidecar: dist/Atos-TCE-portable-clean.zip.sha256 (confere)
+Provenance bruta independente: 0 divergências em 93 arquivos de commit; bootstrap validado separadamente
+Bootstrap: schema 1, build correspondente, somente manual_form_fill=EXPERIMENTAL
+Arquivos privados/proibidos: 0
+```
+
+O `verify-package.ps1 -ExpectedBuildId 3b05f06... -RequireManualFormFillQualificationBootstrap` passou com smoke (`health=ok`, schema 7, zero processos, build/runtime id correspondente, extensão 0.1.0). O encerramento do processo temporário emitiu aviso de acesso negado; verificação posterior confirmou pasta de extração removida, porta 60544 fechada e nenhum processo do smoke remanescente. O ZIP contém `current_selection.py`, heartbeat e `portal-current.js`.
+
+O ZIP anterior `88bc4ad` e seu sidecar foram preservados em `dist/archive/Atos-TCE-portable-clean-88bc4ad-pre-raw-provenance-fix.zip[.sha256]`. O artefato `e059793` também foi preservado em `dist/archive/Atos-TCE-portable-e059793-pre-raw-provenance-fix.zip`. Para fazer o contrato local exercitar o pacote atual, `dist/Atos-TCE-portable.zip` agora é uma cópia byte idêntica do ZIP clean; seu SHA-256 e sidecar são iguais ao clean.
+
+### 15.2 Gates locais e reliability
+
+| Gate | Resultado |
+|---|---|
+| `python -m unittest discover -s tests -p "test_*.py" -q` | 839 testes, 839 passaram, 0 falharam |
+| `npm test --prefix extension` | 254 testes, 254 passaram, 0 falharam |
+| `node --test app/web/tests/*.test.mjs` | 65 testes, 65 passaram, 0 falharam |
+| `work/tce-extractor/verify-project.ps1` | 1.260 executados, 1.258 aprovados, 0 falhas, 2 skips; 7/7 estágios verdes |
+| `git diff --check` | limpo |
+
+`python scripts/portal-reliability/capability-state.py --data-root data --capability manual_form_fill --experimental --build 3b05f0639c9c17c0352cf7bf6dc54c8d08257845` passou. Estado atual: `EXPERIMENTAL`, real-dev `0/20`, portable `0/20`; `events.jsonl` não existia e nenhum histórico foi apagado. `identity.key` foi preservada.
+
+### 15.3 GitHub e retomada
+
+O commit de correção `3b05f06` está local e ainda precisa ser enviado junto com este handoff final. Depois de registrar o handoff, faça push sem force para `codex/area-restrita-reliability-reset` e acompanhe o workflow mais recente até `SUCCESS`, conferindo os cinco passos de `Offline gates (Windows)`. Se algum falhar, preserve logs, ZIP e estado local antes de nova mudança.
+
+Nenhum portal, login, DevTools/Playwright no portal ou AR-1 real foi executado. `manual_form_fill` permanece `EXPERIMENTAL`; o primeiro run real segue aguardando o operador humano.
