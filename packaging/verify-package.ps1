@@ -133,11 +133,11 @@ function Get-EntrySha256 {
 
 function Get-EntryBlobId {
     param(
-        [Parameter(Mandatory)][System.IO.Compression.ZipArchiveEntry]$Entry,
-        [Parameter(Mandatory)][string]$RelativePath
+        [Parameter(Mandatory)][System.IO.Compression.ZipArchiveEntry]$Entry
     )
-    # The packaged bytes are hashed with git's own rules, fed straight to git's
-    # stdin: no shell is involved, so a hostile path cannot inject a command.
+    # Hash the exact ZIP bytes as a Git blob. Do not pass --path: that would run
+    # machine-specific clean filters and make provenance depend on local config.
+    # stdin also keeps a hostile archive path out of the shell and git arguments.
     $stream = $Entry.Open()
     try {
         $memory = New-Object System.IO.MemoryStream
@@ -153,7 +153,7 @@ function Get-EntryBlobId {
 
     $startInfo = New-Object System.Diagnostics.ProcessStartInfo
     $startInfo.FileName = 'git'
-    $startInfo.Arguments = 'hash-object --path="{0}" --stdin' -f $RelativePath
+    $startInfo.Arguments = 'hash-object --stdin'
     $startInfo.WorkingDirectory = $RepositoryRoot
     $startInfo.RedirectStandardInput = $true
     $startInfo.RedirectStandardOutput = $true
@@ -696,7 +696,7 @@ try {
             if ($committed.Count -eq 0 -or [string]::IsNullOrWhiteSpace([string]$committed[0])) {
                 throw "Proveniência não comprovada: $relative não está no commit $packageBuildId."
             }
-            $packagedBlob = Get-EntryBlobId -Entry $entries[$relative] -RelativePath $relative
+            $packagedBlob = Get-EntryBlobId -Entry $entries[$relative]
             $committedBlob = ([string]$committed[0]).Trim()
             if ($packagedBlob -ne $committedBlob) {
                 throw "Proveniência não comprovada para ${relative}: commit $committedBlob, pacote $packagedBlob."

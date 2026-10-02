@@ -417,3 +417,13 @@ O ZIP anterior foi preservado em `dist/archive/Atos-TCE-portable-clean-c393353-s
 O commit-fonte `88bc4ad` contém código e testes verificados. No snapshot antes do fechamento documental, `codex/area-restrita-reliability-reset` estava um commit à frente de `origin`; o handoff final é um commit documental subsequente. Publicar sem force e conferir que `origin/codex/area-restrita-reliability-reset` corresponde ao HEAD final.
 
 Nenhum portal, login, navegador ou formulário real foi aberto. Nenhum run AR-1 real foi criado. O bootstrap do ZIP só prepara a capacidade como `EXPERIMENTAL` 0/20 em instalação limpa; avaliação real continua humana e `Complementar Ato` continua manual.
+
+## 15. Correção do gate de provenance (2026-10-02; em andamento)
+
+O workflow `Offline gates (Windows)` do run `37007534493` falhou no `Root Python suite` (837 testes; 4 falhas), embora o ZIP `88bc4ad...` tivesse passado na verificação local anterior. A reprodução isolada provou que `git hash-object --path=<arquivo> --stdin` aplica clean filters locais ao conteúdo do ZIP: um filtro externo que acrescenta BOM mudou `LEIA-ME-OUTRO-PC.txt` de `5e98de6...` para `6fa4f53...`, sem alteração no arquivo do pacote.
+
+Correção preparada: o verificador calcula o blob dos bytes extraídos do ZIP com `git hash-object --stdin`, sem `--path`; o caminho continua usado somente para consultar o blob do commit. `START.cmd` também tinha bytes CRLF no pacote e LF no blob (`dafcbdc...` contra `5a080db...`). A regra `/START.cmd -text whitespace=cr-at-eol` preserva os bytes do launcher no Git e mantém `git diff --check` limpo; o blob CRLF está preparado no índice.
+
+RED→GREEN local: o teste novo do filtro externo falhou primeiro com a divergência BOM esperada e passou após a correção; o teste do launcher também detectou o blob LF antigo e passou quando o índice passou a conter CRLF. `python -m unittest tests.test_package_provenance -v`: 28 testes, 28 passaram, 0 falharam. `git diff --cached --check`: limpo. As quatro alterações preparadas são `.gitattributes`, `START.cmd`, `packaging/verify-package.ps1` e `tests/test_package_provenance.py`.
+
+Ainda não gerar release a partir do ZIP antigo: ele deve falhar no novo critério estrito em `START.cmd`. Próxima retomada: revisar e commitar estas alterações; construir novo `AR1_BUILD` e `dist/Atos-TCE-portable-clean.zip`; validar com `-ExpectedBuildId` e `-RequireManualFormFillQualificationBootstrap`; rodar todos os gates locais; preservar o ZIP anterior; completar este handoff com entries/tamanho/SHA/provenance/smoke; fazer push e acompanhar o workflow remoto. Nenhum portal ou AR-1 real foi acessado.

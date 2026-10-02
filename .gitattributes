@@ -2,3 +2,4 @@
 *.cmd text eol=crlf
 *.bat text eol=crlf
 # Preserve the tested BOM and CRLF of Windows scripts byte-for-byte.
+/START.cmd -text whitespace=cr-at-eol

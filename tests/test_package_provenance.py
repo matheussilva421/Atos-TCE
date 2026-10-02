@@ -220,7 +220,12 @@ def powershell_env() -> dict:
     return environment
 
 
-def powershell(script: Path, *arguments, cwd: Path | None = None) -> subprocess.CompletedProcess:
+def powershell(
+    script: Path,
+    *arguments,
+    cwd: Path | None = None,
+    env: dict | None = None,
+) -> subprocess.CompletedProcess:
     command = [
         "powershell.exe",
         "-NoLogo",
@@ -238,12 +243,12 @@ def powershell(script: Path, *arguments, cwd: Path | None = None) -> subprocess.
         encoding="utf-8",
         errors="replace",
         cwd=str(cwd or REPO_ROOT),
-        env=powershell_env(),
+        env=env or powershell_env(),
     )
 
 
-def verify(archive: Path, *arguments) -> subprocess.CompletedProcess:
-    return powershell(VERIFIER, "-ZipPath", archive, *arguments)
+def verify(archive: Path, *arguments, env: dict | None = None) -> subprocess.CompletedProcess:
+    return powershell(VERIFIER, "-ZipPath", archive, *arguments, env=env)
 
 
 class PackageProvenanceTests(unittest.TestCase):
@@ -508,6 +513,69 @@ class PackageProvenanceTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("app/aaa-untracked-extra.py", result.stdout + result.stderr)
+
+    def test_release_provenance_ignores_machine_git_clean_filters(self):
+        """ZIP bytes are compared with raw commit blobs, independent of Git filters."""
+
+        product = repo_payload()
+        build_id = head_commit()
+        payload = release_payload(product)
+        archive = make_package(
+            self.tmp / "release-with-external-filter.zip",
+            payload,
+            build_manifest(payload, build_id),
+        )
+
+        attributes = self.tmp / "attributes"
+        attributes.write_text("LEIA-ME-OUTRO-PC.txt filter=addbom\n", encoding="utf-8")
+        clean_filter = self.tmp / "add_bom.py"
+        clean_filter.write_text(
+            "import sys\nsys.stdout.buffer.write(b'\\xef\\xbb\\xbf' + sys.stdin.buffer.read())\n",
+            encoding="utf-8",
+        )
+        command_env = powershell_env()
+        command_env.update(
+            {
+                "GIT_CONFIG_COUNT": "3",
+                "GIT_CONFIG_KEY_0": "core.attributesFile",
+                "GIT_CONFIG_VALUE_0": str(attributes),
+                "GIT_CONFIG_KEY_1": "filter.addbom.clean",
+                "GIT_CONFIG_VALUE_1": f'python "{clean_filter}"',
+                "GIT_CONFIG_KEY_2": "safe.directory",
+                "GIT_CONFIG_VALUE_2": str(REPO_ROOT),
+            }
+        )
+
+        result = verify(
+            archive,
+            "-SkipSmoke",
+            "-ExpectedBuildId",
+            build_id,
+            env=command_env,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_windows_launcher_index_blob_matches_its_packaged_crlf_bytes(self):
+        """The Windows launcher keeps the exact bytes the builder copies."""
+
+        source = (REPO_ROOT / "START.cmd").read_bytes()
+        self.assertIn(b"\r\n", source)
+        self.assertNotIn(b"\n", source.replace(b"\r\n", b""))
+        raw_blob = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "hash-object", "--stdin"],
+            input=source,
+            capture_output=True,
+            check=True,
+        ).stdout.decode("ascii").strip()
+        index_blob = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", ":START.cmd"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+        self.assertEqual(raw_blob, index_blob)
 
     def test_verifier_refuses_a_runtime_tree_without_its_manifest(self):
         """A runtime tree cannot opt out of provenance by dropping its manifest."""
