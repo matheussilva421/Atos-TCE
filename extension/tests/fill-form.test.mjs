@@ -21,6 +21,16 @@ function preparedForm(options = {}) {
   return { documentRef, form: reader.readForm(documentRef) };
 }
 
+function applyFill(options = {}) {
+  const documentRef = options.documentRef ?? globalThis.document;
+  const current = reader.readForm(documentRef);
+  return filler.applyFill({
+    ...options,
+    documentRef,
+    documentNonce: options.documentNonce ?? current?.documentNonce,
+  });
+}
+
 test("the filler writes only to the visible current form when IDs repeat in a hidden stale form", () => {
   const documentRef = new FakeDocument({ screen: "form" });
   documentRef.defaultView = {
@@ -72,7 +82,7 @@ test("the filler writes only to the visible current form when IDs repeat in a hi
   );
   assert.equal(reader.findFieldControl(documentRef, "cargo", form.identity, form.generation + 1), null);
 
-  const result = filler.applyFill({
+  const result = applyFill({
     documentRef,
     identity: form.identity,
     generation: form.generation,
@@ -88,7 +98,7 @@ test("the filler writes only to the visible current form when IDs repeat in a hi
 test("the native value setter is used and the events bubble", () => {
   const { documentRef, form } = preparedForm();
 
-  const result = filler.applyFill({
+  const result = applyFill({
     documentRef,
     identity: form.identity,
     generation: form.generation,
@@ -112,7 +122,7 @@ test("the native value setter is used and the events bubble", () => {
 test("an already correct value is preserved and never rewritten", () => {
   const { documentRef, form } = preparedForm({ values: { cargo: "Professor" } });
 
-  const result = filler.applyFill({
+  const result = applyFill({
     documentRef,
     identity: form.identity,
     generation: form.generation,
@@ -129,7 +139,7 @@ test("an unavailable select option is reported without refusing the request", ()
     fundamento_legal: [{ value: "41", label: "Art. 6º e art. 7º da Emenda Constitucional 41/2003" }],
   };
   const absent = preparedForm({ selects });
-  const refused = filler.applyFill({
+  const refused = applyFill({
     documentRef: absent.documentRef,
     identity: absent.form.identity,
     generation: absent.form.generation,
@@ -142,7 +152,7 @@ test("an unavailable select option is reported without refusing the request", ()
   assert.equal(absent.documentRef.getElementById("txtFundamentoLegal").writeCount, 0);
 
   const present = preparedForm({ selects });
-  const accepted = filler.applyFill({
+  const accepted = applyFill({
     documentRef: present.documentRef,
     identity: present.form.identity,
     generation: present.form.generation,
@@ -169,7 +179,7 @@ test("an option in a disabled optgroup cannot be selected", () => {
   select.append(group);
   const form = reader.readForm(prepared.documentRef);
 
-  const result = filler.applyFill({
+  const result = applyFill({
     documentRef: prepared.documentRef,
     identity: form.identity,
     generation: form.generation,
@@ -184,7 +194,7 @@ test("an option in a disabled optgroup cannot be selected", () => {
 test("an identity mismatch writes nothing at all", () => {
   const { documentRef, form } = preparedForm();
 
-  const result = filler.applyFill({
+  const result = applyFill({
     documentRef,
     identity: { processKey: "999999/2026", interestedNormalized: "pessoa exemplo" },
     generation: form.generation,
@@ -201,7 +211,7 @@ test("an identity mismatch writes nothing at all", () => {
 test("a stale generation writes nothing at all", () => {
   const { documentRef, form } = preparedForm();
 
-  const result = filler.applyFill({
+  const result = applyFill({
     documentRef,
     identity: form.identity,
     generation: form.generation + 5,
@@ -213,12 +223,48 @@ test("a stale generation writes nothing at all", () => {
   assert.equal(documentRef.getElementById("txtCargo").writeCount, 0);
 });
 
+test("a plan from another document with the same identity and generation writes nothing", () => {
+  const documentA = preparedForm();
+  const documentB = preparedForm();
+  assert.deepEqual(documentA.form.identity, documentB.form.identity);
+  assert.equal(documentA.form.generation, 1);
+  assert.equal(documentB.form.generation, 1);
+
+  const result = applyFill({
+    documentRef: documentB.documentRef,
+    identity: documentA.form.identity,
+    generation: documentA.form.generation,
+    documentNonce: documentA.form.documentNonce,
+    fields: { cargo: "Professor" },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "STALE_FORM");
+  assert.equal(documentB.documentRef.getElementById("txtCargo").writeCount, 0);
+  assert.equal(documentB.documentRef.getElementById("txtCargo").value, "");
+});
+
+test("a fill without a document nonce is refused before any field write", () => {
+  const { documentRef, form } = preparedForm();
+
+  const result = filler.applyFill({
+    documentRef,
+    identity: form.identity,
+    generation: form.generation,
+    fields: { cargo: "Professor" },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "STALE_FORM");
+  assert.equal(documentRef.getElementById("txtCargo").writeCount, 0);
+});
+
 test("a generation that is not a positive integer writes nothing at all", () => {
   // CR-F2: an absent or malformed generation can never be "recent enough".
   for (const generation of [undefined, null, "3", 0, -1, 2.5, true, Number.NaN]) {
     const { documentRef, form } = preparedForm();
 
-    const result = filler.applyFill({
+    const result = applyFill({
       documentRef,
       identity: form.identity,
       generation,
@@ -242,13 +288,13 @@ test("a disabled or readOnly control is never written", () => {
   readOnly.documentRef.getElementById("txtMatricula").readOnly = true;
   const readOnlyForm = reader.readForm(readOnly.documentRef);
 
-  const disabledResult = filler.applyFill({
+  const disabledResult = applyFill({
     documentRef: disabled.documentRef,
     identity: disabledForm.identity,
     generation: disabledForm.generation,
     fields: { cargo: "Professor" },
   });
-  const readOnlyResult = filler.applyFill({
+  const readOnlyResult = applyFill({
     documentRef: readOnly.documentRef,
     identity: readOnlyForm.identity,
     generation: readOnlyForm.generation,
@@ -276,7 +322,7 @@ test("a reread failure is field-local and a later field still runs", () => {
     findFieldControl: reader.findFieldControl,
   };
 
-  const result = filler.applyFill({
+  const result = applyFill({
     documentRef,
     identity: form.identity,
     generation: form.generation,
@@ -308,7 +354,7 @@ test("a field reread exception is local when identity can still be confirmed", (
     isVisibleForm: reader.isVisibleForm,
   };
 
-  const result = filler.applyFill({
+  const result = applyFill({
     documentRef,
     identity: form.identity,
     generation: form.generation,
@@ -330,7 +376,7 @@ test("a write event failure is field-local and a later field still runs", () => 
     throw new Error("evento de escrita falhou");
   };
 
-  const result = filler.applyFill({
+  const result = applyFill({
     documentRef,
     identity: form.identity,
     generation: form.generation,
@@ -348,7 +394,7 @@ test("a write event failure is field-local and a later field still runs", () => 
 test("a missing proposal is reported, not invented", () => {
   const { documentRef, form } = preparedForm();
 
-  const result = filler.applyFill({
+  const result = applyFill({
     documentRef,
     identity: form.identity,
     generation: form.generation,
@@ -367,7 +413,7 @@ test("a disabled field does not stop an independent writable field", () => {
   documentRef.getElementById("txtMatricula").disabled = true;
   const form = reader.readForm(documentRef);
 
-  const result = filler.applyFill({
+  const result = applyFill({
     documentRef,
     identity: form.identity,
     generation: form.generation,
@@ -387,7 +433,7 @@ test("an unavailable select option does not stop a text field", () => {
   const selects = { fundamento_legal: [{ value: "41", label: "Emenda 41/2003" }] };
   const { documentRef, form } = preparedForm({ selects });
 
-  const result = filler.applyFill({
+  const result = applyFill({
     documentRef,
     identity: form.identity,
     generation: form.generation,
@@ -405,7 +451,7 @@ test("an unavailable select option does not stop a text field", () => {
 test("a missing control is reported without stopping another field", () => {
   const { documentRef, form } = preparedForm();
 
-  const result = filler.applyFill({
+  const result = applyFill({
     documentRef,
     identity: form.identity,
     generation: form.generation,
@@ -429,7 +475,7 @@ test("legal option and independent text controls are written around a missing fi
     missingFields: ["txtMatricula"],
   });
 
-  const result = filler.applyFill({
+  const result = applyFill({
     documentRef,
     identity: form.identity,
     generation: form.generation,
@@ -457,7 +503,7 @@ test("legal option and independent text controls are written around a missing fi
 test("a divergent existing value is preserved while another field is changed", () => {
   const { documentRef, form } = preparedForm({ values: { cargo: "Cargo preenchido no portal" } });
 
-  const result = filler.applyFill({
+  const result = applyFill({
     documentRef,
     identity: form.identity,
     generation: form.generation,

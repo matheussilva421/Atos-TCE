@@ -12,6 +12,7 @@ the operator.
 from __future__ import annotations
 
 import re
+import threading
 import uuid
 from collections.abc import Mapping
 from typing import Any
@@ -62,12 +63,24 @@ EXTENSION_BLOCK_CODES: frozenset[str] = frozenset(
         "IDENTITY_AMBIGUOUS",
         "IDENTITY_MISMATCH",
         "IDENTITY_MISMATCH_AFTER_WRITE",
+        "STALE_FORM",
     }
 )
 
 
 class FillError(RuntimeError):
     """Raised when a fill request cannot be created or advanced."""
+
+
+class CapabilityNotProduction(FillError):
+    """A navigation capability has not completed production qualification."""
+
+    code = "CAPABILITY_NOT_PRODUCTION"
+
+    def __init__(self, capability: str, state: str = "UNQUALIFIED") -> None:
+        self.capability = capability
+        self.state = state
+        super().__init__(f"{self.code}: {capability} is {state}")
 
 
 #: Reliability Reset AR-1: the assisted manual fill and its run vocabulary.
@@ -106,6 +119,7 @@ _SESSION_REF = re.compile(
     r"|[0-9a-fA-F]{16,64})$"
 )
 _CODE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
+_DOCUMENT_NONCE = re.compile(r"^[a-f0-9]{32}$")
 
 #: Structural screens a run may bind to.
 SAFE_SCREENS: frozenset[str] = frozenset({"form", "list", "interested", "buttons", "unknown"})
@@ -255,14 +269,64 @@ class FillService:
         *,
         preflight: Any | None = None,
         reliability: Any | None = None,
+        capability_provider: Any | None = None,
         reliability_environment: str = AR1_DEFAULT_ENVIRONMENT,
     ) -> None:
         self._store = store
         self._preflight = preflight or build_fill_plan
         self._reliability = reliability
+        self._capability_provider = capability_provider if capability_provider is not None else reliability
         self._reliability_environment = str(reliability_environment)
         self._ar1_finished: set[str] = set()
         self._ar1_phase: dict[str, str] = {}
+        self._delivery_lock = threading.RLock()
+        self._transient_document_nonces: dict[int, str] = {}
+
+    def require_production_capabilities(self, *capabilities: str) -> None:
+        """Fail closed unless each automatic-navigation capability is production-ready."""
+
+        provider = self._capability_provider
+        try:
+            states = provider.capabilities() if provider is not None else {}
+        except Exception:
+            states = {}
+        if not isinstance(states, Mapping):
+            states = {}
+        for capability in capabilities:
+            entry = states.get(capability)
+            state = entry.get("state") if isinstance(entry, Mapping) else None
+            normalized_state = str(state or "UNQUALIFIED").upper()
+            if normalized_state != "PRODUCTION":
+                raise CapabilityNotProduction(capability, normalized_state)
+
+    def claim_extension_command(self, client_id: str) -> dict[str, Any] | None:
+        """Claim a command and attach its document nonce from process memory only."""
+
+        with self._delivery_lock:
+            command = self._store.claim_extension_command(client_id)
+            return self.command_for_extension(command)
+
+    def command_for_extension(
+        self, command: Mapping[str, Any] | None
+    ) -> dict[str, Any] | None:
+        """Add the form nonce to an HTTP delivery copy, never to SQLite."""
+
+        if not isinstance(command, Mapping):
+            return None
+        delivered = dict(command)
+        if str(command.get("type") or "") != "FILL_FORM":
+            return delivered
+        try:
+            command_id = int(command["id"])
+        except (KeyError, TypeError, ValueError):
+            return delivered
+        nonce = self._transient_document_nonces.get(command_id)
+        if not isinstance(nonce, str) or not _DOCUMENT_NONCE.fullmatch(nonce):
+            return delivered
+        payload = command.get("payload")
+        delivered["payload"] = dict(payload) if isinstance(payload, Mapping) else {}
+        delivered["payload"]["document_nonce"] = nonce
+        return delivered
 
     #: Which boundary a run is expected to terminate on, per persisted state.
     _AR1_PHASE_BY_STATE = {
@@ -494,6 +558,7 @@ class FillService:
             raise FillError(f"unknown process: {process_id}")
         if str(process.get("status")) not in AUTOMATIC_FILLABLE_PROCESS_STATUSES:
             raise FillError("somente um processo PRONTO ou PREENCHIDO pode ser preenchido")
+        self.require_production_capabilities("open_act", "select_interested")
         request_id = self._store.create_fill_request(
             int(process_id), state="OPENING", mode="automatic"
         )
@@ -594,6 +659,24 @@ class FillService:
             # A stale or foreign result must never move the workflow.
             return
         payload = result if isinstance(result, Mapping) else {}
+        command_type = str(command.get("type") or "")
+        if command_type == "FILL_FORM" and payload.get("ok") is True:
+            with self._delivery_lock:
+                expected_nonce = self._transient_document_nonces.get(int(command_id))
+            reported_nonce = payload.get("document_nonce", payload.get("documentNonce"))
+            if (
+                not isinstance(expected_nonce, str)
+                or not _DOCUMENT_NONCE.fullmatch(expected_nonce)
+                or reported_nonce != expected_nonce
+            ):
+                with self._delivery_lock:
+                    self._transient_document_nonces.pop(int(command_id), None)
+                self._block(
+                    request,
+                    "resposta do formulário sem o vínculo esperado com o documento",
+                    code="STALE_FORM",
+                )
+                return
         handler = {
             "OPENING": self._handle_open_result,
             "READING": self._handle_read_result,
@@ -601,7 +684,12 @@ class FillService:
         }.get(str(request["state"]))
         if handler is None:
             return
-        handler(request, payload)
+        try:
+            handler(request, payload)
+        finally:
+            if command_type == "FILL_FORM":
+                with self._delivery_lock:
+                    self._transient_document_nonces.pop(int(command_id), None)
 
     def _handle_open_result(self, request: Mapping[str, Any], result: Mapping[str, Any]) -> None:
         process = self._store.get_process(int(request["process_id"]))
@@ -655,8 +743,14 @@ class FillService:
         )
         snapshot = dict(result)
         snapshot["stale_generation_retries"] = stale_retries
+        persisted_snapshot = dict(snapshot)
+        persisted_snapshot.pop("documentNonce", None)
+        persisted_snapshot.pop("document_nonce", None)
         self._store.update_fill_request(
-            int(request["id"]), state="PREFLIGHT", error=None, form_snapshot=snapshot
+            int(request["id"]),
+            state="PREFLIGHT",
+            error=None,
+            form_snapshot=persisted_snapshot,
         )
         self._run_preflight(request, process, snapshot)
 
@@ -673,6 +767,14 @@ class FillService:
         mismatch = self._identity_mismatch(process, observed_identity)
         if mismatch:
             self._block(request, mismatch)
+            return
+        nonce = snapshot.get("documentNonce", snapshot.get("document_nonce"))
+        if not isinstance(nonce, str) or not _DOCUMENT_NONCE.fullmatch(nonce):
+            self._block(
+                request,
+                "formulário sem vínculo válido com o documento observado",
+                code="STALE_FORM",
+            )
             return
         preflight_snapshot = dict(snapshot)
         canonical_identity = dict(observed_identity)
@@ -712,36 +814,39 @@ class FillService:
         # portal's exact displayed alias in the extension command so its form
         # readback is checked against the page the operator actually opened.
         plan.identity = dict(observed_identity)
-        command_id = self._store.queue_fill_command(
-            "FILL_FORM",
-            {
-                "identity": plan.identity,
-                "generation": plan.generation,
-                "fields": plan.fields,
-                "preserved": plan.preserved,
-            },
-            int(request["id"]),
-        )
-        self._store.update_fill_request(
-            int(request["id"]),
-            state="FILLING",
-            current_command_id=command_id,
-            error=None,
-            form_snapshot={
-                "plan": plan.fields,
-                "preserved": plan.preserved,
-                "warnings": plan.warnings,
-                "legal_decision": plan.legal_decision,
-                "modality_decision": plan.modality_decision,
-                "generation": plan.generation,
-                "diagnostics": diagnostics,
-                "stale_generation_retries": int(
-                    (request.get("form_snapshot") or {}).get("stale_generation_retries", 0)
-                    if isinstance(request.get("form_snapshot"), Mapping)
-                    else 0
-                ),
-            },
-        )
+        with self._delivery_lock:
+            command_id = self._store.queue_fill_command(
+                "FILL_FORM",
+                {
+                    "identity": plan.identity,
+                    "generation": plan.generation,
+                    "fields": plan.fields,
+                    "preserved": plan.preserved,
+                },
+                int(request["id"]),
+            )
+            if isinstance(nonce, str) and _DOCUMENT_NONCE.fullmatch(nonce):
+                self._transient_document_nonces[command_id] = nonce
+            self._store.update_fill_request(
+                int(request["id"]),
+                state="FILLING",
+                current_command_id=command_id,
+                error=None,
+                form_snapshot={
+                    "plan": plan.fields,
+                    "preserved": plan.preserved,
+                    "warnings": plan.warnings,
+                    "legal_decision": plan.legal_decision,
+                    "modality_decision": plan.modality_decision,
+                    "generation": plan.generation,
+                    "diagnostics": diagnostics,
+                    "stale_generation_retries": int(
+                        (request.get("form_snapshot") or {}).get("stale_generation_retries", 0)
+                        if isinstance(request.get("form_snapshot"), Mapping)
+                        else 0
+                    ),
+                },
+            )
 
     @staticmethod
     def _best_effort_satisfied(

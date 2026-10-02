@@ -28,6 +28,7 @@
   ]);
 
   const GENERATION = new WeakMap();
+  const DOCUMENT_NONCES = new WeakMap();
 
   const FORM_ROOT_IDS = Object.freeze(["complementarAtoForm", "tbcomplementarato"]);
 
@@ -219,6 +220,8 @@
 
   function formFromCandidate(documentRef, candidate, selectedInterested) {
     if (!isVisibleRoot(documentRef, candidate.root)) return null;
+    const documentNonce = nonceForDocument(documentRef);
+    if (!documentNonce) return null;
     const process = readProcess(candidate.root);
     const interested = {
       original: selectedInterested.original,
@@ -258,6 +261,7 @@
       if (list.length > 0) options[name] = list;
     }
     return {
+      documentNonce,
       identity,
       generation: nextGeneration(documentRef, identity, fields),
       process,
@@ -311,7 +315,13 @@
     return outcome.ok === true ? { ok: true, form: outcome.candidate.form } : outcome;
   }
 
-  function findFieldControl(documentRef, fieldName, expectedIdentity, expectedGeneration) {
+  function findFieldControl(
+    documentRef,
+    fieldName,
+    expectedIdentity,
+    expectedGeneration,
+    expectedDocumentNonce = null,
+  ) {
     if (!Object.hasOwn(FIELD_MAP, fieldName) || !Number.isInteger(expectedGeneration) || expectedGeneration < 1) {
       return null;
     }
@@ -329,7 +339,8 @@
       !interested ||
       candidate.form.identity.processKey !== processKey ||
       candidate.form.identity.interestedNormalized !== interested ||
-      candidate.form.generation !== expectedGeneration
+      candidate.form.generation !== expectedGeneration ||
+      (expectedDocumentNonce !== null && candidate.form.documentNonce !== expectedDocumentNonce)
     ) {
       return null;
     }
@@ -350,6 +361,21 @@
     }
     GENERATION.set(documentRef, state);
     return state.generation;
+  }
+
+  function nonceForDocument(documentRef) {
+    if (!documentRef || (typeof documentRef !== "object" && typeof documentRef !== "function")) {
+      return null;
+    }
+    const existing = DOCUMENT_NONCES.get(documentRef);
+    if (existing) return existing;
+    const cryptoRef = globalThis.crypto;
+    if (typeof cryptoRef?.getRandomValues !== "function") return null;
+    const bytes = new Uint8Array(16);
+    cryptoRef.getRandomValues(bytes);
+    const nonce = [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+    DOCUMENT_NONCES.set(documentRef, nonce);
+    return nonce;
   }
 
   globalThis.TCEFormReader = Object.freeze({

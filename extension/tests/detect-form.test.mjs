@@ -275,6 +275,20 @@ test("the generation advances only when the form state changes", () => {
   assert.equal(reader.readForm(documentRef).generation, 2);
 });
 
+test("a document nonce is stable within one document and changes across documents", () => {
+  const documentA = buildActFormDocument({ selected: "Pessoa Exemplo" });
+  const documentB = buildActFormDocument({ selected: "Pessoa Exemplo" });
+  const first = reader.readForm(documentA);
+  const reread = reader.readForm(documentA);
+  const other = reader.readForm(documentB);
+
+  assert.match(first.documentNonce, /^[a-f0-9]{32}$/u);
+  assert.equal(reread.documentNonce, first.documentNonce);
+  assert.deepEqual(other.identity, first.identity);
+  assert.equal(other.generation, first.generation);
+  assert.notEqual(other.documentNonce, first.documentNonce);
+});
+
 test("the reader never exposes a write surface", () => {
   for (const forbidden of ["applyFields", "overrideField", "writeControl", "submit"]) {
     assert.equal(Object.hasOwn(reader, forbidden), false, `unexpected ${forbidden}`);

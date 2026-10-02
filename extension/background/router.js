@@ -26,6 +26,7 @@ import {
 const RETRY_ATTEMPTS = 4;
 const RETRY_DELAY_MS = 300;
 const FORM_READ_ATTEMPTS = 10;
+const DOCUMENT_NONCE = /^[a-f0-9]{32}$/u;
 const FORM_READ_DELAY_MS = 800;
 const FRAME_LIST_ATTEMPTS = 3;
 const FRAME_LIST_DELAY_MS = 250;
@@ -765,16 +766,26 @@ export function installRouter({
    * No match means "not there yet"; more than one is an ambiguity that must
    * never be resolved by frame order.
    */
-  async function locateFormFrame(identity) {
+  async function locateFormFrame(identity, expectedDocumentNonce = null) {
     const answers = await askFrames({ type: MESSAGE_TYPES.READ_FORM, payload: { identity } });
     const ambiguous = answers.filter((answer) => answer.response?.code === "FORM_AMBIGUOUS");
     if (ambiguous.length > 0) return { ambiguous: ambiguous.length };
-    const matches = answers.filter(
+    const identityMatches = answers.filter(
       (answer) =>
         answer.response?.ok === true &&
         answer.response.form &&
         sameIdentity(answer.response.form.identity, identity)
     );
+    if (expectedDocumentNonce !== null) {
+      const matches = identityMatches.filter(
+        (answer) => answer.response.form.documentNonce === expectedDocumentNonce
+      );
+      if (matches.length === 1) return matches[0];
+      if (matches.length > 1) return { ambiguous: matches.length };
+      if (identityMatches.length > 0) return { stale: true };
+      return null;
+    }
+    const matches = identityMatches;
     if (matches.length === 1) return matches[0];
     if (matches.length === 0) return null;
     return { ambiguous: matches.length };
@@ -934,7 +945,14 @@ export function installRouter({
 
   /** Write only into the one frame whose identity was confirmed by reading. */
   async function fillForm(payload) {
-    const located = await locateFormFrame(payload?.identity ?? {});
+    const documentNonce = payload?.document_nonce;
+    if (typeof documentNonce !== "string" || !DOCUMENT_NONCE.test(documentNonce)) {
+      return { ok: false, code: "STALE_FORM", error: "o comando não está vinculado ao documento lido" };
+    }
+    const located = await locateFormFrame(payload?.identity ?? {}, documentNonce);
+    if (located?.stale) {
+      return { ok: false, code: "STALE_FORM", error: "o formulário lido pertence a outro documento" };
+    }
     if (located?.ambiguous) {
       return {
         ok: false,
@@ -1063,6 +1081,7 @@ export function installRouter({
       identity.processKey ?? identity.process_key ?? "",
       identity.interestedNormalized ?? identity.interested_normalized ?? "",
       identity.portalActId ?? identity.portal_act_id ?? "",
+      form.documentNonce ?? "",
       form.generation ?? "",
       form.screen ?? "form",
     ]);

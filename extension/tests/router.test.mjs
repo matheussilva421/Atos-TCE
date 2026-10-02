@@ -1553,12 +1553,15 @@ test("a form that never appears is reported after the bounded wait", async () =>
 });
 
 test("FILL_FORM is written in exactly one confirmed frame", async () => {
+  const documentNonce = "a".repeat(32);
   const chromeApi = fakeChrome({
     tabs: [portalTab(1)],
     frames: { 1: [{ frameId: 0 }, { frameId: 2 }, { frameId: 5 }] },
     onMessage: (message, tabId, frameId) => {
       if (message.type === "READ_FORM") {
-        if (frameId === 2) return { ok: true, form: { identity: IDENTITY, generation: 4 } };
+        if (frameId === 2) {
+          return { ok: true, form: { identity: IDENTITY, generation: 4, documentNonce } };
+        }
         if (frameId === 5) {
           return {
             ok: true,
@@ -1578,7 +1581,12 @@ test("FILL_FORM is written in exactly one confirmed frame", async () => {
   });
   const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
 
-  const outcome = await router.fillForm({ identity: IDENTITY, generation: 4, fields: { cargo: "Professor" } });
+  const outcome = await router.fillForm({
+    identity: IDENTITY,
+    generation: 4,
+    document_nonce: documentNonce,
+    fields: { cargo: "Professor" },
+  });
 
   assert.equal(outcome.ok, true);
   const writes = chromeApi.sent.filter((entry) => entry.message.type === "FILL_FORM");
@@ -1593,11 +1601,68 @@ test("a fill without a confirmed frame writes nowhere", async () => {
   });
   const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
 
-  const outcome = await router.fillForm({ identity: IDENTITY, fields: { cargo: "Professor" } });
+  const outcome = await router.fillForm({
+    identity: IDENTITY,
+    document_nonce: "a".repeat(32),
+    fields: { cargo: "Professor" },
+  });
 
   assert.equal(outcome.ok, false);
   assert.equal(outcome.code, "FORM_NOT_AVAILABLE");
   assert.equal(chromeApi.sent.filter((entry) => entry.message.type === "FILL_FORM").length, 0);
+});
+
+test("a matching identity in a different document nonce is stale and receives no fill", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1)],
+    frames: { 1: [{ frameId: 2 }] },
+    onMessage: (message) => message.type === "READ_FORM"
+      ? { ok: true, form: { identity: IDENTITY, generation: 1, documentNonce: "b".repeat(32) } }
+      : { ok: true },
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const outcome = await router.fillForm({
+    identity: IDENTITY,
+    generation: 1,
+    document_nonce: "a".repeat(32),
+    fields: { cargo: "Professor" },
+  });
+
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.code, "STALE_FORM");
+  assert.equal(chromeApi.sent.filter((entry) => entry.message.type === "FILL_FORM").length, 0);
+});
+
+test("the router selects the one frame with the expected document nonce", async () => {
+  const expectedNonce = "b".repeat(32);
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1)],
+    frames: { 1: [{ frameId: 2 }, { frameId: 5 }] },
+    onMessage: (message, _tabId, frameId) => message.type === "READ_FORM"
+      ? {
+          ok: true,
+          form: {
+            identity: IDENTITY,
+            generation: 1,
+            documentNonce: frameId === 2 ? "a".repeat(32) : expectedNonce,
+          },
+        }
+      : { ok: true },
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const outcome = await router.fillForm({
+    identity: IDENTITY,
+    generation: 1,
+    document_nonce: expectedNonce,
+    fields: { cargo: "Professor" },
+  });
+
+  assert.equal(outcome.ok, true);
+  const writes = chromeApi.sent.filter((entry) => entry.message.type === "FILL_FORM");
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].frameId, 5);
 });
 
 test("a frame that disappears is retried and then reported", async () => {
@@ -1961,6 +2026,26 @@ test("a changed form is published immediately, without waiting for the keepalive
 
   assert.equal(published.length, 2);
   assert.deepEqual(published[1], { active: true, form: other });
+});
+
+test("a new document nonce republishes even when identity and generation repeat", async () => {
+  let clock = 0;
+  let current = { ...OBSERVED_FORM, documentNonce: "a".repeat(32) };
+  const nextDocument = { ...OBSERVED_FORM, documentNonce: "b".repeat(32) };
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) => (message.type === "READ_FORM" ? { ok: true, form: current } : { ok: false }),
+  });
+  const published = [];
+  const router = installRouter({ api: observingApi(published), chromeApi, now: () => clock });
+
+  await router.poll();
+  clock = 1500;
+  current = nextDocument;
+  await router.poll();
+
+  assert.equal(published.length, 2);
+  assert.deepEqual(published[1], { active: true, form: nextDocument });
 });
 
 test("the selection is cleared when no single form is open", async () => {

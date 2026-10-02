@@ -38,7 +38,16 @@ class FillRequestTestCase(unittest.TestCase):
         self.data = Path(self._tmp.name) / "data"
         self.store = Store.open(self.data / "atos-tce.db")
         self.addCleanup(self.store.close)
-        self.service = FillService(self.store)
+        self.capability_provider = CapabilityStateFixture(
+            open_act="PRODUCTION",
+            select_interested="PRODUCTION",
+            next_process="PRODUCTION",
+            return_to_list="PRODUCTION",
+        )
+        self.service = FillService(
+            self.store,
+            capability_provider=self.capability_provider,
+        )
 
     def make_process(self, *, status="PRONTO", process_key="102390/2026"):
         process_id = self.store.upsert_process(
@@ -65,7 +74,33 @@ class FillRequestTestCase(unittest.TestCase):
         return process_id
 
 
+class CapabilityStateFixture:
+    def __init__(self, **states):
+        self.states = states
+
+    def capabilities(self):
+        return {name: {"state": state} for name, state in self.states.items()}
+
+
 class FillStateMachineTests(FillRequestTestCase):
+    def test_automatic_navigation_requires_production_capabilities_before_reserving(self):
+        for states in (
+            {"open_act": "UNQUALIFIED", "select_interested": "PRODUCTION"},
+            {"open_act": "PRODUCTION", "select_interested": "EXPERIMENTAL"},
+            {"open_act": "PRODUCTION", "select_interested": "QUALIFIED"},
+            {"open_act": "PRODUCTION"},
+        ):
+            with self.subTest(states=states):
+                process_id = self.make_process(process_key=f"10{len(self.store.list_fill_requests())}/2026")
+                service = FillService(self.store, reliability=CapabilityStateFixture(**states))
+
+                with self.assertRaises(FillError) as raised:
+                    service.request_fill(process_id)
+
+                self.assertIn("CAPABILITY_NOT_PRODUCTION", str(raised.exception))
+                self.assertEqual(self.store.list_fill_requests(), [])
+                self.assertIsNone(self.store.claim_extension_command("extension-test"))
+
     def test_a_preenchido_process_can_start_another_fill_request(self):
         process_id = self.make_process(status="PREENCHIDO")
 
@@ -351,6 +386,7 @@ class ManualFillRequestTests(FillRequestTestCase):
                 **({"portalActId": portal_act_id} if portal_act_id is not None else {}),
             },
             "generation": 3,
+            "documentNonce": "0123456789abcdef0123456789abcdef",
             "fields": form_controls(),
         }
 
@@ -494,6 +530,55 @@ class ManualFillRequestTests(FillRequestTestCase):
         self.assertNotIn("pessoa exemplo", json.dumps(stored))
         self.assertNotIn("102390", json.dumps(stored))
 
+    def test_document_nonce_is_added_only_when_delivering_the_fill_command(self):
+        self.ready_process()
+        document_nonce = "0123456789abcdef0123456789abcdef"
+        snapshot = self.snapshot()
+        snapshot["documentNonce"] = document_nonce
+
+        request_id = self.service.request_manual_fill(snapshot)
+        request = self.store.get_fill_request(request_id)
+        command = self.store.get_extension_command(request["current_command_id"])
+
+        self.assertNotIn("document_nonce", command["payload"])
+        self.assertNotIn(document_nonce, json.dumps(request["form_snapshot"]))
+        delivered = self.service.command_for_extension(command)
+        self.assertEqual(delivered["payload"]["document_nonce"], document_nonce)
+        self.assertNotIn("document_nonce", self.store.get_extension_command(command["id"])["payload"])
+
+    def test_a_manual_fill_without_a_document_nonce_queues_no_write(self):
+        self.ready_process()
+        snapshot = self.snapshot()
+        snapshot.pop("documentNonce")
+
+        request_id = self.service.request_manual_fill(snapshot)
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "BLOQUEADO")
+        self.assertIn("document", request["error"])
+        self.assertIsNone(self.store.claim_extension_command("extension-test"))
+
+    def test_a_successful_fill_must_echo_the_bound_document_nonce(self):
+        process_id = self.ready_process()
+        request_id = self.service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        fields = command["payload"]["fields"]
+        result = {
+            "ok": True,
+            "identity": dict(IDENTITY),
+            "generation_after": 4,
+            "field_results": {
+                name: {"before": "", "proposed": value, "after": value, "status": "changed"}
+                for name, value in fields.items()
+            },
+        }
+
+        self.service.handle_command_result(command["id"], result)
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "BLOQUEADO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+
 class ManualSnapshotMixin:
     """Shared helpers for the manual-fill test classes."""
 
@@ -518,6 +603,7 @@ class ManualSnapshotMixin:
         payload = {
             "identity": dict(IDENTITY),
             "generation": 3,
+            "documentNonce": "0123456789abcdef0123456789abcdef",
             "fields": controls,
             "options": {},
         }
@@ -530,7 +616,7 @@ class ManualFallbackTests(ManualSnapshotMixin, FillRequestTestCase):
 
     def test_the_manual_path_queues_the_same_fill_command_as_the_automatic_path(self):
         process_id = self.ready_process()
-        service = FillService(self.store)
+        service = FillService(self.store, capability_provider=self.capability_provider)
 
         manual_request = service.request_manual_fill(self.snapshot())
         manual_command = self.store.claim_extension_command("extension-test")
@@ -572,7 +658,13 @@ class ManualFallbackTests(ManualSnapshotMixin, FillRequestTestCase):
         process_id = self.ready_process()
         service = FillService(self.store)
 
-        request_id = service.request_manual_fill({"identity": dict(IDENTITY), "generation": 3})
+        request_id = service.request_manual_fill(
+            {
+                "identity": dict(IDENTITY),
+                "generation": 3,
+                "documentNonce": "0123456789abcdef0123456789abcdef",
+            }
+        )
 
         request = self.store.get_fill_request(request_id)
         command = self.store.claim_extension_command("extension-test")
@@ -647,6 +739,7 @@ class FillServiceOutcomeTests(FillRequestTestCase):
                 "ok": True,
                 "identity": IDENTITY,
                 "generation": 3,
+                "documentNonce": "0123456789abcdef0123456789abcdef",
                 "fields": form_controls() if controls is None else controls,
             },
         )
@@ -662,6 +755,7 @@ class FillServiceOutcomeTests(FillRequestTestCase):
             {
                 "identity": dict(IDENTITY),
                 "generation": 3,
+                "documentNonce": "0123456789abcdef0123456789abcdef",
                 "fields": form_controls() if controls is None else controls,
             }
         )
@@ -676,6 +770,7 @@ class FillServiceOutcomeTests(FillRequestTestCase):
             "ok": True,
             "identity": dict(IDENTITY),
             "generation_after": 4,
+            "document_nonce": "0123456789abcdef0123456789abcdef",
             "field_results": {
                 name: {"before": "", "proposed": value, "after": value, "status": "changed"}
                 for name, value in fields.items()
@@ -692,6 +787,7 @@ class FillServiceOutcomeTests(FillRequestTestCase):
                 "ok": True,
                 "identity": dict(IDENTITY),
                 "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
                 "field_results": {
                     "cargo": {"before": "", "proposed": "Professor", "after": "Professor", "status": "changed"},
                     "matricula": {
@@ -726,6 +822,7 @@ class FillServiceOutcomeTests(FillRequestTestCase):
                 "ok": True,
                 "identity": dict(IDENTITY),
                 "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
                 "field_results": {
                     "cargo": {
                         "before": "",
@@ -863,7 +960,13 @@ class FillServiceOutcomeTests(FillRequestTestCase):
         self.assertEqual(read_command["type"], "READ_FORM")
         self.service.handle_command_result(
             read_command["id"],
-            {"ok": True, "identity": IDENTITY, "generation": 5, "fields": form_controls()},
+            {
+                "ok": True,
+                "identity": IDENTITY,
+                "generation": 5,
+                "documentNonce": "0123456789abcdef0123456789abcdef",
+                "fields": form_controls(),
+            },
         )
         retried_fill = self.store.claim_extension_command("extension-test")
         self.assertEqual(retried_fill["type"], "FILL_FORM")
@@ -882,7 +985,13 @@ class FillServiceOutcomeTests(FillRequestTestCase):
         read_command = self.store.claim_extension_command("extension-test")
         self.service.handle_command_result(
             read_command["id"],
-            {"ok": True, "identity": IDENTITY, "generation": 5, "fields": form_controls()},
+            {
+                "ok": True,
+                "identity": IDENTITY,
+                "generation": 5,
+                "documentNonce": "0123456789abcdef0123456789abcdef",
+                "fields": form_controls(),
+            },
         )
         retried_fill = self.store.claim_extension_command("extension-test")
         self.service.handle_command_result(
@@ -1383,20 +1492,32 @@ class StubPreflight:
 class FillServicePreflightTests(FillRequestTestCase):
     def reach_reading(self, stub):
         process_id = self.make_process()
-        service = FillService(self.store, preflight=stub)
+        service = FillService(
+            self.store, preflight=stub, capability_provider=self.capability_provider
+        )
         request_id = service.request_fill(process_id)
         open_command = self.store.claim_extension_command("extension-test")
         service.handle_command_result(
             open_command["id"], {"ok": True, "action": "open_act", "screen": "list"}
         )
         read_command = self.store.claim_extension_command("extension-test")
-        service.handle_command_result(read_command["id"], {"ok": True, "identity": IDENTITY, "generation": 4})
+        service.handle_command_result(
+            read_command["id"],
+            {
+                "ok": True,
+                "identity": IDENTITY,
+                "generation": 4,
+                "documentNonce": "0123456789abcdef0123456789abcdef",
+            },
+        )
         return service, request_id
 
     def test_a_read_form_with_a_wrong_identity_blocks_before_the_preflight(self):
         stub = StubPreflight(error=AssertionError("o preflight não pode rodar com identidade errada"))
         process_id = self.make_process()
-        service = FillService(self.store, preflight=stub)
+        service = FillService(
+            self.store, preflight=stub, capability_provider=self.capability_provider
+        )
         request_id = service.request_fill(process_id)
         open_command = self.store.claim_extension_command("extension-test")
         service.handle_command_result(
@@ -1426,7 +1547,9 @@ class FillServicePreflightTests(FillRequestTestCase):
             plan=FillPlan(identity=dict(IDENTITY), generation=4, fields={"cargo": "Professor"})
         )
         process_id = self.make_process()
-        service = FillService(self.store, preflight=stub)
+        service = FillService(
+            self.store, preflight=stub, capability_provider=self.capability_provider
+        )
         service.request_fill(process_id)
         open_command = self.store.claim_extension_command("extension-test")
 
@@ -1474,6 +1597,7 @@ class FillServicePreflightTests(FillRequestTestCase):
         request = self.store.get_fill_request(request_id)
         self.assertEqual(request["state"], "ERRO")
         self.assertIn("preflight falhou", request["error"])
+        self.assertNotIn("documentNonce", json.dumps(request["form_snapshot"]))
 
 
 AR1_BUILD = "task3-build"
@@ -1542,6 +1666,7 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
                 "ok": True,
                 "identity": {"processKey": "outro/2026", "interestedNormalized": "outra pessoa"},
                 "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
                 "field_results": {},
             },
         )
@@ -1581,6 +1706,7 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
                 "ok": True,
                 "identity": dict(IDENTITY),
                 "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
                 "field_results": {
                     name: {"before": "", "proposed": value, "after": value, "status": "changed"}
                     for name, value in command["payload"]["fields"].items()
@@ -1711,7 +1837,7 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
             {"route": "/A/B.asp", "screen": "form", "tab_ref": "tab-1"},
         )
 
-    def test_a_restarted_service_still_finishes_the_ar1_run(self):
+    def test_a_restarted_service_fails_closed_when_transient_document_nonce_is_lost(self):
         self.ready_process()
         recorder = ReliabilityRecorder(self.data, AR1_BUILD)
         first = FillService(self.store, reliability=recorder, reliability_environment="offline")
@@ -1725,6 +1851,7 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
                 "ok": True,
                 "identity": dict(IDENTITY),
                 "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
                 "field_results": {
                     name: {"before": "", "proposed": value, "after": value, "status": "changed"}
                     for name, value in command["payload"]["fields"].items()
@@ -1734,8 +1861,10 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
 
         finished = self.finishes()
         self.assertEqual(len(finished), 1)
-        self.assertTrue(finished[0]["passed"])
+        self.assertFalse(finished[0]["passed"])
+        self.assertEqual(finished[0]["result_code"], "STALE_FORM")
         self.assertEqual(finished[0]["run_id"], ar1_run_id(request_id))
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "BLOQUEADO")
 
     def test_a_refused_manual_attempt_is_recorded_as_a_failed_run(self):
         self.ready_process()
@@ -1769,6 +1898,7 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
                 "ok": True,
                 "identity": dict(IDENTITY),
                 "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
                 "field_results": {
                     "cargo": {
                         "before": "",
@@ -1802,6 +1932,7 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
                 "ok": True,
                 "identity": dict(IDENTITY),
                 "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
                 "field_results": {
                     "cargo": {
                         "before": "",
@@ -1832,6 +1963,7 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
                 "ok": True,
                 "identity": dict(IDENTITY),
                 "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
                 "field_results": {
                     "cargo": {
                         "before": "",
@@ -1859,6 +1991,7 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
                 "ok": True,
                 "identity": dict(IDENTITY),
                 "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
                 "field_results": {},
             },
         )
@@ -1883,6 +2016,7 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
                 "ok": True,
                 "identity": dict(IDENTITY),
                 "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
                 "field_results": {},
             },
         )
@@ -1928,6 +2062,7 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
                 "ok": True,
                 "identity": dict(IDENTITY),
                 "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
                 "field_results": {
                     "cargo": {
                         "before": "",
@@ -1965,6 +2100,7 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
                 "ok": True,
                 "identity": dict(IDENTITY),
                 "generation": 5,
+                "documentNonce": "0123456789abcdef0123456789abcdef",
                 "fields": form_controls(),
             },
         )
@@ -1996,6 +2132,7 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
                 "ok": True,
                 "identity": {"processKey": "200000/2026", "interestedNormalized": "pessoa exemplo"},
                 "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
                 "field_results": {
                     "cargo": {
                         "before": "",
@@ -2037,6 +2174,7 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
                         "ok": True,
                         "identity": {**IDENTITY, "processKey": process_key},
                         "generation_after": 4,
+                        "document_nonce": "0123456789abcdef0123456789abcdef",
                         "field_results": {},
                     },
                 )
@@ -2059,6 +2197,7 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
                 "ok": True,
                 "identity": dict(IDENTITY),
                 "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
                 "field_results": {
                     name: {"before": "", "proposed": value, "after": value, "status": "changed"}
                     for name, value in command["payload"]["fields"].items()

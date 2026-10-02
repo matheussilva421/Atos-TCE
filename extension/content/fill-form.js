@@ -23,6 +23,7 @@
     OPTION_UNAVAILABLE: "option_unavailable",
     FAILED: "failed",
   });
+  const DOCUMENT_NONCE = /^[a-f0-9]{32}$/u;
 
   function normalize(value) {
     const api = globalThis.TCEAreaSnapshot;
@@ -97,7 +98,13 @@
 
   function controlOf(documentRef, field, reader, form) {
     if (typeof reader?.findFieldControl !== "function") return null;
-    return reader.findFieldControl(documentRef, field, form.identity, form.generation);
+    return reader.findFieldControl(
+      documentRef,
+      field,
+      form.identity,
+      form.generation,
+      form.documentNonce,
+    );
   }
 
   function identityFromReader(reader, documentRef) {
@@ -118,7 +125,14 @@
    * Identity and generation are request-wide guards. After they pass, a field
    * problem is recorded locally and does not prevent later fields from running.
    */
-  function applyFill({ documentRef = globalThis.document, identity, generation, fields = {}, deps = {} } = {}) {
+  function applyFill({
+    documentRef = globalThis.document,
+    identity,
+    generation,
+    documentNonce,
+    fields = {},
+    deps = {},
+  } = {}) {
     const reader = deps.reader ?? globalThis.TCEFormReader;
     if (!reader?.readForm) {
       return { ok: false, code: "FORM_READER_UNAVAILABLE", field_results: {} };
@@ -126,6 +140,13 @@
 
     const before = reader.readForm(documentRef);
     if (!before) return { ok: false, code: "FORM_NOT_AVAILABLE", field_results: {} };
+    if (
+      typeof documentNonce !== "string" ||
+      !DOCUMENT_NONCE.test(documentNonce) ||
+      before.documentNonce !== documentNonce
+    ) {
+      return { ok: false, code: "STALE_FORM", generation_after: before.generation, field_results: {} };
+    }
     if (!sameIdentity(before.identity, identity)) {
       return { ok: false, code: "IDENTITY_MISMATCH", generation_after: before.generation, field_results: {} };
     }
@@ -242,6 +263,18 @@
         }
         break;
       }
+      if (reread.documentNonce !== before.documentNonce) {
+        entry.status = FIELD_STATUS.FAILED;
+        entry.after = String(reread.fields?.[field]?.value ?? control.value ?? "");
+        entry.warning = "document_context_changed";
+        entry.error = "document_nonce_changed_during_fill";
+        safetyFailure = "STALE_FORM";
+        for (const remaining of plans.slice(index + 1)) {
+          remaining.entry.status = FIELD_STATUS.FAILED;
+          remaining.entry.error = "not_attempted_after_document_change";
+        }
+        break;
+      }
       if (!sameIdentity(reread.identity, before.identity)) {
         entry.status = FIELD_STATUS.FAILED;
         entry.after = String(reread.fields?.[field]?.value ?? control.value ?? "");
@@ -284,6 +317,7 @@
       ok: safetyFailure === null,
       identity: latest.identity ?? before.identity,
       generation_after: latest.generation ?? before.generation,
+      document_nonce: latest.documentNonce ?? before.documentNonce,
       field_results: fieldResults,
       warnings,
       code: safetyFailure,
@@ -303,6 +337,7 @@
             documentRef: globalThis.document,
             identity: payload.identity ?? {},
             generation: payload.generation,
+            documentNonce: payload.document_nonce,
             fields: payload.fields ?? {},
           })
         );

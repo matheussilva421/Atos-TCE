@@ -56,6 +56,7 @@ from ..area_restrita.current_selection import (
 from ..area_restrita.fill_service import (
     OPEN_ACT_ACTIONS,
     OPEN_ACT_SCREENS,
+    CapabilityNotProduction,
     FillError,
     FillService,
 )
@@ -979,6 +980,12 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             return
         try:
             request_id = self.mesa.fill.request_fill(int(process_id))
+        except CapabilityNotProduction as error:
+            self._send_json(
+                {"error": error.code, "capability": error.capability, "state": error.state},
+                status=409,
+            )
+            return
         except FillError as error:
             self._send_json({"error": "fill_refused", "detail": str(error)}, status=409)
             return
@@ -1031,6 +1038,17 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": "invalid_next_act_request"}, status=400)
                 return
             resolver_args = {"identity": payload["identity"]}
+
+        try:
+            self.mesa.fill.require_production_capabilities(
+                "next_process", "return_to_list", "open_act", "select_interested"
+            )
+        except CapabilityNotProduction as error:
+            self._send_json(
+                {"error": error.code, "capability": error.capability, "state": error.state},
+                status=409,
+            )
+            return
 
         try:
             resolved = self.mesa.navigation.next_target(**resolver_args)
@@ -1243,7 +1261,7 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         client_id = self._require_extension()
         if client_id is None:
             return
-        self._send_json({"command": self.mesa.store.claim_extension_command(client_id)})
+        self._send_json({"command": self.mesa.fill.claim_extension_command(client_id)})
 
     def handle_command_status(self, query: dict[str, list[str]], command_id: str) -> None:
         if not self._require_session():
@@ -1425,11 +1443,16 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
                 status=500,
             )
             return
+        persisted_result = payload
+        if command.get("type") == "FILL_FORM":
+            persisted_result = dict(payload)
+            persisted_result.pop("document_nonce", None)
+            persisted_result.pop("documentNonce", None)
         outcome = self.mesa.store.complete_extension_command(
             int(command_id),
             client_id=client_id,
             claim_token=claim_token,
-            result=payload,
+            result=persisted_result,
             error=error,
         )
         if outcome != "ok":

@@ -622,6 +622,30 @@ Nenhum código de produto foi alterado. O ZIP continua sendo o produto até `db7
 - Commits: `a41ec50 test(portal): reproduce stale observation fill clicks`; `f6de126 fix(portal): bind fill clicks to exact observations`. Arquivos de produto: `app/area_restrita/current_selection.py`, `app/api/server.py`, `app/web/portal-current.js`, `app/web/app.js`; testes em `tests/test_current_selection.py`, `tests/test_api_server.py`, `app/web/tests/portal-current.test.mjs`, `app/web/tests/ui-wiring.test.mjs`.
 - Ainda não houve gates globais, novo build/ZIP, provenance nem smoke final; o ZIP `db73386` continua superseded para qualification. Nenhuma Área Restrita real foi acessada.
 
+### P1 #1 — plano vinculado ao documento/formulário: corrigido localmente
+
+- RED reproduzido em testes de filler, router, detector, FillService e API: um plano de A podia escrever em B quando identidade e generation coincidiam; a resposta de sucesso não provava qual documento recebeu a escrita; o nonce também podia chegar a snapshots/resultados persistidos.
+- O detector cria nonce criptográfico aleatório de 128 bits por objeto `Document`, guardado em `WeakMap`. Sem `crypto.getRandomValues`, não publica formulário. O filler exige nonce válido antes da primeira escrita, confere-o na resolução dos controles e interrompe o lote se o contexto mudar. O router escolhe somente o frame com identidade e nonce esperados; nonce diferente produz `STALE_FORM` sem envio do comando. A assinatura de seleção inclui nonce para republicar imediatamente numa troca de documento.
+- A Mesa mantém o nonce somente em memória, associa-o ao ID do comando sob lock e injeta-o apenas na cópia entregue à extensão. Resultado `ok=true` precisa ecoar o nonce associado; resultado ausente, trocado ou recebido após reinício bloqueia como `STALE_FORM`. Snapshot intermediário, payload de comando, eventos de reliability e resultado SQLite removem o nonce. A resposta HTTP da extensão também não o devolve ao cliente.
+- RED/GREEN: testes sintéticos provam 0 campos alterados no documento B, frame exato selecionado, republicação em nova instância e fail-closed após restart. `python -m unittest test_fill_service test_api_server` (com `PYTHONPATH=tests`) — 238 testes passaram na rodada do P1 #1; `npm test --prefix extension` — 260/260; `git diff --check` — PASS.
+- Arquivos: `app/area_restrita/fill_service.py`, `app/api/server.py`, `extension/content/detect-form.js`, `extension/content/fill-form.js`, `extension/background/router.js` e respectivos testes em `tests/` e `extension/tests/`.
+
+### P1 #2 — capability central para navegação AR-2/AR-3: corrigido localmente
+
+- RED reproduzido: `request_fill()` criava pedido `OPEN_ACT` e `/portal/next-act` criava `OPEN_NEXT_ACT` mesmo com capabilities `UNQUALIFIED`/`EXPERIMENTAL`.
+- `FillService.require_production_capabilities()` é o gate backend compartilhado e fail-closed. `request_fill()` verifica `open_act` e `select_interested` antes de criar pedido/comando. `/portal/next-act` verifica `next_process`, `return_to_list`, `open_act` e `select_interested` antes de resolver ou enfileirar navegação. Só estado `PRODUCTION` permite execução; `QUALIFIED` ainda bloqueia até que a arquitetura permita promoção.
+- API responde HTTP 409 com `CAPABILITY_NOT_PRODUCTION`; os testes verificam zero fill requests, zero `OPEN_ACT` e zero `OPEN_NEXT_ACT`. Test fixtures que semeiam `PRODUCTION` são locais/sintéticos e não representam promotion ou evidência real.
+- GREEN focado: serviço, rota next-act e cadeia de preenchimento com capabilities de produção passaram. `python -m unittest test_fill_service test_api_server` (com `PYTHONPATH=tests`) — 241/241; `npm test --prefix extension` — 260/260; Node nos testes de `app/web/tests` — 65/65; `git diff --check` — PASS. Uma tentativa inicial de `npm test --prefix app/web` falhou por não haver `package.json`; o comando Node correto para os arquivos web foi executado e passou.
+- Arquivos adicionais: `app/area_restrita/fill_service.py`, `app/api/server.py`, `tests/test_fill_service.py`, `tests/test_api_server.py`.
+
+### Estado ao retomar
+
+- Branch `codex/area-restrita-reliability-reset`; último commit rastreado antes destes dois blocos: `e42f38c470168e4160ea1d781aff8917ced3e2fb`. Mudanças P1 #1/#2 estão no working tree; ainda sem commit/push.
+- P1 #1 + P1 #2: implementação local concluída. A última suíte Python combinada contou 241 testes e passou; extensão 260/260; web 65/65; `git diff --check` PASS. Repetir o gate combinado após as próximas mudanças.
+- O trabalho de capability preserva `request_fill(process_id)`, mas deixa a navegação bloqueada até `PRODUCTION`. O fluxo manual AR-1 continua independente e não recebeu capability de navegação.
+- Nenhuma Área Restrita real foi acessada. Não houve login, preenchimento real, AR-1/AR-2/AR-3, promoção nem merge em `main`.
+- P2/P3, revisão adversarial/global, reconciliação de `AGENTS.md`/runtime source-of-truth, gates/CI, congelamento de `NEW_AR1_BUILD`, ZIP novo, provenance e smoke sintético ainda pendentes. O ZIP anterior segue `SUPERSEDED FOR REAL QUALIFICATION`.
+
 ### Próxima etapa
 
-Continuar pelo P1 #1: vincular cada plano de preenchimento a uma instância de documento/formulário não reutilizável e provar RED/GREEN que um plano do documento A não escreve em B quando identidade e generation coincidem. Depois fechar por ordem P1 #2, P2/P3, revisão adversarial, gates, CI, novo build/ZIP, provenance e smoke sintético. Não usar portal real.
+Tratar P2 #1: concorrência entre publishers/perfis de `current_selection`, com publisher ID efêmero, sequência monotônica e rejeição de replay/stale sem regressão da seleção atual. Depois resolver a fonte de verdade contraditória (P2 #2), atualizar handoff/runbooks e o status superseded (P2 #3), corrigir origin exata (P3 #1), fazer revisão adversarial e os gates/CI/build/ZIP/provenance/smoke do Goal 02-10. Não usar portal real.

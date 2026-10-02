@@ -115,6 +115,18 @@ class ApiTestCase(unittest.TestCase):
 
         return {}
 
+    def set_capability_states(self, **states):
+        path = self.data_root / "reliability" / "capabilities.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        existing = {}
+        if path.exists():
+            existing = json.loads(path.read_text(encoding="utf-8")).get("capabilities", {})
+        capabilities = dict(existing)
+        capabilities.update({name: {"state": state} for name, state in states.items()})
+        path.write_text(
+            json.dumps({"capabilities": capabilities}, ensure_ascii=False), encoding="utf-8"
+        )
+
     def call(self, path, method="GET", headers=None, body=None, opener=None):
         payload = None if body is None else json.dumps(body).encode("utf-8")
         request = Request(f"{self.base}{path}", data=payload, method=method)
@@ -1425,6 +1437,12 @@ class NextActRouteTests(ApiTestCase):
 
     def setUp(self):
         super().setUp()
+        self.set_capability_states(
+            next_process="PRODUCTION",
+            return_to_list="PRODUCTION",
+            open_act="PRODUCTION",
+            select_interested="PRODUCTION",
+        )
         self.extension = self.register_extension()
         self.opener = self.mesa_opener()
         self.current_identity = {
@@ -1478,6 +1496,23 @@ class NextActRouteTests(ApiTestCase):
             headers=headers,
             body=body,
             opener=opener,
+        )
+
+    def test_next_process_is_blocked_without_production_capability(self):
+        self.set_capability_states(next_process="UNQUALIFIED")
+        status, _headers, payload = self.post_next_act(
+            {"process_id": self.process_id},
+            headers=self.mesa_headers(),
+            opener=self.opener,
+        )
+
+        self.assertEqual(status, 409, payload)
+        self.assertEqual(payload["error"], "CAPABILITY_NOT_PRODUCTION")
+        self.assertEqual(
+            self.store._connection.execute(
+                "SELECT COUNT(*) FROM extension_commands WHERE command_type = 'OPEN_NEXT_ACT'"
+            ).fetchone()[0],
+            0,
         )
 
     def test_mesa_session_resolves_and_queues_the_exact_scan_target(self):
@@ -1693,6 +1728,7 @@ class FillOrchestrationTests(ApiTestCase):
 
     def setUp(self):
         super().setUp()
+        self.set_capability_states(open_act="PRODUCTION", select_interested="PRODUCTION")
         self.store.replace_fields(
             self.process_id,
             [
@@ -1750,6 +1786,26 @@ class FillOrchestrationTests(ApiTestCase):
         self.assertEqual(status, 201, payload)
         return payload["fill_request_id"]
 
+    def test_automatic_fill_is_blocked_without_production_capabilities(self):
+        self.set_capability_states(open_act="EXPERIMENTAL")
+        status, _headers, payload = self.call_json(
+            f"/api/v1/processes/{self.process_id}/fill",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={},
+            opener=self.opener,
+        )
+
+        self.assertEqual(status, 409, payload)
+        self.assertEqual(payload["error"], "CAPABILITY_NOT_PRODUCTION")
+        self.assertEqual(self.store.list_fill_requests(), [])
+        self.assertEqual(
+            self.store._connection.execute(
+                "SELECT COUNT(*) FROM extension_commands WHERE command_type = 'OPEN_ACT'"
+            ).fetchone()[0],
+            0,
+        )
+
     def fill_state(self, request_id):
         """Read the fill request through the authenticated Mesa session."""
 
@@ -1788,6 +1844,7 @@ class FillOrchestrationTests(ApiTestCase):
             "ok": True,
             "identity": dict(FILL_IDENTITY),
             "generation": 4,
+            "documentNonce": "abcdef0123456789abcdef0123456789",
             "fields": fields,
             "options": {},
         }
@@ -1799,6 +1856,7 @@ class FillOrchestrationTests(ApiTestCase):
             "ok": True,
             "identity": dict(FILL_IDENTITY),
             "generation_after": 5,
+            "document_nonce": "abcdef0123456789abcdef0123456789",
             "field_results": {
                 name: {"before": "", "proposed": value, "after": value, "status": "changed"}
                 for name, value in planned.items()
@@ -1856,6 +1914,7 @@ class FillOrchestrationTests(ApiTestCase):
                 "ok": True,
                 "identity": dict(FILL_IDENTITY),
                 "generation_after": 5,
+                "document_nonce": "abcdef0123456789abcdef0123456789",
             },
         )
 
@@ -2312,6 +2371,7 @@ class PortalManualFormReliabilityTests(ApiTestCase):
             body={
                 "identity": {"processKey": "102390/2026", "interestedNormalized": "pessoa exemplo"},
                 "generation": 3,
+                "documentNonce": "abcdef0123456789abcdef0123456789",
                 "fields": {},
                 "diagnostics": {
                     "browser_session_id": "3f1c9b2e-0a44-4d5a-9c11-8b7f2e6a1d33",
@@ -2416,6 +2476,7 @@ class PortalCurrentSelectionTests(ApiTestCase):
     snapshot, and NOT_FOUND/AMBIGUOUS must never invent a process."""
 
     _CURRENT_OBSERVATION = object()
+    _DOCUMENT_NONCE = "abcdef0123456789abcdef0123456789"
 
     def setUp(self):
         super().setUp()
@@ -2448,6 +2509,7 @@ class PortalCurrentSelectionTests(ApiTestCase):
         form = {
             "identity": dict(FILL_IDENTITY),
             "generation": 4,
+            "documentNonce": self._DOCUMENT_NONCE,
             "screen": "form",
             "fields": fields,
             "options": {},
@@ -2672,6 +2734,35 @@ class PortalCurrentSelectionTests(ApiTestCase):
         self.assertEqual(command["type"], "FILL_FORM")
         self.assertEqual(command["payload"]["fields"]["cargo"], "Professor")
 
+    def test_fill_result_validates_but_does_not_persist_the_document_nonce(self):
+        self.publish(self.observation())
+        status, _headers, started = self.click_fill_current()
+        self.assertEqual(status, 201, started)
+        command = self.claim()
+        fields = command["payload"]["fields"]
+        result = {
+            "ok": True,
+            "document_nonce": self._DOCUMENT_NONCE,
+            "identity": dict(FILL_IDENTITY),
+            "generation_after": 5,
+            "field_results": {
+                name: {"before": "", "proposed": value, "after": value, "status": "changed"}
+                for name, value in fields.items()
+            },
+        }
+
+        status, _headers, response = self.call_json(
+            f"/api/v1/extension/commands/{command['id']}/result",
+            method="POST",
+            headers=self.extension,
+            body={**result, "claim_token": command["claim_token"]},
+        )
+
+        self.assertEqual(status, 200, response)
+        stored = self.store.get_extension_command(command["id"])
+        self.assertNotIn("document_nonce", stored["result"])
+        self.assertNotIn(self._DOCUMENT_NONCE, json.dumps(stored["result"]))
+
     def test_a_stale_click_for_a_cannot_reserve_or_fill_b(self):
         process_b = self.store.upsert_process(
             ProcessRecord(
@@ -2727,6 +2818,21 @@ class PortalCurrentSelectionTests(ApiTestCase):
             process_b,
         )
         self.assertEqual(self.command_types(), ["FILL_FORM"])
+        current_request = self.store.get_fill_request(current_payload["fill_request_id"])
+        stored_command = self.store.get_extension_command(current_request["current_command_id"])
+        self.assertNotIn("document_nonce", stored_command["payload"])
+        self.assertNotIn(self._DOCUMENT_NONCE, json.dumps(current_request["form_snapshot"]))
+        self.assertNotIn(self._DOCUMENT_NONCE, json.dumps(self.reliability_events()))
+
+        delivery_status, _headers, delivery = self.call_json(
+            "/api/v1/extension/commands/next", headers=self.extension
+        )
+        self.assertEqual(delivery_status, 200, delivery)
+        self.assertEqual(delivery["command"]["payload"]["document_nonce"], self._DOCUMENT_NONCE)
+        self.assertNotIn(
+            "document_nonce",
+            self.store.get_extension_command(current_request["current_command_id"])["payload"],
+        )
 
         replay_status, _headers, replay_payload = self.click_fill_current(
             observation_id=observation_b_id

@@ -12,6 +12,17 @@ if (!fillOnly && ![baseUrl, clientId, token, extensionId].every(Boolean)) {
 }
 
 const contentListeners = [];
+// Separate Node invocations stand in for one retained synthetic browser
+// document in this end-to-end fixture, so pin only this helper's nonce source.
+Object.defineProperty(globalThis, "crypto", {
+  configurable: true,
+  value: {
+    getRandomValues(bytes) {
+      bytes.set(bytes.map((_value, index) => index));
+      return bytes;
+    },
+  },
+});
 globalThis.chrome = {
   runtime: {
     id: extensionId,
