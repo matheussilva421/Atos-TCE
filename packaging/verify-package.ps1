@@ -135,9 +135,9 @@ function Get-EntryBlobId {
     param(
         [Parameter(Mandatory)][System.IO.Compression.ZipArchiveEntry]$Entry
     )
-    # Hash the exact ZIP bytes as a Git blob. Do not pass --path: that would run
-    # machine-specific clean filters and make provenance depend on local config.
-    # stdin also keeps a hostile archive path out of the shell and git arguments.
+    # Git blob IDs are SHA-1("blob <byte-length>\0" + content). Compute that
+    # directly over the ZIP bytes so no Git filters, inherited config, process
+    # encoding, or archive path can affect the provenance result.
     $stream = $Entry.Open()
     try {
         $memory = New-Object System.IO.MemoryStream
@@ -151,26 +151,23 @@ function Get-EntryBlobId {
         $stream.Dispose()
     }
 
-    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $startInfo.FileName = 'git'
-    $startInfo.Arguments = 'hash-object --stdin'
-    $startInfo.WorkingDirectory = $RepositoryRoot
-    $startInfo.RedirectStandardInput = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $process = [System.Diagnostics.Process]::Start($startInfo)
+    $blob = New-Object System.IO.MemoryStream
     try {
-        $process.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
-        $process.StandardInput.BaseStream.Flush()
-        $process.StandardInput.Close()
-        $output = $process.StandardOutput.ReadToEnd()
-        $process.WaitForExit()
+        $header = [System.Text.Encoding]::ASCII.GetBytes(('blob {0}' -f $bytes.Length))
+        $blob.Write($header, 0, $header.Length)
+        $blob.WriteByte(0)
+        $blob.Write($bytes, 0, $bytes.Length)
+        $blob.Position = 0
+        $algorithm = [Security.Cryptography.SHA1]::Create()
+        try {
+            $hash = $algorithm.ComputeHash($blob)
+        } finally {
+            $algorithm.Dispose()
+        }
     } finally {
-        $process.Dispose()
+        $blob.Dispose()
     }
-    return ([string]$output).Trim()
+    return ([BitConverter]::ToString($hash)).Replace('-', '').ToLowerInvariant()
 }
 
 function Get-SmokeChildProcesses {

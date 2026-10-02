@@ -463,3 +463,11 @@ O ZIP anterior `88bc4ad` e seu sidecar foram preservados em `dist/archive/Atos-T
 O commit de correção `3b05f06` está local e ainda precisa ser enviado junto com este handoff final. Depois de registrar o handoff, faça push sem force para `codex/area-restrita-reliability-reset` e acompanhe o workflow mais recente até `SUCCESS`, conferindo os cinco passos de `Offline gates (Windows)`. Se algum falhar, preserve logs, ZIP e estado local antes de nova mudança.
 
 Nenhum portal, login, DevTools/Playwright no portal ou AR-1 real foi executado. `manual_form_fill` permanece `EXPERIMENTAL`; o primeiro run real segue aguardando o operador humano.
+
+### 15.4 Follow-up do CI (2026-10-02; em andamento)
+
+O run remoto `37016795459`, commit `43deb18b247ffa8ef87a56e9b06597891b246e51`, ainda falhou em `Root Python suite`: 839 testes, 5 falhas, 4 skips; as cinco falhas reportaram o mesmo blob transformado `6fa4f53...` para `LEIA-ME-OUTRO-PC.txt`, e as etapas posteriores foram puladas. Isso ocorreu mesmo com `hash-object --stdin` sem `--path`; o comportamento só apareceu no runner GitHub/PowerShell, enquanto a mesma suíte local passou.
+
+Para remover essa dependência ambiental, `Get-EntryBlobId` agora calcula diretamente SHA-1 de `blob <tamanho-em-bytes>\0 + bytes-do-ZIP` em .NET. A consulta do blob de referência continua via `git rev-parse`; nenhum processo Git recebe os bytes do pacote. Os quatro casos que falharam no CI passaram localmente e `python -m unittest tests.test_package_provenance -v` passou 28/28 após essa alteração. O commit `43deb18` e o ZIP `3b05f06` não fecham o gate remoto; gere outro commit/AR1_BUILD/ZIP após validar a correção final.
+
+Retomada: completar a suíte Python e os gates locais sobre o hash .NET; arquivar o ZIP `3b05f06`; gerar e verificar novo ZIP com bootstrap, executar o reset `EXPERIMENTAL 0/20` no novo AR1_BUILD, atualizar este handoff, commitar e enviar; acompanhar um novo workflow até `SUCCESS` em cada etapa. Não repetir nem promover qualquer AR-1 real.
