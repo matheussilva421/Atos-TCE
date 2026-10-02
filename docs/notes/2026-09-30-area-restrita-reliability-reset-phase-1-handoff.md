@@ -460,7 +460,7 @@ Os ZIPs anteriores `88bc4ad`, `e059793` e `3b05f06` foram preservados em `dist/a
 
 ### 15.3 GitHub e retomada
 
-O run `37016795459` para `43deb18` falhou em `Root Python suite`; extensão, web, pacote e whitespace foram pulados. O commit corretivo `db73386` e esta atualização de handoff ainda precisam ser enviados sem force para `codex/area-restrita-reliability-reset`. Depois do push, acompanhe o novo workflow até `SUCCESS` e confira os cinco passos de `Offline gates (Windows)`. Se algum falhar, preserve logs, ZIP e estado local antes de nova mudança.
+O run `37016795459` para `43deb18` falhou em `Root Python suite`; essa falha foi corrigida em `db73386`. O run seguinte `37019929274`, no SHA `85d912016c68d1933fc827d778f2b350c85dfdcf`, concluiu `SUCCESS`: Root Python 839/839, extensão 254/254, web 65/65, package contract 20/20 e whitespace PASS. O branch estava sincronizado e limpo após esse push. Esta atualização documental registra o resultado; seu push também dispara o workflow do novo HEAD, que deve ser acompanhado.
 
 Nenhum portal, login, DevTools/Playwright no portal ou AR-1 real foi executado. `manual_form_fill` permanece `EXPERIMENTAL`; o primeiro run real segue aguardando o operador humano.
 
@@ -468,6 +468,6 @@ Nenhum portal, login, DevTools/Playwright no portal ou AR-1 real foi executado. 
 
 O run remoto `37016795459`, commit `43deb18b247ffa8ef87a56e9b06597891b246e51`, ainda falhou em `Root Python suite`: 839 testes, 5 falhas, 4 skips; as cinco falhas reportaram o mesmo blob transformado `6fa4f53...` para `LEIA-ME-OUTRO-PC.txt`, e as etapas posteriores foram puladas. Isso ocorreu mesmo com `hash-object --stdin` sem `--path`; o comportamento só apareceu no runner GitHub/PowerShell, enquanto a mesma suíte local passou.
 
-Para remover essa dependência ambiental, `Get-EntryBlobId` calcula diretamente SHA-1 de `blob <tamanho-em-bytes>\0 + bytes-do-ZIP` em .NET. A consulta do blob de referência continua via `git rev-parse`; nenhum processo Git recebe os bytes do pacote. Os quatro casos que falharam no CI passaram localmente e `python -m unittest tests.test_package_provenance -v` passou 28/28. Depois disso, foram repetidos todos os gates: Python 839/839, extensão 254/254, web 65/65 e `verify-project.ps1` 1.260 executados, 1.258 aprovados, 0 falhas e 2 skips. O ZIP `db73386` passou no verificador, smoke e auditoria byte a byte.
+Para remover essa dependência ambiental, `Get-EntryBlobId` calcula diretamente SHA-1 de `blob <tamanho-em-bytes>\0 + bytes-do-ZIP` em .NET. A consulta do blob de referência continua via `git rev-parse`; nenhum processo Git recebe os bytes do pacote. Os quatro casos que falharam no CI passaram localmente e `python -m unittest tests.test_package_provenance -v` passou 28/28. Depois disso, todos os gates locais foram repetidos: Python 839/839, extensão 254/254, web 65/65 e `verify-project.ps1` 1.260 executados, 1.258 aprovados, 0 falhas e 2 skips. O ZIP `db73386` passou no verificador, smoke e auditoria byte a byte. O run remoto `37019929274` fechou os cinco passos em sucesso; sua suíte Python levou 253,554 s.
 
-Retomada: commitar esta última atualização, enviar `db73386` e o commit documental, então acompanhar o workflow novo até sucesso em todas as etapas. O build anterior `3b05f06` foi arquivado. Não repetir nem promover qualquer AR-1 real.
+Retomada: commitar esta atualização de resultado remoto e enviá-la sem force; acompanhar o workflow disparado pelo novo commit documental. O build anterior `3b05f06` foi arquivado. Nenhum AR-1 real foi repetido ou promovido.
