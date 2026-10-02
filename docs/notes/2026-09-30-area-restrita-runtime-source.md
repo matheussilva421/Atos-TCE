@@ -59,3 +59,16 @@ git diff --check                                         -> limpo
 
 Baseline verde. Nenhuma Task de runtime começou antes deste gate.
 
+## Reconciliação documental — 2026-10-02
+
+`AGENTS.md` foi alinhado a esta evidência: para o runtime portátil atual e o
+Reliability Reset, a fonte de produção é `app/`, `extension/`, `tests/`,
+`packaging/` e `scripts/`. `work/tce-extractor/` permanece como árvore legada de
+compatibilidade/laboratório e abriga um verificador legado; não é local para
+implementar isoladamente uma correção de produção.
+
+Os SHAs e contagens em “Baseline pré-mudança” são registros históricos daquela
+execução. O estado operacional vigente, os commits de correção e os gates do
+Goal 02-10 estão no handoff
+[`2026-09-30-area-restrita-reliability-reset-phase-1-handoff.md`](2026-09-30-area-restrita-reliability-reset-phase-1-handoff.md).
+

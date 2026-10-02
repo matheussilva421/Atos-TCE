@@ -3,9 +3,18 @@
 Data: 2026-09-30
 Atualizado: 2026-10-02
 Branch: `codex/area-restrita-reliability-reset`
-AR1_BUILD atual (pacote offline verificado; nenhum run real ainda): `db73386f4d99a7ba713e605e9439f2dd90e28a74`
-Builds anteriores: `5e9c277` → `4cd848a` → `af8c1f2` → `f1cf5b4` → `1d90b8d` → `e059793` (semântica antiga) → `c393353` (superseded; failed real validation) → `88bc4ad` (superseded) → `3b05f06` (intermediate provenance build, superseded) → **`db73386` (AR1_BUILD atual, somente offline qualificado)**. Não iniciar runs reais em builds anteriores.
+Último artefato construído (HISTÓRICO; superseded para qualification): `db73386f4d99a7ba713e605e9439f2dd90e28a74`
+Builds históricos: `5e9c277` → `4cd848a` → `af8c1f2` → `f1cf5b4` → `1d90b8d` → `e059793` (semântica antiga) → `c393353` (superseded; failed real validation) → `88bc4ad` (superseded) → `3b05f06` (intermediate provenance build, superseded) → `db73386` (último pacote histórico; contém findings P0/P1). Não iniciar runs reais em nenhum desses builds.
 Base da reconciliação: `9fa3465` (`origin/codex/area-restrita-reliability-reset-spec`)
+
+## Estado operacional ATUAL — Goal 02-10
+
+- O Goal 02-10 é a única sequência operacional vigente. O pacote `db73386` é histórico e `SUPERSEDED FOR REAL QUALIFICATION`; nenhum ZIP com as correções P0/P1 foi construído ainda.
+- A fonte de produção do runtime é `app/`, `extension/`, `tests/`, `packaging/` e `scripts/`. `work/tce-extractor/` é legado/verificador/compatibilidade/laboratório; não implemente correções de produção somente nessa árvore.
+- Use a seção 18 e seus checkpoints mais recentes para o estado atual. As seções 1–17 abaixo preservam o histórico da Phase 1 e as auditorias anteriores; instruções antigas nelas não são runbooks atuais.
+- A Área Restrita real permanece fora do escopo: sem login, sessão, execução AR-1/AR-2/AR-3 ou promoção de capability.
+
+## HISTÓRICO — Phase 1
 
 ## 1. Reconciliação das branches
 
@@ -638,14 +647,21 @@ Nenhum código de produto foi alterado. O ZIP continua sendo o produto até `db7
 - GREEN focado: serviço, rota next-act e cadeia de preenchimento com capabilities de produção passaram. `python -m unittest test_fill_service test_api_server` (com `PYTHONPATH=tests`) — 241/241; `npm test --prefix extension` — 260/260; Node nos testes de `app/web/tests` — 65/65; `git diff --check` — PASS. Uma tentativa inicial de `npm test --prefix app/web` falhou por não haver `package.json`; o comando Node correto para os arquivos web foi executado e passou.
 - Arquivos adicionais: `app/area_restrita/fill_service.py`, `app/api/server.py`, `tests/test_fill_service.py`, `tests/test_api_server.py`.
 
-### Estado ao retomar
+### Checkpoint atual — Goal 02-10, 2026-10-02
 
-- Branch `codex/area-restrita-reliability-reset`; P1 #1/#2 registrados no commit `9bd7a5d` (`fix(portal): bind fills to documents and gate navigation`) e handoff atualizado em `e7e4e53`. Push para `origin/codex/area-restrita-reliability-reset` confirmado; `HEAD` local e remoto são `e7e4e5398660e82b3ca4c1aa091bb2babd7d2093`. GitHub não retornou status checks para esse commit no momento da consulta.
-- P1 #1 + P1 #2: implementação local concluída. A última suíte Python combinada contou 241 testes e passou; extensão 260/260; web 65/65; `git diff --check` PASS. Repetir o gate combinado após as próximas mudanças.
-- O trabalho de capability preserva `request_fill(process_id)`, mas deixa a navegação bloqueada até `PRODUCTION`. O fluxo manual AR-1 continua independente e não recebeu capability de navegação.
-- Nenhuma Área Restrita real foi acessada. Não houve login, preenchimento real, AR-1/AR-2/AR-3, promoção nem merge em `main`.
-- P2/P3, revisão adversarial/global, reconciliação de `AGENTS.md`/runtime source-of-truth, gates/CI, congelamento de `NEW_AR1_BUILD`, ZIP novo, provenance e smoke sintético ainda pendentes. O ZIP anterior segue `SUPERSEDED FOR REAL QUALIFICATION`.
+- Branch `codex/area-restrita-reliability-reset`; base local/remota no início deste bloco: `1ae8eb68bdac1412323c8d6ee03789d0c4f82bd4`. As alterações P2/P3 e documentação abaixo ainda estão locais e não commitadas neste checkpoint.
+- P1 #1/#2 seguem registrados nos commits `9bd7a5d` e posteriores. O gate Python/extension/web passou na rodada anterior; o status de CI para a base atual não foi confirmado nesta continuação.
+- P2 #1 implementado: publisher ID aleatório de 128 bits e sequência crescente por ciclo do service worker, apenas em memória; um publisher mantém a seleção pelo TTL de 10 s, publishers concorrentes recebem recusa HTTP 409, replay/regressão de sequência é recusado e outro publisher assume após expiração. Clear respeita o mesmo dono. Testes de API cobrem campos ausentes/malformados, sequências inválidas, clear concorrente, clique simultâneo e ausência de metadados do publisher em estado/logs; testes do router cobrem ID novo por ciclo, falha fechada sem crypto e retry após 409. O grupo `test_current_selection`, `PortalCurrentSelectionTests` e `test_v101_identity_workflow` passou 64/64; `npm test --prefix extension` passou 263/263.
+- P3 #1 implementado: `isPortalUrl` exige esquema `https:`, compara `new URL(url).origin` com a origem exata e recusa credenciais, origem diferente, URL inválida e `blob:` que herde a origem. O teste `blob:` falhou antes da guarda de esquema e passou após a correção. `node --test extension/tests/protocol.test.mjs` passou 10/10; cobre origem legítima, host-sufixo, `blob:`, HTTP e URL inválida.
+- Revisão adversarial independente do diff P2/P3: **sem achados bloqueantes**. A liberação de ownership em `FILL_RESERVED` foi considerada intencional: a observação/token são consumidos atomicamente sob lock e o publisher lease é liberado com eles. Compatibilidade de uma extensão antiga com a API nova falha fechada (HTTP 400) e os dois lados são entregues juntos. O owner ativo renova o TTL e pode manter exclusividade; isso segue a política de um publisher ativo. Foram fechadas lacunas de testes HTTP/router e a borda `blob:` acima.
+- P2 #2 reconciliado localmente: `AGENTS.md` agora identifica a fonte raiz `app/`, `extension/`, `tests/`, `packaging/`, `scripts/`; `work/tce-extractor/` é legado/verificador adicional. A exceção específica foi incluída no allowlist deny-by-default do `.gitignore`, e a nota `2026-09-30-area-restrita-runtime-source.md` aponta para esta árvore. `git diff --check` passou após as edições documentais.
+- O ZIP atualmente em `dist/Atos-TCE-portable-clean.zip` foi inspecionado: 96.212.161 bytes, SHA-256 `c803f80c2ad989037570fd5464216af9b4241dba72043d585c2e3734aa197c38`, manifesto `build_id=db73386f4d99a7ba713e605e9439f2dd90e28a74`, `source_dirty=false`, 94 arquivos de produto. Ele antecede P0/P1/P2/P3 e permanece `SUPERSEDED FOR REAL QUALIFICATION`; ainda não existe novo `AR1_BUILD` ou ZIP.
+- Revisão adversarial independente do diff P2/P3 concluiu sem achados bloqueantes; os gaps de cobertura e a borda `blob:` foram tratados. O checklist adversarial global ainda precisa ser fechado pelos gates do Goal. Nenhum portal real foi acessado. O estado local em `data/` foi apenas listado e permanece intocado.
+- A suíte Python da raiz passou 875/875 (`python -m unittest discover -s tests -p 'test_*.py' -q`). A extensão passou 263/263; a Mesa web passou 65/65 (avisos ESM não fatais). `verify-project.ps1` passou 7/7 etapas: 1.260 verificações executadas, 1.258 aprovadas, 0 falhas e 2 skips. `git diff --check` passou.
+- O teste integrado antigo de identidade foi atualizado após reprodução: primeiro faltava `documentNonce` e o fill era corretamente bloqueado; com nonce válido, o fluxo automático corretamente parou no gate de capability. A fixture agora declara `open_act` e `select_interested` como `PRODUCTION` somente nesse teste sintético; os testes separados continuam provando o bloqueio em estados não produtivos. O teste isolado passou 1/1.
+- O diretório preexistente `staging-runtime/` foi preservado sem alteração. Para o novo ZIP, `staging-runtime-ar1-20261002/` foi preparado somente com runtime/licenças do ZIP histórico já verificado: SHA de origem conferido, 6/6 pins iguais, 430/430 arquivos/tamanhos/hashes conferidos. Uma primeira tentativa de extração abortou sem copiar dados por diferença de separadores no nome das entradas; a normalização foi corrigida e a validação final passou.
+- Pendências atuais: registrar e fazer push dos commits locais, confirmar o CI da branch, congelar o novo SHA de produto, criar e verificar o ZIP candidato, executar o smoke sintético completo no pacote extraído, preservar o ZIP histórico antes de substituir os nomes canônicos e atualizar este handoff com SHA/CI/artefato finais. Área Restrita real não foi acessada; AR-1 real e qualquer promoção continuam não executados.
 
-### Próxima etapa
+### Próximas etapas
 
-Tratar P2 #1: concorrência entre publishers/perfis de `current_selection`, com publisher ID efêmero, sequência monotônica e rejeição de replay/stale sem regressão da seleção atual. Depois resolver a fonte de verdade contraditória (P2 #2), atualizar handoff/runbooks e o status superseded (P2 #3), corrigir origin exata (P3 #1), fazer revisão adversarial e os gates/CI/build/ZIP/provenance/smoke do Goal 02-10. Não usar portal real.
+Commit/push do bloco P2/P3/documentação e confirmar os cinco jobs do CI; congelar o SHA de produto, construir o ZIP novo em caminho temporário, verificar bootstrap/provenance/arquivos privados, executar health smoke e o smoke sintético integrado no pacote extraído; preservar o pacote histórico antes de atualizar os nomes canônicos; então atualizar este handoff com a evidência final e fazer push documental. Não acessar portal real nem promover capabilities.

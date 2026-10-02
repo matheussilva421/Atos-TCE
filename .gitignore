@@ -5,6 +5,7 @@
 !/.github/
 !/.github/workflows/
 !/.github/workflows/*.yml
+!/AGENTS.md
 !/README.md
 !/LEIA-ME-OUTRO-PC.txt
 !/docs/
