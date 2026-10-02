@@ -174,17 +174,24 @@ async function loadPdfjs() {
    * per-process fill is requested. If the observation expired between the render
    * and this click, the backend refuses before writing anything.
    */
-  async function startCurrentPortalFill() {
+  async function startCurrentPortalFill(processId, observationId) {
     const button = document.getElementById("portal-fill");
     const status = document.getElementById("portal-fill-status");
-    if (!state.selectedId || !button || !status) return;
-    const processId = state.selectedId;
+    if (
+      !Number.isSafeInteger(processId) ||
+      typeof observationId !== "string" ||
+      !observationId ||
+      !button ||
+      !status
+    ) return;
     delete state.fillResults[processId];
     renderFillSummary(null);
     button.disabled = true;
     status.textContent = "Solicitando o preenchimento do formulário aberto…";
     try {
-      const created = await postJson("/api/v1/portal/current-selection/fill", {});
+      const created = await postJson("/api/v1/portal/current-selection/fill", {
+        observation_id: observationId,
+      });
       await followFillRequest(processId, created.fill_request_id, status);
       await refreshProcesses();
       if (state.selectedId === processId) await selectProcess(processId, { source: "portal" });
@@ -918,6 +925,7 @@ async function loadPdfjs() {
 
   const PORTAL_STATE_MESSAGES = {
     NO_ACTIVE_FORM: "Área Restrita conectada · nenhum formulário aberto.",
+    FILL_RESERVED: "Preenchimento já solicitado para esta observação. Aguarde uma nova observação.",
     NOT_FOUND: "Processo identificado no portal, mas não encontrado no acervo local.",
     AMBIGUOUS: "Correspondência ambígua. Nenhum processo foi selecionado automaticamente.",
     INVALID: "Observação estrutural inválida no portal. Nada foi preenchido.",
@@ -1027,7 +1035,9 @@ async function loadPdfjs() {
       attrs: { type: "button", id: "portal-fill" },
     });
     if (availability.available) {
-      fillButton.addEventListener("click", startCurrentPortalFill);
+      fillButton.addEventListener("click", () =>
+        startCurrentPortalFill(process.id, availability.observationId)
+      );
     } else {
       fillButton.hidden = true;
     }

@@ -1140,20 +1140,23 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         """Mesa: best-effort fill of the exact form still inside the TTL.
 
         Nothing is navigated and nothing is invented: the snapshot comes from the
-        transient observation, and a selection that expired between the render and
-        this click fails closed. A stale click is still a real operator attempt, so
-        it is recorded as an AR-1 failure; NOT_FOUND and AMBIGUOUS never render the
+        transient observation. The click must carry the opaque observation id that
+        enabled its button; replaced, expired, or already reserved observations
+        fail closed. A stale click is still a real operator attempt, so it is
+        recorded as an AR-1 failure; NOT_FOUND and AMBIGUOUS never render the
         button, so they are not counted as attempts.
         """
 
         if not self._require_session():
             return
+        payload = self._read_json_body()
+        expected_observation_id = payload.get("observation_id")
         tracker = self.mesa.portal_selection
         try:
             # The reservation is held until the request exists, so neither a
             # newer observation nor the TTL can slip in between the check and
             # the write; a replaced selection never produces a fill.
-            with tracker.fill_window() as snapshot:
+            with tracker.fill_window(expected_observation_id) as snapshot:
                 request_id = self.mesa.fill.request_manual_fill(snapshot)
         except PortalSelectionError as error:
             # The tracker decided atomically whether the Mesa could have rendered

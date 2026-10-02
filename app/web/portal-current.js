@@ -159,10 +159,20 @@ export function resumeAction(observation) {
 export function currentFillAvailability(observation, processId) {
   const state = String(observation?.state ?? "NO_ACTIVE_FORM");
   const observedId = Number.isInteger(observation?.process_id) ? observation.process_id : null;
-  if (state === "MATCHED" && observedId !== null && observedId === processId) {
+  const observationId =
+    typeof observation?.observation_id === "string" && observation.observation_id.length > 0
+      ? observation.observation_id
+      : null;
+  if (
+    state === "MATCHED" &&
+    observedId !== null &&
+    observedId === processId &&
+    observationId !== null
+  ) {
     return {
       available: true,
       message: "O formulário aberto na Área Restrita corresponde a este processo.",
+      observationId,
     };
   }
   if (state === "MATCHED" && observedId === null) {
@@ -193,6 +203,12 @@ export function currentFillAvailability(observation, processId) {
     return {
       available: false,
       message: "Observação estrutural inválida no portal. Nada foi preenchido.",
+    };
+  }
+  if (state === "FILL_RESERVED") {
+    return {
+      available: false,
+      message: "O preenchimento desta observação já foi solicitado. Aguarde uma nova observação.",
     };
   }
   return { available: false, message: "Nenhum formulário aberto na Área Restrita." };

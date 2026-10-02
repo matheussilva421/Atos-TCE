@@ -12,6 +12,7 @@ from __future__ import annotations
 import copy
 import contextlib
 import re
+import secrets
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping
@@ -30,14 +31,19 @@ NOT_FOUND = "NOT_FOUND"
 AMBIGUOUS = "AMBIGUOUS"
 INVALID = "INVALID"
 NO_ACTIVE_FORM = "NO_ACTIVE_FORM"
+FILL_RESERVED = "FILL_RESERVED"
 
 #: A screen is a short structural token, never a route: nothing here may hold
 #: a URL, a query string or the portal's own text.
 _SCREEN = re.compile(r"[a-z][a-z0-9_]{0,31}")
+_OBSERVATION_ID = re.compile(r"[A-Za-z0-9_-]{43}")
 
 #: Refusal codes the fill entry point may raise. Both are AR-1 attempt failure
 #: codes, so a stale click stays a recorded failure instead of a server error.
-_FILL_REFUSAL_BY_STATE: dict[str, str] = {AMBIGUOUS: "FORM_AMBIGUOUS"}
+_FILL_REFUSAL_BY_STATE: dict[str, str] = {
+    AMBIGUOUS: "FORM_AMBIGUOUS",
+    FILL_RESERVED: "STALE_SELECTION",
+}
 _FILL_REFUSAL_DEFAULT = "FORM_NOT_AVAILABLE"
 
 #: Short codes a cleared observation may carry as its diagnostic.
@@ -87,11 +93,14 @@ class PortalSelectionTracker:
         self._code: str | None = None
         self._process_id: int | None = None
         self._process_key: str | None = None
+        self._interested_normalized: str | None = None
+        self._portal_act_id: str | None = None
         self._generation: int | None = None
         self._screen: str | None = None
         self._observed_at: str | None = None
         self._expires_at: float | None = None
         self._snapshot: dict[str, Any] | None = None
+        self._observation_id: str | None = None
         # Survives expiry: an expired MATCHED was still offered to the operator.
         self._offered = False
 
@@ -118,6 +127,8 @@ class PortalSelectionTracker:
                     AMBIGUOUS,
                     code="IDENTITY_AMBIGUOUS",
                     process_key=observation["process_key"],
+                    interested_normalized=observation["interested"],
+                    portal_act_id=observation["portal_act_id"],
                     generation=observation["generation"],
                     screen=observation["screen"],
                 )
@@ -126,6 +137,8 @@ class PortalSelectionTracker:
                     NOT_FOUND,
                     code="PROCESS_NOT_FOUND",
                     process_key=observation["process_key"],
+                    interested_normalized=observation["interested"],
+                    portal_act_id=observation["portal_act_id"],
                     generation=observation["generation"],
                     screen=observation["screen"],
                 )
@@ -133,6 +146,8 @@ class PortalSelectionTracker:
                 MATCHED,
                 process_id=int(process["id"]),
                 process_key=observation["process_key"],
+                interested_normalized=observation["interested"],
+                portal_act_id=observation["portal_act_id"],
                 generation=observation["generation"],
                 screen=observation["screen"],
                 # The private copy exists only to serve the fill of this exact
@@ -162,7 +177,7 @@ class PortalSelectionTracker:
             self._sweep_locked()
             return self._public_state_locked()
 
-    def require_fill_snapshot(self) -> dict[str, Any]:
+    def require_fill_snapshot(self, expected_observation_id: str | None) -> dict[str, Any]:
         """The exact snapshot to fill, or a fail-closed refusal.
 
         The returned copy is the caller's own, so it can never reach back into
@@ -170,17 +185,17 @@ class PortalSelectionTracker:
         before any write is even attempted.
         """
 
-        with self.fill_window() as snapshot:
+        with self.fill_window(expected_observation_id) as snapshot:
             return snapshot
 
     @contextlib.contextmanager
-    def fill_window(self) -> Iterator[dict[str, Any]]:
-        """Reserve the current selection for the duration of one fill.
+    def fill_window(self, expected_observation_id: str | None) -> Iterator[dict[str, Any]]:
+        """Atomically compare and consume one exact observation for a fill.
 
-        The reservation is atomic: while the caller holds the window, a newer
-        observation cannot replace the selection and the TTL cannot expire it,
-        so the fill request is always built from the observation the operator
-        actually clicked on.
+        The opaque id binds the rendered button to the process, identity,
+        generation, observation time and private snapshot in memory. The lock
+        remains held through request creation; a successful reservation consumes
+        the id so a replay cannot create another fill.
         """
 
         with self._lock:
@@ -191,7 +206,60 @@ class PortalSelectionTracker:
                     "nenhuma seleção atual pode ser preenchida",
                     offered=self._offered,
                 )
-            yield copy.deepcopy(self._snapshot)
+            if (
+                not isinstance(expected_observation_id, str)
+                or not _OBSERVATION_ID.fullmatch(expected_observation_id)
+            ):
+                raise PortalSelectionError(
+                    "INVALID_OBSERVATION_ID",
+                    "identificador da observação ausente ou inválido",
+                    offered=self._offered,
+                )
+            if expected_observation_id != self._observation_id:
+                raise PortalSelectionError(
+                    "STALE_SELECTION",
+                    "a observação exibida não é mais a observação atual",
+                    offered=self._offered,
+                )
+            try:
+                observation = self._validate(self._snapshot)
+                process = self._store.resolve_process_identity(
+                    observation["process_key"],
+                    observation["interested"],
+                    observation["portal_act_id"],
+                )
+            except (PortalSelectionError, StoreError):
+                observation = None
+                process = None
+            if (
+                process is None
+                or observation is None
+                or int(process["id"]) != self._process_id
+                or observation["process_key"] != self._process_key
+                or observation["interested"] != self._interested_normalized
+                or observation["portal_act_id"] != self._portal_act_id
+                or observation["generation"] != self._generation
+                or observation["screen"] != self._screen
+            ):
+                raise PortalSelectionError(
+                    "STALE_SELECTION",
+                    "identidade ou generation da observação mudou",
+                    offered=self._offered,
+                )
+            snapshot = copy.deepcopy(self._snapshot)
+            yield snapshot
+            self._state = FILL_RESERVED
+            self._code = "FILL_ALREADY_REQUESTED"
+            self._process_id = None
+            self._process_key = None
+            self._interested_normalized = None
+            self._portal_act_id = None
+            self._generation = None
+            self._screen = None
+            self._snapshot = None
+            self._observation_id = None
+            self._expires_at = None
+            self._observed_at = self._utcnow().isoformat()
 
     # ----------------------------------------------------------------- internals
 
@@ -237,6 +305,8 @@ class PortalSelectionTracker:
         code: str | None = None,
         process_id: int | None = None,
         process_key: str | None = None,
+        interested_normalized: str | None = None,
+        portal_act_id: str | None = None,
         generation: int | None = None,
         screen: str | None = None,
         snapshot: dict[str, Any] | None = None,
@@ -246,11 +316,14 @@ class PortalSelectionTracker:
         self._offered = state == MATCHED
         self._process_id = process_id
         self._process_key = process_key
+        self._interested_normalized = interested_normalized
+        self._portal_act_id = portal_act_id
         self._generation = generation
         self._screen = screen
         self._snapshot = snapshot
         self._observed_at = self._utcnow().isoformat()
         self._expires_at = self._clock() + self._ttl
+        self._observation_id = secrets.token_urlsafe(32) if state == MATCHED else None
         return self._public_state_locked()
 
     def _public_state_locked(self) -> dict[str, Any]:
@@ -262,6 +335,7 @@ class PortalSelectionTracker:
                 "generation": self._generation,
                 "screen": self._screen,
                 "observed_at": self._observed_at,
+                "observation_id": self._observation_id,
             }
         payload: dict[str, Any] = {"state": self._state}
         if self._code:
@@ -279,9 +353,12 @@ class PortalSelectionTracker:
         self._code = None
         self._process_id = None
         self._process_key = None
+        self._interested_normalized = None
+        self._portal_act_id = None
         self._generation = None
         self._screen = None
         self._observed_at = None
         self._expires_at = None
         self._snapshot = None
+        self._observation_id = None
 
