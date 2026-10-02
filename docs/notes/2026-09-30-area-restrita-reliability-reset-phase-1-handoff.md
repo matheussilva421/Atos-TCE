@@ -1,9 +1,10 @@
 # Handoff — Área Restrita Reliability Reset, Phase 1
 
 Data: 2026-09-30
+Atualizado: 2026-10-02
 Branch: `codex/area-restrita-reliability-reset`
-AR1_BUILD atual (pacote offline verificado; nenhum run real ainda): `88bc4adbb1bf9f0e2762a0cbd330adb88c351d26`
-Builds congelados anteriores: `5e9c277` → `4cd848a` → `af8c1f2` → `f1cf5b4` → `1d90b8d` → `e059793` (semântica antiga) → `c393353` (SUPERSEDED / FAILED REAL VALIDATION em 2026-10-02) → **`88bc4ad` (AR1_BUILD atual, somente offline qualificado)**. Não iniciar novos runs em builds anteriores.
+AR1_BUILD atual (pacote offline verificado; nenhum run real ainda): `db73386f4d99a7ba713e605e9439f2dd90e28a74`
+Builds anteriores: `5e9c277` → `4cd848a` → `af8c1f2` → `f1cf5b4` → `1d90b8d` → `e059793` (semântica antiga) → `c393353` (superseded; failed real validation) → `88bc4ad` (superseded) → `3b05f06` (intermediate provenance build, superseded) → **`db73386` (AR1_BUILD atual, somente offline qualificado)**. Não iniciar runs reais em builds anteriores.
 Base da reconciliação: `9fa3465` (`origin/codex/area-restrita-reliability-reset-spec`)
 
 ## 1. Reconciliação das branches
@@ -395,7 +396,7 @@ Review adversarial encontrou e ajudou a corrigir: bootstrap vinculado diretament
 
 Validações da versão final: smoke integrado detector→heartbeat→API local→listener real `FILL_FORM`/readback passou; Node focado 73/73; `npm test --prefix extension` 254/254; `node --test app/web/tests/*.test.mjs` 65/65; `python -m unittest discover -s tests -p "test_*.py" -q` 837/837; bootstrap API 4/4; provenance rejeitou manifesto com tipos JSON incorretos; `git diff --check` limpo. `verify-project.ps1`: 1.260 verificações, 1.258 aprovações, zero falhas e dois skips. Review final sem achados críticos/importantes; o achado menor de callback `flatMap` recebeu RED→GREEN.
 
-### 14.1 Build AR-1 e instalação limpa
+### 14.1 Build AR-1 anterior (`88bc4ad`; histórico, superseded por `db73386`) e instalação limpa
 
 ```text
 Commit-fonte / AR1_BUILD: 88bc4adbb1bf9f0e2762a0cbd330adb88c351d26
@@ -470,4 +471,40 @@ O run remoto `37016795459`, commit `43deb18b247ffa8ef87a56e9b06597891b246e51`, a
 
 Para remover essa dependência ambiental, `Get-EntryBlobId` calcula diretamente SHA-1 de `blob <tamanho-em-bytes>\0 + bytes-do-ZIP` em .NET. A consulta do blob de referência continua via `git rev-parse`; nenhum processo Git recebe os bytes do pacote. Os quatro casos que falharam no CI passaram localmente e `python -m unittest tests.test_package_provenance -v` passou 28/28. Depois disso, todos os gates locais foram repetidos: Python 839/839, extensão 254/254, web 65/65 e `verify-project.ps1` 1.260 executados, 1.258 aprovados, 0 falhas e 2 skips. O ZIP `db73386` passou no verificador, smoke e auditoria byte a byte. O run remoto `37019929274` fechou os cinco passos em sucesso; sua suíte Python levou 253,554 s.
 
-Retomada: commitar esta atualização de resultado remoto e enviá-la sem force; acompanhar o workflow disparado pelo novo commit documental. O build anterior `3b05f06` foi arquivado. Nenhum AR-1 real foi repetido ou promovido.
+Retomada concluída: esta atualização foi commitada e enviada sem force. O CI do HEAD documental `c9d6e8594cc9b9e8ac4329ff5efe07732df48ece` concluiu com sucesso no run `37020907905`. O build `3b05f06` está superseded e arquivado. Nenhum AR-1 real foi repetido ou promovido.
+
+## 16. Auditoria read-only do ZIP e do fluxo Portal Atual (2026-10-02)
+
+### ZIP e sincronização
+
+- Artefato atual: `dist/Atos-TCE-portable-clean.zip`, build `db73386f4d99a7ba713e605e9439f2dd90e28a74`, `source_dirty=false`, 526 entradas, 94 arquivos de produto e 430 de runtime.
+- Tamanho: 96.212.161 bytes. SHA-256: `c803f80c2ad989037570fd5464216af9b4241dba72043d585c2e3734aa197c38`; sidecar conferido. O manifesto do ZIP e o build ID coincidem. A entrada `app/area_restrita/reliability.py` está no ZIP.
+- O ZIP contém as mudanças de produto até `db73386`. O HEAD local/remoto está em `c9d6e8594cc9b9e8ac4329ff5efe07732df48ece`; os commits depois do build do ZIP são documentais, portanto não alteram os bytes de produto do pacote. CI do HEAD: run `37020907905`, `SUCCESS`.
+- Estado Git antes deste registro: branch sincronizada, sem alterações; `git diff --check` limpo. Nenhum portal, login, DevTools/Playwright no portal ou AR-1 real foi usado.
+
+### Verificações desta continuação
+
+| Comando/gate | Resultado |
+|---|---|
+| `python -m unittest discover -s tests -p 'test_*.py' -q` | 839/839 aprovados |
+| `npm test --prefix extension` | 254/254 aprovados |
+| `node --test app/web/tests/*.test.mjs` | 65/65 aprovados |
+| `verify-project.ps1` | 1.260 executados, 1.258 aprovados, 0 falhas, 2 skips; 7/7 estágios verdes |
+| Suíte focada: reliability, current selection, fill service, package provenance, packaging contract e portal lab | 243/243 aprovados |
+| Web focado: portal-current e app-boot | 21/21 aprovados; avisos existentes de `MODULE_TYPELESS_PACKAGE_JSON` |
+| Extensão focada: router, reliability-state, portal-contract e fill-form | 128/128 aprovados |
+| `git diff --check` | limpo |
+
+### Achado P2: o ledger aceita promoção sem evidência de transição
+
+`ReliabilityRecorder.start()` e `finish()` aceitam um run sem qualquer `transition`; `_runs()`/`_streak()` contam `run_finished.passed=true` sem exigir transição. A reprodução isolada em diretório temporário registrou 20 pares `start` + `finish(passed=True)`, recebeu `qualified=true` e promoveu `manual_form_fill` a `QUALIFIED`. Os testes existentes criam transição no helper comum e não cobrem esse caso. Código relevante: `app/area_restrita/reliability.py` (métodos `start`, `finish`, `_streak`, `_runs`); testes: `tests/test_area_restrita_reliability.py`.
+
+Classificação: falha de integridade da evidência de qualificação, P2. A reprodução requer chamada local ao recorder e demonstra promoção indevida do estado do ledger. A revisão não encontrou uma rota HTTP de gravação arbitrária nem bypass de submit/envio real: o gate de envio da automação continua separado (`real_send_enabled`/`qualification.json`), e `Complementar Ato` permanece manual. O achado não foi corrigido nesta auditoria; o ZIP atual contém esse comportamento porque inclui `app/area_restrita/reliability.py`.
+
+O ledger real permaneceu intacto: `manual_form_fill=EXPERIMENTAL`, real-dev `0/20`, portable `0/20`; `events.jsonl` ausente e `identity.key` preservada. A reprodução escreveu apenas no diretório temporário.
+
+### Retomada
+
+1. Corrigir o ledger com teste RED que exija ao menos uma transição válida antes de contar um sucesso; então rodar as suítes focadas e gates completos.
+2. Regerar, verificar provenance e smoke do ZIP após a correção; atualizar SHA/build ID e handoff.
+3. Não executar o primeiro AR-1 real, não promover capability manualmente e não iniciar AR-2/AR-3. `manual_form_fill` continua experimental até validação humana real.
