@@ -53,6 +53,17 @@ PRODUCTION_ENVIRONMENT = "portable-normal-chrome"
 #: The spec's gate. ``promote`` can never be asked for a lower one.
 MIN_QUALIFICATION_RUNS = 20
 
+# A manual AR-1 pass is countable only when the ledger independently records
+# the successful path that FillService emits. Keep the expected state/result
+# pairs here so the evaluator does not trust the writer or ``passed=true``.
+MANUAL_FORM_FILL_EVIDENCE: tuple[tuple[str, str, str | None, str], ...] = (
+    ("current_form_detected", "FORM_DETECTED", None, "FORM"),
+    ("manual_fill_requested", "REQUEST_CREATED", "FORM", "PREFLIGHT"),
+    ("preflight_completed", "PLAN_READY", "PREFLIGHT", "FILLING"),
+    ("fill_command_completed", "SUCCEEDED", "FILLING", "PREENCHIDO"),
+    ("reread_completed", "BEST_EFFORT_OK", "FORM_FILLED", "FORM_FILLED"),
+)
+
 #: Persisted codes are short machine tokens, never free text: a private value
 #: smuggled into ``result_code``/``boundary``/``kind`` is refused, not stored.
 CODE_PATTERN = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
@@ -563,8 +574,12 @@ class ReliabilityRecorder:
             kind = event.get("type")
             run_id = str(event.get("run_id") or "")
             if kind == "run_start":
-                if run_id and run_id not in runs:
-                    order.append(run_id)
+                if not run_id:
+                    continue
+                if run_id in runs:
+                    runs[run_id]["evidence_invalid"] = True
+                    continue
+                order.append(run_id)
                 runs[run_id] = {
                     "run_id": run_id,
                     "capability": str(event.get("capability") or ""),
@@ -578,6 +593,8 @@ class ReliabilityRecorder:
                     "terminal_seen": False,
                     "intervened": False,
                     "result_code": None,
+                    "transitions": [],
+                    "evidence_invalid": False,
                 }
                 continue
             run = runs.get(run_id)
@@ -585,6 +602,13 @@ class ReliabilityRecorder:
                 continue
             if kind == "intervention":
                 run["intervened"] = True
+                if run["terminal_seen"]:
+                    run["evidence_invalid"] = True
+            elif kind == "transition":
+                if run["terminal_seen"]:
+                    run["evidence_invalid"] = True
+                elif run["capability"] == "manual_form_fill":
+                    run["transitions"].append(event)
             elif kind == "run_finished":
                 if run["terminal_seen"]:
                     raise ReliabilityError(
@@ -595,8 +619,73 @@ class ReliabilityRecorder:
                 # Anything that is not a real boolean is unproven, never a pass.
                 run["passed"] = raw_passed if isinstance(raw_passed, bool) else None
                 run["result_code"] = event.get("result_code")
+        for run_id in order:
+            run = runs[run_id]
+            if run["capability"] != "manual_form_fill":
+                continue
+            if run["evidence_invalid"] or not self._valid_manual_form_evidence(
+                run["transitions"]
+            ):
+                # A terminal pass without a structurally valid evidence chain
+                # is a failed qualification attempt, regardless of what the
+                # component that wrote ``run_finished`` claimed.
+                if run["passed"] is True:
+                    run["passed"] = False
         # A still-open run is unproven, never a pass.
         return [runs[run_id] for run_id in order]
+
+    @staticmethod
+    def _valid_manual_form_evidence(transitions: Sequence[Mapping[str, Any]]) -> bool:
+        """Check the complete AR-1 evidence chain from the persisted events."""
+
+        if len(transitions) != len(MANUAL_FORM_FILL_EVIDENCE):
+            return False
+        identity_hash: str | None = None
+        for event, (boundary, result_code, state_before, state_after) in zip(
+            transitions, MANUAL_FORM_FILL_EVIDENCE, strict=True
+        ):
+            if (
+                event.get("boundary") != boundary
+                or event.get("result_code") != result_code
+                or event.get("state_before") != state_before
+                or event.get("state_after") != state_after
+            ):
+                return False
+            expected_hash = event.get("expected_identity_hash")
+            observed_hash = event.get("observed_identity_hash")
+            if (
+                not isinstance(expected_hash, str)
+                or not isinstance(observed_hash, str)
+                or not expected_hash
+                or expected_hash != observed_hash
+            ):
+                return False
+            if identity_hash is None:
+                identity_hash = expected_hash
+            elif expected_hash != identity_hash:
+                return False
+
+        preflight, fill, reread = transitions[2:]
+        generation_fields = (
+            preflight.get("generation_after"),
+            fill.get("generation_before"),
+            fill.get("generation_after"),
+            reread.get("generation_after"),
+        )
+        if any(value is not None for value in generation_fields):
+            if any(
+                not isinstance(value, int) or isinstance(value, bool) or value < 0
+                for value in generation_fields
+            ):
+                return False
+            preflight_generation, fill_before, fill_after, reread_generation = generation_fields
+            if (
+                preflight_generation != fill_before
+                or fill_after < fill_before
+                or reread_generation != fill_after
+            ):
+                return False
+        return True
 
     def _read_capabilities(self) -> dict[str, dict[str, Any]]:
         if not self._capabilities_path.exists():
