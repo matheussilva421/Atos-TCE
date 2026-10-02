@@ -89,6 +89,10 @@ test("no shipped source declares a submit command or clicks a final action", () 
 
 test("only the Área Restrita host and the loopback Mesa are addressed", () => {
   assert.equal(isPortalUrl(`${PORTAL_ORIGIN}/processonosetor.asp`), true);
+  assert.equal(isPortalUrl(`${PORTAL_ORIGIN}.evil.example/`), false);
+  assert.equal(isPortalUrl(`blob:${PORTAL_ORIGIN}/synthetic-document`), false);
+  assert.equal(isPortalUrl("http://novaarearestrita.tce.rn.gov.br/"), false);
+  assert.equal(isPortalUrl("not a url"), false);
   assert.equal(isPortalUrl("https://econtas.tce.rn.gov.br/qualquer"), false);
   assert.equal(isPortalUrl("https://evil.example.com/"), false);
   assert.match(MESA_ORIGIN, /^http:\/\/127\.0\.0\.1:/u);

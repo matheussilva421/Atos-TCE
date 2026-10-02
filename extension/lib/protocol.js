@@ -65,5 +65,16 @@ export function isSupportedCommand(type) {
 }
 
 export function isPortalUrl(url) {
-  return typeof url === "string" && url.startsWith(PORTAL_ORIGIN);
+  if (typeof url !== "string") return false;
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === "https:" &&
+      parsed.origin === PORTAL_ORIGIN &&
+      parsed.username === "" &&
+      parsed.password === ""
+    );
+  } catch {
+    return false;
+  }
 }
