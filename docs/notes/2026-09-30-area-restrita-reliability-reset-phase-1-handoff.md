@@ -612,6 +612,16 @@ Nenhum código de produto foi alterado. O ZIP continua sendo o produto até `db7
 - Commits locais: `b3799ad test(reliability): require complete qualification evidence`; `68c116f fix(reliability): validate qualification transition sequence`. O handoff atual é este commit documental, ainda a registrar/push junto ao bloco.
 - Arquivos de produto/teste tocados neste bloco: `app/area_restrita/reliability.py`, `tests/test_area_restrita_reliability.py`, `tests/test_api_server.py`.
 
+### P0 #2 — clique stale A→B: corrigido localmente
+
+- RED reproduzido antes da implementação: testes HTTP e tracker falharam porque o endpoint aceitava `{}` e reservava a observação corrente; o teste web também mostrou que o botão não exigia nem enviava expectativa da observação renderizada.
+- Cada publicação `MATCHED` agora recebe `observation_id` opaco e aleatório, mantido somente em memória e exposto junto ao estado público mínimo. A Mesa captura `process.id` e o token imutáveis no handler do botão e envia o token no POST.
+- Dentro do lock do tracker, o backend verifica TTL, estado, formato e igualdade do token, revalida process ID/identidade/portal act/generation/screen e mantém a reserva até a criação da request. A reserva consome o token e muda o estado para `FILL_RESERVED`; replay retorna 409 sem segunda request/comando. Clique stale de observação oferecida é registrado como falha AR-1.
+- RED/GREEN HTTP permanente: publicar A, capturar A1, publicar B, clicar com A1 → 409 `STALE_SELECTION`, zero fill requests, zero comandos e um run AR-1 falho; B1 cria exatamente uma request `FILL_FORM` para B; replay de B1 retorna 409 sem duplicar request/comando. Cobertos também token ausente, inválido/desconhecido, geração alterada, TTL, estados sem formulário/ambíguos/inválidos e botão sem token.
+- GREEN: `python -m unittest tests.test_current_selection tests.test_api_server.PortalCurrentSelectionTests` — 53 testes, todos passaram; `node --test app/web/tests/portal-current.test.mjs app/web/tests/ui-wiring.test.mjs` — 55/55; `git diff --check` — PASS. CI do P0 #1, run `37065390225`, concluiu SUCCESS em Root Python, Extension, Mesa web, Package contract e Whitespace.
+- Commits: `a41ec50 test(portal): reproduce stale observation fill clicks`; `f6de126 fix(portal): bind fill clicks to exact observations`. Arquivos de produto: `app/area_restrita/current_selection.py`, `app/api/server.py`, `app/web/portal-current.js`, `app/web/app.js`; testes em `tests/test_current_selection.py`, `tests/test_api_server.py`, `app/web/tests/portal-current.test.mjs`, `app/web/tests/ui-wiring.test.mjs`.
+- Ainda não houve gates globais, novo build/ZIP, provenance nem smoke final; o ZIP `db73386` continua superseded para qualification. Nenhuma Área Restrita real foi acessada.
+
 ### Próxima etapa
 
-Continuar pelo P0 #2: carregar no clique a expectativa da observação renderizada e comparar/reservar atomicamente no backend; provar A→B com teste HTTP sintético RED/GREEN e garantir 409 sem request/comando. Depois avançar em ordem para P1 #1, P1 #2, hardenings P2/P3, revisão adversarial, gates, CI, novo build/ZIP, provenance e smoke sintético. Não usar portal real.
+Continuar pelo P1 #1: vincular cada plano de preenchimento a uma instância de documento/formulário não reutilizável e provar RED/GREEN que um plano do documento A não escreve em B quando identidade e generation coincidem. Depois fechar por ordem P1 #2, P2/P3, revisão adversarial, gates, CI, novo build/ZIP, provenance e smoke sintético. Não usar portal real.
