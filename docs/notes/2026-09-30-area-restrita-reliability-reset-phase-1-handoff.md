@@ -640,7 +640,7 @@ Nenhum código de produto foi alterado. O ZIP continua sendo o produto até `db7
 
 ### Estado ao retomar
 
-- Branch `codex/area-restrita-reliability-reset`; último commit rastreado antes destes dois blocos: `e42f38c470168e4160ea1d781aff8917ced3e2fb`. Mudanças P1 #1/#2 estão no working tree; ainda sem commit/push.
+- Branch `codex/area-restrita-reliability-reset`; P1 #1/#2 registrados no commit local `9bd7a5d` (`fix(portal): bind fills to documents and gate navigation`). A publicação desse checkpoint ainda precisa ser confirmada no remoto.
 - P1 #1 + P1 #2: implementação local concluída. A última suíte Python combinada contou 241 testes e passou; extensão 260/260; web 65/65; `git diff --check` PASS. Repetir o gate combinado após as próximas mudanças.
 - O trabalho de capability preserva `request_fill(process_id)`, mas deixa a navegação bloqueada até `PRODUCTION`. O fluxo manual AR-1 continua independente e não recebeu capability de navegação.
 - Nenhuma Área Restrita real foi acessada. Não houve login, preenchimento real, AR-1/AR-2/AR-3, promoção nem merge em `main`.
