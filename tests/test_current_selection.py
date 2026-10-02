@@ -163,7 +163,15 @@ class PortalSelectionValidationTests(PortalSelectionTrackerTestCase):
 
         self.assertEqual(
             set(state),
-            {"state", "process_id", "process_key", "generation", "screen", "observed_at"},
+            {
+                "state",
+                "process_id",
+                "process_key",
+                "generation",
+                "screen",
+                "observed_at",
+                "observation_id",
+            },
         )
         self.assertNotIn("form", state)
         self.assertNotIn("fields", state)
@@ -177,6 +185,29 @@ class PortalSelectionValidationTests(PortalSelectionTrackerTestCase):
         ):
             self.assertNotIn(forbidden, serialized)
 
+    def test_each_matched_publication_has_a_new_opaque_observation_id(self):
+        self.make_process()
+
+        first = self.tracker.observe(self.snapshot())
+        second = self.tracker.observe(self.snapshot())
+
+        self.assertRegex(first["observation_id"], r"^[A-Za-z0-9_-]{43}$")
+        self.assertRegex(second["observation_id"], r"^[A-Za-z0-9_-]{43}$")
+        self.assertNotEqual(first["observation_id"], second["observation_id"])
+
+    def test_a_generation_change_invalidates_the_previously_rendered_observation(self):
+        self.make_process()
+        first = self.tracker.observe(self.snapshot(generation=3))
+        second = self.tracker.observe(self.snapshot(generation=4))
+
+        with self.assertRaises(PortalSelectionError) as raised:
+            with self.tracker.fill_window(first["observation_id"]):
+                self.fail("the old generation token cannot reserve the newer form")
+        self.assertEqual(raised.exception.code, "STALE_SELECTION")
+
+        with self.tracker.fill_window(second["observation_id"]) as snapshot:
+            self.assertEqual(snapshot["generation"], 4)
+
 
 class PortalSelectionTtlTests(PortalSelectionTrackerTestCase):
     def test_the_ttl_is_ten_seconds(self):
@@ -184,36 +215,37 @@ class PortalSelectionTtlTests(PortalSelectionTrackerTestCase):
 
     def test_a_recent_selection_still_serves_its_private_snapshot(self):
         self.make_process()
-        self.tracker.observe(self.snapshot())
+        state = self.tracker.observe(self.snapshot())
         self.clock.advance(PORTAL_SELECTION_TTL_SECONDS - 0.001)
 
-        snapshot = self.tracker.require_fill_snapshot()
+        snapshot = self.tracker.require_fill_snapshot(state["observation_id"])
 
         self.assertEqual(snapshot["identity"]["processKey"], "102390/2026")
         self.assertEqual(snapshot["generation"], 3)
-        self.assertEqual(self.tracker.public_state()["state"], "MATCHED")
+        self.assertEqual(self.tracker.public_state()["state"], "FILL_RESERVED")
 
     def test_the_served_snapshot_is_a_copy(self):
         self.make_process()
-        self.tracker.observe(self.snapshot())
+        state = self.tracker.observe(self.snapshot())
 
-        first = self.tracker.require_fill_snapshot()
+        first = self.tracker.require_fill_snapshot(state["observation_id"])
         first["fields"]["cargo"]["value"] = "mutado"
         first["identity"]["processKey"] = "mutado/2026"
 
-        second = self.tracker.require_fill_snapshot()
+        renewed = self.tracker.observe(self.snapshot())
+        second = self.tracker.require_fill_snapshot(renewed["observation_id"])
         self.assertEqual(second["identity"]["processKey"], "102390/2026")
         self.assertEqual(second["fields"]["cargo"]["value"], "")
 
     def test_the_observation_expires_and_drops_its_snapshot(self):
         self.make_process()
-        self.tracker.observe(self.snapshot())
+        state = self.tracker.observe(self.snapshot())
 
         self.clock.advance(PORTAL_SELECTION_TTL_SECONDS)
 
         self.assertEqual(self.tracker.public_state()["state"], "NO_ACTIVE_FORM")
         with self.assertRaises(PortalSelectionError) as raised:
-            self.tracker.require_fill_snapshot()
+            self.tracker.require_fill_snapshot(state["observation_id"])
         self.assertEqual(raised.exception.code, "FORM_NOT_AVAILABLE")
 
     def test_a_renewed_observation_keeps_the_selection_alive(self):
@@ -221,18 +253,20 @@ class PortalSelectionTtlTests(PortalSelectionTrackerTestCase):
         self.tracker.observe(self.snapshot())
         self.clock.advance(PORTAL_SELECTION_TTL_SECONDS - 1)
 
-        self.tracker.observe(self.snapshot())
+        renewed = self.tracker.observe(self.snapshot())
         self.clock.advance(PORTAL_SELECTION_TTL_SECONDS - 1)
 
         self.assertEqual(self.tracker.public_state()["state"], "MATCHED")
-        self.assertEqual(self.tracker.require_fill_snapshot()["generation"], 3)
+        self.assertEqual(
+            self.tracker.require_fill_snapshot(renewed["observation_id"])["generation"], 3
+        )
 
 
 class PortalSelectionClearTests(PortalSelectionTrackerTestCase):
     def test_an_unobserved_tracker_reports_no_active_form(self):
         self.assertEqual(self.tracker.public_state(), {"state": "NO_ACTIVE_FORM"})
         with self.assertRaises(PortalSelectionError) as raised:
-            self.tracker.require_fill_snapshot()
+            self.tracker.require_fill_snapshot(None)
         self.assertEqual(raised.exception.code, "FORM_NOT_AVAILABLE")
 
     def test_clearing_without_a_form_reports_no_active_form(self):
@@ -244,7 +278,7 @@ class PortalSelectionClearTests(PortalSelectionTrackerTestCase):
         self.assertEqual(state["state"], "NO_ACTIVE_FORM")
         self.assertNotIn("process_id", state)
         with self.assertRaises(PortalSelectionError) as raised:
-            self.tracker.require_fill_snapshot()
+            self.tracker.require_fill_snapshot(None)
         self.assertEqual(raised.exception.code, "FORM_NOT_AVAILABLE")
 
     def test_clearing_an_ambiguous_form_reports_ambiguity(self):
@@ -256,7 +290,7 @@ class PortalSelectionClearTests(PortalSelectionTrackerTestCase):
         self.assertEqual(state["state"], "AMBIGUOUS")
         self.assertNotIn("process_id", state)
         with self.assertRaises(PortalSelectionError) as raised:
-            self.tracker.require_fill_snapshot()
+            self.tracker.require_fill_snapshot(None)
         self.assertEqual(raised.exception.code, "FORM_AMBIGUOUS")
 
     def test_an_inactive_portal_tab_reports_no_active_form(self):
@@ -284,22 +318,22 @@ class PortalSelectionClearTests(PortalSelectionTrackerTestCase):
         """A stale click on a rendered button is a real operator attempt."""
 
         self.make_process()
-        self.tracker.observe(self.snapshot())
+        observation = self.tracker.observe(self.snapshot())
         self.clock.advance(PORTAL_SELECTION_TTL_SECONDS)
 
         with self.assertRaises(PortalSelectionError) as raised:
-            self.tracker.require_fill_snapshot()
+            self.tracker.require_fill_snapshot(observation["observation_id"])
 
         self.assertEqual(raised.exception.code, "FORM_NOT_AVAILABLE")
         self.assertTrue(raised.exception.offered)
 
     def test_the_fill_window_refuses_an_expired_selection(self):
         self.make_process()
-        self.tracker.observe(self.snapshot())
+        observation = self.tracker.observe(self.snapshot())
         self.clock.advance(PORTAL_SELECTION_TTL_SECONDS)
 
         with self.assertRaises(PortalSelectionError) as raised:
-            with self.tracker.fill_window() as snapshot:
+            with self.tracker.fill_window(observation["observation_id"]) as snapshot:
                 self.fail(f"the window must not open: {snapshot!r}")
 
         self.assertEqual(raised.exception.code, "FORM_NOT_AVAILABLE")
@@ -307,36 +341,83 @@ class PortalSelectionClearTests(PortalSelectionTrackerTestCase):
 
     def test_the_fill_window_refuses_a_cleared_selection(self):
         self.make_process()
-        self.tracker.observe(self.snapshot())
+        observation = self.tracker.observe(self.snapshot())
         self.tracker.clear("FORM_NOT_AVAILABLE")
 
         with self.assertRaises(PortalSelectionError) as raised:
-            with self.tracker.fill_window():
+            with self.tracker.fill_window(observation["observation_id"]):
                 self.fail("the window must not open")
 
         self.assertFalse(raised.exception.offered)
 
     def test_the_fill_window_yields_the_reserved_snapshot(self):
         self.make_process()
-        self.tracker.observe(self.snapshot())
+        observation = self.tracker.observe(self.snapshot())
 
-        with self.tracker.fill_window() as snapshot:
+        with self.tracker.fill_window(observation["observation_id"]) as snapshot:
             self.assertEqual(snapshot["identity"]["processKey"], "102390/2026")
             self.assertEqual(snapshot["generation"], 3)
 
+        self.assertEqual(self.tracker.public_state()["state"], "FILL_RESERVED")
+
+    def test_an_old_observation_id_cannot_reserve_a_newer_process(self):
+        self.make_process()
+        first = self.tracker.observe(self.snapshot())
+        second_process = self.make_process(process_key="20202/2026")
+        second = self.tracker.observe(
+            self.snapshot(
+                identity={"processKey": "20202/2026", "interestedNormalized": "pessoa exemplo"}
+            )
+        )
+
+        with self.assertRaises(PortalSelectionError) as raised:
+            with self.tracker.fill_window(first["observation_id"]):
+                self.fail("an earlier UI observation cannot reserve the newer selection")
+        self.assertEqual(raised.exception.code, "STALE_SELECTION")
+        self.assertTrue(raised.exception.offered)
+
+        with self.tracker.fill_window(second["observation_id"]) as snapshot:
+            self.assertEqual(snapshot["identity"]["processKey"], "20202/2026")
+        self.assertEqual(second_process, self.store.resolve_process_identity(
+            "20202/2026", "pessoa exemplo", None
+        )["id"])
+
+    def test_missing_malformed_unknown_and_replayed_observation_ids_fail_closed(self):
+        self.make_process()
+        observation = self.tracker.observe(self.snapshot())
+
+        for token, expected_code in (
+            (None, "INVALID_OBSERVATION_ID"),
+            ("malformed", "INVALID_OBSERVATION_ID"),
+            ("A" * 43, "STALE_SELECTION"),
+        ):
+            with self.subTest(token=token):
+                with self.assertRaises(PortalSelectionError) as raised:
+                    with self.tracker.fill_window(token):
+                        self.fail("invalid observation ids must never reserve a snapshot")
+                self.assertEqual(raised.exception.code, expected_code)
+                self.assertTrue(raised.exception.offered)
+
+        with self.tracker.fill_window(observation["observation_id"]):
+            pass
+        with self.assertRaises(PortalSelectionError) as replay:
+            with self.tracker.fill_window(observation["observation_id"]):
+                self.fail("a consumed observation id cannot create a second fill")
+        self.assertEqual(replay.exception.code, "STALE_SELECTION")
+
     def test_an_unobserved_tracker_never_reports_an_offered_fill(self):
         with self.assertRaises(PortalSelectionError) as raised:
-            self.tracker.require_fill_snapshot()
+            self.tracker.require_fill_snapshot(None)
 
         self.assertFalse(raised.exception.offered)
 
     def test_a_cleared_selection_is_never_offered(self):
         self.make_process()
-        self.tracker.observe(self.snapshot())
+        observation = self.tracker.observe(self.snapshot())
         self.tracker.clear("FORM_NOT_AVAILABLE")
 
         with self.assertRaises(PortalSelectionError) as raised:
-            self.tracker.require_fill_snapshot()
+            self.tracker.require_fill_snapshot(observation["observation_id"])
 
         self.assertFalse(raised.exception.offered)
 
@@ -345,7 +426,7 @@ class PortalSelectionClearTests(PortalSelectionTrackerTestCase):
         self.tracker.observe(self.snapshot())
 
         with self.assertRaises(PortalSelectionError) as raised:
-            self.tracker.require_fill_snapshot()
+            self.tracker.require_fill_snapshot(None)
 
         self.assertFalse(raised.exception.offered)
 

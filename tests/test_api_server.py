@@ -2415,8 +2415,11 @@ class PortalCurrentSelectionTests(ApiTestCase):
     The tracker is memory-only: the public GET must never expose the private
     snapshot, and NOT_FOUND/AMBIGUOUS must never invent a process."""
 
+    _CURRENT_OBSERVATION = object()
+
     def setUp(self):
         super().setUp()
+        self.current_observation_id = None
         self.store.replace_fields(
             self.process_id,
             [
@@ -2453,12 +2456,15 @@ class PortalCurrentSelectionTests(ApiTestCase):
         return {"active": True, "form": form}
 
     def publish(self, body):
-        return self.call_json(
+        result = self.call_json(
             "/api/v1/portal/current-selection",
             method="POST",
             headers=self.extension,
             body=body,
         )
+        if result[0] == 200:
+            self.current_observation_id = result[2].get("observation_id")
+        return result
 
     def selection(self):
         status, _headers, payload = self.call_json(
@@ -2467,14 +2473,18 @@ class PortalCurrentSelectionTests(ApiTestCase):
             opener=self.opener,
         )
         self.assertEqual(status, 200, payload)
+        self.current_observation_id = payload.get("observation_id")
         return payload
 
-    def click_fill_current(self, opener=True):
+    def click_fill_current(self, opener=True, *, observation_id=_CURRENT_OBSERVATION):
+        if observation_id is self._CURRENT_OBSERVATION:
+            observation_id = self.current_observation_id
+        body = {} if observation_id is None else {"observation_id": observation_id}
         return self.call_json(
             "/api/v1/portal/current-selection/fill",
             method="POST",
             headers=self.mesa_headers(),
-            body={},
+            body=body,
             **({"opener": self.opener} if opener else {}),
         )
 
@@ -2538,7 +2548,15 @@ class PortalCurrentSelectionTests(ApiTestCase):
         state = self.selection()
         self.assertEqual(
             set(state),
-            {"state", "process_id", "process_key", "generation", "screen", "observed_at"},
+            {
+                "state",
+                "process_id",
+                "process_key",
+                "generation",
+                "screen",
+                "observed_at",
+                "observation_id",
+            },
         )
         self.assertEqual(state["state"], "MATCHED")
         self.assertEqual(state["process_id"], self.process_id)
@@ -2546,6 +2564,7 @@ class PortalCurrentSelectionTests(ApiTestCase):
         self.assertEqual(state["generation"], 4)
         self.assertEqual(state["screen"], "form")
         self.assertTrue(state["observed_at"])
+        self.assertRegex(state["observation_id"], r"^[A-Za-z0-9_-]{43}$")
         serialized = json.dumps(state)
         for private in ("interestedNormalized", "cargo", "pessoa exemplo"):
             self.assertNotIn(private, serialized)
@@ -2653,6 +2672,96 @@ class PortalCurrentSelectionTests(ApiTestCase):
         self.assertEqual(command["type"], "FILL_FORM")
         self.assertEqual(command["payload"]["fields"]["cargo"], "Professor")
 
+    def test_a_stale_click_for_a_cannot_reserve_or_fill_b(self):
+        process_b = self.store.upsert_process(
+            ProcessRecord(
+                process_key="20202/2026",
+                interested="Pessoa Dois",
+                interested_normalized="pessoa dois",
+                status="PRONTO",
+            )
+        )
+        self.store.replace_fields(
+            process_b,
+            [
+                FieldRecord(field_name=name, value=value, status="found", confidence=1.0)
+                for name, value in FILL_FIELDS.items()
+            ],
+        )
+
+        self.publish(self.observation())
+        observation_a = self.selection()
+        observation_a_id = observation_a.get("observation_id") or "legacy-observation-a"
+        self.publish(
+            self.observation(
+                identity={"processKey": "20202/2026", "interestedNormalized": "pessoa dois"}
+            )
+        )
+        observation_b = self.selection()
+        observation_b_id = observation_b.get("observation_id") or "legacy-observation-b"
+        self.assertNotEqual(observation_a_id, observation_b_id)
+
+        stale_status, _headers, stale_payload = self.click_fill_current(
+            observation_id=observation_a_id
+        )
+
+        self.assertEqual(stale_status, 409, stale_payload)
+        self.assertEqual(stale_payload.get("detail"), "STALE_SELECTION")
+        self.assertEqual(self.store.list_fill_requests(), [])
+        self.assertEqual(self.command_types(), [])
+        failures = [
+            event
+            for event in self.reliability_events()
+            if event.get("type") == "run_finished"
+        ]
+        self.assertEqual(len(failures), 1)
+        self.assertFalse(failures[0]["passed"])
+
+        current_status, _headers, current_payload = self.click_fill_current(
+            observation_id=observation_b_id
+        )
+
+        self.assertEqual(current_status, 201, current_payload)
+        self.assertEqual(
+            self.store.get_fill_request(current_payload["fill_request_id"])["process_id"],
+            process_b,
+        )
+        self.assertEqual(self.command_types(), ["FILL_FORM"])
+
+        replay_status, _headers, replay_payload = self.click_fill_current(
+            observation_id=observation_b_id
+        )
+
+        self.assertEqual(replay_status, 409, replay_payload)
+        self.assertEqual(replay_payload.get("detail"), "STALE_SELECTION")
+        self.assertEqual(len(self.store.list_fill_requests()), 1)
+        self.assertEqual(self.command_types(), ["FILL_FORM"])
+
+    def test_a_fill_requires_a_present_well_formed_observation_id(self):
+        self.publish(self.observation())
+
+        status, _headers, payload = self.click_fill_current(observation_id=None)
+
+        self.assertEqual(status, 409, payload)
+        self.assertEqual(payload.get("detail"), "INVALID_OBSERVATION_ID")
+        self.assertEqual(self.store.list_fill_requests(), [])
+        self.assertEqual(self.command_types(), [])
+
+    def test_an_unknown_or_malformed_observation_id_never_creates_a_fill(self):
+        self.publish(self.observation())
+
+        for observation_id in ("not-a-token", "A" * 43):
+            with self.subTest(observation_id=observation_id[:12]):
+                status, _headers, payload = self.click_fill_current(
+                    observation_id=observation_id
+                )
+                self.assertEqual(status, 409, payload)
+                self.assertIn(
+                    payload.get("detail"), {"INVALID_OBSERVATION_ID", "STALE_SELECTION"}
+                )
+                self.assertEqual(self.store.list_fill_requests(), [])
+                self.assertEqual(self.command_types(), [])
+
     def test_a_click_after_the_ttl_refuses_without_writing(self):
         self.publish(self.observation())
         tracker = self.server.portal_selection
@@ -2685,6 +2794,25 @@ class PortalCurrentSelectionTests(ApiTestCase):
         self.assertEqual(self.store.list_fill_requests(), [])
         # The Mesa never renders the button here, so nothing is recorded.
         self.assertEqual(self.reliability_events(), [])
+
+    def test_ambiguous_and_invalid_selection_states_never_create_a_fill(self):
+        self.store._connection.execute(
+            "UPDATE processes SET portal_act_id = ? WHERE id = ?",
+            ("act-fixture-1", self.process_id),
+        )
+        self.publish(
+            self.observation(identity={**FILL_IDENTITY, "portalActId": "act-fixture-2"})
+        )
+        ambiguous_status, _headers, ambiguous_payload = self.click_fill_current()
+        self.assertEqual(ambiguous_status, 409, ambiguous_payload)
+        self.assertEqual(self.store.list_fill_requests(), [])
+        self.assertEqual(self.command_types(), [])
+
+        self.publish({"active": False, "code": "INVALID"})
+        invalid_status, _headers, invalid_payload = self.click_fill_current()
+        self.assertEqual(invalid_status, 409, invalid_payload)
+        self.assertEqual(self.store.list_fill_requests(), [])
+        self.assertEqual(self.command_types(), [])
 
     def test_a_click_with_no_observation_at_all_is_never_an_attempt(self):
         status, _headers, payload = self.click_fill_current()

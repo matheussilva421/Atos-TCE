@@ -299,7 +299,15 @@ test("the current fill uses only the transient selection route", () => {
   assert.notEqual(start, -1, "the portal tab owns its own fill action");
   const body = source.slice(start, source.indexOf("const state = {", start));
 
-  assert.match(body, /postJson\("\/api\/v1\/portal\/current-selection\/fill",\s*\{\s*\}\)/u);
+  assert.match(
+    body,
+    /postJson\("\/api\/v1\/portal\/current-selection\/fill",\s*\{\s*observation_id:\s*observationId,?\s*\}\)/u
+  );
+  assert.match(body, /async function startCurrentPortalFill\(processId, observationId\)/u);
+  assert.match(
+    source,
+    /fillButton\.addEventListener\("click",\s*\(\)\s*=>\s*startCurrentPortalFill\(process\.id,\s*availability\.observationId\)\s*\)/u
+  );
   assert.doesNotMatch(body, /\/api\/v1\/processes\/[^`]*\/fill/u);
   assert.doesNotMatch(body, /next-act|openAct|OPEN_ACT/u);
   assert.match(body, /followFillRequest\(/u);

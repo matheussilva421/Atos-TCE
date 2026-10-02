@@ -243,11 +243,24 @@ test("resuming returns to the form the portal is showing right now", () => {
 });
 
 test("the fill button is offered only for the process the portal is showing", () => {
-  assert.equal(currentFillAvailability({ state: "MATCHED", process_id: 7 }, 7).available, true);
-  assert.equal(currentFillAvailability({ state: "MATCHED", process_id: 9 }, 7).available, false);
+  assert.equal(
+    currentFillAvailability(
+      { state: "MATCHED", process_id: 7, observation_id: "opaque-observation-a" },
+      7
+    ).available,
+    true
+  );
+  assert.equal(currentFillAvailability({ state: "MATCHED", process_id: 7 }, 7).available, false);
+  assert.equal(
+    currentFillAvailability(
+      { state: "MATCHED", process_id: 9, observation_id: "opaque-observation-b" },
+      7
+    ).available,
+    false
+  );
   assert.equal(currentFillAvailability({ state: "MATCHED" }, 7).available, false);
   assert.equal(currentFillAvailability(null, 7).available, false);
-  for (const state of ["NOT_FOUND", "AMBIGUOUS", "INVALID", "NO_ACTIVE_FORM"]) {
+  for (const state of ["NOT_FOUND", "AMBIGUOUS", "INVALID", "NO_ACTIVE_FORM", "FILL_RESERVED"]) {
     assert.equal(currentFillAvailability({ state }, 7).available, false, state);
   }
 });
@@ -257,6 +270,10 @@ test("every unavailable state explains itself instead of failing silently", () =
   assert.match(currentFillAvailability({ state: "NOT_FOUND" }, 7).message, /não encontrado/u);
   assert.match(currentFillAvailability({ state: "AMBIGUOUS" }, 7).message, /[Aa]mbígua/u);
   assert.match(currentFillAvailability({ state: "INVALID" }, 7).message, /inválida/u);
+  assert.match(
+    currentFillAvailability({ state: "FILL_RESERVED" }, 7).message,
+    /já foi solicitado/u
+  );
   assert.match(
     currentFillAvailability({ state: "MATCHED", process_id: 9 }, 7).message,
     /outro processo/u
