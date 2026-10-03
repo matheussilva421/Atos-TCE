@@ -3,16 +3,23 @@
 Data: 2026-09-30
 Atualizado: 2026-10-02
 Branch: `codex/area-restrita-reliability-reset`
-Último artefato construído (HISTÓRICO; superseded para qualification): `db73386f4d99a7ba713e605e9439f2dd90e28a74`
-Builds históricos: `5e9c277` → `4cd848a` → `af8c1f2` → `f1cf5b4` → `1d90b8d` → `e059793` (semântica antiga) → `c393353` (superseded; failed real validation) → `88bc4ad` (superseded) → `3b05f06` (intermediate provenance build, superseded) → `db73386` (último pacote histórico; contém findings P0/P1). Não iniciar runs reais em nenhum desses builds.
+Artefato final para próxima validação humana: `dist/Atos-TCE-portable-clean.zip`, build `88eed8ce53f3ab1cfbd949767b919ca352dd3ae2`.
+Builds históricos (todos SUPERSEDED FOR REAL QUALIFICATION): `5e9c277` → `4cd848a` → `af8c1f2` → `f1cf5b4` → `1d90b8d` → `e059793` (semântica antiga) → `c393353` (superseded; failed real validation) → `88bc4ad` (superseded) → `3b05f06` (intermediate provenance build, superseded) → `db73386` (último pacote histórico; contém findings P0/P1). Não iniciar runs reais em nenhum desses builds.
 Base da reconciliação: `9fa3465` (`origin/codex/area-restrita-reliability-reset-spec`)
 
-## Estado operacional ATUAL — Goal 02-10
+## Estado operacional histórico — antes do fechamento do Goal 02-10
 
 - O Goal 02-10 é a única sequência operacional vigente. O pacote `db73386` é histórico e `SUPERSEDED FOR REAL QUALIFICATION`; nenhum ZIP com as correções P0/P1 foi construído ainda.
 - A fonte de produção do runtime é `app/`, `extension/`, `tests/`, `packaging/` e `scripts/`. `work/tce-extractor/` é legado/verificador/compatibilidade/laboratório; não implemente correções de produção somente nessa árvore.
-- Use a seção 18 e seus checkpoints mais recentes para o estado atual. As seções 1–17 abaixo preservam o histórico da Phase 1 e as auditorias anteriores; instruções antigas nelas não são runbooks atuais.
+- Naquele ponto, a seção 18 era o checkpoint mais recente; a seção 19 registra o estado atual e os resultados finais.
 - A Área Restrita real permanece fora do escopo: sem login, sessão, execução AR-1/AR-2/AR-3 ou promoção de capability.
+
+## Encerramento operacional ATUAL — Goal 02-10 concluído (2026-10-02)
+
+- O produto foi congelado em `AR1_BUILD=88eed8ce53f3ab1cfbd949767b919ca352dd3ae2`. A branch de produto está publicada em `codex/area-restrita-reliability-reset`; o fechamento deste handoff é documentation-only. Não houve merge em `main`.
+- O ZIP canônico e o alias portátil contêm os mesmos bytes: 526 entradas, 96.218.305 bytes, SHA-256 `4e2afda7b9adf073bb91f7dddf6814db3ff235de0dd35c58751c1dc7e269021f`. `source_dirty=false`; 94 arquivos de produto e 430 de runtime; provenance sem divergências; auditoria de arquivos privados/proibidos: 0.
+- `manual_form_fill=EXPERIMENTAL`, real-dev `0/20`, portable `0/20`. AR-2 e AR-3 continuam bloqueados. A Área Restrita real não foi acessada e nenhum AR-1 real foi executado. Próxima etapa: aguardar o operador humano para validar o novo build.
+- A seção 19 é o registro detalhado e autoritativo deste fechamento. Seções/checkpoints anteriores permanecem como histórico, não como runbook atual.
 
 ## HISTÓRICO — Phase 1
 
@@ -605,7 +612,7 @@ Revisão independente read-only foi concluída antes da reprodução HTTP stale 
 
 Nenhum código de produto foi alterado. O ZIP continua sendo o produto até `db73386`; esta auditoria não autoriza usar o ZIP para qualification diante dos findings P0/P1. Próxima sequência: primeiro corrigir com RED/GREEN o vínculo do clique Portal Atual à observação A, a integridade das transições do ledger e o vínculo documento/generation; resolver a contradição de escopo e fechar AR-2/AR-3 por capability; depois cobrir perfis concorrentes e reconciliar documentação; rodar gates e CI; construir/verificar novo ZIP com SHA novo; só então aguardar autorização/ação humana para iniciar AR-1 real em 0/20. Continuam proibidos nesta tarefa: acesso real ao portal, teste AR-1, promoção, AR-2/AR-3 e merge em `main`.
 
-## 18. Execução do Goal 02-10 (2026-10-02)
+## 18. Histórico de execução do Goal 02-10 (2026-10-02)
 
 ### Estado retomado
 
@@ -647,7 +654,7 @@ Nenhum código de produto foi alterado. O ZIP continua sendo o produto até `db7
 - GREEN focado: serviço, rota next-act e cadeia de preenchimento com capabilities de produção passaram. `python -m unittest test_fill_service test_api_server` (com `PYTHONPATH=tests`) — 241/241; `npm test --prefix extension` — 260/260; Node nos testes de `app/web/tests` — 65/65; `git diff --check` — PASS. Uma tentativa inicial de `npm test --prefix app/web` falhou por não haver `package.json`; o comando Node correto para os arquivos web foi executado e passou.
 - Arquivos adicionais: `app/area_restrita/fill_service.py`, `app/api/server.py`, `tests/test_fill_service.py`, `tests/test_api_server.py`.
 
-### Checkpoint atual — Goal 02-10, 2026-10-02
+### Checkpoint histórico — Goal 02-10, antes da finalização do ZIP (2026-10-02)
 
 - Branch `codex/area-restrita-reliability-reset`; base local/remota no início deste bloco: `1ae8eb68bdac1412323c8d6ee03789d0c4f82bd4`. As alterações P2/P3 e documentação abaixo ainda estão locais e não commitadas neste checkpoint.
 - P1 #1/#2 seguem registrados nos commits `9bd7a5d` e posteriores. O gate Python/extension/web passou na rodada anterior; o status de CI para a base atual não foi confirmado nesta continuação.
@@ -660,8 +667,48 @@ Nenhum código de produto foi alterado. O ZIP continua sendo o produto até `db7
 - A suíte Python da raiz passou 875/875 (`python -m unittest discover -s tests -p 'test_*.py' -q`). A extensão passou 263/263; a Mesa web passou 65/65 (avisos ESM não fatais). `verify-project.ps1` passou 7/7 etapas: 1.260 verificações executadas, 1.258 aprovadas, 0 falhas e 2 skips. `git diff --check` passou.
 - O teste integrado antigo de identidade foi atualizado após reprodução: primeiro faltava `documentNonce` e o fill era corretamente bloqueado; com nonce válido, o fluxo automático corretamente parou no gate de capability. A fixture agora declara `open_act` e `select_interested` como `PRODUCTION` somente nesse teste sintético; os testes separados continuam provando o bloqueio em estados não produtivos. O teste isolado passou 1/1.
 - O diretório preexistente `staging-runtime/` foi preservado sem alteração. Para o novo ZIP, `staging-runtime-ar1-20261002/` foi preparado somente com runtime/licenças do ZIP histórico já verificado: SHA de origem conferido, 6/6 pins iguais, 430/430 arquivos/tamanhos/hashes conferidos. Uma primeira tentativa de extração abortou sem copiar dados por diferença de separadores no nome das entradas; a normalização foi corrigida e a validação final passou.
-- Pendências atuais: registrar e fazer push dos commits locais, confirmar o CI da branch, congelar o novo SHA de produto, criar e verificar o ZIP candidato, executar o smoke sintético completo no pacote extraído, preservar o ZIP histórico antes de substituir os nomes canônicos e atualizar este handoff com SHA/CI/artefato finais. Área Restrita real não foi acessada; AR-1 real e qualquer promoção continuam não executados.
+- Pendências registradas naquele checkpoint: registrar e fazer push dos commits locais, confirmar o CI da branch, congelar o novo SHA de produto, criar e verificar o ZIP candidato, executar o smoke sintético completo no pacote extraído, preservar o ZIP histórico antes de substituir os nomes canônicos e atualizar este handoff com SHA/CI/artefato finais. Todas foram concluídas na seção 19. Área Restrita real não foi acessada; AR-1 real e qualquer promoção continuam não executados.
 
-### Próximas etapas
+### Próximas etapas históricas
 
 Commit/push do bloco P2/P3/documentação e confirmar os cinco jobs do CI; congelar o SHA de produto, construir o ZIP novo em caminho temporário, verificar bootstrap/provenance/arquivos privados, executar health smoke e o smoke sintético integrado no pacote extraído; preservar o pacote histórico antes de atualizar os nomes canônicos; então atualizar este handoff com a evidência final e fazer push documental. Não acessar portal real nem promover capabilities.
+
+## 19. Fechamento final do Goal 02-10 (2026-10-02)
+
+### Correções e hardenings
+
+- **P0 #1 — ledger de qualification: CORRIGIDO.** O leitor/evaluator exige a sequência estrutural de detecção, pedido manual, preflight, fill e readback terminal; run sem evidência válida não promove nem incrementa streak. Testes negativos cobrem boundaries ausentes, inválidos, fora de ordem, inconsistentes e após terminal.
+- **P0 #2 — clique stale A→B: CORRIGIDO.** A Mesa envia o observation ID imutável que habilitou o botão; o tracker verifica e consome a observação atomicamente. Clique A após troca para B retorna 409, sem request/comando/write.
+- **P1 #1 — documento/formulário: CORRIGIDO.** Nonce efêmero por documento é exigido no plano, no frame e no readback; mudança ou mismatch resulta em `STALE_FORM` sem escrita. O nonce não persiste no SQLite nem na telemetria.
+- **P1 #2 — capabilities AR-2/AR-3: CORRIGIDO.** Os caminhos backend de `OPEN_ACT` e `OPEN_NEXT_ACT` passam pelo gate central e recusam estados não `PRODUCTION`; fixture de capability produtiva existe apenas em teste sintético.
+- **P2/P3: CORRIGIDOS.** Publisher ID/sequence com ownership e TTL explícitos impedem regressão/replay concorrente; `isPortalUrl` compara origem HTTPS exata; documentação aponta a fonte de produção para a árvore raiz. Revisão adversarial independente do diff P2/P3 não encontrou achados bloqueantes.
+
+### Commits de produto e CI
+
+- Ledger P0: `b3799ad`, `68c116f`.
+- Seleção stale P0: `a41ec50`, `f6de126`.
+- Nonce e capabilities P1: `9bd7a5d`.
+- Ownership e origin P2/P3: `1dbbb17`, `bd79b8b`.
+- Fixture/revisão e alinhamento documental: `4b46385`, `e7e4e53`, `1ae8eb6`, `88eed8c`.
+- Run de GitHub Actions `37077418748`, commit `88eed8ce53f3ab1cfbd949767b919ca352dd3ae2`: **SUCCESS**. O job Windows concluiu Root Python, Extension, Mesa web, Package contract e Whitespace.
+
+### Gates e resultados
+
+- `python -m unittest discover -s tests -p 'test_*.py' -q`: 875/875 aprovados.
+- `npm test --prefix extension`: 263/263 aprovados.
+- `node --test app/web/tests/*.test.mjs`: 65/65 aprovados.
+- `work/tce-extractor/verify-project.ps1`: 1.260 verificações, 1.258 aprovadas, 0 falhas, 2 skips; 7/7 estágios verdes.
+- `git diff --check`: PASS.
+- `verify-package.ps1` no ZIP canônico, com build esperado e bootstrap de qualification: PASS; 526 entradas, runtime 430 arquivos, health `ok`, build ID coincidente. O verificador emitiu aviso ao tentar encerrar o processo de smoke; a checagem seguinte confirmou que a porta 51867 estava fechada e que a extração temporária já não existia.
+
+### ZIP, provenance e smoke
+
+- Caminhos finais: `dist/Atos-TCE-portable-clean.zip` e alias `dist/Atos-TCE-portable.zip`; sidecars SHA-256 atualizados. Ambos têm 96.218.305 bytes e SHA-256 `4e2afda7b9adf073bb91f7dddf6814db3ff235de0dd35c58751c1dc7e269021f`.
+- Manifestos: `build_id=88eed8ce53f3ab1cfbd949767b919ca352dd3ae2`, `source_dirty=false`, 94 arquivos de produto, 430 arquivos runtime e `manual_form_fill=EXPERIMENTAL`. Auditoria independente encontrou 0 divergências nos hashes de produto/runtime e 0 arquivos privados/proibidos.
+- Smoke integrado no pacote extraído, só com SQLite/data-root descartável, API em loopback e DOM sintético: `NO_ACTIVE_FORM → MATCHED`; estado público mínimo; clique após TTL recusado sem request/comando; preenchimento e readback corretos somente no formulário visível; formulário antigo oculto sem escrita; replay da observação recusado; nonce divergente resulta em `STALE_FORM` e zero writes; AR-2/AR-3 bloqueados; clear retorna `NO_ACTIVE_FORM`. Foram criados somente dois comandos `FILL_FORM` sintéticos. Health confirmou o build ID e reliability ficou em EXPERIMENTAL, 0/20 e 0/20.
+- ZIP anterior `db73386f4d99a7ba713e605e9439f2dd90e28a74`, SHA `c803f80c2ad989037570fd5464216af9b4241dba72043d585c2e3734aa197c38`, está `SUPERSEDED FOR REAL QUALIFICATION`. Cópias dos dois ZIPs antigos e sidecars foram preservadas em `dist/archive/2026-10-02-ar1-build-88eed8c/`; `dist/Atos-TCE-portable.previous.zip` permaneceu intocado.
+
+### Limites e retomada
+
+- Área Restrita acessada: **NÃO**. Sessão/login reais: **NÃO**. AR-1 real executado: **NÃO**. AR-2/AR-3 executados: **NÃO**. Promotion para `QUALIFIED`/`PRODUCTION`: **NÃO**.
+- Pronto para o próximo teste humano AR-1 com o novo build: **SIM**. Próximo passo: **AGUARDANDO OPERADOR**; manter `manual_form_fill=EXPERIMENTAL` e começar no novo `AR1_BUILD`. Não iniciar AR-2/AR-3, não promover capability e não fazer merge em `main`.
