@@ -119,6 +119,31 @@ test("the native value setter is used and the events bubble", () => {
   assert.equal(result.generation_after, 2);
 });
 
+test("field write and reread durations stay outside functional field results", () => {
+  const { documentRef, form } = preparedForm();
+  const ticks = [10, 13, 20, 25];
+
+  const result = applyFill({
+    documentRef,
+    identity: form.identity,
+    generation: form.generation,
+    fields: { cargo: "Professor" },
+    deps: { monotonicNow: () => ticks.shift() },
+  });
+
+  assert.deepEqual(result.diagnostic_events, [
+    { step: "field_write", field: "cargo", elapsed_ms: 3, result: "ok" },
+    { step: "field_reread", field: "cargo", elapsed_ms: 5, result: "ok" },
+  ]);
+  assert.deepEqual(result.field_results.cargo, {
+    before: "",
+    proposed: "Professor",
+    after: "Professor",
+    status: "changed",
+  });
+  assert.equal("diagnostic_events" in result.field_results.cargo, false);
+});
+
 test("an already correct value is preserved and never rewritten", () => {
   const { documentRef, form } = preparedForm({ values: { cargo: "Professor" } });
 

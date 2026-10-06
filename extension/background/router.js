@@ -453,6 +453,7 @@ export function installRouter({
   timing = {},
   nextActDependencies = {},
   now = Date.now,
+  monotonicNow = () => globalThis.performance?.now?.() ?? Date.now(),
 } = {}) {
   let running = false;
   // The last observation this worker published and when it did so. Worker
@@ -476,6 +477,27 @@ export function installRouter({
   const pageReadyDelayMs = timing.pageReadyDelayMs ?? PAGE_READY_DELAY_MS;
   const pageAdvanceAttempts = timing.pageAdvanceAttempts ?? PAGE_ADVANCE_ATTEMPTS;
   const pageAdvanceRetryDelayMs = timing.pageAdvanceRetryDelayMs ?? PAGE_ADVANCE_RETRY_DELAY_MS;
+
+  function readMonotonicNow() {
+    try {
+      const value = Number(monotonicNow());
+      return Number.isFinite(value) ? value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function recordTiming(events, step, startedAt, details = {}) {
+    if (!Array.isArray(events) || startedAt === null) return;
+    const endedAt = readMonotonicNow();
+    if (endedAt === null) return;
+    const elapsed = endedAt - startedAt;
+    events.push({
+      step,
+      elapsed_ms: Number.isFinite(elapsed) ? Math.max(0, Math.round(elapsed)) : 0,
+      ...details,
+    });
+  }
 
   const sidePanelBehavior = chromeApi.sidePanel?.setPanelBehavior?.({
     openPanelOnActionClick: true,
@@ -828,18 +850,36 @@ export function installRouter({
     };
   }
 
-  async function readCurrentPortalForm() {
-    const answers = await askFrames({ type: MESSAGE_TYPES.READ_FORM });
+  async function readCurrentPortalForm(diagnosticEvents = null) {
+    const framesStarted = Array.isArray(diagnosticEvents) ? readMonotonicNow() : null;
+    const frames = await portalFrames();
+    recordTiming(diagnosticEvents, "frames_scanned", framesStarted, { result: "ok" });
+    const detectionStarted = Array.isArray(diagnosticEvents) ? readMonotonicNow() : null;
+    const answers = await askFrames({ type: MESSAGE_TYPES.READ_FORM }, frames);
+    let result;
     if (answers.some((answer) => answer.response?.code === "FORM_AMBIGUOUS")) {
-      return { ok: false, code: "FORM_AMBIGUOUS" };
+      result = { ok: false, code: "FORM_AMBIGUOUS" };
+    } else {
+      const forms = answers.filter(
+        (answer) => answer.response?.ok === true && answer.response.form
+      );
+      if (forms.length > 1) result = { ok: false, code: "FORM_AMBIGUOUS" };
+      else if (forms.length === 0) result = { ok: true, form: null };
+      else {
+        const found = forms[0];
+        result = { ok: true, form: found.response.form, tabId: found.tabId, frameId: found.frameId };
+      }
     }
-    const forms = answers.filter(
-      (answer) => answer.response?.ok === true && answer.response.form
-    );
-    if (forms.length > 1) return { ok: false, code: "FORM_AMBIGUOUS" };
-    if (forms.length === 0) return { ok: true, form: null };
-    const found = forms[0];
-    return { ok: true, form: found.response.form, tabId: found.tabId, frameId: found.frameId };
+    recordTiming(diagnosticEvents, "form_detected", detectionStarted, {
+      result: result.ok && result.form ? "ok" : "error",
+      ...(result.code
+        ? { code: result.code }
+        : result.ok && !result.form
+          ? { code: "FORM_NOT_AVAILABLE" }
+          : {}),
+      ...(Number.isInteger(result.frameId) ? { frame_id: result.frameId } : {}),
+    });
+    return result;
   }
 
   async function returnToList(current, identity) {
@@ -997,10 +1037,17 @@ export function installRouter({
    * The fallback is bound to the *active* tab: falling back to another portal
    * tab would offer to fill an act the operator is not looking at.
    */
-  async function readCurrentForm() {
+  async function readCurrentForm(diagnosticEvents = null) {
+    const portalStarted = Array.isArray(diagnosticEvents) ? readMonotonicNow() : null;
     const tabs = (await chromeApi.tabs.query({ active: true, lastFocusedWindow: true })) ?? [];
     const tab = tabs[0] ?? null;
-    if (!tab || !isPortalUrl(tab.url)) {
+    const portalIsActive = Boolean(tab && isPortalUrl(tab.url));
+    recordTiming(diagnosticEvents, "portal_detected", portalStarted, {
+      result: portalIsActive ? "ok" : "error",
+      ...(!portalIsActive ? { code: "PORTAL_TAB_NOT_ACTIVE" } : {}),
+      ...(Number.isInteger(tab?.id) ? { tab_id: tab.id } : {}),
+    });
+    if (!portalIsActive) {
       return {
         ok: false,
         code: "PORTAL_TAB_NOT_ACTIVE",
@@ -1009,7 +1056,14 @@ export function installRouter({
     }
     const matches = [];
     let ambiguousFrame = false;
-    for (const frame of await framesOfTab(tab.id)) {
+    const framesStarted = Array.isArray(diagnosticEvents) ? readMonotonicNow() : null;
+    const frames = await framesOfTab(tab.id);
+    recordTiming(diagnosticEvents, "frames_scanned", framesStarted, {
+      result: "ok",
+      tab_id: tab.id,
+    });
+    const detectionStarted = Array.isArray(diagnosticEvents) ? readMonotonicNow() : null;
+    for (const frame of frames) {
       try {
         const response = await sendToFrame(tab.id, frame.frameId, { type: MESSAGE_TYPES.READ_FORM });
         if (response?.ok === true && response.form) {
@@ -1021,29 +1075,35 @@ export function installRouter({
         // A frame that is navigating is simply not a candidate.
       }
     }
+    let result;
     if (ambiguousFrame) {
-      return {
+      result = {
         ok: false,
         code: "FORM_AMBIGUOUS",
         error: "mais de uma estrutura visível corresponde ao formulário do ato",
       };
-    }
-    if (matches.length === 1) {
+    } else if (matches.length === 1) {
       lastFormDiagnostics = formDiagnostics(tab, matches[0]);
-      return { ok: true, form: matches[0].form, diagnostics: lastFormDiagnostics };
-    }
-    if (matches.length === 0) {
-      return {
+      result = { ok: true, form: matches[0].form, diagnostics: lastFormDiagnostics };
+    } else if (matches.length === 0) {
+      result = {
         ok: false,
         code: "FORM_NOT_AVAILABLE",
         error: "nenhum formulário de ato está aberto na aba ativa da Área Restrita",
       };
+    } else {
+      result = {
+        ok: false,
+        code: "FORM_AMBIGUOUS",
+        error: `mais de um formulário (${matches.length}) está aberto na aba ativa`,
+      };
     }
-    return {
-      ok: false,
-      code: "FORM_AMBIGUOUS",
-      error: `mais de um formulário (${matches.length}) está aberto na aba ativa`,
-    };
+    recordTiming(diagnosticEvents, "form_detected", detectionStarted, {
+      result: result.ok ? "ok" : "error",
+      ...(result.code ? { code: result.code } : {}),
+      ...(result.ok ? { frame_id: matches[0].frameId, tab_id: tab.id } : { tab_id: tab.id }),
+    });
+    return result;
   }
 
   /**
@@ -1057,26 +1117,48 @@ export function installRouter({
    * zero forms clears it and two or more never resolve to a process.
    */
   async function readCurrentObservation() {
-    const outcome = await readCurrentForm();
+    const diagnosticEvents = [];
+    const outcome = await readCurrentForm(diagnosticEvents);
     if (outcome?.ok === true && outcome.form) {
-      return { active: true, form: outcome.form };
+      return { observation: { active: true, form: outcome.form }, diagnosticEvents };
     }
     if (outcome?.code !== "PORTAL_TAB_NOT_ACTIVE") {
       return {
-        active: false,
-        code: outcome?.code === "FORM_AMBIGUOUS" ? "FORM_AMBIGUOUS" : "FORM_NOT_AVAILABLE",
+        observation: {
+          active: false,
+          code: outcome?.code === "FORM_AMBIGUOUS" ? "FORM_AMBIGUOUS" : "FORM_NOT_AVAILABLE",
+        },
+        diagnosticEvents,
       };
     }
-    if ((await portalTabs()).length === 0) {
-      return { active: false, code: "PORTAL_TAB_NOT_ACTIVE" };
+    const portalStarted = readMonotonicNow();
+    const tabs = await portalTabs();
+    recordTiming(diagnosticEvents, "portal_detected", portalStarted, {
+      result: tabs.length > 0 ? "ok" : "error",
+      ...(tabs.length === 0 ? { code: "PORTAL_TAB_NOT_ACTIVE" } : {}),
+      ...(Number.isInteger(tabs[0]?.id) ? { tab_id: tabs[0].id } : {}),
+    });
+    if (tabs.length === 0) {
+      const detectionStarted = readMonotonicNow();
+      recordTiming(diagnosticEvents, "form_detected", detectionStarted, {
+        result: "error",
+        code: "PORTAL_TAB_NOT_ACTIVE",
+      });
+      return {
+        observation: { active: false, code: "PORTAL_TAB_NOT_ACTIVE" },
+        diagnosticEvents,
+      };
     }
-    const current = await readCurrentPortalForm();
+    const current = await readCurrentPortalForm(diagnosticEvents);
     if (current?.ok === true && current.form) {
-      return { active: true, form: current.form };
+      return { observation: { active: true, form: current.form }, diagnosticEvents };
     }
     return {
-      active: false,
-      code: current?.code === "FORM_AMBIGUOUS" ? "FORM_AMBIGUOUS" : "FORM_NOT_AVAILABLE",
+      observation: {
+        active: false,
+        code: current?.code === "FORM_AMBIGUOUS" ? "FORM_AMBIGUOUS" : "FORM_NOT_AVAILABLE",
+      },
+      diagnosticEvents,
     };
   }
 
@@ -1114,7 +1196,7 @@ export function installRouter({
     if (typeof api.publishCurrentSelection !== "function") {
       return { published: false, signature: null, active: null };
     }
-    const observation = await readCurrentObservation();
+    const { observation, diagnosticEvents } = await readCurrentObservation();
     const signature = selectionSignature(observation);
     const at = now();
     if (
@@ -1135,6 +1217,7 @@ export function installRouter({
       ...observation,
       publisher_id: selectionPublisherId,
       sequence: ++selectionSequence,
+      diagnostic_events: diagnosticEvents,
     });
     if (outcome?.ok === false) {
       // A refused publish must not be deduplicated away for a whole window.
@@ -1158,9 +1241,14 @@ export function installRouter({
       } catch {
         // The next tick retries; a command already claimed still runs.
       }
+      const pollStarted = readMonotonicNow();
       const outcome = await api.nextCommand();
       if (!outcome.ok) return { ok: false, error: outcome.error, status: outcome.status };
       if (!outcome.command) return { ok: true, command: null };
+      const receivedAt = readMonotonicNow();
+      const receiveElapsed =
+        pollStarted === null || receivedAt === null ? null : Math.max(0, Math.round(receivedAt - pollStarted));
+      const executionStarted = readMonotonicNow();
 
       let result;
       try {
@@ -1181,14 +1269,46 @@ export function installRouter({
           error: String(error?.message ?? error),
         };
       }
+      const executionEnded = readMonotonicNow();
+      const executionElapsed =
+        executionStarted === null || executionEnded === null
+          ? null
+          : Math.max(0, Math.round(executionEnded - executionStarted));
+      const { diagnostic_events: resultDiagnosticEvents, ...functionalResult } = result;
+      const diagnosticEvents = [];
+      if (receiveElapsed !== null) {
+        diagnosticEvents.push({
+          step: String(outcome.command.type).toUpperCase() === COMMAND_TYPES.FILL_FORM
+            ? "fill_command_received"
+            : "command_received",
+          elapsed_ms: receiveElapsed,
+          result: "ok",
+          command_id: outcome.command.id,
+          command_type: outcome.command.type,
+        });
+      }
+      if (Array.isArray(resultDiagnosticEvents)) {
+        diagnosticEvents.push(...resultDiagnosticEvents);
+      }
+      if (executionElapsed !== null) {
+        diagnosticEvents.push({
+          step: "command_execution",
+          elapsed_ms: executionElapsed,
+          result: functionalResult.ok === true ? "ok" : "error",
+          ...(functionalResult.code ? { code: functionalResult.code } : {}),
+          command_id: outcome.command.id,
+          command_type: outcome.command.type,
+        });
+      }
       // The claim token proves this client still holds the lease, so a stale
       // result can never finish a command another poller already took over.
       await api.reportResult(outcome.command.id, {
-        ...result,
+        ...functionalResult,
         claim_token: outcome.command.claim_token ?? null,
+        diagnostic_events: diagnosticEvents,
       });
-      if (verbose) console.debug(`ATOS TCE: comando ${outcome.command.id} (${result.ok ? "ok" : "falhou"})`);
-      return { ok: true, command: outcome.command.id, result };
+      if (verbose) console.debug(`ATOS TCE: comando ${outcome.command.id} (${functionalResult.ok ? "ok" : "falhou"})`);
+      return { ok: true, command: outcome.command.id, result: functionalResult };
     } finally {
       running = false;
     }

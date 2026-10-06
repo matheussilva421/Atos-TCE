@@ -238,7 +238,8 @@ test("poll reports the reread target after OPEN_NEXT_ACT navigation", async () =
 
   assert.equal(reported.length, 1);
   assert.equal(reported[0].commandId, 82);
-  assert.deepEqual(reported[0].result, {
+  const { diagnostic_events: diagnosticEvents, ...functionalResult } = reported[0].result;
+  assert.deepEqual(functionalResult, {
     command_id: 82,
     ok: true,
     action: "next_act_ready",
@@ -246,6 +247,7 @@ test("poll reports the reread target after OPEN_NEXT_ACT navigation", async () =
     screen: "form",
     claim_token: "lease-next-act",
   });
+  assert.ok(Array.isArray(diagnosticEvents));
   assert.deepEqual(calls.map(([action]) => action), ["openAct", "readTargetForm", "activateTab"]);
 });
 
@@ -876,6 +878,40 @@ test("poll does nothing when the Mesa has no command", async () => {
   assert.equal(reported.length, 0);
 });
 
+test("poll reports command received and execution timings without changing the result", async () => {
+  const reported = [];
+  const ticks = [100, 105, 110, 130];
+  let tick = 0;
+  const router = installRouter({
+    api: {
+      nextCommand: async () => ({
+        ok: true,
+        command: { id: 41, type: "STATUS", claim_token: "claim-41", payload: {} },
+      }),
+      reportResult: async (commandId, result) => reported.push({ commandId, result }),
+    },
+    chromeApi: fakeChrome(),
+    monotonicNow: () => ticks[tick++],
+  });
+
+  const outcome = await router.poll();
+
+  assert.deepEqual(outcome.result, { command_id: 41, ok: true, status: "ready" });
+  assert.equal(reported[0].commandId, 41);
+  assert.deepEqual(
+    reported[0].result.diagnostic_events.map(({ step, elapsed_ms, result }) => ({ step, elapsed_ms, result })),
+    [
+      { step: "command_received", elapsed_ms: 5, result: "ok" },
+      { step: "command_execution", elapsed_ms: 20, result: "ok" },
+    ],
+  );
+  assert.equal(reported[0].result.claim_token, "claim-41");
+  assert.deepEqual(
+    Object.keys(reported[0].result).filter((key) => key !== "diagnostic_events").sort(),
+    ["claim_token", "command_id", "ok", "status"],
+  );
+});
+
 test("the router answers the content-script heartbeat", async () => {
   const chromeApi = fakeChrome();
   const polls = [];
@@ -1006,6 +1042,84 @@ test("the background heartbeat preserves a current-form ambiguity when Mesa is a
 
   assert.equal(published.length, 1);
   assertPublishedObservation(published[0], { active: false, code: "FORM_AMBIGUOUS" }, 1);
+});
+
+test("the form observation reports portal, frame-scan and detection timings", async () => {
+  const published = [];
+  const portalUrl = `${PORTAL}/complementarato.asp`;
+  const ticks = [100, 105, 200, 210, 500, 525];
+  let tick = 0;
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 3, active: true, url: portalUrl }],
+    frames: {
+      3: [
+        { frameId: 0, url: portalUrl },
+        { frameId: 4, url: portalUrl },
+      ],
+    },
+    onMessage: (message, _tabId, frameId) =>
+      message.type === "READ_FORM" && frameId === 4
+        ? { ok: true, form: OBSERVED_FORM }
+        : { ok: false, code: "FORM_NOT_AVAILABLE" },
+  });
+  const router = installRouter({
+    api: {
+      publishCurrentSelection: async (observation) => {
+        published.push(observation);
+        return { ok: true };
+      },
+      nextCommand: async () => ({ ok: true, command: null }),
+      reportResult: async () => {},
+    },
+    chromeApi,
+    monotonicNow: () => ticks[tick++],
+  });
+
+  await router.observeCurrentForm();
+
+  const events = published[0].diagnostic_events;
+  assert.deepEqual(events.map((event) => event.step), [
+    "portal_detected",
+    "frames_scanned",
+    "form_detected",
+  ]);
+  assert.deepEqual(events.map((event) => event.elapsed_ms), [5, 10, 25]);
+  assert.equal(published[0].active, true);
+  assert.deepEqual(published[0].form, OBSERVED_FORM);
+});
+
+test("current-selection timing is a diagnostic sidecar and preserves publisher fields", async () => {
+  const published = [];
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(6, { active: true })],
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  const router = installRouter({
+    api: {
+      publishCurrentSelection: async (observation) => {
+        published.push(observation);
+        return { ok: true };
+      },
+      nextCommand: async () => ({ ok: true, command: null }),
+      reportResult: async () => {},
+    },
+    chromeApi,
+    monotonicNow: () => 10,
+  });
+
+  await router.observeCurrentForm();
+
+  const observation = published[0];
+  assert.deepEqual(
+    Object.keys(observation).filter((key) => key !== "diagnostic_events").sort(),
+    ["active", "form", "publisher_id", "sequence"],
+  );
+  assert.deepEqual(observation.form, OBSERVED_FORM);
+  assert.equal(typeof observation.publisher_id, "string");
+  assert.equal(observation.sequence, 1);
+  assert.ok(Array.isArray(observation.diagnostic_events));
+  assert.ok(observation.diagnostic_events.every((event) => !("form" in event)));
 });
 
 test("the router answers MESA_STATUS through the Mesa API", async () => {
@@ -1968,7 +2082,12 @@ function observingApi(published) {
 }
 
 function assertPublishedObservation(actual, expected, sequence) {
-  const { publisher_id: publisherId, sequence: actualSequence, ...observation } = actual;
+  const {
+    publisher_id: publisherId,
+    sequence: actualSequence,
+    diagnostic_events: _diagnosticEvents,
+    ...observation
+  } = actual;
   assert.match(publisherId, /^[a-f0-9]{32}$/u);
   assert.equal(actualSequence, sequence);
   assert.deepEqual(observation, expected);

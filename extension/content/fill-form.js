@@ -133,6 +133,29 @@
     fields = {},
     deps = {},
   } = {}) {
+    const monotonicNow = typeof deps.monotonicNow === "function"
+      ? deps.monotonicNow
+      : () => globalThis.performance?.now?.() ?? Date.now();
+    const diagnosticEvents = [];
+    const readMonotonicNow = () => {
+      try {
+        const value = Number(monotonicNow());
+        return Number.isFinite(value) ? value : null;
+      } catch {
+        return null;
+      }
+    };
+    const recordTiming = (step, field, startedAt, result) => {
+      if (startedAt === null) return;
+      const endedAt = readMonotonicNow();
+      if (endedAt === null) return;
+      diagnosticEvents.push({
+        step,
+        field,
+        elapsed_ms: Math.max(0, Math.round(endedAt - startedAt)),
+        result,
+      });
+    };
     const reader = deps.reader ?? globalThis.TCEFormReader;
     if (!reader?.readForm) {
       return { ok: false, code: "FORM_READER_UNAVAILABLE", field_results: {} };
@@ -225,19 +248,23 @@
       }
 
       let writeError = null;
+      const writeStarted = readMonotonicNow();
       try {
         writeControl(documentRef, control, proposal);
       } catch (error) {
         writeError = String(error?.message ?? error);
       }
+      recordTiming("field_write", field, writeStarted, writeError ? "error" : "ok");
 
       let reread = null;
       let rereadError = null;
+      const rereadStarted = readMonotonicNow();
       try {
         reread = reader.readForm(documentRef);
       } catch (error) {
         rereadError = String(error?.message ?? error);
       }
+      recordTiming("field_reread", field, rereadStarted, reread && !rereadError ? "ok" : "error");
 
       if (!reread) {
         entry.status = FIELD_STATUS.FAILED;
@@ -321,6 +348,7 @@
       field_results: fieldResults,
       warnings,
       code: safetyFailure,
+      diagnostic_events: diagnosticEvents,
     };
   }
 
