@@ -1,80 +1,94 @@
 # Handoff — Modo Diagnóstico sempre ativo
 
 Data: 2026-10-06  
-Status: especificação escrita e em revisão; nenhuma implementação iniciada.
+Status: implementação iniciada; plano TDD definido; Task 1 (recorder local) pendente de RED.
 
-## Objetivo
+## Objetivo e limites
 
-Implementar o Modo Diagnóstico leve, sempre ON por padrão, descrito no arquivo
-de objetivo anexado `goal-objective.md`. Deve observar o fluxo existente da Mesa
-à extensão/portal e ao resultado, registrar duração e eventos SLOW, oferecer
-estado/pausa/limpeza/exportação na Mesa, limitar retenção e excluir credenciais.
-O diagnóstico não pode alterar identidade, qualification, capability gates,
-fill, AR-1/AR-2/AR-3 ou o envio manual.
+Implementar o Modo Diagnóstico leve, ON por padrão e iniciado automaticamente,
+conforme `goal-objective.md`. A timeline deve correlacionar Mesa, extensão,
+heartbeat, portal/formulário, current-selection, preflight, comandos, escrita,
+readback e resultado; marcar `SLOW`; aparecer na Mesa; permitir pausa, retomada,
+limpeza e ZIP; limitar retenção; e excluir credenciais utilizáveis.
 
-## Estado inicial verificado
+O diagnóstico só observa. Não alterar identity resolution, qualification,
+capability gates, decisão de fill, AR-1/AR-2/AR-3 nem envio manual. Não registrar
+na timeline de reliability nem adicionar telemetria nova ao SQLite ou resultados
+funcionais.
+
+## Estado Git verificado
 
 - Branch: `codex/area-restrita-reliability-reset`.
-- Estado inicial desta etapa: HEAD `1a687e8bdb980257a8bb94ad263bb286d1099199`,
-  igual ao upstream e working tree limpa.
-- Handoff inicial desta tarefa foi commitado e enviado como `1a687e8`.
-- Fonte do runtime portátil: `app/`, `extension/`, `tests/`, `packaging/` e
-  `scripts/`. `work/tce-extractor/` é legado/verificador.
-- A última referência de release encontrada no handoff existente é
-  `AR1_BUILD=88eed8ce...`; qualquer pacote desta implementação precisa ser
-  reconstruído com a árvore final commitada, sem reutilizar ZIP antigo.
+- Base da implementação: `67f0c9ec453c99cdd184c6ff8030ae6db0ecfdcc` (`HEAD` igual
+  ao upstream antes deste milestone documental).
+- Código de produção sem alterações. A revisão da especificação e o plano estão
+  sendo preparados para commit antes do primeiro teste RED.
+- Manter checkout atual: branch prevista pelo projeto, sincronizada e sem código
+  local pré-existente; não há necessidade de churn de branch/worktree.
+- Builder antigo `AR1_BUILD=88eed8ce...` não serve para esta mudança. O pacote
+  final será reconstruído somente depois do commit final.
 
-## Descobertas relevantes
+## Descobertas e decisões
 
-- `app/area_restrita/reliability.py` mantém o ledger de qualification com
-  eventos e chaves estritamente validados. Ele remove por desenho dados como
-  processo, interessado, cookies, tokens e corpo; adicionar a timeline rica
-  nele pode contaminar o avaliador de qualification.
-- `app/area_restrita/current_selection.py` mantém o snapshot transitório do
-  formulário apenas em memória e documenta que ele não é persistido nem
-  registrado. O novo diagnóstico precisa obter somente os dados explicitamente
-  autorizados pelo objetivo, com redação de segredos, sem mudar a resolução ou
-  a escrita do formulário.
-- A Mesa serve `app/web/`; a API e integração com o ciclo de vida ficam em
-  `app/api/server.py`; observação/heartbeat/comandos ficam em
-  `extension/background/router.js` e `extension/lib/api.js`.
-- O builder de `packaging/build-portable.ps1` copia automaticamente `app/` e
-  `extension/` para o ZIP portátil.
+- Produção portátil fica em `app/`, `extension/`, `tests/`, `packaging/` e
+  `scripts/`; `work/tce-extractor/` é legado/verificador.
+- `reliability.py` valida um ledger estrito de qualification; manter intocado.
+- current-selection integral é transitório; enviar somente os campos
+  explicitamente permitidos ao recorder.
+- API/ciclo de vida em `app/api/server.py`; integração de escrita em
+  `app/area_restrita/fill_service.py`; extensão em
+  `extension/background/router.js` e `extension/content/fill-form.js`; UI em
+  `app/web/`.
+- Builder já inclui `app/` e `extension/` automaticamente.
+- Usar um recorder local separado, sessões UUID por boot, settings persistente
+  com `diagnostic_enabled: true`, pause transitório, allowlist/redação,
+  threshold de 2.000 ms, cinco sessões e trim de 8 MiB para 6 MiB.
+- Eventos diagnósticos da extensão via sidecar `diagnostic_events` nos payloads
+  existentes; servidor remove o sidecar antes da validação/serviço/persistência
+  funcional. Heartbeat atualiza idade em memória em cada poll e é persistido na
+  timeline só no primeiro, mudança ou intervalo de 10 s.
+- A especificação refinou este turno os limites entre telemetria nova e o campo
+  structural `diagnostics` que já existe em FillService, a rota de eventos da
+  Mesa e a amostragem de heartbeat.
+- A continuação explícita do objetivo foi interpretada como autorização para
+  executar a arquitetura pragmática documentada e o plano, sem nova pausa para
+  aprovação intermediária.
 
-## Decisão arquitetural registrada para especificação
+## Arquivos e marcos
 
-Manter o ledger de reliability como está e adicionar um recorder local e
-limitado sob `data-root`, ligado aos boundaries existentes no servidor,
-`FillService`, roteador e filler da extensão. Eventos da extensão acompanham os
-payloads existentes de observação/resultado; não haverá workflow de comandos
-paralelo. Sessão gerada pelo servidor correlaciona as partes; erros do recorder
-são fail-open. A Mesa mostra estado e ações de pausa, retomada, limpeza e
-exportação.
+- Especificação: `docs/superpowers/specs/2026-10-06-modo-diagnostico-design.md`.
+- Plano TDD de cinco tarefas: `docs/superpowers/plans/2026-10-06-modo-diagnostico.md`.
+- Este handoff deve acompanhar cada bloco significativo.
+- Ledger de execução: `.superpowers/sdd/2026-10-06-modo-diagnostico/progress.md`
+  (ignorado pelo Git conforme convenção do SDD).
+- O helper SDD não iniciou no host (erro MSYS `NtCreateDirectoryObject`, acesso
+  negado). A estrutura de diretório e marker foram preparados manualmente no
+  mesmo caminho convencional; a implementação segue no checkout do projeto.
 
-Especificação criada em
-`docs/superpowers/specs/2026-10-06-modo-diagnostico-design.md`. Define ON no
-startup, pausa transitória, retenção de cinco sessões e limite de 8 MiB por
-timeline ativa (trim para 6 MiB), eventos allowlisted, redação de segredos,
-threshold SLOW de 2.000 ms, endpoints Mesa, UI, ZIP e gates.
+## Testes e validação
 
-## Testes, validação e GitHub
+- Ainda não foram executados testes de produto nem smoke; nenhum código foi
+  alterado.
+- Próximo gate: criar primeiro os testes do `DiagnosticRecorder`, executar o
+  teste de startup esperado RED e então implementar o mínimo para GREEN.
+- A suíte completa, smoke sintético, gates de empacotamento/verificador legado,
+  CI e ZIP novo permanecem pendentes.
 
-- Testes de produto ainda não executados; nenhuma mudança de código foi feita.
-- Especificação revisada contra os campos, export, smoke e DoD do objetivo;
-  `git diff --check` passou. A revisão humana da especificação ainda está
-  pendente.
-- Nenhum smoke sintético, build de ZIP ou CI foi executado nesta etapa.
-- Especificação e handoff commitados em `9057b82` e enviados para
-  `origin/codex/area-restrita-reliability-reset`.
+## GitHub
 
-## Retomada
+- Commits de especificação/handoff/plano e progresso serão enviados ao upstream
+  desta branch por marcos.
+- Nenhum push da implementação ocorreu ainda.
 
-1. Revisar `docs/superpowers/specs/2026-10-06-modo-diagnostico-design.md` e
-   incorporar correções solicitadas antes de aprovar.
-2. Depois da aprovação da especificação, criar e revisar o plano de
-   implementação em `docs/superpowers/plans/`.
-3. Implementar na árvore raiz com RED→GREEN por requisito, preservar o fluxo
-   atual e atualizar este handoff a cada bloco significativo.
-4. Executar os gates da raiz, o smoke sintético especificado e os gates de
-   pacote/CI; gerar um ZIP novo a partir do SHA final commitado, verificar seus
-   arquivos/hash e registrar o estado final.
+## Retomada imediata
+
+1. Confirmar commit e push do milestone documental e árvore limpa.
+2. Task 1: criar `tests/test_area_restrita_diagnostics.py` primeiro; executar os
+   comandos RED do plano; implementar `app/area_restrita/diagnostics.py` em
+   incrementos de startup/schema, privacidade, controles/retention/export.
+3. Após cada tarefa, executar gates focados, atualizar este handoff e o ledger,
+   commitar e enviar.
+4. Executar Task 2–5 do plano; preservar os fluxos funcionais e testar somente
+   com fixtures/smoke offline.
+5. Após gates e commit final sincronizado, reconstruir e verificar ZIP, registrar
+   SHA/build ID/contagem de testes/CI e estado final neste handoff.

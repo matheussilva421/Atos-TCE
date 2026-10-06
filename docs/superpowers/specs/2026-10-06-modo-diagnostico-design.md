@@ -26,9 +26,10 @@ lentos como `SLOW`.
   papel exclusivo na qualification. A timeline diagnóstica não é escrita nesse
   ledger.
 - O snapshot completo de current-selection continua transitório. O recorder
-  recebe somente os campos explicitamente selecionados para diagnóstico; os
-  metadados diagnósticos nunca são persistidos em SQLite nem adicionados ao
-  resultado funcional de fill.
+  recebe somente os campos explicitamente selecionados para diagnóstico. Os
+  eventos/timings novos do recorder nunca são persistidos em SQLite nem
+  adicionados ao resultado funcional de fill. A telemetria estrutural já
+  sanitizada pelo fluxo de reliability mantém seu comportamento atual.
 - Não registrar senha, cookie, `Authorization`, `Bearer`, extension token ou
   segredo equivalente. Nunca entregar cabeçalhos de autenticação ao recorder.
 - Os dados ficam no data root local. Nenhum serviço externo recebe eventos.
@@ -80,24 +81,36 @@ ON/pausado vigente.
 
 - `app/api/server.py`: cria o recorder, expõe estado/controle/exportação para a
   Mesa autenticada e registra a chegada de heartbeat, publicação/limpeza de
-  current-selection, comando enviado pelo endpoint atual e resultado/timeout.
-  Eventos de API registram duração com relógio monotônico.
+  current-selection, comando enviado pelo endpoint atual e resultado. Um POST
+  autenticado da Mesa recebe somente eventos diagnósticos de UI, como timeout
+  percebido no navegador. Eventos de API registram duração com relógio
+  monotônico.
 - `app/area_restrita/fill_service.py`: registra boundaries de tentativa,
   preflight, comando de fill, readback e resultado a partir dos códigos e dados
   já produzidos. `FillService` recebe um recorder opcional injetado; recorder
   ausente ou com erro não muda a lógica existente.
 - `extension/background/router.js`: mede heartbeat, leitura da aba/formulário,
   varredura de frames e comando executado; anexa um objeto diagnóstico
-  estritamente descritivo ao payload de observação atual ou resultado do
-  comando, incluindo o boundary de comando recebido. A ausência/rejeição desse
-  metadado não altera o payload funcional.
+  estritamente descritivo em `diagnostic_events` no payload de observação atual
+  ou resultado do comando, incluindo o boundary de comando recebido. A
+  ausência/rejeição desse metadado não altera o payload funcional.
 - `extension/content/fill-form.js`: mede escrita e reread por campo e devolve
-  esses tempos dentro do objeto diagnóstico irmão de `field_results`, sem mudar
-  os códigos, valores, guards ou decisão de preenchimento.
+  esses tempos dentro de `diagnostic_events`, irmão de `field_results`, sem
+  mudar os códigos, valores, guards ou decisão de preenchimento.
 - O servidor associa metadados recebidos à sessão atual, grava cópias
-  sanitizadas e remove o objeto diagnóstico antes de entregar/persistir o
-  resultado funcional. Snapshot integral, headers, token e corpo HTTP nunca são
-  passados ao recorder.
+  sanitizadas e remove o objeto de timing antes de chamar o handler funcional e
+  antes de persistir o resultado do comando. O comportamento atual de
+  `FillService` e seu campo `diagnostics` estrutural não é alterado. Snapshot
+  integral, headers, token e corpo HTTP nunca são passados ao recorder.
+
+O heartbeat recebido pela rota de polling atualiza imediatamente o estado
+volátil usado para calcular a idade na UI. Para não gravar uma linha a cada
+intervalo de 1,5 s, a timeline registra o primeiro heartbeat, mudanças de
+estado e no máximo uma amostra por 10 s.
+
+Antes de `check_command_result` e da entrega ao `FillService`, o servidor remove
+`diagnostic_events` do resultado funcional; grava somente sua cópia sanitizada
+na timeline. A mesma remoção ocorre antes de salvar o resultado do comando.
 
 O identificador de sessão criado no servidor correlaciona eventos da Mesa e da
 extensão. `observation_id`, `publisher_id`/`sequence` e identificador/tipo do
@@ -116,6 +129,8 @@ Adicionar rotas com autenticação de sessão Mesa:
 
 - `GET /api/v1/diagnostics`: status e resumo mais recente para renderização;
 - `POST /api/v1/diagnostics/control`: ações `pause`, `resume` ou `clear`;
+- `POST /api/v1/diagnostics/events`: evento allowlisted emitido pela Mesa, por
+  exemplo timeout percebido na UI;
 - `GET /api/v1/diagnostics/export`: ZIP com nome datado e tipo
   `application/zip`.
 
