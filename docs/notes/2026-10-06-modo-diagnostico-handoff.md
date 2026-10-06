@@ -21,7 +21,7 @@ funcionais.
 - Branch: `codex/area-restrita-reliability-reset`.
 - Base da implementação: `67f0c9ec453c99cdd184c6ff8030ae6db0ecfdcc`.
 - Milestone documental (especificação/plano/handoff): `10c1c8e`, enviado ao
-  upstream. O código de Task 1 está implementado e testado, aguardando commit.
+  upstream. Task 1: `0dfedf1`, implementada, testada e enviada ao upstream.
 - Manter checkout atual: branch prevista pelo projeto, sincronizada e sem código
   local pré-existente; não há necessidade de churn de branch/worktree.
 - Builder antigo `AR1_BUILD=88eed8ce...` não serve para esta mudança. O pacote
@@ -92,8 +92,8 @@ funcionais.
 ## GitHub
 
 - Commit documental `10c1c8e` está no upstream.
-- Task 1 será commitada e enviada como milestone independente, junto deste
-  handoff atualizado.
+- Commits `10c1c8e` e `0dfedf1` estão enviados ao upstream. Atualizar o handoff
+  novamente ao concluir Task 2.
 
 ## Retomada imediata
 
