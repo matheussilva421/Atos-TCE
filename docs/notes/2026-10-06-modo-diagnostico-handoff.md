@@ -1,7 +1,7 @@
 # Handoff — Modo Diagnóstico sempre ativo
 
 Data: 2026-10-06  
-Status: implementação iniciada; plano TDD definido; Task 1 (recorder local) pendente de RED.
+Status: Task 1 concluída (recorder local); Task 2 pendente.
 
 ## Objetivo e limites
 
@@ -19,10 +19,9 @@ funcionais.
 ## Estado Git verificado
 
 - Branch: `codex/area-restrita-reliability-reset`.
-- Base da implementação: `67f0c9ec453c99cdd184c6ff8030ae6db0ecfdcc` (`HEAD` igual
-  ao upstream antes deste milestone documental).
-- Código de produção sem alterações. A revisão da especificação e o plano estão
-  sendo preparados para commit antes do primeiro teste RED.
+- Base da implementação: `67f0c9ec453c99cdd184c6ff8030ae6db0ecfdcc`.
+- Milestone documental (especificação/plano/handoff): `10c1c8e`, enviado ao
+  upstream. O código de Task 1 está implementado e testado, aguardando commit.
 - Manter checkout atual: branch prevista pelo projeto, sincronizada e sem código
   local pré-existente; não há necessidade de churn de branch/worktree.
 - Builder antigo `AR1_BUILD=88eed8ce...` não serve para esta mudança. O pacote
@@ -67,28 +66,47 @@ funcionais.
 
 ## Testes e validação
 
-- Ainda não foram executados testes de produto nem smoke; nenhum código foi
-  alterado.
-- Próximo gate: criar primeiro os testes do `DiagnosticRecorder`, executar o
-  teste de startup esperado RED e então implementar o mínimo para GREEN.
-- A suíte completa, smoke sintético, gates de empacotamento/verificador legado,
-  CI e ZIP novo permanecem pendentes.
+- RED confirmado antes de criar o módulo: `ModuleNotFoundError` para
+  `app.area_restrita.diagnostics` nos testes novos.
+- `python -m unittest discover -s tests -p 'test_area_restrita_diagnostics.py' -q`:
+  10 testes, 10 passaram, 0 falharam. Inclui limite de linha de evento,
+  cookies/header aninhado, pause transitório através de restart, sessão ativa
+  completa em `ultima-sessao.json` e plataforma/versão em `ambiente.json`.
+- Baseline JS: `npm test --prefix extension` — 263/263; `node --test
+  app/web/tests/*.test.mjs` — 65/65.
+- Baseline focada com `%TEMP%` dentro de `tmp/`: `test_fill_service.py` 106/106
+  e `test_area_restrita_reliability.py` 57/57.
+- Baseline `test_api_server.py`: 141 testes, 145 erros e 1 falha; causas
+  ambientais observadas: bloqueio de loopback (`WinError 10013`) e hard links
+  negados. Sem a variável `%TEMP%` redirecionada, testes Python também falham
+  por ACL negada no temp sandbox do sistema.
+- Suíte Python raiz inicial: 875 testes, 11 falhas e 1.375 erros; saída extensa
+  majoritariamente por permissões de temp, loopback/hard link e smoke do pacote
+  legado. Contrato de pacote baseline: 20 testes, 5 falhas e 43 erros, incluindo
+  ZIP negado em `%TEMP%` e runtime Python extraído que não iniciou. Reexecutar
+  gates com temp em `tmp/` e distinguir restrições de sandbox das falhas reais.
+- `git diff --check` passou no código desta tarefa.
+- Smoke, integração com APIs, gates finais, verificador legado, CI e ZIP novo
+  continuam pendentes.
 
 ## GitHub
 
-- Commits de especificação/handoff/plano e progresso serão enviados ao upstream
-  desta branch por marcos.
-- Nenhum push da implementação ocorreu ainda.
+- Commit documental `10c1c8e` está no upstream.
+- Task 1 será commitada e enviada como milestone independente, junto deste
+  handoff atualizado.
 
 ## Retomada imediata
 
-1. Confirmar commit e push do milestone documental e árvore limpa.
-2. Task 1: criar `tests/test_area_restrita_diagnostics.py` primeiro; executar os
-   comandos RED do plano; implementar `app/area_restrita/diagnostics.py` em
-   incrementos de startup/schema, privacidade, controles/retention/export.
-3. Após cada tarefa, executar gates focados, atualizar este handoff e o ledger,
-   commitar e enviar.
-4. Executar Task 2–5 do plano; preservar os fluxos funcionais e testar somente
-   com fixtures/smoke offline.
-5. Após gates e commit final sincronizado, reconstruir e verificar ZIP, registrar
+1. Revisar/commitar `diagnostics.py`, seu teste, e este handoff; enviar ao
+   upstream e confirmar SHA/status.
+2. Task 2: adicionar testes RED para rotas autenticadas, sidecar de resultado,
+   current-selection e integração opcional do FillService; implementar
+   fail-open sem alterar reliability/SQLite/resultado funcional.
+3. Atualizar este handoff e o ledger por milestone; commitar/enviar cada tarefa.
+4. Executar Task 3–5 do plano com testes sintéticos/offline; preservar os
+   fluxos funcionais.
+5. Reexecutar suites com `%TEMP%` sob `tmp/` e, quando loopback/hard links forem
+   bloqueados pelo sandbox, usar CI como gate do runtime. Corrigir qualquer
+   falha de produto reproduzível.
+6. Após gates e commit final sincronizado, reconstruir e verificar ZIP, registrar
    SHA/build ID/contagem de testes/CI e estado final neste handoff.
