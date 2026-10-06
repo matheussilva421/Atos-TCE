@@ -383,7 +383,7 @@ git commit -m "feat: add diagnostic controls to Mesa"
   missing contract.
 - No generated ZIP, database, event logs, profile or credentials are committed.
 
-- [ ] **Step 1: Write the smoke harness against the recorder contract**
+- [x] **Step 1: Write the smoke harness against the recorder contract**
 
 In a temporary data root, write the sequence `form_detected` at 4800 ms,
 `FORM_NOT_AVAILABLE`, `STALE_FORM`, successful `FILL_FORM` with field write and
@@ -391,7 +391,7 @@ readback, and `COMMAND_TIMEOUT`. Export and assert all six members plus codes,
 durations, `SLOW`, build/version/capabilities, and secret absence. The process
 must exit nonzero on any mismatch and print only concise pass/fail counts.
 
-- [ ] **Step 2: Run smoke and record exact evidence**
+- [x] **Step 2: Run smoke and record exact evidence**
 
 Run: `python scripts/portal-lab/diagnostics-smoke.py`
 Expected: five requested scenarios are identified in the exported ZIP; no
@@ -412,6 +412,14 @@ powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 
 Expected: all root Python, extension, web, package-contract and selected legacy
 verifier gates pass; the legacy verifier is supplementary and is not a source
 tree substitute.
+
+Execution evidence: the root Python suite passed 901/901; extension 267/267;
+web 69/69; package contract 20/20; diagnostic smoke 14/14. The supplementary
+`work/tce-extractor/verify-project.ps1` exits 1 after `Test-ProjectVerification.ps1`
+prints 23 passes and exits before its PID probe and summary. Other legacy scripts
+passed individually or earlier in that wrapper. Leave this step open until the
+legacy verifier passes or its specific host limitation is resolved and
+documented; do not infer a production failure from the incomplete test output.
 
 - [ ] **Step 4: Commit all final code/handoff before release build**
 

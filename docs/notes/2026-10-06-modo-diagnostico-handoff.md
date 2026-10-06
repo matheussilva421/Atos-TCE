@@ -2,7 +2,8 @@
 
 Data: 2026-10-06  
 Status: Tasks 1–4 concluídas, commitadas, verificadas e enviadas ao upstream.
-Task 5 pendente.
+Task 5: smoke e gates da fonte atual concluídos; o verificador legado teve uma
+falha de execução; commit final, ZIP novo e consulta do CI ainda pendentes.
 
 ## Objetivo e limites
 
@@ -26,6 +27,12 @@ funcionais.
 - Task 2: commit `d111eab` criado, validado e enviado ao upstream.
 - Task 3: commit `9a4e1b1` criado, validado e enviado ao upstream.
 - Task 4: commit `2d3b2ea` criado, validado e enviado ao upstream.
+- Task 5: smoke harness `scripts/portal-lab/diagnostics-smoke.py` criado e
+  executado em diretório temporário; 14/14 verificações passaram. O smoke cobre
+  form detect lento (4800 ms), `FORM_NOT_AVAILABLE`, `STALE_FORM`, FILL_FORM
+  correlacionado com write/readback, `COMMAND_TIMEOUT`, seis membros exatos,
+  build/versão/capabilities e ausência de sentinel de segredo. Nenhum portal,
+  Chrome, dado de produção ou credencial foi usado.
 - Manter checkout atual: branch prevista pelo projeto, sincronizada e sem código
   local pré-existente; não há necessidade de churn de branch/worktree.
 - Builder antigo `AR1_BUILD=88eed8ce...` não serve para esta mudança. O pacote
@@ -145,23 +152,50 @@ funcionais.
 - Suíte Python raiz inicial: 875 testes, 11 falhas e 1.375 erros; saída extensa
   majoritariamente por permissões de temp, loopback/hard link e smoke do pacote
   legado. Contrato de pacote baseline: 20 testes, 5 falhas e 43 erros, incluindo
-  ZIP negado em `%TEMP%` e runtime Python extraído que não iniciou. Reexecutar
-  gates com temp em `tmp/` e distinguir restrições de sandbox das falhas reais.
-- `git diff --check` passou no código desta tarefa.
-- Smoke sintético, Task 5, suíte Python raiz final, contrato do pacote,
-  verificador legado, CI e ZIP novo continuam pendentes.
+  ZIP negado em `%TEMP%` e runtime Python extraído que não iniciou. Os reruns
+  atuais constam abaixo e passaram com o diretório temporário externo autorizado;
+  esses números iniciais não representam o estado final.
+- `python -m unittest discover -s tests -p 'test_*.py' -q`: 901 testes,
+  901 passaram, 0 falharam. Executado elevado com `%TEMP%`/`%TMP%` no diretório
+  temporário externo autorizado; sem essa configuração, o host negava a
+  resolução de caminhos do Python.
+- `npm test --prefix extension`: 267 testes, 267 passaram, 0 falharam.
+- `node --test app/web/tests/*.test.mjs`: 69 testes, 69 passaram, 0 falharam.
+- `python -m unittest tests.test_packaging_contract -q`: 20 testes,
+  20 passaram, 0 falharam; elevado e com temporário externo autorizado.
+- `python scripts/portal-lab/diagnostics-smoke.py`: 14/14 verificações
+  passaram. O teste é sintético/offline e usa `TemporaryDirectory`.
+- `Test-PortableReset.ps1`: 31/31; `Test-QAChromeLauncher.ps1`: 11/11;
+  `Test-TcePortable.ps1`: 143/143; `Test-WorkspaceCleanup.ps1`: 307/307.
+  `Test-DocumentationTracking.ps1` e `Test-PortableMenu.ps1` também passaram
+  no verificador agregado (20 e 100 verificações, respectivamente).
+- `work/tce-extractor/verify-project.ps1`: executado elevado com Python
+  empacotado no PATH; termina com código 1 após os primeiros três testes
+  PowerShell (20, 100 e 31 passaram). `Test-ProjectVerification.ps1`, também
+  executado isoladamente, imprime 23 `PASS` e encerra antes da verificação de
+  PID/resumo, sem mensagem de falha. `Test-QAChromeLauncher.ps1`,
+  `Test-TcePortable.ps1` e `Test-WorkspaceCleanup.ps1` passaram isoladamente.
+  Falha do verificador legado permanece aberta; a árvore legada não foi
+  alterada.
+- `git diff --check`: passou após o smoke final.
+- Falta executar o verificador do ZIP novo, consultar CI do SHA final e
+  registrar build ID, caminho, tamanho e SHA-256 neste handoff.
 
 ## GitHub
 
 - Commits `10c1c8e`, `0dfedf1`, `d111eab`, `9a4e1b1` e `2d3b2ea` estão
-  enviados ao upstream. O repositório foi atualizado após confirmar o push.
+  enviados ao upstream. O último push confirmado é `9a5ea59`; a smoke harness e
+  a atualização dos resultados dos gates aguardam commit/push.
 
 ## Retomada imediata
 
-1. Executar Task 5 do plano com teste sintético/offline; preservar os fluxos
-   funcionais.
-2. Reexecutar suítes com `%TEMP%` sob `tmp/` e, quando loopback/hard links forem
-   bloqueados pelo sandbox, usar CI como gate do runtime. Corrigir qualquer
-   falha de produto reproduzível.
-3. Após gates e commit final sincronizado, reconstruir e verificar ZIP, registrar
-   SHA/build ID/contagem de testes/CI e estado final neste handoff.
+1. Fazer commit/push da smoke harness, plano e evidência dos gates no branch
+   atual. Não alterar `work/tce-extractor/` para contornar a falha do teste
+   legado sem uma reprodução/causa concreta.
+2. Confirmar `HEAD == @{u}` e árvore limpa; reconstruir
+   `dist/Atos-TCE-diagnostic.zip` do zero e executar `verify-package.ps1` com o
+   SHA do commit.
+3. Consultar checks do GitHub no SHA final, anotar status, tamanho e SHA-256 do
+   ZIP; atualizar, commitar e enviar este handoff final.
+4. Confirmar branch sincronizada e limpa. Smoke é somente sintético; não
+   demonstra qualificação no portal real nem habilita envio automático.
