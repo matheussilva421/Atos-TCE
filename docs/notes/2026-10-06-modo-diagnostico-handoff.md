@@ -1,7 +1,7 @@
 # Handoff — Modo Diagnóstico sempre ativo
 
 Data: 2026-10-06  
-Status: aguardando revisão do desenho; nenhuma implementação iniciada.
+Status: especificação escrita e em revisão; nenhuma implementação iniciada.
 
 ## Objetivo
 
@@ -15,10 +15,9 @@ fill, AR-1/AR-2/AR-3 ou o envio manual.
 ## Estado inicial verificado
 
 - Branch: `codex/area-restrita-reliability-reset`.
-- HEAD: `46d7538cf0c21e0c5adb3c3d9242fd8bcab5e166`, igual a
-  `origin/codex/area-restrita-reliability-reset` no início desta etapa.
-- Working tree limpa; nenhuma alteração de produto ou documentação feita antes
-  deste handoff.
+- Estado inicial desta etapa: HEAD `1a687e8bdb980257a8bb94ad263bb286d1099199`,
+  igual ao upstream e working tree limpa.
+- Handoff inicial desta tarefa foi commitado e enviado como `1a687e8`.
 - Fonte do runtime portátil: `app/`, `extension/`, `tests/`, `packaging/` e
   `scripts/`. `work/tce-extractor/` é legado/verificador.
 - A última referência de release encontrada no handoff existente é
@@ -42,35 +41,37 @@ fill, AR-1/AR-2/AR-3 ou o envio manual.
 - O builder de `packaging/build-portable.ps1` copia automaticamente `app/` e
   `extension/` para o ZIP portátil.
 
-## Desenho proposto — ainda não aprovado
+## Decisão arquitetural registrada para especificação
 
-Manter o ledger de reliability como está e adicionar um recorder de diagnóstico
-local e limitado sob `data-root`, ligado aos boundaries que já existem no
-servidor e na extensão. Um identificador da sessão da Mesa correlacionaria os
-eventos enviados pela extensão; falha ao registrar diagnóstico não deve alterar
-o fluxo funcional. A Mesa exibiria estado agregado e ações de pausa, retomada,
-limpeza e exportação. A exportação seria montada sob demanda com timeline,
-ambiente, resumo, logs derivados por componente e última sessão.
+Manter o ledger de reliability como está e adicionar um recorder local e
+limitado sob `data-root`, ligado aos boundaries existentes no servidor,
+`FillService`, roteador e filler da extensão. Eventos da extensão acompanham os
+payloads existentes de observação/resultado; não haverá workflow de comandos
+paralelo. Sessão gerada pelo servidor correlaciona as partes; erros do recorder
+são fail-open. A Mesa mostra estado e ações de pausa, retomada, limpeza e
+exportação.
 
-O padrão de startup será ON; pausa é temporária e um reinício inicia ON. O
-recorder conservará no máximo cinco sessões e um limite de tamanho por sessão.
-O schema permitirá os campos de processo/formulário pedidos, mas filtrará nomes
-de chaves e valores que representem senha, cookie, Authorization, Bearer,
-extension token ou segredo equivalente. URL perderá query/fragment. A proposta
-é marcar `SLOW` a partir de 2.000 ms.
+Especificação criada em
+`docs/superpowers/specs/2026-10-06-modo-diagnostico-design.md`. Define ON no
+startup, pausa transitória, retenção de cinco sessões e limite de 8 MiB por
+timeline ativa (trim para 6 MiB), eventos allowlisted, redação de segredos,
+threshold SLOW de 2.000 ms, endpoints Mesa, UI, ZIP e gates.
 
 ## Testes, validação e GitHub
 
-- Testes ainda não executados; nenhuma mudança de código foi feita.
+- Testes de produto ainda não executados; nenhuma mudança de código foi feita.
+- Especificação revisada contra os campos, export, smoke e DoD do objetivo;
+  `git diff --check` passou. A revisão humana da especificação ainda está
+  pendente.
 - Nenhum smoke sintético, build de ZIP ou CI foi executado nesta etapa.
-- Commit/push deste handoff: pendente.
+- Commit/push da especificação e atualização deste handoff: pendentes.
 
 ## Retomada
 
-1. Aguardar a revisão do desenho proposto nesta conversa.
-2. Se aprovado, escrever e revisar a especificação arquitetural em
-   `docs/superpowers/specs/`, submeter para revisão e só então criar o plano de
-   implementação.
+1. Revisar `docs/superpowers/specs/2026-10-06-modo-diagnostico-design.md` e
+   incorporar correções solicitadas antes de aprovar.
+2. Depois da aprovação da especificação, criar e revisar o plano de
+   implementação em `docs/superpowers/plans/`.
 3. Implementar na árvore raiz com RED→GREEN por requisito, preservar o fluxo
    atual e atualizar este handoff a cada bloco significativo.
 4. Executar os gates da raiz, o smoke sintético especificado e os gates de
