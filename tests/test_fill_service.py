@@ -2278,6 +2278,117 @@ class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
         self.assertEqual(transitions[0]["result_code"], "FORM_DETECTED")
 
 
+class RecordingDiagnosticSink:
+    def __init__(self, *, fail=False):
+        self.events = []
+        self.fail = fail
+
+    def record(self, event):
+        if self.fail:
+            raise OSError("diagnostic storage unavailable")
+        self.events.append(dict(event))
+        return True
+
+
+class DiagnosticFillServiceTests(ManualSnapshotMixin, FillRequestTestCase):
+    def complete_manual_fill(self, service):
+        process_id = self.ready_process(values={"cargo": "Professor"})
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
+                "field_results": {
+                    name: {
+                        "before": "",
+                        "proposed": value,
+                        "after": value,
+                        "status": "changed",
+                    }
+                    for name, value in command["payload"]["fields"].items()
+                },
+            },
+        )
+        return process_id, request_id
+
+    def test_diagnostic_recorder_observes_preflight_and_fill_readback_values(self):
+        diagnostics = RecordingDiagnosticSink()
+        reliability = ReliabilityRecorder(self.data, AR1_BUILD)
+        service = FillService(
+            self.store,
+            reliability=reliability,
+            capability_provider=self.capability_provider,
+            diagnostics=diagnostics,
+        )
+
+        _process_id, request_id = self.complete_manual_fill(service)
+
+        preflight = next(event for event in diagnostics.events if event["step"] == "preflight")
+        result = next(event for event in diagnostics.events if event["step"] == "result")
+        self.assertEqual(preflight["code"], "PLAN_READY")
+        self.assertEqual(preflight["fields"]["cargo"]["proposed"], "Professor")
+        self.assertEqual(result["fields"]["cargo"]["before"], "")
+        self.assertEqual(result["fields"]["cargo"]["proposed"], "Professor")
+        self.assertEqual(result["fields"]["cargo"]["after"], "Professor")
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "PREENCHIDO")
+        snapshot = json.dumps(request["form_snapshot"])
+        self.assertNotIn("diagnostic_events", snapshot)
+        self.assertNotIn("elapsed_ms", snapshot)
+
+        ledger = (self.data / "reliability" / "events.jsonl").read_text(encoding="utf-8")
+        self.assertNotIn("diagnostic_events", ledger)
+        self.assertNotIn('"step":"preflight"', ledger)
+        self.assertTrue(
+            all(
+                json.loads(line).get("elapsed_ms") is None
+                for line in ledger.splitlines()
+                if line.strip()
+            )
+        )
+
+    def test_diagnostic_events_do_not_enter_reliability_ledger_or_fill_snapshot(self):
+        diagnostics = RecordingDiagnosticSink()
+        reliability = ReliabilityRecorder(self.data, AR1_BUILD)
+        service = FillService(
+            self.store,
+            reliability=reliability,
+            capability_provider=self.capability_provider,
+            diagnostics=diagnostics,
+        )
+
+        _process_id, request_id = self.complete_manual_fill(service)
+
+        request = self.store.get_fill_request(request_id)
+        persisted = json.dumps(request["form_snapshot"])
+        ledger_events = [
+            json.loads(line)
+            for line in (self.data / "reliability" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertTrue(diagnostics.events)
+        self.assertNotIn("diagnostic_events", persisted)
+        self.assertFalse(any(event.get("type") == "diagnostic" for event in ledger_events))
+        self.assertTrue(all(event.get("elapsed_ms") is None for event in ledger_events))
+
+    def test_recorder_failure_does_not_change_fill_result(self):
+        diagnostics = RecordingDiagnosticSink(fail=True)
+        service = FillService(
+            self.store,
+            capability_provider=self.capability_provider,
+            diagnostics=diagnostics,
+        )
+
+        _process_id, request_id = self.complete_manual_fill(service)
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "PREENCHIDO")
+        self.assertTrue(request["form_snapshot"]["summary"]["best_effort_satisfied"])
+
+
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 """Tests for the read-only Mesa API (M1 Task 4)."""
 
 import json
+import io
 import os
 import socket
 import subprocess
@@ -14,6 +15,7 @@ from tempfile import TemporaryDirectory
 from unittest import mock
 from urllib.error import HTTPError
 from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
+import zipfile
 
 from app.api import server as server_module
 from app.api.bridge import Bridge, TRUSTED_EXTENSION_ID
@@ -3323,3 +3325,343 @@ class PackagedReliabilityBootstrapTests(unittest.TestCase):
                 ReliabilityRecorder(data_root, approved_build).capabilities()["manual_form_fill"]["state"],
                 "UNQUALIFIED",
             )
+
+
+class DiagnosticApiTests(ApiTestCase):
+    def events(self):
+        sessions = self.data_root / "diagnostics" / "sessions"
+        return [
+            json.loads(line)
+            for path in sessions.glob("*.jsonl")
+            for line in path.read_text(encoding="utf-8").splitlines()
+        ]
+
+    def test_diagnostic_routes_require_a_mesa_session(self):
+        for path, method, body in (
+            ("/api/v1/diagnostics", "GET", None),
+            ("/api/v1/diagnostics/export", "GET", None),
+            ("/api/v1/diagnostics/control", "POST", {"action": "pause"}),
+            (
+                "/api/v1/diagnostics/events",
+                "POST",
+                {"event": {"step": "COMMAND_TIMEOUT", "code": "COMMAND_TIMEOUT"}},
+            ),
+        ):
+            with self.subTest(path=path):
+                status, _headers, payload = self.call_json(
+                    path, method=method, headers=self.mesa_headers(), body=body
+                )
+                self.assertEqual(status, 401, payload)
+
+    def test_diagnostic_status_reports_on_and_latest_extension_state(self):
+        opener = self.mesa_opener()
+        extension = self.register_extension()
+        polled_status, _headers, polled = self.call_json(
+            "/api/v1/extension/commands/next", headers=extension
+        )
+        self.assertEqual(polled_status, 200, polled)
+        self.assertIsNone(polled["command"])
+
+        status, _headers, diagnostic = self.call_json(
+            "/api/v1/diagnostics",
+            headers=self.mesa_headers(),
+            opener=opener,
+        )
+
+        self.assertEqual(status, 200, diagnostic)
+        self.assertIs(diagnostic["diagnostic_enabled"], True)
+        self.assertIs(diagnostic["active"], True)
+        self.assertEqual(diagnostic["last_event"]["component"], "extension")
+        self.assertEqual(diagnostic["last_event"]["step"], "heartbeat")
+        self.assertIsInstance(diagnostic["heartbeat_age_ms"], int)
+
+    def test_diagnostic_status_keeps_last_command_and_error_after_heartbeat(self):
+        self.server.record_diagnostic(
+            {
+                "component": "mesa",
+                "step": "command_sent",
+                "command_id": 17,
+                "command_type": "FILL_FORM",
+            }
+        )
+        self.server.record_diagnostic(
+            {
+                "component": "mesa",
+                "step": "command_timeout",
+                "command_id": 17,
+                "command_type": "FILL_FORM",
+                "result": "timeout",
+                "code": "COMMAND_TIMEOUT",
+            }
+        )
+        self.server.note_extension_heartbeat()
+
+        status = self.server.diagnostic_status()
+
+        self.assertEqual(status["last_event"]["step"], "heartbeat")
+        self.assertEqual(status["last_command_type"], "FILL_FORM")
+        self.assertEqual(status["last_result_code"], "COMMAND_TIMEOUT")
+        self.assertEqual(status["last_error_code"], "COMMAND_TIMEOUT")
+        self.assertEqual(status["portal_state"], "NO_ACTIVE_FORM")
+
+    def test_diagnostic_control_pauses_resumes_and_clears(self):
+        opener = self.mesa_opener()
+
+        def control(action):
+            return self.call_json(
+                "/api/v1/diagnostics/control",
+                method="POST",
+                headers=self.mesa_headers(),
+                body={"action": action},
+                opener=opener,
+            )
+
+        pause_status, _headers, paused = control("pause")
+        self.assertEqual(pause_status, 200, paused)
+        self.assertIs(paused["active"], False)
+        resume_status, _headers, resumed = control("resume")
+        self.assertEqual(resume_status, 200, resumed)
+        self.assertIs(resumed["active"], True)
+        previous_session = resumed["session_id"]
+        clear_status, _headers, cleared = control("clear")
+        self.assertEqual(clear_status, 200, cleared)
+        self.assertNotEqual(cleared["session_id"], previous_session)
+        self.assertEqual(cleared["event_count"], 0)
+        self.assertIs(cleared["diagnostic_enabled"], True)
+
+    def test_diagnostic_export_returns_named_zip(self):
+        opener = self.mesa_opener()
+        self.call_json(
+            "/api/v1/diagnostics/events",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={"event": {"component": "mesa", "step": "command_timeout", "code": "COMMAND_TIMEOUT", "result": "timeout"}},
+            opener=opener,
+        )
+
+        status, headers, body = self.call(
+            "/api/v1/diagnostics/export",
+            headers=self.mesa_headers(),
+            opener=opener,
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "application/zip")
+        self.assertRegex(
+            headers["Content-Disposition"],
+            r'diagnostico-atos-tce-\d{8}-\d{6}\.zip',
+        )
+        with zipfile.ZipFile(io.BytesIO(body)) as archive:
+            self.assertEqual(
+                set(archive.namelist()),
+                {"resumo.txt", "timeline.jsonl", "ambiente.json", "mesa.log", "extensao.log", "ultima-sessao.json"},
+            )
+
+    def test_mesa_diagnostic_event_records_command_timeout(self):
+        opener = self.mesa_opener()
+        status, _headers, result = self.call_json(
+            "/api/v1/diagnostics/events",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={"event": {"step": "COMMAND_TIMEOUT", "code": "COMMAND_TIMEOUT", "result": "timeout"}},
+            opener=opener,
+        )
+
+        self.assertEqual(status, 201, result)
+        self.assertTrue(result["recorded"])
+        self.assertIn("COMMAND_TIMEOUT", json.dumps(self.events()))
+
+    def test_current_selection_records_diagnostics_in_the_shared_session(self):
+        extension = self.register_extension()
+        opener = self.mesa_opener()
+        status, _headers, public_state = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=extension,
+            body={
+                "active": False,
+                "code": "FORM_NOT_AVAILABLE",
+                "publisher_id": "a" * 32,
+                "sequence": 1,
+                "diagnostic_events": [
+                    {"component": "spoofed", "step": "frames_scanned", "elapsed_ms": 84}
+                ],
+            },
+        )
+
+        self.assertEqual(status, 200, public_state)
+        self.assertNotIn("diagnostic_events", public_state)
+        events = self.events()
+        session_ids = {event["session_id"] for event in events}
+        diagnostic = self.call_json(
+            "/api/v1/diagnostics", headers=self.mesa_headers(), opener=opener
+        )[2]
+        self.assertEqual(session_ids, {diagnostic["session_id"]})
+        sidecar = next(event for event in events if event.get("step") == "frames_scanned")
+        self.assertEqual(sidecar["component"], "extension")
+        self.assertEqual(sidecar["elapsed_ms"], 84)
+        serialized = json.dumps(events)
+        self.assertNotIn('"fields"', serialized)
+        self.assertNotIn("documentNonce", serialized)
+
+    def test_command_result_diagnostic_sidecar_is_removed_before_validation_and_persistence(self):
+        opener = self.mesa_opener()
+        _status, _headers, created = self.call_json(
+            "/api/v1/area/analyze",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={},
+            opener=opener,
+        )
+        extension = self.register_extension()
+        _status, _headers, claimed = self.call_json(
+            "/api/v1/extension/commands/next", headers=extension
+        )
+        command_id = created["command_id"]
+        self.assertEqual(claimed["command"]["id"], command_id)
+        result_body = {
+            **SNAPSHOT,
+            "command_id": command_id,
+            "ok": True,
+            "claim_token": claimed["command"]["claim_token"],
+            "diagnostic_events": [
+                {
+                    "component": "spoofed",
+                    "step": "frames_scanned",
+                    "elapsed_ms": 32,
+                    "process": "102390/2026",
+                    "extension_token": "must-not-be-recorded",
+                }
+            ],
+        }
+
+        status, _headers, posted = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/result",
+            method="POST",
+            headers=extension,
+            body=result_body,
+        )
+
+        self.assertEqual(status, 200, posted)
+        stored = self.store.get_extension_command(command_id)["result"]
+        self.assertNotIn("diagnostic_events", stored)
+        serialized_events = json.dumps(self.events())
+        self.assertIn("frames_scanned", serialized_events)
+        self.assertNotIn("must-not-be-recorded", serialized_events)
+
+    def test_malformed_diagnostic_sidecar_does_not_change_command_validation(self):
+        opener = self.mesa_opener()
+        created_status, _headers, created = self.call_json(
+            "/api/v1/extension/commands",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={"type": "STATUS", "payload": {}},
+            opener=opener,
+        )
+        self.assertEqual(created_status, 201, created)
+        extension = self.register_extension()
+        _status, _headers, claimed = self.call_json(
+            "/api/v1/extension/commands/next", headers=extension
+        )
+
+        status, _headers, posted = self.call_json(
+            f"/api/v1/extension/commands/{created['command_id']}/result",
+            method="POST",
+            headers=extension,
+            body={
+                "ok": True,
+                "claim_token": claimed["command"]["claim_token"],
+                "diagnostic_events": {"arbitrary": "malformed"},
+            },
+        )
+
+        self.assertEqual(status, 200, posted)
+        self.assertNotIn("diagnostic_events", self.store.get_extension_command(created["command_id"])["result"])
+
+    def test_fill_result_sidecar_is_removed_before_fill_service_and_sqlite(self):
+        self.store.replace_fields(
+            self.process_id,
+            [
+                FieldRecord(field_name=name, value=value, status="found", confidence=1.0)
+                for name, value in FILL_FIELDS.items()
+            ],
+        )
+        controls = {
+            name: {"value": "", "disabled": False, "readOnly": False, "options": []}
+            for name in list(FILL_FIELDS) + ["genero"]
+        }
+        controls["modalidade"]["options"] = [
+            {"value": "M", "label": FILL_FIELDS["modalidade"]}
+        ]
+        controls["fundamento_legal"]["options"] = [
+            {"value": "A", "label": FILL_FIELDS["fundamento_legal"]}
+        ]
+        request_id = self.server.fill.request_manual_fill(
+            {
+                "identity": dict(FILL_IDENTITY),
+                "generation": 4,
+                "documentNonce": "abcdef0123456789abcdef0123456789",
+                "fields": controls,
+                "options": {},
+            }
+        )
+        extension = self.register_extension()
+        _status, _headers, claimed = self.call_json(
+            "/api/v1/extension/commands/next", headers=extension
+        )
+        command = claimed["command"]
+        self.assertEqual(command["type"], "FILL_FORM")
+        result = {
+            "ok": True,
+            "identity": dict(FILL_IDENTITY),
+            "generation_after": 5,
+            "document_nonce": "abcdef0123456789abcdef0123456789",
+            "field_results": {
+                name: {"before": "", "proposed": value, "after": value, "status": "changed"}
+                for name, value in command["payload"]["fields"].items()
+            },
+            "claim_token": command["claim_token"],
+            "diagnostic_events": [
+                {
+                    "step": "field_write",
+                    "elapsed_ms": 8,
+                    "fields": {"cargo": {"before": "", "proposed": "Professor", "after": "Professor"}},
+                }
+            ],
+        }
+
+        status, _headers, posted = self.call_json(
+            f"/api/v1/extension/commands/{command['id']}/result",
+            method="POST",
+            headers=extension,
+            body=result,
+        )
+
+        self.assertEqual(status, 200, posted)
+        stored = self.store.get_extension_command(command["id"])["result"]
+        request = self.store.get_fill_request(request_id)
+        self.assertNotIn("diagnostic_events", stored)
+        self.assertNotIn("diagnostic_events", json.dumps(request["form_snapshot"]))
+        self.assertNotIn('"elapsed_ms"', json.dumps(request["form_snapshot"]))
+        self.assertEqual(request["state"], "PREENCHIDO")
+        self.assertIn("field_write", json.dumps(self.events()))
+
+    def test_recorder_failure_does_not_change_current_selection_response(self):
+        extension = self.register_extension()
+        body = {
+            "active": False,
+            "code": "FORM_NOT_AVAILABLE",
+            "publisher_id": "b" * 32,
+            "sequence": 1,
+        }
+
+        with mock.patch.object(self.server.diagnostics, "record", side_effect=OSError("disk full")):
+            status, _headers, public_state = self.call_json(
+                "/api/v1/portal/current-selection",
+                method="POST",
+                headers=extension,
+                body=body,
+            )
+
+        self.assertEqual(status, 200, public_state)
+        self.assertEqual(public_state["state"], "NO_ACTIVE_FORM")

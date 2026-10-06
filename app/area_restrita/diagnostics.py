@@ -81,6 +81,32 @@ _TRIM_EVENT_BYTES = 6 * 1024 * 1024
 _MAX_SESSIONS = 5
 _SLOW_MS = 2_000
 _MAX_EVENT_LINE_BYTES = 256 * 1024
+_STATUS_EVENT_FIELDS = (
+    "component",
+    "step",
+    "timestamp",
+    "elapsed_ms",
+    "result",
+    "code",
+    "command_id",
+    "command_type",
+)
+_ERROR_RESULT_VALUES = frozenset({"blocked", "error", "failed", "invalid", "refused", "timeout"})
+_ERROR_CODE_MARKERS = (
+    "AMBIGUOUS",
+    "BLOCKED",
+    "ERROR",
+    "FAILED",
+    "FAILURE",
+    "FORM_NOT_AVAILABLE",
+    "FORM_NOT_DETECTED",
+    "INVALID",
+    "MISMATCH",
+    "NOT_FOUND",
+    "REFUSED",
+    "STALE",
+    "TIMEOUT",
+)
 
 
 def _utcnow() -> datetime:
@@ -183,6 +209,9 @@ class DiagnosticRecorder:
         self._paused = False
         self._event_count = 0
         self._last_event: dict[str, Any] | None = None
+        self._last_command: dict[str, Any] | None = None
+        self._last_result: dict[str, Any] | None = None
+        self._last_error: dict[str, Any] | None = None
         self._sessions_dir.mkdir(parents=True, exist_ok=True)
         self._write_settings()
         self._session_id = uuid.uuid4().hex
@@ -255,6 +284,17 @@ class DiagnosticRecorder:
                 return False
             self._event_count += 1
             self._last_event = safe
+            status_event = {
+                key: safe[key] for key in _STATUS_EVENT_FIELDS if key in safe
+            }
+            if safe.get("command_type"):
+                self._last_command = status_event
+            if safe.get("step") in {"result", "command_result_received", "command_timeout"}:
+                self._last_result = status_event
+            result = str(safe.get("result") or "").casefold()
+            code = str(safe.get("code") or "").upper()
+            if result in _ERROR_RESULT_VALUES or any(marker in code for marker in _ERROR_CODE_MARKERS):
+                self._last_error = status_event
             return True
 
     def status(self) -> dict[str, Any]:
@@ -266,6 +306,9 @@ class DiagnosticRecorder:
                 "session_id": self._session_id,
                 "event_count": self._event_count,
                 "last_event": dict(self._last_event) if self._last_event is not None else None,
+                "last_command": dict(self._last_command) if self._last_command is not None else None,
+                "last_result": dict(self._last_result) if self._last_result is not None else None,
+                "last_error": dict(self._last_error) if self._last_error is not None else None,
                 "retained_sessions": len(tuple(self._sessions_dir.glob("*.jsonl"))),
                 "build_id": self._build_id,
                 "extension_version": self._extension_version,
@@ -292,6 +335,9 @@ class DiagnosticRecorder:
             self._session_path.touch(exist_ok=False)
             self._event_count = 0
             self._last_event = None
+            self._last_command = None
+            self._last_result = None
+            self._last_error = None
             self._paused = was_paused
             self._write_settings()
             return self.status()

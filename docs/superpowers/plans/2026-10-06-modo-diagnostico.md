@@ -205,10 +205,11 @@ test_diagnostic_events_do_not_enter_reliability_ledger_or_fill_snapshot
 test_recorder_failure_does_not_change_fill_result
 ```
 
-Assert the separate diagnostics timeline has `preflight`, `field_write`,
-`field_reread` and `result`, including safe `before`/`proposed`/`after` values;
-the existing reliability ledger has the same event sequence as before; and the
-fill-request snapshot contains no new timing sidecar.
+Assert the separate diagnostics timeline has `preflight` and `result`, including
+safe `before`/`proposed`/`after` values; the existing reliability ledger has no
+new diagnostic event/timing; and the fill-request snapshot contains no new
+timing sidecar. The extension-owned `field_write` and `field_reread` timing
+events are verified in Task 3, where the actual DOM operations occur.
 
 - [ ] **Step 6: Verify RED, implement injected fail-open recording, run focused suites**
 
@@ -230,7 +231,7 @@ Expected: focused tests pass and reliability events/snapshots are unchanged.
 - [ ] **Step 7: Commit Task 2**
 
 ```bash
-git add app/api/server.py app/area_restrita/fill_service.py tests/test_api_server.py tests/test_fill_service.py
+git add app/api/server.py app/area_restrita/diagnostics.py app/area_restrita/fill_service.py tests/test_api_server.py tests/test_area_restrita_diagnostics.py tests/test_fill_service.py
 git commit -m "feat: record Mesa and fill diagnostic boundaries"
 ```
 

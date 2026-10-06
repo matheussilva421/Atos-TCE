@@ -168,6 +168,25 @@ class DiagnosticRecorderLifecycleTests(unittest.TestCase):
         ]
         self.assertEqual([event["step"] for event in events], ["before_pause", "after_resume"])
 
+    def test_status_tracks_latest_command_result_and_error(self) -> None:
+        self.recorder.record(
+            {"component": "mesa", "step": "command_sent", "command_type": "FILL_FORM", "command_id": 7}
+        )
+        self.recorder.record(
+            {
+                "component": "mesa",
+                "step": "command_timeout",
+                "command_type": "FILL_FORM",
+                "code": "COMMAND_TIMEOUT",
+                "result": "timeout",
+            }
+        )
+
+        status = self.recorder.status()
+        self.assertEqual(status["last_command"]["command_type"], "FILL_FORM")
+        self.assertEqual(status["last_result"]["code"], "COMMAND_TIMEOUT")
+        self.assertEqual(status["last_error"]["code"], "COMMAND_TIMEOUT")
+
     def test_clear_removes_prior_sessions_and_starts_a_fresh_session(self) -> None:
         self.recorder.record({"component": "mesa", "step": "before_clear"})
         previous_session = self.recorder.status()["session_id"]
@@ -178,6 +197,8 @@ class DiagnosticRecorderLifecycleTests(unittest.TestCase):
         self.assertNotEqual(previous_session, cleared["session_id"])
         self.assertIs(cleared["active"], False)
         self.assertEqual(cleared["event_count"], 0)
+        self.assertIsNone(cleared["last_command"])
+        self.assertIsNone(cleared["last_error"])
         self.assertEqual(len(self.session_files()), 1)
         self.assertEqual(self.session_files()[0].read_text(encoding="utf-8"), "")
         settings = json.loads((self.data_root / "diagnostics" / "settings.json").read_text(encoding="utf-8"))

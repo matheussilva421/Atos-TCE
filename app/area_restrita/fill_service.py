@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 import threading
+import time
 import uuid
 from collections.abc import Mapping
 from typing import Any
@@ -271,16 +272,26 @@ class FillService:
         reliability: Any | None = None,
         capability_provider: Any | None = None,
         reliability_environment: str = AR1_DEFAULT_ENVIRONMENT,
+        diagnostics: Any | None = None,
     ) -> None:
         self._store = store
         self._preflight = preflight or build_fill_plan
         self._reliability = reliability
+        self._diagnostics = diagnostics
         self._capability_provider = capability_provider if capability_provider is not None else reliability
         self._reliability_environment = str(reliability_environment)
         self._ar1_finished: set[str] = set()
         self._ar1_phase: dict[str, str] = {}
         self._delivery_lock = threading.RLock()
         self._transient_document_nonces: dict[int, str] = {}
+
+    def _record_diagnostic(self, event: Mapping[str, Any]) -> None:
+        if self._diagnostics is None:
+            return
+        try:
+            self._diagnostics.record({"component": "fill_service", **event})
+        except Exception:
+            pass
 
     def require_production_capabilities(self, *capabilities: str) -> None:
         """Fail closed unless each automatic-navigation capability is production-ready."""
@@ -660,6 +671,7 @@ class FillService:
             return
         payload = result if isinstance(result, Mapping) else {}
         command_type = str(command.get("type") or "")
+        fill_result_started = time.monotonic() if command_type == "FILL_FORM" else None
         if command_type == "FILL_FORM" and payload.get("ok") is True:
             with self._delivery_lock:
                 expected_nonce = self._transient_document_nonces.get(int(command_id))
@@ -676,6 +688,7 @@ class FillService:
                     "resposta do formulário sem o vínculo esperado com o documento",
                     code="STALE_FORM",
                 )
+                self._record_fill_result_diagnostic(command_id, payload, fill_result_started)
                 return
         handler = {
             "OPENING": self._handle_open_result,
@@ -688,8 +701,36 @@ class FillService:
             handler(request, payload)
         finally:
             if command_type == "FILL_FORM":
+                self._record_fill_result_diagnostic(command_id, payload, fill_result_started)
                 with self._delivery_lock:
                     self._transient_document_nonces.pop(int(command_id), None)
+
+    def _record_fill_result_diagnostic(
+        self,
+        command_id: int,
+        result: Mapping[str, Any],
+        started: float | None,
+    ) -> None:
+        identity = result.get("identity")
+        identity = identity if isinstance(identity, Mapping) else {}
+        ok = result.get("ok") is True
+        self._record_diagnostic(
+            {
+                "step": "result",
+                "elapsed_ms": max(0, int((time.monotonic() - started) * 1000)) if started is not None else 0,
+                "result": "ok" if ok else "error",
+                "code": result.get("code") or ("FILL_FORM_OK" if ok else "FILL_FORM_FAILED"),
+                "error": result.get("error"),
+                "command_id": int(command_id),
+                "command_type": "FILL_FORM",
+                "process": identity.get("processKey") or identity.get("process_key"),
+                "interested": identity.get("interestedNormalized") or identity.get("interested_normalized"),
+                "generation": result.get("generation_after"),
+                "document_nonce": result.get("document_nonce", result.get("documentNonce")),
+                "fields": result.get("field_results"),
+                "warnings": result.get("warnings"),
+            }
+        )
 
     def _handle_open_result(self, request: Mapping[str, Any], result: Mapping[str, Any]) -> None:
         process = self._store.get_process(int(request["process_id"]))
@@ -759,6 +800,24 @@ class FillService:
     ) -> None:
         """Decide the exact fields to write, or block without touching a control."""
 
+        started = time.monotonic()
+
+        def record_preflight(code: str, result: str, *, error: str | None = None, fields=None, warnings=None) -> None:
+            self._record_diagnostic(
+                {
+                    "step": "preflight",
+                    "elapsed_ms": max(0, int((time.monotonic() - started) * 1000)),
+                    "result": result,
+                    "code": code,
+                    "error": error,
+                    "process": process.get("process_key"),
+                    "interested": process.get("interested_normalized"),
+                    "generation": snapshot.get("generation"),
+                    "fields": fields,
+                    "warnings": warnings,
+                }
+            )
+
         run_id = self._ar1_run_id(request)
         diagnostics = sanitize_browser_diagnostics(
             snapshot.get("diagnostics") if isinstance(snapshot, Mapping) else None
@@ -766,10 +825,12 @@ class FillService:
         observed_identity = snapshot.get("identity") if isinstance(snapshot, Mapping) else None
         mismatch = self._identity_mismatch(process, observed_identity)
         if mismatch:
+            record_preflight("IDENTITY_MISMATCH", "blocked", error=mismatch)
             self._block(request, mismatch)
             return
         nonce = snapshot.get("documentNonce", snapshot.get("document_nonce"))
         if not isinstance(nonce, str) or not _DOCUMENT_NONCE.fullmatch(nonce):
+            record_preflight("STALE_FORM", "blocked", error="formulário sem vínculo válido com o documento observado")
             self._block(
                 request,
                 "formulário sem vínculo válido com o documento observado",
@@ -792,13 +853,34 @@ class FillService:
             if blocked.details:
                 reason = f"{blocked.code}: {', '.join(blocked.details)}"
             if blocked.code in {"IDENTITY_MISSING", "IDENTITY_MISMATCH", "PROCESS_MISSING"}:
+                record_preflight(blocked.code, "blocked", error=reason)
                 self._block(request, reason, code=blocked.code)
             else:
+                record_preflight(blocked.code, "error", error=reason)
                 self._fail(request, reason, code=blocked.code)
             return
         except Exception as error:  # a broken plan must never reach the portal
+            record_preflight(
+                "PREFLIGHT_ERROR", "error", error=f"{type(error).__name__}: {error}"
+            )
             self._fail(request, f"preflight falhou: {type(error).__name__}")
             return
+        observed_fields: dict[str, dict[str, Any]] = {}
+        snapshot_fields = snapshot.get("fields")
+        snapshot_fields = snapshot_fields if isinstance(snapshot_fields, Mapping) else {}
+        for name, proposed in plan.fields.items():
+            observed: dict[str, Any] = {"proposed": proposed}
+            current = snapshot_fields.get(name)
+            if isinstance(current, Mapping) and current.get("value") is not None:
+                observed["before"] = current.get("value")
+            observed_fields[str(name)] = observed
+        for name, preserved in plan.preserved.items():
+            observed_fields[str(name)] = {
+                "before": preserved,
+                "proposed": preserved,
+                "after": preserved,
+            }
+        record_preflight("PLAN_READY", "ok", fields=observed_fields, warnings=plan.warnings)
         self._ar1_transition(
             run_id,
             boundary="preflight_completed",

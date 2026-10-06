@@ -1,7 +1,8 @@
 # Handoff — Modo Diagnóstico sempre ativo
 
 Data: 2026-10-06  
-Status: Task 1 concluída (recorder local); Task 2 pendente.
+Status: Tasks 1 e 2 concluídas e verificadas; Task 2 aguarda commit/push neste
+fechamento; Task 3 pendente.
 
 ## Objetivo e limites
 
@@ -22,6 +23,8 @@ funcionais.
 - Base da implementação: `67f0c9ec453c99cdd184c6ff8030ae6db0ecfdcc`.
 - Milestone documental (especificação/plano/handoff): `10c1c8e`, enviado ao
   upstream. Task 1: `0dfedf1`, implementada, testada e enviada ao upstream.
+- Task 2 implementada e verificada localmente; commit/push serão registrados
+  após este handoff.
 - Manter checkout atual: branch prevista pelo projeto, sincronizada e sem código
   local pré-existente; não há necessidade de churn de branch/worktree.
 - Builder antigo `AR1_BUILD=88eed8ce...` não serve para esta mudança. O pacote
@@ -49,6 +52,13 @@ funcionais.
 - A especificação refinou este turno os limites entre telemetria nova e o campo
   structural `diagnostics` que já existe em FillService, a rota de eventos da
   Mesa e a amostragem de heartbeat.
+- Task 2 adicionou rotas Mesa autenticadas de status/controle/evento/export,
+  registro de current-selection e ingestão/remoção do sidecar antes da
+  validação funcional. FillService registra preflight e resultado fora do
+  reliability/SQLite; falhas do recorder são fail-open.
+- O status agregado conserva último comando/resultado/erro mesmo após heartbeat.
+  `portal_state` só indica `OK` quando current-selection está `MATCHED`; sem
+  formulário mostra `NO_ACTIVE_FORM`.
 - A continuação explícita do objetivo foi interpretada como autorização para
   executar a arquitetura pragmática documentada e o plano, sem nova pausa para
   aprovação intermediária.
@@ -58,6 +68,10 @@ funcionais.
 - Especificação: `docs/superpowers/specs/2026-10-06-modo-diagnostico-design.md`.
 - Plano TDD de cinco tarefas: `docs/superpowers/plans/2026-10-06-modo-diagnostico.md`.
 - Este handoff deve acompanhar cada bloco significativo.
+- Task 2 alterou `app/api/server.py`, `app/area_restrita/fill_service.py` e
+  `app/area_restrita/diagnostics.py`; adicionou cobertura em
+  `tests/test_api_server.py`, `tests/test_fill_service.py` e
+  `tests/test_area_restrita_diagnostics.py`, com pequeno ajuste no plano.
 - Ledger de execução: `.superpowers/sdd/2026-10-06-modo-diagnostico/progress.md`
   (ignorado pelo Git conforme convenção do SDD).
 - O helper SDD não iniciou no host (erro MSYS `NtCreateDirectoryObject`, acesso
@@ -69,9 +83,18 @@ funcionais.
 - RED confirmado antes de criar o módulo: `ModuleNotFoundError` para
   `app.area_restrita.diagnostics` nos testes novos.
 - `python -m unittest discover -s tests -p 'test_area_restrita_diagnostics.py' -q`:
-  10 testes, 10 passaram, 0 falharam. Inclui limite de linha de evento,
+  Task 1: 10 testes, 10 passaram, 0 falharam; Task 2: 11 testes, 11 passaram,
+  0 falharam. Inclui limite de linha de evento,
   cookies/header aninhado, pause transitório através de restart, sessão ativa
   completa em `ultima-sessao.json` e plataforma/versão em `ambiente.json`.
+- RED→GREEN do status: os testes novos falharam primeiro pela ausência dos
+  campos `last_command`/`last_result`/`last_error` e status incorreto do portal;
+  após implementação, recorder 11/11 e teste API de status 1/1 passaram.
+- `python -m unittest tests.test_fill_service -q`: 109 testes, 109 passaram,
+  0 falharam.
+- `python -m unittest tests.test_api_server -q` (loopback local autorizado):
+  152 testes, 152 passaram, 0 falharam.
+- `git diff --check` passou após a implementação da Task 2.
 - Baseline JS: `npm test --prefix extension` — 263/263; `node --test
   app/web/tests/*.test.mjs` — 65/65.
 - Baseline focada com `%TEMP%` dentro de `tmp/`: `test_fill_service.py` 106/106
@@ -86,27 +109,22 @@ funcionais.
   ZIP negado em `%TEMP%` e runtime Python extraído que não iniciou. Reexecutar
   gates com temp em `tmp/` e distinguir restrições de sandbox das falhas reais.
 - `git diff --check` passou no código desta tarefa.
-- Smoke, integração com APIs, gates finais, verificador legado, CI e ZIP novo
-  continuam pendentes.
+- Smoke sintético, Task 3–5, suíte Python raiz final, extensão/web, contrato do
+  pacote, verificador legado, CI e ZIP novo continuam pendentes.
 
 ## GitHub
 
-- Commit documental `10c1c8e` está no upstream.
-- Commits `10c1c8e` e `0dfedf1` estão enviados ao upstream. Atualizar o handoff
-  novamente ao concluir Task 2.
+- Commits `10c1c8e` e `0dfedf1` estão enviados ao upstream. Task 2 aguarda o
+  commit/push iniciado neste fechamento.
 
 ## Retomada imediata
 
-1. Revisar/commitar `diagnostics.py`, seu teste, e este handoff; enviar ao
-   upstream e confirmar SHA/status.
-2. Task 2: adicionar testes RED para rotas autenticadas, sidecar de resultado,
-   current-selection e integração opcional do FillService; implementar
-   fail-open sem alterar reliability/SQLite/resultado funcional.
-3. Atualizar este handoff e o ledger por milestone; commitar/enviar cada tarefa.
-4. Executar Task 3–5 do plano com testes sintéticos/offline; preservar os
+1. Commitar e enviar a Task 2 e este handoff; registrar o SHA confirmado no
+   handoff/ledger e verificar branch sincronizada.
+2. Executar Task 3–5 do plano com testes sintéticos/offline; preservar os
    fluxos funcionais.
-5. Reexecutar suites com `%TEMP%` sob `tmp/` e, quando loopback/hard links forem
+3. Reexecutar suítes com `%TEMP%` sob `tmp/` e, quando loopback/hard links forem
    bloqueados pelo sandbox, usar CI como gate do runtime. Corrigir qualquer
    falha de produto reproduzível.
-6. Após gates e commit final sincronizado, reconstruir e verificar ZIP, registrar
+4. Após gates e commit final sincronizado, reconstruir e verificar ZIP, registrar
    SHA/build ID/contagem de testes/CI e estado final neste handoff.

@@ -32,6 +32,7 @@ import os
 import re
 import subprocess
 import threading
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -60,6 +61,7 @@ from ..area_restrita.fill_service import (
     FillError,
     FillService,
 )
+from ..area_restrita.diagnostics import DiagnosticRecorder
 from ..archive.manager import ArchiveError, ArchiveManager
 from ..analysis.service import AnalysisService
 from ..analysis.evidence import evidence_for_field
@@ -119,6 +121,20 @@ def _reliability_build_id() -> str:
     if result.returncode == 0 and sha:
         return sha
     return UNKNOWN_BUILD_ID
+
+
+def _diagnostic_extension_version() -> str:
+    """Version string for the installed extension shipped with this Mesa."""
+
+    manifest = REPO_ROOT / "extension" / "manifest.json"
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "unknown"
+    if not isinstance(payload, Mapping):
+        return "unknown"
+    version = str(payload.get("version") or "").strip()
+    return version[:128] or "unknown"
 
 
 def _packaged_build_id() -> str | None:
@@ -356,6 +372,8 @@ class Route:
 
 ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/health"), "handle_health", "public"),
+    Route(re.compile(r"/api/v1/diagnostics/export"), "handle_diagnostic_export", "mesa"),
+    Route(re.compile(r"/api/v1/diagnostics"), "handle_diagnostic_status", "mesa"),
     Route(re.compile(r"/api/v1/storage"), "handle_storage", "public"),
     Route(re.compile(r"/api/v1/processes"), "handle_process_list", "public"),
     Route(re.compile(r"/api/v1/processes/(?P<process_id>\d+)"), "handle_process_detail", "public"),
@@ -391,6 +409,8 @@ ROUTES: tuple[Route, ...] = (
 
 POST_ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/session/bootstrap"), "post_session_bootstrap", "public"),
+    Route(re.compile(r"/api/v1/diagnostics/control"), "post_diagnostic_control", "mesa"),
+    Route(re.compile(r"/api/v1/diagnostics/events"), "post_diagnostic_event", "mesa"),
     Route(re.compile(r"/api/v1/session/handoff"), "post_session_handoff", "mesa"),
     Route(re.compile(r"/api/v1/bridge/register"), "post_bridge_register", "public"),
     Route(re.compile(r"/api/v1/extension/commands"), "post_extension_command", "mesa"),
@@ -488,7 +508,72 @@ class MesaServer(ThreadingHTTPServer):
         self._portal_selection: PortalSelectionTracker | None = None
         # The lazy properties below are first touched by concurrent HTTP threads.
         self._lazy_lock = threading.Lock()
+        self.diagnostics = DiagnosticRecorder(
+            self.data_root,
+            build_id=self.reliability_build_id,
+            extension_version=_diagnostic_extension_version(),
+        )
+        self._heartbeat_lock = threading.Lock()
+        self._last_heartbeat_at: float | None = None
+        self._heartbeat_last_recorded_at: float | None = None
+        self._heartbeat_last_state: str | None = None
         _apply_packaged_reliability_bootstrap(self.data_root)
+
+    def record_diagnostic(self, event: Mapping[str, Any]) -> bool:
+        """Diagnostics are best-effort and never control an operational path."""
+
+        try:
+            return self.diagnostics.record(event)
+        except Exception:
+            return False
+
+    def note_extension_heartbeat(self) -> int:
+        """Update heartbeat age on every poll, persisting at most every 10 s."""
+
+        now = time.monotonic()
+        with self._heartbeat_lock:
+            previous = self._last_heartbeat_at
+            self._last_heartbeat_at = now
+            state = "connected"
+            should_record = (
+                previous is None
+                or state != self._heartbeat_last_state
+                or self._heartbeat_last_recorded_at is None
+                or now - self._heartbeat_last_recorded_at >= 10.0
+            )
+            if should_record:
+                self._heartbeat_last_recorded_at = now
+                self._heartbeat_last_state = state
+        if should_record:
+            self.record_diagnostic(
+                {"component": "extension", "step": "heartbeat", "result": "ok", "heartbeat_age_ms": 0}
+            )
+        return 0
+
+    def diagnostic_status(self) -> dict[str, Any]:
+        status = self.diagnostics.status()
+        with self._heartbeat_lock:
+            heartbeat_at = self._last_heartbeat_at
+        age = None if heartbeat_at is None else max(0, int((time.monotonic() - heartbeat_at) * 1000))
+        selection = self.portal_selection.public_state()
+        status.update(
+            {
+                "mesa_state": "OK",
+                "extension_state": "UNKNOWN" if age is None else ("OK" if age < 15_000 else "STALE"),
+                "portal_state": (
+                    "UNKNOWN"
+                    if age is None
+                    else ("OK" if selection.get("state") == "MATCHED" else selection.get("state", "UNKNOWN"))
+                ),
+                "heartbeat_age_ms": age,
+                "form_state": selection.get("state", "UNKNOWN"),
+                "current_selection_state": selection.get("state", "UNKNOWN"),
+                "last_command_type": (status.get("last_command") or {}).get("command_type"),
+                "last_result_code": (status.get("last_result") or {}).get("code"),
+                "last_error_code": (status.get("last_error") or {}).get("code"),
+            }
+        )
+        return status
 
     @property
     def analysis(self) -> AnalysisService:
@@ -527,6 +612,7 @@ class MesaServer(ThreadingHTTPServer):
                             self.data_root, self.reliability_build_id
                         ),
                         reliability_environment=self.reliability_environment,
+                        diagnostics=self.diagnostics,
                     )
         return self._fill
 
@@ -775,6 +861,15 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
 
         return self._body
 
+    def _record_extension_diagnostic_sidecar(self, payload: dict[str, Any]) -> None:
+        raw_events = payload.pop("diagnostic_events", None)
+        if not isinstance(raw_events, list):
+            return
+        for event in raw_events[:100]:
+            if not isinstance(event, Mapping):
+                continue
+            self.mesa.record_diagnostic({**event, "component": "extension"})
+
     # --------------------------------------------------------------- routes
 
     def handle_health(self, query: dict[str, list[str]]) -> None:
@@ -784,6 +879,53 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
                 self.mesa.store, self.mesa.data_root, build_id=self.mesa.reliability_build_id
             )
         )
+
+    def handle_diagnostic_status(self, query: dict[str, list[str]]) -> None:
+        if not self._require_session():
+            return
+        self._send_json(self.mesa.diagnostic_status())
+
+    def handle_diagnostic_export(self, query: dict[str, list[str]]) -> None:
+        if not self._require_session():
+            return
+        try:
+            capabilities = ReliabilityRecorder(
+                self.mesa.data_root, self.mesa.reliability_build_id
+            ).capabilities()
+        except Exception:
+            capabilities = {}
+        filename, body = self.mesa.diagnostics.export_zip(capabilities=capabilities)
+        self._send_bytes(body, "application/zip", filename=filename)
+
+    def post_diagnostic_control(self) -> None:
+        if not self._require_session():
+            return
+        payload = self._read_json_body()
+        action = str(payload.get("action") or "").strip().lower()
+        operation = {
+            "pause": self.mesa.diagnostics.pause,
+            "resume": self.mesa.diagnostics.resume,
+            "clear": self.mesa.diagnostics.clear,
+        }.get(action)
+        if operation is None:
+            self._send_json({"error": "invalid_diagnostic_action"}, status=400)
+            return
+        self._send_json(operation())
+
+    def post_diagnostic_event(self) -> None:
+        if not self._require_session():
+            return
+        payload = self._read_json_body()
+        event = payload.get("event")
+        if not isinstance(event, Mapping) or str(event.get("code") or "").strip().upper() != "COMMAND_TIMEOUT":
+            self._send_json({"error": "invalid_diagnostic_event"}, status=400)
+            return
+        safe_event = dict(event)
+        safe_event.update(
+            {"component": "mesa", "step": "command_timeout", "code": "COMMAND_TIMEOUT"}
+        )
+        recorded = self.mesa.record_diagnostic(safe_event)
+        self._send_json({"recorded": recorded, "code": "COMMAND_TIMEOUT"}, status=201)
 
     def handle_portal_reliability(self, query: dict[str, list[str]]) -> None:
         """Read-only capability state: no identities, no events, no mutation."""
@@ -1124,14 +1266,50 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_json(self.mesa.portal_selection.public_state())
 
+    def _record_current_selection_event(
+        self,
+        *,
+        started: float,
+        active: bool | None,
+        payload: Mapping[str, Any],
+        state: Mapping[str, Any] | None = None,
+        code: str | None = None,
+    ) -> None:
+        form = payload.get("form")
+        form = form if isinstance(form, Mapping) else {}
+        identity = form.get("identity")
+        identity = identity if isinstance(identity, Mapping) else {}
+        public = state if isinstance(state, Mapping) else {}
+        event: dict[str, Any] = {
+            "component": "extension",
+            "step": "selection_cleared" if active is False else "selection_published",
+            "elapsed_ms": max(0, int((time.monotonic() - started) * 1000)),
+            "result": "error" if code and state is None else str(public.get("state") or "ok"),
+            "publisher_id": payload.get("publisher_id"),
+            "sequence": payload.get("sequence"),
+            "generation": public.get("generation", form.get("generation")),
+            "document_nonce": form.get("documentNonce", form.get("document_nonce")),
+            "observation_id": public.get("observation_id"),
+            "process": public.get("process_key") or identity.get("processKey") or identity.get("process_key"),
+            "interested": identity.get("interestedNormalized") or identity.get("interested_normalized"),
+            "form_state": public.get("state"),
+            "code": code or public.get("code"),
+        }
+        self.mesa.record_diagnostic(event)
+
     def post_portal_current_selection(self) -> None:
         """Extension: publish the form the operator has open, or clear it."""
 
         if not self._require_extension():
             return
+        started = time.monotonic()
         payload = self._read_json_body()
+        self._record_extension_diagnostic_sidecar(payload)
         active = payload.get("active")
         if not isinstance(active, bool):
+            self._record_current_selection_event(
+                started=started, active=None, payload=payload, code="INVALID_CURRENT_SELECTION"
+            )
             self._send_json({"error": "invalid_current_selection"}, status=400)
             return
         publisher_id = payload.get("publisher_id")
@@ -1139,6 +1317,9 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         if not active:
             code = str(payload.get("code") or "").strip().upper()
             if code not in PORTAL_INACTIVE_CODES:
+                self._record_current_selection_event(
+                    started=started, active=False, payload=payload, code="INVALID_CURRENT_SELECTION"
+                )
                 self._send_json({"error": "invalid_current_selection"}, status=400)
                 return
             try:
@@ -1147,6 +1328,9 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
                 )
             except PortalSelectionError as error:
                 conflict = error.code in {"PUBLISHER_OWNED", "STALE_PUBLISHER"}
+                self._record_current_selection_event(
+                    started=started, active=False, payload=payload, code=error.code
+                )
                 self._send_json(
                     {
                         "error": "current_selection_refused" if conflict else "invalid_current_selection",
@@ -1155,10 +1339,16 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
                     status=409 if conflict else 400,
                 )
                 return
+            self._record_current_selection_event(
+                started=started, active=False, payload=payload, state=state
+            )
             self._send_json(state)
             return
         form = payload.get("form")
         if not isinstance(form, Mapping):
+            self._record_current_selection_event(
+                started=started, active=True, payload=payload, code="INVALID_CURRENT_SELECTION"
+            )
             self._send_json({"error": "invalid_current_selection"}, status=400)
             return
         try:
@@ -1167,6 +1357,9 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             )
         except PortalSelectionError as error:
             conflict = error.code in {"PUBLISHER_OWNED", "STALE_PUBLISHER"}
+            self._record_current_selection_event(
+                started=started, active=True, payload=payload, code=error.code
+            )
             self._send_json(
                 {
                     "error": "current_selection_refused" if conflict else "invalid_current_selection",
@@ -1175,6 +1368,7 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
                 status=409 if conflict else 400,
             )
             return
+        self._record_current_selection_event(started=started, active=True, payload=payload, state=state)
         self._send_json(state)
 
     def post_portal_current_selection_fill(self) -> None:
@@ -1284,7 +1478,21 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         client_id = self._require_extension()
         if client_id is None:
             return
-        self._send_json({"command": self.mesa.fill.claim_extension_command(client_id)})
+        started = time.monotonic()
+        self.mesa.note_extension_heartbeat()
+        command = self.mesa.fill.claim_extension_command(client_id)
+        if command is not None:
+            self.mesa.record_diagnostic(
+                {
+                    "component": "mesa",
+                    "step": "command_sent",
+                    "elapsed_ms": max(0, int((time.monotonic() - started) * 1000)),
+                    "command_id": command.get("id"),
+                    "command_type": command.get("type"),
+                    "result": "claimed",
+                }
+            )
+        self._send_json({"command": command})
 
     def handle_command_status(self, query: dict[str, list[str]], command_id: str) -> None:
         if not self._require_session():
@@ -1403,12 +1611,24 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         if client_id is None:
             return
         payload = self._read_json_body()
+        self._record_extension_diagnostic_sidecar(payload)
         command = self.mesa.store.get_extension_command(int(command_id))
         if command is None:
             self._send_json(
                 {"error": "command_not_found", "command_id": int(command_id)}, status=404
             )
             return
+        self.mesa.record_diagnostic(
+            {
+                "component": "mesa",
+                "step": "command_result_received",
+                "command_id": int(command_id),
+                "command_type": command.get("type"),
+                "code": payload.get("code"),
+                "result": "ok" if payload.get("ok") is True else "error" if payload.get("ok") is False else "invalid",
+                "error": payload.get("error"),
+            }
+        )
         error, invalid = check_command_result(
             str(command.get("type") or ""), payload, command.get("payload")
         )
