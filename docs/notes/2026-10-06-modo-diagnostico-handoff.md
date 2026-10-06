@@ -1,8 +1,8 @@
 # Handoff — Modo Diagnóstico sempre ativo
 
 Data: 2026-10-06  
-Status: Tasks 1 e 2 concluídas e verificadas; Task 2 aguarda commit/push neste
-fechamento; Task 3 pendente.
+Status: Tasks 1 e 2 concluídas, commitadas, verificadas e enviadas ao upstream;
+falta commit/push desta atualização do handoff; Task 3 pendente.
 
 ## Objetivo e limites
 
@@ -23,8 +23,7 @@ funcionais.
 - Base da implementação: `67f0c9ec453c99cdd184c6ff8030ae6db0ecfdcc`.
 - Milestone documental (especificação/plano/handoff): `10c1c8e`, enviado ao
   upstream. Task 1: `0dfedf1`, implementada, testada e enviada ao upstream.
-- Task 2 implementada e verificada localmente; commit/push serão registrados
-  após este handoff.
+- Task 2: commit `d111eab` criado, validado e enviado ao upstream.
 - Manter checkout atual: branch prevista pelo projeto, sincronizada e sem código
   local pré-existente; não há necessidade de churn de branch/worktree.
 - Builder antigo `AR1_BUILD=88eed8ce...` não serve para esta mudança. O pacote
@@ -114,13 +113,12 @@ funcionais.
 
 ## GitHub
 
-- Commits `10c1c8e` e `0dfedf1` estão enviados ao upstream. Task 2 aguarda o
-  commit/push iniciado neste fechamento.
+- Commits `10c1c8e`, `0dfedf1` e `d111eab` estão enviados ao upstream. Este
+  registro do push será commitado em seguida.
 
 ## Retomada imediata
 
-1. Commitar e enviar a Task 2 e este handoff; registrar o SHA confirmado no
-   handoff/ledger e verificar branch sincronizada.
+1. Commitar e enviar esta atualização do handoff; verificar branch sincronizada.
 2. Executar Task 3–5 do plano com testes sintéticos/offline; preservar os
    fluxos funcionais.
 3. Reexecutar suítes com `%TEMP%` sob `tmp/` e, quando loopback/hard links forem
