@@ -49,6 +49,33 @@
         </div>
       </section>
 
+      <section class="panel diagnostics-panel" aria-labelledby="diagnostics-title">
+        <div class="diagnostics-heading">
+          <div>
+            <h2 id="diagnostics-title">Diagnóstico</h2>
+            <p class="muted">Linha do tempo local da Mesa, extensão e formulário observado.</p>
+          </div>
+          <span id="diagnostics-mode" class="diagnostics-mode" role="status" aria-live="polite">ON</span>
+        </div>
+        <dl class="diagnostics-grid">
+          <div><dt>Mesa</dt><dd id="diagnostics-mesa">—</dd></div>
+          <div><dt>Extensão</dt><dd id="diagnostics-extension">—</dd></div>
+          <div><dt>Portal</dt><dd id="diagnostics-portal">—</dd></div>
+          <div><dt>Último heartbeat</dt><dd id="diagnostics-heartbeat">—</dd></div>
+          <div><dt>Formulário</dt><dd><span id="diagnostics-form-state">—</span> <code id="diagnostics-form-code">—</code></dd></div>
+          <div><dt>Seleção atual</dt><dd><span id="diagnostics-selection-state">—</span> <code id="diagnostics-selection-code">—</code></dd></div>
+          <div><dt>Último comando</dt><dd><code id="diagnostics-command">—</code></dd></div>
+          <div><dt>Resultado</dt><dd><code id="diagnostics-result">—</code></dd></div>
+          <div><dt>Erro</dt><dd><code id="diagnostics-error">—</code></dd></div>
+        </dl>
+        <div class="diagnostics-actions">
+          <button id="diagnostics-toggle" class="ghost" type="button">Pausar diagnóstico</button>
+          <button id="diagnostics-clear" class="ghost" type="button">Limpar diagnóstico</button>
+          <button id="diagnostics-export" type="button">Exportar diagnóstico</button>
+          <span id="diagnostics-action-status" class="muted" role="status" aria-live="polite"></span>
+        </div>
+      </section>
+
       <div class="columns">
         <section class="panel" aria-labelledby="process-list-title">
           <h2 id="process-list-title">Processos</h2>

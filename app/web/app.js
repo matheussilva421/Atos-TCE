@@ -147,6 +147,7 @@ async function loadPdfjs() {
 
   /** Follow one fill request to its terminal state, for both entry points. */
   async function followFillRequest(processId, fillRequestId, status) {
+    const startedAt = Date.now();
     const deadline = Date.now() + 300000;
     for (;;) {
       await sleep(1000);
@@ -162,6 +163,7 @@ async function loadPdfjs() {
         if (status) {
           status.textContent = "O preenchimento não respondeu a tempo. Verifique a extensão.";
         }
+        reportCommandTimeout("FILL_FORM", fillRequestId, startedAt);
         return null;
       }
     }
@@ -221,6 +223,7 @@ async function loadPdfjs() {
     portalProcessId: null,
     portalObservation: null,
     portalPollRunning: false,
+    diagnostics: null,
   };
 
   const numberFormat = new Intl.NumberFormat("pt-BR");
@@ -273,6 +276,7 @@ async function loadPdfjs() {
       }
 
       status.textContent = "Abrindo próximo…";
+      const commandStartedAt = Date.now();
       const deadline = Date.now() + 300000;
       let ticks = 0;
       for (;;) {
@@ -303,6 +307,7 @@ async function loadPdfjs() {
         if (Date.now() > deadline) {
           state.nextProcessNeedsReview = true;
           status.textContent = "A solicitação não foi confirmada em 5 minutos. Verifique o portal antes de repetir.";
+          reportCommandTimeout("OPEN_NEXT_ACT", commandId, commandStartedAt);
           break;
         }
       }
@@ -377,6 +382,117 @@ async function loadPdfjs() {
       throw error;
     }
     return payload || {};
+  }
+
+  function renderDiagnostics(payload) {
+    state.diagnostics = { ...(state.diagnostics || {}), ...(payload || {}) };
+    const diagnostics = state.diagnostics;
+    const setText = (id, value) => {
+      document.getElementById(id).textContent = value === null || value === undefined || value === ""
+        ? "—"
+        : String(value);
+    };
+    const mode = document.getElementById("diagnostics-mode");
+    mode.textContent = diagnostics.paused ? "PAUSADO" : diagnostics.diagnostic_enabled ? "ON" : "OFF";
+    mode.setAttribute("data-paused", diagnostics.paused ? "true" : "false");
+    setText("diagnostics-mesa", diagnostics.mesa_state);
+    setText("diagnostics-extension", diagnostics.extension_state);
+    setText("diagnostics-portal", diagnostics.portal_state);
+    const heartbeatAge = diagnostics.heartbeat_age_ms;
+    setText(
+      "diagnostics-heartbeat",
+      heartbeatAge === null || heartbeatAge === undefined
+        ? "—"
+        : heartbeatAge >= 1000
+          ? `${(heartbeatAge / 1000).toFixed(1)} s`
+          : `${Math.max(0, heartbeatAge)} ms`
+    );
+    setText("diagnostics-form-state", diagnostics.form_state);
+    setText("diagnostics-form-code", diagnostics.form_code);
+    setText("diagnostics-selection-state", diagnostics.current_selection_state);
+    setText("diagnostics-selection-code", diagnostics.current_selection_code);
+    setText("diagnostics-command", diagnostics.last_command_type);
+    setText("diagnostics-result", diagnostics.last_result_code);
+    setText("diagnostics-error", diagnostics.last_error_code);
+    document.getElementById("diagnostics-toggle").textContent = diagnostics.paused
+      ? "Retomar diagnóstico"
+      : "Pausar diagnóstico";
+  }
+
+  async function refreshDiagnostics() {
+    try {
+      renderDiagnostics(await getJson("/api/v1/diagnostics"));
+      document.getElementById("diagnostics-action-status").textContent = "";
+      return state.diagnostics;
+    } catch (error) {
+      document.getElementById("diagnostics-action-status").textContent =
+        `Não foi possível atualizar o diagnóstico: ${error.message}`;
+      return null;
+    }
+  }
+
+  async function controlDiagnostics(action) {
+    const status = document.getElementById("diagnostics-action-status");
+    try {
+      renderDiagnostics(await postJson("/api/v1/diagnostics/control", { action }));
+      await refreshDiagnostics();
+      status.textContent = action === "pause"
+        ? "Diagnóstico pausado."
+        : action === "resume"
+          ? "Diagnóstico retomado."
+          : "Diagnóstico limpo; a captura continua ativa.";
+    } catch (error) {
+      status.textContent = `Ação de diagnóstico não concluída: ${error.message}`;
+    }
+  }
+
+  async function exportDiagnostics() {
+    const status = document.getElementById("diagnostics-action-status");
+    let objectUrl = null;
+    try {
+      const response = await fetch("/api/v1/diagnostics/export", {
+        headers: { Accept: "application/zip" },
+      });
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+      const disposition = response.headers?.get("Content-Disposition") || "";
+      const suggested = disposition.match(/filename="?([^";]+)"?/i)?.[1]?.trim();
+      const filename = suggested && /^[\w.-]+\.zip$/i.test(suggested)
+        ? suggested
+        : "diagnostico-atos-tce.zip";
+      objectUrl = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = filename;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      const downloadedObjectUrl = objectUrl;
+      objectUrl = null;
+      window.setTimeout(() => URL.revokeObjectURL(downloadedObjectUrl), 1000);
+      status.textContent = `Diagnóstico exportado: ${filename}`;
+    } catch (error) {
+      status.textContent = `Não foi possível exportar o diagnóstico: ${error.message}`;
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+  // Extension field timings arrive through its diagnostic_events sidecar; this
+  // event covers Mesa commands whose UI poll deadline expires first.
+  function reportCommandTimeout(commandType, commandId, startedAt) {
+    const event = {
+      step: "command_timeout",
+      code: "COMMAND_TIMEOUT",
+      command_type: commandType,
+      elapsed_ms: Math.max(0, Date.now() - startedAt),
+    };
+    if (commandId !== null && commandId !== undefined) event.command_id = commandId;
+    void postJson("/api/v1/diagnostics/events", { event }).catch((error) => {
+      const status = document.getElementById("diagnostics-action-status");
+      if (status) {
+        status.textContent = `O timeout ocorreu, mas não foi possível registrar o diagnóstico: ${error.message}`;
+      }
+    });
   }
 
   function renderFailures(items) {
@@ -586,6 +702,7 @@ async function loadPdfjs() {
     button.disabled = true;
     clearAreaCounters();
     status.textContent = "Solicitando a leitura do portal…";
+    const commandStartedAt = Date.now();
     try {
       const created = await postJson("/api/v1/area/analyze", {});
       status.textContent = "Analisando a Área Restrita…";
@@ -608,6 +725,7 @@ async function loadPdfjs() {
         }
         if (Date.now() > deadline) {
           status.textContent = "A análise não respondeu em 15 minutos. Verifique a extensão.";
+          reportCommandTimeout("ANALYZE_AREA", created.command_id, commandStartedAt);
           break;
         }
       }
@@ -1326,6 +1444,13 @@ async function loadPdfjs() {
     document.getElementById("handoff-session").addEventListener("click", handoffSession);
     document.getElementById("resume-acquisition").addEventListener("click", resumeAcquisition);
     document.getElementById("portal-follow-toggle").addEventListener("click", togglePortalFollow);
+    document.getElementById("diagnostics-toggle").addEventListener("click", () => {
+      return controlDiagnostics(state.diagnostics?.paused ? "resume" : "pause");
+    });
+    document.getElementById("diagnostics-clear").addEventListener("click", () => {
+      return controlDiagnostics("clear");
+    });
+    document.getElementById("diagnostics-export").addEventListener("click", exportDiagnostics);
 
     refreshHealth();
     refreshStorage();
@@ -1333,9 +1458,11 @@ async function loadPdfjs() {
     refreshArea();
     refreshAcquisition();
     refreshPortalSelection();
+    refreshDiagnostics();
     window.setInterval(() => {
       refreshHealth();
       if (!state.acquisitionRunning) refreshAcquisition();
+      refreshDiagnostics();
     }, 5000);
     // The follow polls faster than the 5 s dashboard refresh so a form the
     // operator opens is picked up while its 10 s server-side TTL is still valid.

@@ -316,6 +316,8 @@ git commit -m "feat: time extension diagnostic boundaries"
 ### Task 4: Mesa diagnostic panel and actions
 
 **Files:**
+- Modify: `app/api/server.py` (add sanitized current-selection code fields to diagnostic status)
+- Modify: `tests/test_api_server.py`
 - Modify: `app/web/index.html`
 - Modify: `app/web/app.js`
 - Modify: `app/web/app.css`
@@ -330,9 +332,10 @@ git commit -m "feat: time extension diagnostic boundaries"
   `POST /api/v1/diagnostics/control`; browser-observed command timeouts send a
   `COMMAND_TIMEOUT` event to `POST /api/v1/diagnostics/events`.
 - Export downloads the response from `GET /api/v1/diagnostics/export` under its
-  server-provided filename.
+  server-provided filename and delays object-URL revocation briefly so the
+  browser can consume the download.
 
-- [ ] **Step 1: Write DOM and behavior tests before the panel**
+- [x] **Step 1: Write DOM and behavior tests before the panel**
 
 Extend `app-boot.test.mjs` to assert the real boot starts a diagnostic refresh
 and binds all three controls. Extend `ui-wiring.test.mjs` with:
@@ -345,7 +348,12 @@ test("the Mesa sends pause, resume, clear, timeout and export to diagnostic rout
 The behavior test triggers click handlers in the existing stub DOM and checks
 actual fetch/download effects, not only matching source strings.
 
-- [ ] **Step 2: Verify RED, implement the minimal panel and export flow**
+The API status test also verifies that heartbeat refresh does not hide the
+current selection's machine code. This required two additive fields sourced
+from `portal_selection.public_state()`; the first test run failed on missing
+`form_code`, then passed after the minimal API change.
+
+- [x] **Step 2: Verify RED, implement the minimal panel and export flow**
 
 Run: `node --test app/web/tests/app-boot.test.mjs app/web/tests/ui-wiring.test.mjs`
 Expected: the new boot, status and action tests fail before panel wiring.
@@ -355,12 +363,12 @@ show machine codes and heartbeat age. Control/event request failures are shown
 in the panel and never interrupt another Mesa action. Add a short other-PC guide
 note explaining where to export the ZIP.
 
-- [ ] **Step 3: Run Mesa web suite**
+- [x] **Step 3: Run Mesa web suite**
 
 Run: `node --test app/web/tests/*.test.mjs`
 Expected: all web tests pass and `init()` still boots.
 
-- [ ] **Step 4: Commit Task 4**
+- [x] **Step 4: Commit Task 4**
 
 ```bash
 git add app/web/index.html app/web/app.js app/web/app.css app/web/tests/app-boot.test.mjs app/web/tests/ui-wiring.test.mjs LEIA-ME-OUTRO-PC.txt

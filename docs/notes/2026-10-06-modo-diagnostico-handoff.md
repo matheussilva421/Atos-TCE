@@ -1,8 +1,8 @@
 # Handoff — Modo Diagnóstico sempre ativo
 
 Data: 2026-10-06  
-Status: Tasks 1–3 concluídas, commitadas, verificadas e enviadas ao upstream;
-Task 4 pendente.
+Status: Tasks 1–3 concluídas, commitadas e enviadas ao upstream. Task 4
+implementada e verificada localmente; commit/push ainda pendente. Task 5 pendente.
 
 ## Objetivo e limites
 
@@ -64,6 +64,18 @@ funcionais.
   recebimento/execução de comandos e tempos `field_write`/`field_reread` por
   campo. O servidor existente remove o sidecar antes da lógica funcional;
   `field_results` e o resultado retornado pelo poll mantêm seu formato.
+- Task 4 adiciona painel responsivo de diagnóstico à Mesa, refresh inicial e
+  em cada ciclo existente de cinco segundos, pausa/retomada/limpeza, export sob
+  o nome retornado pelo servidor e registro fail-open de timeout em análise da
+  Área Restrita, preenchimento e próximo ato. Códigos atuais do formulário e da
+  seleção são expostos por duas chaves aditivas de `diagnostic_status()`, usando
+  somente `portal_selection.public_state()` sanitizado. A URL blob do ZIP é
+  revogada após breve atraso para permitir que o navegador consuma o download.
+- O teste da UI revelou que `diagnostic_status()` fornecia o estado da seleção,
+  mas não o código (`FORM_NOT_AVAILABLE`) necessário ao painel. Foi adicionada
+  cobertura RED em `tests/test_api_server.py` antes de acrescentar
+  `form_code`/`current_selection_code`; identidade, capacidade e seleção
+  funcional não foram alteradas.
 - A continuação explícita do objetivo foi interpretada como autorização para
   executar a arquitetura pragmática documentada e o plano, sem nova pausa para
   aprovação intermediária.
@@ -80,6 +92,9 @@ funcionais.
 - Task 3 alterou `extension/background/router.js` e
   `extension/content/fill-form.js`, com cobertura em
   `extension/tests/router.test.mjs` e `extension/tests/fill-form.test.mjs`.
+- Task 4 alterou `app/api/server.py`, `tests/test_api_server.py`,
+  `app/web/index.html`, `app/web/app.js`, `app/web/app.css`, testes web de boot
+  e wiring, e `LEIA-ME-OUTRO-PC.txt`.
 - Ledger de execução: `.superpowers/sdd/2026-10-06-modo-diagnostico/progress.md`
   (ignorado pelo Git conforme convenção do SDD).
 - O helper SDD não iniciou no host (erro MSYS `NtCreateDirectoryObject`, acesso
@@ -106,6 +121,17 @@ funcionais.
   121 testes, 121 passaram, 0 falharam. Inclui RED→GREEN de observação, sidecar,
   comando e tempos de escrita/readback.
 - `npm test --prefix extension`: 267 testes, 267 passaram, 0 falharam.
+- Task 4 RED: `node --test app/web/tests/app-boot.test.mjs
+  app/web/tests/ui-wiring.test.mjs` falhou antes do painel em quatro
+  verificações de boot/render/rotas; o teste da API falhou pela ausência de
+  `form_code`. Após a implementação, o foco web passou 40/40 e
+  `node --test app/web/tests/*.test.mjs` passou 69/69. Na revisão, um teste
+  adicional falhou ao exigir a revogação adiada da URL blob; após a correção,
+  a suíte web completa passou novamente 69/69.
+- API após a alteração do status: `python -m unittest discover -s tests -p
+  'test_api_server.py' -q` passou 153/153. A primeira solicitação de execução
+  foi interrompida antes de iniciar por desconexão temporária do serviço de
+  revisão automática; a repetição iniciou e concluiu normalmente.
 - `git diff --check` passou antes do commit das Tasks 2 e 3.
 - Baseline JS: `npm test --prefix extension` — 263/263; `node --test
   app/web/tests/*.test.mjs` — 65/65.
@@ -121,20 +147,21 @@ funcionais.
   ZIP negado em `%TEMP%` e runtime Python extraído que não iniciou. Reexecutar
   gates com temp em `tmp/` e distinguir restrições de sandbox das falhas reais.
 - `git diff --check` passou no código desta tarefa.
-- Smoke sintético, Task 4–5, suíte Python raiz final, web, contrato do
-  pacote, verificador legado, CI e ZIP novo continuam pendentes.
+- Smoke sintético, Task 5, suíte Python raiz final, contrato do pacote,
+  verificador legado, CI e ZIP novo continuam pendentes.
 
 ## GitHub
 
 - Commits `10c1c8e`, `0dfedf1`, `d111eab` e `9a4e1b1` estão enviados ao upstream.
-  Este handoff registra o estado da Task 3 e a retomada da Task 4.
+  Task 4 está validada localmente; alterações e handoff aguardam commit/push.
 
 ## Retomada imediata
 
-1. Executar Task 4–5 do plano com testes sintéticos/offline; preservar os
-   fluxos funcionais.
-2. Reexecutar suítes com `%TEMP%` sob `tmp/` e, quando loopback/hard links forem
+1. Fazer commit e push da Task 4 na branch existente após revisar o diff.
+2. Executar Task 5 do plano com teste sintético/offline; preservar os fluxos
+   funcionais.
+3. Reexecutar suítes com `%TEMP%` sob `tmp/` e, quando loopback/hard links forem
    bloqueados pelo sandbox, usar CI como gate do runtime. Corrigir qualquer
    falha de produto reproduzível.
-3. Após gates e commit final sincronizado, reconstruir e verificar ZIP, registrar
+4. Após gates e commit final sincronizado, reconstruir e verificar ZIP, registrar
    SHA/build ID/contagem de testes/CI e estado final neste handoff.

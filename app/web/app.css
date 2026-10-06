@@ -112,6 +112,81 @@ main {
   gap: 2px;
 }
 
+.diagnostics-heading,
+.diagnostics-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.diagnostics-heading h2 {
+  margin-bottom: 2px;
+}
+
+.diagnostics-heading p {
+  margin: 0;
+}
+
+.diagnostics-mode {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--ok-soft);
+  color: var(--ok);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.diagnostics-mode[data-paused="true"] {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: 12px 18px;
+  margin: 16px 0;
+}
+
+.diagnostics-grid div {
+  min-width: 0;
+}
+
+.diagnostics-grid dt {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.diagnostics-grid dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.diagnostics-grid code {
+  color: var(--accent);
+  font: 600 12px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+#diagnostics-heartbeat {
+  color: var(--busy);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.diagnostics-actions {
+  justify-content: flex-start;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.diagnostics-actions [role="status"] {
+  flex: 1 1 240px;
+}
+
 .storage-grid dt {
   font-size: 12px;
   color: var(--ink-soft);

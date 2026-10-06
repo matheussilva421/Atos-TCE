@@ -3404,6 +3404,19 @@ class DiagnosticApiTests(ApiTestCase):
         self.assertEqual(status["last_error_code"], "COMMAND_TIMEOUT")
         self.assertEqual(status["portal_state"], "NO_ACTIVE_FORM")
 
+    def test_diagnostic_status_exposes_current_selection_codes_after_heartbeat(self):
+        self.server.portal_selection.clear(
+            "FORM_NOT_AVAILABLE", publisher_id="c" * 32, sequence=1
+        )
+        self.server.note_extension_heartbeat()
+
+        status = self.server.diagnostic_status()
+
+        self.assertEqual(status["form_state"], "NO_ACTIVE_FORM")
+        self.assertEqual(status["form_code"], "FORM_NOT_AVAILABLE")
+        self.assertEqual(status["current_selection_state"], "NO_ACTIVE_FORM")
+        self.assertEqual(status["current_selection_code"], "FORM_NOT_AVAILABLE")
+
     def test_diagnostic_control_pauses_resumes_and_clears(self):
         opener = self.mesa_opener()
 

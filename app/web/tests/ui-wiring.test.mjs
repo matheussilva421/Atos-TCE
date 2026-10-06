@@ -5,6 +5,47 @@ import { readFileSync } from "node:fs";
 const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const page = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 
+test("the Mesa diagnostic panel exposes live statuses and recovery actions", () => {
+  for (const id of [
+    "diagnostics-mode",
+    "diagnostics-mesa",
+    "diagnostics-extension",
+    "diagnostics-portal",
+    "diagnostics-heartbeat",
+    "diagnostics-form-state",
+    "diagnostics-form-code",
+    "diagnostics-selection-state",
+    "diagnostics-selection-code",
+    "diagnostics-command",
+    "diagnostics-result",
+    "diagnostics-error",
+    "diagnostics-action-status",
+    "diagnostics-toggle",
+    "diagnostics-clear",
+    "diagnostics-export",
+  ]) {
+    assert.match(page, new RegExp(`id="${id}"`, "u"), `${id} is present`);
+  }
+  assert.match(page, /Diagnóstico/u);
+  assert.match(page, /Exportar diagnóstico/u);
+  assert.match(page, /Limpar diagnóstico/u);
+});
+
+test("the Mesa refreshes, controls, reports timeout and downloads diagnostic export", () => {
+  for (const expectation of [
+    /async function refreshDiagnostics\(\)/u,
+    /\/api\/v1\/diagnostics/u,
+    /\/api\/v1\/diagnostics\/control/u,
+    /\/api\/v1\/diagnostics\/events/u,
+    /\/api\/v1\/diagnostics\/export/u,
+    /command_timeout/u,
+    /createObjectURL/u,
+    /diagnostic_events/u,
+  ]) {
+    assert.match(source, expectation);
+  }
+});
+
 // The tab buttons re-render the detail from the remembered payload. When
 // ``renderDetail`` does not store it, the tabs only repaint the tab bar and the
 // documents/history tabs (and therefore the PDF viewer entry point) never open.
