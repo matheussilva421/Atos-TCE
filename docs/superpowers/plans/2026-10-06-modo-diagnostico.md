@@ -417,16 +417,19 @@ Execution evidence: the root Python suite passed 901/901; extension 267/267;
 web 69/69; package contract 20/20; diagnostic smoke 14/14. The supplementary
 `work/tce-extractor/verify-project.ps1` exits 1 after `Test-ProjectVerification.ps1`
 prints 23 passes and exits before its PID probe and summary. Other legacy scripts
-passed individually or earlier in that wrapper. Leave this step open until the
-legacy verifier passes or its specific host limitation is resolved and
-documented; do not infer a production failure from the incomplete test output.
+passed individually or earlier in that wrapper. A TTY rerun behaved the same;
+an isolated Python 3.14 `os.kill(os.getpid(), 0)` probe prints its marker and
+then the invoking PowerShell exits 1 before its next statement. The cause is
+localized to the PID probe/process-console interaction, but the legacy test
+still does not pass and remains a follow-up. Do not infer a production failure
+from this incomplete legacy output; the GitHub offline workflow excludes it.
 
-- [ ] **Step 4: Commit all final code/handoff before release build**
+- [x] **Step 4: Commit all final code/handoff before release build**
 
 Verify `git diff --check`, update the handoff with test evidence, commit, and
 push the final source. Confirm `HEAD == @{u}` before building.
 
-- [ ] **Step 5: Build a new portable ZIP from the final clean SHA**
+- [x] **Step 5: Build a new portable ZIP from the final clean SHA**
 
 Run:
 
@@ -437,15 +440,27 @@ powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 
 Get-FileHash -LiteralPath .\dist\Atos-TCE-diagnostic.zip -Algorithm SHA256
 ```
 
-Confirm manifest `build_id` equals `HEAD`, required diagnostic source is in the
-ZIP, package smoke passes, no private/prohibited entries exist, and the SHA-256
-reported by the builder equals the independent `Get-FileHash` result. Write a
-`.sha256` sidecar from that verified hash if the current `dist/` convention
-requires it.
+Confirm manifest `build_id` equals `HEAD`, `app/area_restrita/diagnostics.py`
+is in the ZIP, package smoke passes, no private/prohibited entries exist, and
+the SHA-256 reported by the builder equals the independent `Get-FileHash`
+result. The development-only `scripts/portal-lab/diagnostics-smoke.py` is
+intentionally omitted by the package builder; the runtime diagnostic source is
+included. Write a `.sha256` sidecar from that verified hash if the current
+`dist/` convention requires it.
 
-- [ ] **Step 6: Confirm GitHub CI and complete the handoff**
+Result: commit/build ID `b9417151fa7ada3204cd2d28514e9ce5ae20c464`; 526 ZIP
+entries including the runtime (430 files); `verify-package.ps1` health smoke
+passed with matching runtime/build IDs. ZIP size 96,232,000 bytes and SHA-256
+`3594cf46ea9de442e36695d00600a20960442677196a309376c144dc6727ebb5`; the
+independent hash and `dist/Atos-TCE-diagnostic.zip.sha256` sidecar match.
+
+- [x] **Step 6: Confirm GitHub CI and complete the handoff**
 
 Check the workflow run for the final pushed SHA; report status and any missing
 external CI permission honestly. Update the handoff with final SHA, CI run,
 artifact path/size/hash, gate counts, synthetic-only boundary and remaining
 human steps. Commit/push that handoff and verify a clean synchronized branch.
+
+Result: CI run #294 for runtime/source SHA `b9417151fa7ada3204cd2d28514e9ce5ae20c464`
+passed. This final documentation-only commit records its URL and the verified
+artifact/hash; the smoke used only synthetic events and no real portal.

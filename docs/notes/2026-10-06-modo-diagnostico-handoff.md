@@ -2,8 +2,10 @@
 
 Data: 2026-10-06  
 Status: Tasks 1–4 concluídas, commitadas, verificadas e enviadas ao upstream.
-Task 5: smoke e gates da fonte atual concluídos; o verificador legado teve uma
-falha de execução; commit final, ZIP novo e consulta do CI ainda pendentes.
+Task 5: smoke, gates da fonte atual, CI e ZIP novo concluídos. O verificador
+legado local ainda encerra no probe de PID; a interação com o probe Python 3.14
+foi reproduzida, mas não alterada. Este handoff final acompanha o commit de
+documentação que fecha o pacote.
 
 ## Objetivo e limites
 
@@ -33,6 +35,14 @@ funcionais.
   correlacionado com write/readback, `COMMAND_TIMEOUT`, seis membros exatos,
   build/versão/capabilities e ausência de sentinel de segredo. Nenhum portal,
   Chrome, dado de produção ou credencial foi usado.
+- Commit `b9417151fa7ada3204cd2d28514e9ce5ae20c464` enviado ao upstream. ZIP novo
+  `dist/Atos-TCE-diagnostic.zip`: 96.232.000 bytes, 526 entradas, 430 arquivos
+  de runtime, build ID correspondente ao commit e SHA-256
+  `3594cf46ea9de442e36695d00600a20960442677196a309376c144dc6727ebb5`.
+  `verify-package.ps1` e seu health smoke passaram. A harness em
+  `scripts/portal-lab/` é ferramenta de desenvolvimento e não é copiada pelo
+  builder; `app/area_restrita/diagnostics.py` e os demais fontes de produção
+  estão no ZIP. Sidecar `.sha256` criado e conferido.
 - Manter checkout atual: branch prevista pelo projeto, sincronizada e sem código
   local pré-existente; não há necessidade de churn de branch/worktree.
 - Builder antigo `AR1_BUILD=88eed8ce...` não serve para esta mudança. O pacote
@@ -173,29 +183,49 @@ funcionais.
   empacotado no PATH; termina com código 1 após os primeiros três testes
   PowerShell (20, 100 e 31 passaram). `Test-ProjectVerification.ps1`, também
   executado isoladamente, imprime 23 `PASS` e encerra antes da verificação de
-  PID/resumo, sem mensagem de falha. `Test-QAChromeLauncher.ps1`,
+  PID/resumo, sem mensagem de falha. O rerun em TTY teve o mesmo resultado. A
+  reprodução direta de `python.exe -c 'import os; os.kill(os.getpid(), 0); ...'`
+  imprimiu o marcador Python, mas o PowerShell invocador saiu com código 1 sem
+  executar a instrução seguinte; a falha está localizada na interação do probe
+  Python 3.14 com o processo/console do runner, sem alteração da árvore legada.
+  `Test-QAChromeLauncher.ps1`,
   `Test-TcePortable.ps1` e `Test-WorkspaceCleanup.ps1` passaram isoladamente.
-  Falha do verificador legado permanece aberta; a árvore legada não foi
-  alterada.
+  A causa interna do encerramento do runner permanece aberta; a árvore legada
+  não foi alterada.
+- Build novo: `packaging/build-portable.ps1 -OutputPath
+  .\dist\Atos-TCE-diagnostic.zip -Force`; build ID `b9417151fa7ada3204cd2d28514e9ce5ae20c464`,
+  526 entradas e runtime fixado reutilizado após verificação.
+- Verificação: `packaging/verify-package.ps1 -ZipPath
+  .\dist\Atos-TCE-diagnostic.zip -ExpectedBuildId b9417151fa7ada3204cd2d28514e9ce5ae20c464`;
+  passou com health `ok`, runtime build ID igual ao commit e extensão `0.1.0`.
+  O manifesto/contrato do ZIP foi validado; fontes diagnósticos esperados
+  presentes e nenhum caminho proibido.
+- Independente `Get-FileHash -Algorithm SHA256` e
+  `dist/Atos-TCE-diagnostic.zip.sha256`: ambos
+  `3594cf46ea9de442e36695d00600a20960442677196a309376c144dc6727ebb5`;
+  tamanho 96.232.000 bytes.
+- GitHub Actions [Mesa Local offline gates, run #294](https://github.com/matheussilva421/Atos-TCE/actions/runs/37476855907):
+  `Offline gates (Windows)` concluído com sucesso para o SHA `b941715`.
+  O workflow executa as suítes Python raiz, extensão, web, contrato do pacote e
+  `git diff --check`; não executa o verificador legado.
 - `git diff --check`: passou após o smoke final.
-- Falta executar o verificador do ZIP novo, consultar CI do SHA final e
-  registrar build ID, caminho, tamanho e SHA-256 neste handoff.
+- Única ressalva: `Test-ProjectVerification.ps1` não chega ao resumo por
+  interrupção no probe de PID, inclusive em TTY. Os gates atuais da raiz e o CI
+  passaram; a pipeline do GitHub não inclui esse verificador legado.
 
 ## GitHub
 
-- Commits `10c1c8e`, `0dfedf1`, `d111eab`, `9a4e1b1` e `2d3b2ea` estão
-  enviados ao upstream. O último push confirmado é `9a5ea59`; a smoke harness e
-  a atualização dos resultados dos gates aguardam commit/push.
+- Commits `10c1c8e`, `0dfedf1`, `d111eab`, `9a4e1b1`, `2d3b2ea`, `9a5ea59` e
+  `b941715` estão enviados ao upstream. `b941715` é o SHA do código de runtime
+  e do pacote; este commit subsequente atualiza somente o handoff/plano. A
+  branch será conferida limpa e sincronizada após este commit.
 
 ## Retomada imediata
 
-1. Fazer commit/push da smoke harness, plano e evidência dos gates no branch
-   atual. Não alterar `work/tce-extractor/` para contornar a falha do teste
-   legado sem uma reprodução/causa concreta.
-2. Confirmar `HEAD == @{u}` e árvore limpa; reconstruir
-   `dist/Atos-TCE-diagnostic.zip` do zero e executar `verify-package.ps1` com o
-   SHA do commit.
-3. Consultar checks do GitHub no SHA final, anotar status, tamanho e SHA-256 do
-   ZIP; atualizar, commitar e enviar este handoff final.
-4. Confirmar branch sincronizada e limpa. Smoke é somente sintético; não
+1. O único follow-up opcional é investigar o runner legado em outro host que
+   consiga executar o probe de PID sem interromper o processo de teste. Não
+   alterar a árvore legada sem causa reproduzida.
+2. Confirmar o commit desta atualização sincronizado e a árvore limpa.
+3. `dist/Atos-TCE-diagnostic.zip` foi reconstruído do zero e verificado para o
+   SHA de runtime `b941715`; não reutilizar ZIP antigo. Smoke é sintético e não
    demonstra qualificação no portal real nem habilita envio automático.
