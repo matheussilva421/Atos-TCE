@@ -1,8 +1,8 @@
 # Handoff — Modo Diagnóstico sempre ativo
 
 Data: 2026-10-06  
-Status: Tasks 1 e 2 concluídas, commitadas, verificadas e enviadas ao upstream;
-Task 3 pendente.
+Status: Tasks 1–3 concluídas, commitadas, verificadas e enviadas ao upstream;
+Task 4 pendente.
 
 ## Objetivo e limites
 
@@ -24,6 +24,7 @@ funcionais.
 - Milestone documental (especificação/plano/handoff): `10c1c8e`, enviado ao
   upstream. Task 1: `0dfedf1`, implementada, testada e enviada ao upstream.
 - Task 2: commit `d111eab` criado, validado e enviado ao upstream.
+- Task 3: commit `9a4e1b1` criado, validado e enviado ao upstream.
 - Manter checkout atual: branch prevista pelo projeto, sincronizada e sem código
   local pré-existente; não há necessidade de churn de branch/worktree.
 - Builder antigo `AR1_BUILD=88eed8ce...` não serve para esta mudança. O pacote
@@ -58,6 +59,11 @@ funcionais.
 - O status agregado conserva último comando/resultado/erro mesmo após heartbeat.
   `portal_state` só indica `OK` quando current-selection está `MATCHED`; sem
   formulário mostra `NO_ACTIVE_FORM`.
+- Task 3 acrescentou `monotonicNow` injetável, tempos de `portal_detected`,
+  `frames_scanned` e `form_detected`, sidecar sibling no current-selection,
+  recebimento/execução de comandos e tempos `field_write`/`field_reread` por
+  campo. O servidor existente remove o sidecar antes da lógica funcional;
+  `field_results` e o resultado retornado pelo poll mantêm seu formato.
 - A continuação explícita do objetivo foi interpretada como autorização para
   executar a arquitetura pragmática documentada e o plano, sem nova pausa para
   aprovação intermediária.
@@ -71,6 +77,9 @@ funcionais.
   `app/area_restrita/diagnostics.py`; adicionou cobertura em
   `tests/test_api_server.py`, `tests/test_fill_service.py` e
   `tests/test_area_restrita_diagnostics.py`, com pequeno ajuste no plano.
+- Task 3 alterou `extension/background/router.js` e
+  `extension/content/fill-form.js`, com cobertura em
+  `extension/tests/router.test.mjs` e `extension/tests/fill-form.test.mjs`.
 - Ledger de execução: `.superpowers/sdd/2026-10-06-modo-diagnostico/progress.md`
   (ignorado pelo Git conforme convenção do SDD).
 - O helper SDD não iniciou no host (erro MSYS `NtCreateDirectoryObject`, acesso
@@ -93,7 +102,11 @@ funcionais.
   0 falharam.
 - `python -m unittest tests.test_api_server -q` (loopback local autorizado):
   152 testes, 152 passaram, 0 falharam.
-- `git diff --check` passou após a implementação da Task 2.
+- `node --test extension/tests/fill-form.test.mjs extension/tests/router.test.mjs`:
+  121 testes, 121 passaram, 0 falharam. Inclui RED→GREEN de observação, sidecar,
+  comando e tempos de escrita/readback.
+- `npm test --prefix extension`: 267 testes, 267 passaram, 0 falharam.
+- `git diff --check` passou antes do commit das Tasks 2 e 3.
 - Baseline JS: `npm test --prefix extension` — 263/263; `node --test
   app/web/tests/*.test.mjs` — 65/65.
 - Baseline focada com `%TEMP%` dentro de `tmp/`: `test_fill_service.py` 106/106
@@ -108,17 +121,17 @@ funcionais.
   ZIP negado em `%TEMP%` e runtime Python extraído que não iniciou. Reexecutar
   gates com temp em `tmp/` e distinguir restrições de sandbox das falhas reais.
 - `git diff --check` passou no código desta tarefa.
-- Smoke sintético, Task 3–5, suíte Python raiz final, extensão/web, contrato do
+- Smoke sintético, Task 4–5, suíte Python raiz final, web, contrato do
   pacote, verificador legado, CI e ZIP novo continuam pendentes.
 
 ## GitHub
 
-- Commits `10c1c8e`, `0dfedf1` e `d111eab` estão enviados ao upstream; o
-  handoff deste marco também foi atualizado e enviado.
+- Commits `10c1c8e`, `0dfedf1`, `d111eab` e `9a4e1b1` estão enviados ao upstream.
+  Este handoff registra o estado da Task 3 e a retomada da Task 4.
 
 ## Retomada imediata
 
-1. Executar Task 3–5 do plano com testes sintéticos/offline; preservar os
+1. Executar Task 4–5 do plano com testes sintéticos/offline; preservar os
    fluxos funcionais.
 2. Reexecutar suítes com `%TEMP%` sob `tmp/` e, quando loopback/hard links forem
    bloqueados pelo sandbox, usar CI como gate do runtime. Corrigir qualquer
