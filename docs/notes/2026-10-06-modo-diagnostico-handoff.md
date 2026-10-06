@@ -64,7 +64,8 @@ threshold SLOW de 2.000 ms, endpoints Mesa, UI, ZIP e gates.
   `git diff --check` passou. A revisão humana da especificação ainda está
   pendente.
 - Nenhum smoke sintético, build de ZIP ou CI foi executado nesta etapa.
-- Commit/push da especificação e atualização deste handoff: pendentes.
+- Especificação e handoff commitados em `9057b82` e enviados para
+  `origin/codex/area-restrita-reliability-reset`.
 
 ## Retomada
 
