@@ -2,7 +2,7 @@
 
 Data: 2026-10-06  
 Status: Tasks 1 e 2 concluídas, commitadas, verificadas e enviadas ao upstream;
-falta commit/push desta atualização do handoff; Task 3 pendente.
+Task 3 pendente.
 
 ## Objetivo e limites
 
@@ -113,16 +113,15 @@ funcionais.
 
 ## GitHub
 
-- Commits `10c1c8e`, `0dfedf1` e `d111eab` estão enviados ao upstream. Este
-  registro do push será commitado em seguida.
+- Commits `10c1c8e`, `0dfedf1` e `d111eab` estão enviados ao upstream; o
+  handoff deste marco também foi atualizado e enviado.
 
 ## Retomada imediata
 
-1. Commitar e enviar esta atualização do handoff; verificar branch sincronizada.
-2. Executar Task 3–5 do plano com testes sintéticos/offline; preservar os
+1. Executar Task 3–5 do plano com testes sintéticos/offline; preservar os
    fluxos funcionais.
-3. Reexecutar suítes com `%TEMP%` sob `tmp/` e, quando loopback/hard links forem
+2. Reexecutar suítes com `%TEMP%` sob `tmp/` e, quando loopback/hard links forem
    bloqueados pelo sandbox, usar CI como gate do runtime. Corrigir qualquer
    falha de produto reproduzível.
-4. Após gates e commit final sincronizado, reconstruir e verificar ZIP, registrar
+3. Após gates e commit final sincronizado, reconstruir e verificar ZIP, registrar
    SHA/build ID/contagem de testes/CI e estado final neste handoff.
