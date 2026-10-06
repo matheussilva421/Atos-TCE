@@ -1,8 +1,8 @@
 # Handoff — Modo Diagnóstico sempre ativo
 
 Data: 2026-10-06  
-Status: Tasks 1–3 concluídas, commitadas e enviadas ao upstream. Task 4
-implementada e verificada localmente; commit/push ainda pendente. Task 5 pendente.
+Status: Tasks 1–4 concluídas, commitadas, verificadas e enviadas ao upstream.
+Task 5 pendente.
 
 ## Objetivo e limites
 
@@ -25,6 +25,7 @@ funcionais.
   upstream. Task 1: `0dfedf1`, implementada, testada e enviada ao upstream.
 - Task 2: commit `d111eab` criado, validado e enviado ao upstream.
 - Task 3: commit `9a4e1b1` criado, validado e enviado ao upstream.
+- Task 4: commit `2d3b2ea` criado, validado e enviado ao upstream.
 - Manter checkout atual: branch prevista pelo projeto, sincronizada e sem código
   local pré-existente; não há necessidade de churn de branch/worktree.
 - Builder antigo `AR1_BUILD=88eed8ce...` não serve para esta mudança. O pacote
@@ -152,16 +153,15 @@ funcionais.
 
 ## GitHub
 
-- Commits `10c1c8e`, `0dfedf1`, `d111eab` e `9a4e1b1` estão enviados ao upstream.
-  Task 4 está validada localmente; alterações e handoff aguardam commit/push.
+- Commits `10c1c8e`, `0dfedf1`, `d111eab`, `9a4e1b1` e `2d3b2ea` estão
+  enviados ao upstream. O repositório foi atualizado após confirmar o push.
 
 ## Retomada imediata
 
-1. Fazer commit e push da Task 4 na branch existente após revisar o diff.
-2. Executar Task 5 do plano com teste sintético/offline; preservar os fluxos
+1. Executar Task 5 do plano com teste sintético/offline; preservar os fluxos
    funcionais.
-3. Reexecutar suítes com `%TEMP%` sob `tmp/` e, quando loopback/hard links forem
+2. Reexecutar suítes com `%TEMP%` sob `tmp/` e, quando loopback/hard links forem
    bloqueados pelo sandbox, usar CI como gate do runtime. Corrigir qualquer
    falha de produto reproduzível.
-4. Após gates e commit final sincronizado, reconstruir e verificar ZIP, registrar
+3. Após gates e commit final sincronizado, reconstruir e verificar ZIP, registrar
    SHA/build ID/contagem de testes/CI e estado final neste handoff.
