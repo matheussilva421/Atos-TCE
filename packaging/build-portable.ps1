@@ -5,7 +5,9 @@ param(
     [string]$RuntimeStaging = 'staging-runtime',
     [switch]$SkipRuntime,
     [switch]$Force,
-    [switch]$KeepStaging
+    [switch]$KeepStaging,
+    [switch]$AllowDirtySource,
+    [switch]$EnableManualFormFillQualificationBootstrap
 )
 
 $ErrorActionPreference = 'Stop'
@@ -176,6 +178,30 @@ foreach ($protected in @('data', 'work', 'app', 'extension', 'packaging', 'tests
 }
 [IO.Directory]::CreateDirectory((Split-Path -Parent $outputZip)) | Out-Null
 
+# ---------------------------------------------------------------- provenance
+# The build id is the commit this artefact was produced from. Without it a
+# stale ZIP keeps verifying while shipping code older than the fixes it claims
+# to contain, so a normal build refuses to run without a resolvable SHA or on a
+# tree that still has uncommitted source changes.
+$gitOutput = @(& git -C $RepositoryRoot rev-parse HEAD 2>$null)
+$buildId = if ($gitOutput.Count -gt 0) { ([string]$gitOutput[0]).Trim() } else { '' }
+if ($buildId -notmatch '^[0-9a-fA-F]{7,64}$') {
+    throw 'Pacote de release recusado: não foi possível resolver o SHA do Git (git rev-parse HEAD).'
+}
+if (-not $AllowDirtySource) {
+    $pendingChanges = @(& git -C $RepositoryRoot status --porcelain 2>$null)
+    if ($pendingChanges.Count -gt 0) {
+        throw 'Pacote de release recusado: working tree contém alterações não commitadas.'
+    }
+}
+if ($AllowDirtySource -and -not $SkipRuntime) {
+    throw 'AllowDirtySource é apenas para fixtures de contrato (-SkipRuntime); um artefato de release precisa de árvore commitada.'
+}
+$bootstrapSource = Join-Path $RepositoryRoot 'app\reliability-bootstrap.json'
+if (Test-Path -LiteralPath $bootstrapSource) {
+    throw 'app/reliability-bootstrap.json é gerado pelo empacotador e não pode existir na árvore-fonte.'
+}
+
 $packageStaging = Assert-ValidStagingRoot -Path $StagingRoot -RepositoryRoot $RepositoryRoot
 $runtimeStagingRoot = Assert-ValidStagingRoot -Path $RuntimeStaging -RepositoryRoot $RepositoryRoot
 
@@ -229,6 +255,18 @@ if (Test-Path -LiteralPath $temporaryZip) { Remove-Item -LiteralPath $temporaryZ
 try {
     Copy-Tree -SourcePath (Join-Path $RepositoryRoot 'app') -DestinationPath (Join-Path $packageStaging 'app') -Label 'app' -ExcludedDirectoryNames $sourceExcludedDirectories -ExcludedFileSuffixes $sourceExcludedSuffixes -ForbiddenFileSuffixes $sourceForbiddenSuffixes
     Copy-Tree -SourcePath (Join-Path $RepositoryRoot 'extension') -DestinationPath (Join-Path $packageStaging 'extension') -Label 'extension' -ExcludedDirectoryNames $sourceExcludedDirectories -ExcludedFileSuffixes $sourceExcludedSuffixes -ForbiddenFileSuffixes $sourceForbiddenSuffixes
+    if ($EnableManualFormFillQualificationBootstrap) {
+        $bootstrapPayload = [pscustomobject]@{
+            schema = 1
+            build_id = $buildId
+            capabilities = [pscustomobject]@{ manual_form_fill = 'EXPERIMENTAL' }
+        } | ConvertTo-Json -Depth 4
+        [IO.File]::WriteAllText(
+            (Join-Path $packageStaging 'app\reliability-bootstrap.json'),
+            $bootstrapPayload,
+            (New-Object System.Text.UTF8Encoding($false))
+        )
+    }
     Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'START.cmd') -Destination (Join-Path $packageStaging 'START.cmd') -Force
     Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'README.md') -Destination (Join-Path $packageStaging 'README.md') -Force
     Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'LEIA-ME-OUTRO-PC.txt') -Destination (Join-Path $packageStaging 'LEIA-ME-OUTRO-PC.txt') -Force
@@ -246,6 +284,56 @@ try {
         Write-Warning 'Pacote montado sem runtime: é fixture de contrato, nunca um artefato de release.'
     }
 
+    # ------------------------------------------------------------- manifest
+    # Inventory the product bytes exactly as staged, so the ZIP can prove which
+    # build it contains. The embedded runtime and licences stay under
+    # runtime-manifest.json, and this manifest is not a source itself.
+    $productPaths = New-Object System.Collections.Generic.List[string]
+    foreach ($productRoot in @('app', 'extension')) {
+        $productRootPath = Join-Path $packageStaging $productRoot
+        if (-not (Test-Path -LiteralPath $productRootPath -PathType Container)) { continue }
+        foreach ($productFile in @(Get-ChildItem -LiteralPath $productRootPath -Recurse -Force -File)) {
+            $productRelative = $productFile.FullName.Substring($packageStaging.TrimEnd('\').Length).TrimStart('\')
+            $productPaths.Add($productRelative.Replace('\', '/'))
+        }
+    }
+    foreach ($productSingle in @('START.cmd', 'README.md', 'LEIA-ME-OUTRO-PC.txt', 'scripts/scan-area-cdp.ps1')) {
+        if (Test-Path -LiteralPath (Join-Path $packageStaging $productSingle) -PathType Leaf) {
+            $productPaths.Add($productSingle)
+        }
+    }
+    if ($SkipRuntime) {
+        # Without the embedded runtime there is no runtime contract, so the
+        # licences are product source like anything else and must be declared;
+        # with the runtime present they stay under runtime-manifest.json.
+        $licenceRoot = Join-Path $packageStaging 'licenses'
+        if (Test-Path -LiteralPath $licenceRoot -PathType Container) {
+            foreach ($licenceFile in @(Get-ChildItem -LiteralPath $licenceRoot -Recurse -Force -File)) {
+                $licenceRelative = $licenceFile.FullName.Substring($packageStaging.TrimEnd('\').Length).TrimStart('\')
+                $productPaths.Add($licenceRelative.Replace('\', '/'))
+            }
+        }
+    }
+    $orderedProductPaths = @($productPaths | Select-Object -Unique)
+    [Array]::Sort($orderedProductPaths, [System.StringComparer]::Ordinal)
+    $manifestFiles = @()
+    foreach ($productRelative in $orderedProductPaths) {
+        $stagedProduct = Join-Path $packageStaging $productRelative
+        $stagedItem = Get-Item -LiteralPath $stagedProduct
+        $manifestFiles += [pscustomobject]@{
+            path = $productRelative
+            size = [long]$stagedItem.Length
+            sha256 = (Get-FileHash -LiteralPath $stagedProduct -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+    }
+    $manifestJson = ([pscustomobject]@{
+        schema = 1
+        build_id = $buildId
+        source_dirty = [bool]$AllowDirtySource
+        files = $manifestFiles
+    } | ConvertTo-Json -Depth 6)
+    [IO.File]::WriteAllText((Join-Path $packageStaging 'package-manifest.json'), $manifestJson, (New-Object System.Text.UTF8Encoding($false)))
+
     Assert-PackageStagingSafe -Root $packageStaging
 
     Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -260,13 +348,17 @@ try {
     }
 }
 
-$verifyArguments = @{ ZipPath = $outputZip; SkipSmoke = $true }
+$verifyArguments = @{ ZipPath = $outputZip; SkipSmoke = $true; ExpectedBuildId = $buildId }
 if ($SkipRuntime) { $verifyArguments['AllowMissingRuntime'] = $true }
+if ($EnableManualFormFillQualificationBootstrap) {
+    $verifyArguments['RequireManualFormFillQualificationBootstrap'] = $true
+}
 $verification = & (Join-Path $PSScriptRoot 'verify-package.ps1') @verifyArguments
 
 $zipItem = Get-Item -LiteralPath $outputZip
 [pscustomobject]@{
     output = $outputZip
+    build_id = $buildId
     bytes = [long]$zipItem.Length
     sha256 = (Get-FileHash -LiteralPath $outputZip -Algorithm SHA256).Hash.ToLowerInvariant()
     runtime = $runtimeState

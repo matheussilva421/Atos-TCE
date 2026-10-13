@@ -38,11 +38,13 @@ AREA_SUMMARY_FIELDS = (
 AREA_COUNTER_FIELDS = ("total", "pending", "completed", "ambiguous", "blocked", "not_found")
 
 
-def health_payload(store: Store, data_root: Path) -> dict[str, Any]:
+def health_payload(
+    store: Store, data_root: Path, build_id: str | None = None
+) -> dict[str, Any]:
     """Report that the Mesa is answering and which schema it is reading."""
 
     summary = store.storage_summary()
-    return {
+    payload = {
         "status": "ok",
         "api_version": API_VERSION,
         "schema_version": summary["schema_version"],
@@ -50,6 +52,11 @@ def health_payload(store: Store, data_root: Path) -> dict[str, Any]:
         "database": str(store.path),
         "process_count": summary["processes"]["total"],
     }
+    if build_id:
+        # Sanitized provenance: which build this runtime is serving, so a packaged
+        # smoke can prove the extracted artefact matches its own manifest.
+        payload["build_id"] = str(build_id)
+    return payload
 
 
 def process_list_payload(

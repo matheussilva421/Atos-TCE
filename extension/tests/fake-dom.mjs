@@ -382,7 +382,7 @@ export function buildActFormDocument({
       row.append(cell(person), control);
       table.append(row);
     }
-    documentRef.body.append(table);
+    form.append(table);
   }
 
   if (hiddenAncestor) {

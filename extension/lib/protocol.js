@@ -19,6 +19,9 @@ export const MESSAGE_TYPES = Object.freeze({
   MESA_STATUS: "MESA_STATUS",
   REQUEST_MANUAL_FILL: "REQUEST_MANUAL_FILL",
   REQUEST_NEXT_ACT: "REQUEST_NEXT_ACT",
+  READ_NEXT_ACT_STATUS: "READ_NEXT_ACT_STATUS",
+  RELIABILITY_STATUS: "RELIABILITY_STATUS",
+  REPORT_AR1_ATTEMPT: "REPORT_AR1_ATTEMPT",
 });
 
 /** Command types the Mesa may queue. There is still no submit type. */
@@ -62,5 +65,16 @@ export function isSupportedCommand(type) {
 }
 
 export function isPortalUrl(url) {
-  return typeof url === "string" && url.startsWith(PORTAL_ORIGIN);
+  if (typeof url !== "string") return false;
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === "https:" &&
+      parsed.origin === PORTAL_ORIGIN &&
+      parsed.username === "" &&
+      parsed.password === ""
+    );
+  } catch {
+    return false;
+  }
 }

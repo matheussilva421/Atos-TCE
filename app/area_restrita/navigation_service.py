@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..core.identity import normalize_interested
-from ..core.store import Store
+from ..core.store import Store, StoreError
 
 
 class NavigationError(ValueError):
@@ -34,7 +34,13 @@ def _same_identity(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
     right_interested = normalize_interested(
         right.get("interested_normalized") or right.get("interestedNormalized") or ""
     )
-    return bool(left_key and left_interested and left_key == right_key and left_interested == right_interested)
+    left_act_id = str(left.get("portal_act_id") or left.get("portalActId") or "").strip()
+    right_act_id = str(right.get("portal_act_id") or right.get("portalActId") or "").strip()
+    if left_key != right_key or not left_key:
+        return False
+    if left_act_id and right_act_id:
+        return left_act_id == right_act_id
+    return bool(left_interested and right_interested and left_interested == right_interested)
 
 
 class NavigationService:
@@ -126,8 +132,8 @@ class NavigationService:
                 and target.get("area_classification") == "PRECISA_COMPLEMENTAR"
             ):
                 return {
-                    "current_identity": _identity_of(current),
-                    "target_identity": _identity_of(target),
+                    "current_identity": _identity_of(current_item),
+                    "target_identity": _identity_of(item),
                     "current_process_id": int(current["id"]),
                     "target_process_id": target_id,
                     "scan_id": scan_id,
@@ -165,13 +171,21 @@ class NavigationService:
             portal_act_id = identity.get("portalActId") or identity.get("portal_act_id")
             if not process_key:
                 raise NavigationError("invalid_identity")
-            candidates = [
-                process
-                for process in self._store.list_processes()
-                if str(process.get("process_key") or "") == process_key
-                and (not interested or normalize_interested(process.get("interested_normalized")) == interested)
-                and (portal_act_id is None or str(process.get("portal_act_id") or "") == str(portal_act_id))
-            ]
+            if interested:
+                try:
+                    resolved = self._store.resolve_process_identity(
+                        process_key, interested, str(portal_act_id) if portal_act_id else None
+                    )
+                except StoreError:
+                    raise NavigationError("ambiguous_identity") from None
+                candidates = [resolved] if resolved is not None else []
+            else:
+                candidates = [
+                    process
+                    for process in self._store.list_processes()
+                    if str(process.get("process_key") or "") == process_key
+                    and (portal_act_id is None or str(process.get("portal_act_id") or "") == str(portal_act_id))
+                ]
             if not candidates:
                 raise NavigationError("current_process_not_found")
             if len(candidates) != 1:

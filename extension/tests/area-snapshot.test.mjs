@@ -9,6 +9,7 @@ import {
   buildInterestedDocument,
   buildListDocument,
   cell,
+  FakeDocument,
   FakeElement,
   greenComplementIcon,
   listRow,
@@ -21,10 +22,28 @@ const extensionRoot = join(here, "..");
 await import("../lib/area-snapshot.js");
 const {
   scan,
+  findActControl,
   findNextPageControl,
   legacyPaginationPlan,
   submitLegacyPagination,
+  selectedInterestedInScope,
 } = globalThis.TCEAreaSnapshot;
+
+test("selectedInterestedInScope maps visible tables without treating the index as a predicate", () => {
+  const documentRef = new FakeDocument({ screen: "form" });
+  const table = new FakeElement("table", { id: "PessoasAssocicadas" });
+  const row = new FakeElement("tr");
+  const radio = new FakeElement("input", { attrs: { type: "radio" } });
+  radio.checked = true;
+  radio.setAttribute("data-interested-name", "Pessoa Exemplo");
+  row.append(cell("Pessoa Exemplo"), radio);
+  table.append(row);
+  documentRef.body.append(table);
+
+  assert.deepEqual(selectedInterestedInScope(documentRef), [
+    { original: "Pessoa Exemplo", normalized: "pessoa exemplo" },
+  ]);
+});
 
 test("a list page exposes scope, marker, page and rows", () => {
   const documentRef = buildListDocument({
@@ -107,6 +126,34 @@ test("the portal act id is read from the row when present", () => {
   });
 
   assert.equal(scan(documentRef).rows[0].portal_act_id, "987654");
+});
+
+test("an exact portal act id resolves a row when its displayed name is an alias", () => {
+  const documentRef = buildListDocument({
+    rows: [{ processKey: "102390/2026", interested: "Pessoa Exemplo", actId: "act-fixture-42" }],
+  });
+
+  const control = findActControl(documentRef, {
+    processKey: "102390/2026",
+    interestedNormalized: "pessoa exemplo nome completo",
+    portalActId: "act-fixture-42",
+  });
+
+  assert.ok(control);
+});
+
+test("a supplied portal act id never falls back to a matching name with another id", () => {
+  const documentRef = buildListDocument({
+    rows: [{ processKey: "102390/2026", interested: "Pessoa Exemplo", actId: "act-fixture-42" }],
+  });
+
+  const control = findActControl(documentRef, {
+    processKey: "102390/2026",
+    interestedNormalized: "pessoa exemplo",
+    portalActId: "different-act-fixture",
+  });
+
+  assert.equal(control, null);
 });
 
 test("interested names are normalized exactly like the Python owner", () => {

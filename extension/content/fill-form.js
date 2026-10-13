@@ -23,6 +23,7 @@
     OPTION_UNAVAILABLE: "option_unavailable",
     FAILED: "failed",
   });
+  const DOCUMENT_NONCE = /^[a-f0-9]{32}$/u;
 
   function normalize(value) {
     const api = globalThis.TCEAreaSnapshot;
@@ -95,11 +96,15 @@
     dispatchBubblingEvents(documentRef, control);
   }
 
-  function controlOf(documentRef, field) {
-    const reader = globalThis.TCEFormReader;
-    const id = reader?.FIELD_MAP?.[field];
-    if (!id) return null;
-    return typeof documentRef?.getElementById === "function" ? documentRef.getElementById(id) : null;
+  function controlOf(documentRef, field, reader, form) {
+    if (typeof reader?.findFieldControl !== "function") return null;
+    return reader.findFieldControl(
+      documentRef,
+      field,
+      form.identity,
+      form.generation,
+      form.documentNonce,
+    );
   }
 
   function identityFromReader(reader, documentRef) {
@@ -120,7 +125,37 @@
    * Identity and generation are request-wide guards. After they pass, a field
    * problem is recorded locally and does not prevent later fields from running.
    */
-  function applyFill({ documentRef = globalThis.document, identity, generation, fields = {}, deps = {} } = {}) {
+  function applyFill({
+    documentRef = globalThis.document,
+    identity,
+    generation,
+    documentNonce,
+    fields = {},
+    deps = {},
+  } = {}) {
+    const monotonicNow = typeof deps.monotonicNow === "function"
+      ? deps.monotonicNow
+      : () => globalThis.performance?.now?.() ?? Date.now();
+    const diagnosticEvents = [];
+    const readMonotonicNow = () => {
+      try {
+        const value = Number(monotonicNow());
+        return Number.isFinite(value) ? value : null;
+      } catch {
+        return null;
+      }
+    };
+    const recordTiming = (step, field, startedAt, result) => {
+      if (startedAt === null) return;
+      const endedAt = readMonotonicNow();
+      if (endedAt === null) return;
+      diagnosticEvents.push({
+        step,
+        field,
+        elapsed_ms: Math.max(0, Math.round(endedAt - startedAt)),
+        result,
+      });
+    };
     const reader = deps.reader ?? globalThis.TCEFormReader;
     if (!reader?.readForm) {
       return { ok: false, code: "FORM_READER_UNAVAILABLE", field_results: {} };
@@ -128,6 +163,13 @@
 
     const before = reader.readForm(documentRef);
     if (!before) return { ok: false, code: "FORM_NOT_AVAILABLE", field_results: {} };
+    if (
+      typeof documentNonce !== "string" ||
+      !DOCUMENT_NONCE.test(documentNonce) ||
+      before.documentNonce !== documentNonce
+    ) {
+      return { ok: false, code: "STALE_FORM", generation_after: before.generation, field_results: {} };
+    }
     if (!sameIdentity(before.identity, identity)) {
       return { ok: false, code: "IDENTITY_MISMATCH", generation_after: before.generation, field_results: {} };
     }
@@ -156,7 +198,7 @@
     const fieldResults = {};
     const plans = Object.entries(fields).map(([field, proposedValue]) => {
       const proposal = proposedValue === null || proposedValue === undefined ? "" : String(proposedValue);
-      const control = controlOf(documentRef, field);
+      const control = controlOf(documentRef, field, reader, before);
       const current = String(before.fields?.[field]?.value ?? control?.value ?? "");
       const entry = {
         before: current,
@@ -206,19 +248,23 @@
       }
 
       let writeError = null;
+      const writeStarted = readMonotonicNow();
       try {
         writeControl(documentRef, control, proposal);
       } catch (error) {
         writeError = String(error?.message ?? error);
       }
+      recordTiming("field_write", field, writeStarted, writeError ? "error" : "ok");
 
       let reread = null;
       let rereadError = null;
+      const rereadStarted = readMonotonicNow();
       try {
         reread = reader.readForm(documentRef);
       } catch (error) {
         rereadError = String(error?.message ?? error);
       }
+      recordTiming("field_reread", field, rereadStarted, reread && !rereadError ? "ok" : "error");
 
       if (!reread) {
         entry.status = FIELD_STATUS.FAILED;
@@ -241,6 +287,18 @@
         for (const remaining of plans.slice(index + 1)) {
           remaining.entry.status = FIELD_STATUS.FAILED;
           remaining.entry.error = "not_attempted_after_form_unavailable";
+        }
+        break;
+      }
+      if (reread.documentNonce !== before.documentNonce) {
+        entry.status = FIELD_STATUS.FAILED;
+        entry.after = String(reread.fields?.[field]?.value ?? control.value ?? "");
+        entry.warning = "document_context_changed";
+        entry.error = "document_nonce_changed_during_fill";
+        safetyFailure = "STALE_FORM";
+        for (const remaining of plans.slice(index + 1)) {
+          remaining.entry.status = FIELD_STATUS.FAILED;
+          remaining.entry.error = "not_attempted_after_document_change";
         }
         break;
       }
@@ -286,9 +344,11 @@
       ok: safetyFailure === null,
       identity: latest.identity ?? before.identity,
       generation_after: latest.generation ?? before.generation,
+      document_nonce: latest.documentNonce ?? before.documentNonce,
       field_results: fieldResults,
       warnings,
       code: safetyFailure,
+      diagnostic_events: diagnosticEvents,
     };
   }
 
@@ -305,6 +365,7 @@
             documentRef: globalThis.document,
             identity: payload.identity ?? {},
             generation: payload.generation,
+            documentNonce: payload.document_nonce,
             fields: payload.fields ?? {},
           })
         );

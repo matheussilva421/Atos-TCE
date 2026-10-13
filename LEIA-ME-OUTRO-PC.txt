@@ -19,3 +19,8 @@ incluída no ZIP.
 
 Mantenha a cópia original de data no PC antigo até confirmar que a Mesa, os
 processos, os documentos e os PDFs abriram corretamente no PC novo.
+
+Para suporte, abra o painel Diagnóstico na Mesa e escolha “Exportar diagnóstico”.
+O ZIP será salvo na pasta de downloads configurada no navegador. Ele reúne os
+eventos locais recentes da Mesa e da extensão; confira o arquivo antes de
+compartilhá-lo.

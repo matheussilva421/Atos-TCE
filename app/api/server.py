@@ -28,7 +28,11 @@ from __future__ import annotations
 import ipaddress
 import json
 import mimetypes
+import os
 import re
+import subprocess
+import threading
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -45,12 +49,19 @@ from ..area_restrita import (
     PORTAL_ROLES,
 )
 from ..area_restrita import cdp_fallback
+from ..area_restrita.reliability import ENVIRONMENTS, ReliabilityRecorder
+from ..area_restrita.current_selection import (
+    PortalSelectionError,
+    PortalSelectionTracker,
+)
 from ..area_restrita.fill_service import (
     OPEN_ACT_ACTIONS,
     OPEN_ACT_SCREENS,
+    CapabilityNotProduction,
     FillError,
     FillService,
 )
+from ..area_restrita.diagnostics import DiagnosticRecorder
 from ..archive.manager import ArchiveError, ArchiveManager
 from ..analysis.service import AnalysisService
 from ..analysis.evidence import evidence_for_field
@@ -73,6 +84,119 @@ DEFAULT_PORT = 18743
 WEB_ROOT = Path(__file__).resolve().parent.parent / "web"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MAX_BODY_BYTES = 8 * 1024 * 1024
+
+#: Fallback build identity when neither the override nor the checkout resolves.
+UNKNOWN_BUILD_ID = "unknown-build"
+RELIABILITY_BOOTSTRAP_MANIFEST = REPO_ROOT / "app" / "reliability-bootstrap.json"
+
+
+def _reliability_build_id() -> str:
+    """Identity the reliability ledger binds a run to.
+
+    ``ATOS_TCE_BUILD_ID`` wins so a packaged runtime can be pinned to the same
+    identity as the qualification CLI. Next comes the packaged
+    ``package-manifest.json``, so an extracted artefact reports the build it
+    contains even with no variable set and no checkout above it, and finally the
+    checkout SHA.
+    """
+
+    override = str(os.environ.get("ATOS_TCE_BUILD_ID") or "").strip()
+    if override:
+        return override
+    packaged = _packaged_build_id()
+    if packaged:
+        return packaged
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return UNKNOWN_BUILD_ID
+    sha = (result.stdout or "").strip()
+    if result.returncode == 0 and sha:
+        return sha
+    return UNKNOWN_BUILD_ID
+
+
+def _diagnostic_extension_version() -> str:
+    """Version string for the installed extension shipped with this Mesa."""
+
+    manifest = REPO_ROOT / "extension" / "manifest.json"
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "unknown"
+    if not isinstance(payload, Mapping):
+        return "unknown"
+    version = str(payload.get("version") or "").strip()
+    return version[:128] or "unknown"
+
+
+def _packaged_build_id() -> str | None:
+    """The build recorded in the package manifest, when this tree is a package."""
+
+    manifest = REPO_ROOT / "package-manifest.json"
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+    build_id = str(payload.get("build_id") or "").strip()
+    return build_id or None
+
+
+def _reliability_environment() -> str:
+    """Which environment this instance records its AR-1 runs under.
+
+    The packaged runtime sets ``ATOS_TCE_RELIABILITY_ENVIRONMENT`` so its runs
+    land under ``portable-normal-chrome``; a developer checkout defaults to the
+    real development environment.
+    """
+
+    value = str(os.environ.get("ATOS_TCE_RELIABILITY_ENVIRONMENT") or "").strip()
+    return value if value in ENVIRONMENTS else "real-dev"
+
+
+def _apply_packaged_reliability_bootstrap(data_root: Path) -> bool:
+    """Apply the one allowed package seed, bound to this exact build."""
+
+    manifest_path = Path(RELIABILITY_BOOTSTRAP_MANIFEST)
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(payload, Mapping) or set(payload) != {
+        "schema",
+        "build_id",
+        "capabilities",
+    }:
+        return False
+    schema = payload.get("schema")
+    if not isinstance(schema, int) or isinstance(schema, bool) or schema != 1:
+        return False
+    manifest_build = payload.get("build_id")
+    if not isinstance(manifest_build, str) or not re.fullmatch(
+        r"[0-9a-fA-F]{7,64}", manifest_build
+    ):
+        return False
+    package_build = _packaged_build_id()
+    if not package_build or manifest_build.lower() != package_build.lower():
+        return False
+    capabilities = payload.get("capabilities")
+    if not isinstance(capabilities, Mapping) or dict(capabilities) != {
+        "manual_form_fill": "EXPERIMENTAL"
+    }:
+        return False
+    recorder = ReliabilityRecorder(data_root, manifest_build)
+    return recorder.bootstrap_experimental_if_unset(
+        "manual_form_fill", reason="approved package bootstrap"
+    )
 
 #: Command types the Mesa may queue for the thin extension. There is never a
 #: submit type: the final completion click stays with the operator.
@@ -190,7 +314,11 @@ def _next_act_result_problem(
     actual_interested = normalize_interested(
         actual.get("interestedNormalized") or actual.get("interested_normalized")
     )
-    if actual_process != expected_process or actual_interested != expected_interested:
+    expected_act_id = str(expected.get("portalActId") or expected.get("portal_act_id") or "").strip()
+    actual_act_id = str(actual.get("portalActId") or actual.get("portal_act_id") or "").strip()
+    same_interested = actual_interested == expected_interested
+    same_strong_act = bool(expected_act_id and actual_act_id and expected_act_id == actual_act_id)
+    if actual_process != expected_process or not (same_strong_act or (not expected_act_id and same_interested)):
         return "identidade do resultado não corresponde ao alvo enfileirado"
     return None
 
@@ -244,6 +372,8 @@ class Route:
 
 ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/health"), "handle_health", "public"),
+    Route(re.compile(r"/api/v1/diagnostics/export"), "handle_diagnostic_export", "mesa"),
+    Route(re.compile(r"/api/v1/diagnostics"), "handle_diagnostic_status", "mesa"),
     Route(re.compile(r"/api/v1/storage"), "handle_storage", "public"),
     Route(re.compile(r"/api/v1/processes"), "handle_process_list", "public"),
     Route(re.compile(r"/api/v1/processes/(?P<process_id>\d+)"), "handle_process_detail", "public"),
@@ -262,12 +392,25 @@ ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/acquisition/plan"), "handle_acquisition_plan", "public"),
     Route(re.compile(r"/api/v1/jobs/(?P<job_id>\d+)"), "handle_job_status", "public"),
     Route(re.compile(r"/api/v1/bridge/status"), "handle_bridge_status", "extension"),
+    Route(re.compile(r"/api/v1/portal/reliability"), "handle_portal_reliability", "extension"),
+    Route(
+        re.compile(r"/api/v1/portal/current-selection"),
+        "handle_portal_current_selection",
+        "mesa",
+    ),
     Route(re.compile(r"/api/v1/extension/commands/next"), "handle_command_next", "extension"),
+    Route(
+        re.compile(r"/api/v1/extension/commands/(?P<command_id>\d+)/status"),
+        "handle_extension_command_status",
+        "extension",
+    ),
     Route(re.compile(r"/api/v1/extension/commands/(?P<command_id>\d+)"), "handle_command_status", "mesa"),
 )
 
 POST_ROUTES: tuple[Route, ...] = (
     Route(re.compile(r"/api/v1/session/bootstrap"), "post_session_bootstrap", "public"),
+    Route(re.compile(r"/api/v1/diagnostics/control"), "post_diagnostic_control", "mesa"),
+    Route(re.compile(r"/api/v1/diagnostics/events"), "post_diagnostic_event", "mesa"),
     Route(re.compile(r"/api/v1/session/handoff"), "post_session_handoff", "mesa"),
     Route(re.compile(r"/api/v1/bridge/register"), "post_bridge_register", "public"),
     Route(re.compile(r"/api/v1/extension/commands"), "post_extension_command", "mesa"),
@@ -298,7 +441,28 @@ POST_ROUTES: tuple[Route, ...] = (
         "mesa",
     ),
     Route(re.compile(r"/api/v1/portal/manual-form"), "post_manual_form", "mesa"),
+    Route(
+        re.compile(r"/api/v1/portal/manual-form-attempt"),
+        "post_manual_form_attempt",
+        "mesa",
+    ),
     Route(re.compile(r"/api/v1/portal/next-act"), "post_next_act", "extension"),
+    Route(
+        re.compile(r"/api/v1/portal/current-selection"),
+        "post_portal_current_selection",
+        "extension",
+    ),
+    Route(
+        re.compile(r"/api/v1/portal/current-selection/fill"),
+        "post_portal_current_selection_fill",
+        "mesa",
+    ),
+)
+
+#: The only inactive observations the extension may publish. Anything else is
+#: a malformed payload, not an instruction to forget a good selection.
+PORTAL_INACTIVE_CODES: frozenset[str] = frozenset(
+    {"FORM_NOT_AVAILABLE", "FORM_AMBIGUOUS", "PORTAL_TAB_NOT_ACTIVE"}
 )
 
 
@@ -339,6 +503,79 @@ class MesaServer(ThreadingHTTPServer):
         self._fill: FillService | None = None
         self._archive: ArchiveManager | None = None
         self._navigation: NavigationService | None = None
+        self._reliability_build_id: str | None = None
+        self._reliability_environment: str | None = None
+        self._portal_selection: PortalSelectionTracker | None = None
+        # The lazy properties below are first touched by concurrent HTTP threads.
+        self._lazy_lock = threading.Lock()
+        self.diagnostics = DiagnosticRecorder(
+            self.data_root,
+            build_id=self.reliability_build_id,
+            extension_version=_diagnostic_extension_version(),
+        )
+        self._heartbeat_lock = threading.Lock()
+        self._last_heartbeat_at: float | None = None
+        self._heartbeat_last_recorded_at: float | None = None
+        self._heartbeat_last_state: str | None = None
+        _apply_packaged_reliability_bootstrap(self.data_root)
+
+    def record_diagnostic(self, event: Mapping[str, Any]) -> bool:
+        """Diagnostics are best-effort and never control an operational path."""
+
+        try:
+            return self.diagnostics.record(event)
+        except Exception:
+            return False
+
+    def note_extension_heartbeat(self) -> int:
+        """Update heartbeat age on every poll, persisting at most every 10 s."""
+
+        now = time.monotonic()
+        with self._heartbeat_lock:
+            previous = self._last_heartbeat_at
+            self._last_heartbeat_at = now
+            state = "connected"
+            should_record = (
+                previous is None
+                or state != self._heartbeat_last_state
+                or self._heartbeat_last_recorded_at is None
+                or now - self._heartbeat_last_recorded_at >= 10.0
+            )
+            if should_record:
+                self._heartbeat_last_recorded_at = now
+                self._heartbeat_last_state = state
+        if should_record:
+            self.record_diagnostic(
+                {"component": "extension", "step": "heartbeat", "result": "ok", "heartbeat_age_ms": 0}
+            )
+        return 0
+
+    def diagnostic_status(self) -> dict[str, Any]:
+        status = self.diagnostics.status()
+        with self._heartbeat_lock:
+            heartbeat_at = self._last_heartbeat_at
+        age = None if heartbeat_at is None else max(0, int((time.monotonic() - heartbeat_at) * 1000))
+        selection = self.portal_selection.public_state()
+        status.update(
+            {
+                "mesa_state": "OK",
+                "extension_state": "UNKNOWN" if age is None else ("OK" if age < 15_000 else "STALE"),
+                "portal_state": (
+                    "UNKNOWN"
+                    if age is None
+                    else ("OK" if selection.get("state") == "MATCHED" else selection.get("state", "UNKNOWN"))
+                ),
+                "heartbeat_age_ms": age,
+                "form_state": selection.get("state", "UNKNOWN"),
+                "form_code": selection.get("code"),
+                "current_selection_state": selection.get("state", "UNKNOWN"),
+                "current_selection_code": selection.get("code"),
+                "last_command_type": (status.get("last_command") or {}).get("command_type"),
+                "last_result_code": (status.get("last_result") or {}).get("code"),
+                "last_error_code": (status.get("last_error") or {}).get("code"),
+            }
+        )
+        return status
 
     @property
     def analysis(self) -> AnalysisService:
@@ -349,12 +586,49 @@ class MesaServer(ThreadingHTTPServer):
         return self._analysis
 
     @property
+    def reliability_build_id(self) -> str:
+        """Build identity the reliability ledger binds runs to (resolved once)."""
+
+        if self._reliability_build_id is None:
+            self._reliability_build_id = _reliability_build_id()
+        return self._reliability_build_id
+
+    @property
+    def reliability_environment(self) -> str:
+        """Environment the AR-1 ledger binds runs to (resolved once)."""
+
+        if self._reliability_environment is None:
+            self._reliability_environment = _reliability_environment()
+        return self._reliability_environment
+
+    @property
     def fill(self) -> FillService:
         """The fill workflow owner (M5); the extension never decides."""
 
         if self._fill is None:
-            self._fill = FillService(self.store)
+            with self._lazy_lock:
+                if self._fill is None:
+                    self._fill = FillService(
+                        self.store,
+                        reliability=ReliabilityRecorder(
+                            self.data_root, self.reliability_build_id
+                        ),
+                        reliability_environment=self.reliability_environment,
+                        diagnostics=self.diagnostics,
+                    )
         return self._fill
+
+    @property
+    def portal_selection(self) -> PortalSelectionTracker:
+        """The transient "current portal form" the Mesa follows."""
+
+        # Created once per server process and never persisted: the snapshot it
+        # holds exists only to answer the Mesa's "fill what you found" click.
+        if self._portal_selection is None:
+            with self._lazy_lock:
+                if self._portal_selection is None:
+                    self._portal_selection = PortalSelectionTracker(self.store)
+        return self._portal_selection
 
     @property
     def navigation(self) -> NavigationService:
@@ -589,10 +863,90 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
 
         return self._body
 
+    def _record_extension_diagnostic_sidecar(self, payload: dict[str, Any]) -> None:
+        raw_events = payload.pop("diagnostic_events", None)
+        if not isinstance(raw_events, list):
+            return
+        for event in raw_events[:100]:
+            if not isinstance(event, Mapping):
+                continue
+            self.mesa.record_diagnostic({**event, "component": "extension"})
+
     # --------------------------------------------------------------- routes
 
     def handle_health(self, query: dict[str, list[str]]) -> None:
-        self._send_json(views.health_payload(self.mesa.store, self.mesa.data_root))
+        # The build id is sanitized provenance; it never carries private data.
+        self._send_json(
+            views.health_payload(
+                self.mesa.store, self.mesa.data_root, build_id=self.mesa.reliability_build_id
+            )
+        )
+
+    def handle_diagnostic_status(self, query: dict[str, list[str]]) -> None:
+        if not self._require_session():
+            return
+        self._send_json(self.mesa.diagnostic_status())
+
+    def handle_diagnostic_export(self, query: dict[str, list[str]]) -> None:
+        if not self._require_session():
+            return
+        try:
+            capabilities = ReliabilityRecorder(
+                self.mesa.data_root, self.mesa.reliability_build_id
+            ).capabilities()
+        except Exception:
+            capabilities = {}
+        filename, body = self.mesa.diagnostics.export_zip(capabilities=capabilities)
+        self._send_bytes(body, "application/zip", filename=filename)
+
+    def post_diagnostic_control(self) -> None:
+        if not self._require_session():
+            return
+        payload = self._read_json_body()
+        action = str(payload.get("action") or "").strip().lower()
+        operation = {
+            "pause": self.mesa.diagnostics.pause,
+            "resume": self.mesa.diagnostics.resume,
+            "clear": self.mesa.diagnostics.clear,
+        }.get(action)
+        if operation is None:
+            self._send_json({"error": "invalid_diagnostic_action"}, status=400)
+            return
+        self._send_json(operation())
+
+    def post_diagnostic_event(self) -> None:
+        if not self._require_session():
+            return
+        payload = self._read_json_body()
+        event = payload.get("event")
+        if not isinstance(event, Mapping) or str(event.get("code") or "").strip().upper() != "COMMAND_TIMEOUT":
+            self._send_json({"error": "invalid_diagnostic_event"}, status=400)
+            return
+        safe_event = dict(event)
+        safe_event.update(
+            {"component": "mesa", "step": "command_timeout", "code": "COMMAND_TIMEOUT"}
+        )
+        recorded = self.mesa.record_diagnostic(safe_event)
+        self._send_json({"recorded": recorded, "code": "COMMAND_TIMEOUT"}, status=201)
+
+    def handle_portal_reliability(self, query: dict[str, list[str]]) -> None:
+        """Read-only capability state: no identities, no events, no mutation."""
+
+        if self._require_extension() is None:
+            return
+        recorder = ReliabilityRecorder(self.mesa.data_root, self.mesa.reliability_build_id)
+        self._send_json(
+            {
+                "capabilities": {
+                    name: {
+                        "state": entry["state"],
+                        "real_dev_streak": entry["real_dev_streak"],
+                        "portable_streak": entry["portable_streak"],
+                    }
+                    for name, entry in recorder.capabilities().items()
+                }
+            }
+        )
 
     def handle_storage(self, query: dict[str, list[str]]) -> None:
         self._send_json(views.storage_payload(self.mesa.store, self.mesa.data_root))
@@ -770,6 +1124,12 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             return
         try:
             request_id = self.mesa.fill.request_fill(int(process_id))
+        except CapabilityNotProduction as error:
+            self._send_json(
+                {"error": error.code, "capability": error.capability, "state": error.state},
+                status=409,
+            )
+            return
         except FillError as error:
             self._send_json({"error": "fill_refused", "detail": str(error)}, status=409)
             return
@@ -824,6 +1184,17 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             resolver_args = {"identity": payload["identity"]}
 
         try:
+            self.mesa.fill.require_production_capabilities(
+                "next_process", "return_to_list", "open_act", "select_interested"
+            )
+        except CapabilityNotProduction as error:
+            self._send_json(
+                {"error": error.code, "capability": error.capability, "state": error.state},
+                status=409,
+            )
+            return
+
+        try:
             resolved = self.mesa.navigation.next_target(**resolver_args)
         except NavigationError as error:
             self._send_json(
@@ -837,7 +1208,7 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
 
         current_identity = resolved["current_identity"]
         target_identity = resolved["target_identity"]
-        current_key = ("processKey", "interestedNormalized")
+        current_key = ("processKey", "interestedNormalized", "portalActId")
         command_payload = {
             "current_identity": {key: current_identity[key] for key in current_key},
             "target_identity": {key: target_identity[key] for key in current_key},
@@ -847,6 +1218,8 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
                 "marker": resolved["marker"],
             },
         }
+        if extension_client is not None:
+            command_payload["_requester_client_id"] = extension_client
         command_id = self.mesa.store.create_extension_command("OPEN_NEXT_ACT", command_payload)
         self._send_json(
             {
@@ -854,6 +1227,196 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
                 "command_id": command_id,
                 "target_process_id": resolved["target_process_id"],
                 "target_identity": command_payload["target_identity"],
+            },
+            status=201,
+        )
+
+    def post_manual_form_attempt(self) -> None:
+        """Record an AR-1 attempt the sidepanel could not turn into a request.
+
+        The operator opened the act by hand and the panel saw no single exact
+        form, so no fill request exists. Without this the failure would be
+        invisible to the qualification sequence, which could then report a
+        clean run while detection was in fact failing.
+        """
+
+        if not (self._require_session(silent=True) or self._require_extension()):
+            return
+        payload = self._read_json_body()
+        code = str(payload.get("code") or "").strip().upper()
+        diagnostics = payload.get("diagnostics")
+        try:
+            run_id = self.mesa.fill.record_manual_attempt_failure(code, diagnostics)
+        except FillError as error:
+            self._send_json(
+                {"error": "unknown_manual_attempt_code", "detail": str(error)}, status=400
+            )
+            return
+        self._send_json(
+            {"recorded": run_id is not None, "code": code},
+            status=201,
+        )
+
+    def handle_portal_current_selection(self, query: dict[str, list[str]]) -> None:
+        """Mesa: the transient form the extension last observed.
+
+        The answer is the minimal public state only. The sanitized form snapshot
+        stays in the server's memory and is never part of a response body.
+        """
+
+        if not self._require_session():
+            return
+        self._send_json(self.mesa.portal_selection.public_state())
+
+    def _record_current_selection_event(
+        self,
+        *,
+        started: float,
+        active: bool | None,
+        payload: Mapping[str, Any],
+        state: Mapping[str, Any] | None = None,
+        code: str | None = None,
+    ) -> None:
+        form = payload.get("form")
+        form = form if isinstance(form, Mapping) else {}
+        identity = form.get("identity")
+        identity = identity if isinstance(identity, Mapping) else {}
+        public = state if isinstance(state, Mapping) else {}
+        event: dict[str, Any] = {
+            "component": "extension",
+            "step": "selection_cleared" if active is False else "selection_published",
+            "elapsed_ms": max(0, int((time.monotonic() - started) * 1000)),
+            "result": "error" if code and state is None else str(public.get("state") or "ok"),
+            "publisher_id": payload.get("publisher_id"),
+            "sequence": payload.get("sequence"),
+            "generation": public.get("generation", form.get("generation")),
+            "document_nonce": form.get("documentNonce", form.get("document_nonce")),
+            "observation_id": public.get("observation_id"),
+            "process": public.get("process_key") or identity.get("processKey") or identity.get("process_key"),
+            "interested": identity.get("interestedNormalized") or identity.get("interested_normalized"),
+            "form_state": public.get("state"),
+            "code": code or public.get("code"),
+        }
+        self.mesa.record_diagnostic(event)
+
+    def post_portal_current_selection(self) -> None:
+        """Extension: publish the form the operator has open, or clear it."""
+
+        if not self._require_extension():
+            return
+        started = time.monotonic()
+        payload = self._read_json_body()
+        self._record_extension_diagnostic_sidecar(payload)
+        active = payload.get("active")
+        if not isinstance(active, bool):
+            self._record_current_selection_event(
+                started=started, active=None, payload=payload, code="INVALID_CURRENT_SELECTION"
+            )
+            self._send_json({"error": "invalid_current_selection"}, status=400)
+            return
+        publisher_id = payload.get("publisher_id")
+        sequence = payload.get("sequence")
+        if not active:
+            code = str(payload.get("code") or "").strip().upper()
+            if code not in PORTAL_INACTIVE_CODES:
+                self._record_current_selection_event(
+                    started=started, active=False, payload=payload, code="INVALID_CURRENT_SELECTION"
+                )
+                self._send_json({"error": "invalid_current_selection"}, status=400)
+                return
+            try:
+                state = self.mesa.portal_selection.clear(
+                    code, publisher_id=publisher_id, sequence=sequence
+                )
+            except PortalSelectionError as error:
+                conflict = error.code in {"PUBLISHER_OWNED", "STALE_PUBLISHER"}
+                self._record_current_selection_event(
+                    started=started, active=False, payload=payload, code=error.code
+                )
+                self._send_json(
+                    {
+                        "error": "current_selection_refused" if conflict else "invalid_current_selection",
+                        "detail": error.code,
+                    },
+                    status=409 if conflict else 400,
+                )
+                return
+            self._record_current_selection_event(
+                started=started, active=False, payload=payload, state=state
+            )
+            self._send_json(state)
+            return
+        form = payload.get("form")
+        if not isinstance(form, Mapping):
+            self._record_current_selection_event(
+                started=started, active=True, payload=payload, code="INVALID_CURRENT_SELECTION"
+            )
+            self._send_json({"error": "invalid_current_selection"}, status=400)
+            return
+        try:
+            state = self.mesa.portal_selection.observe(
+                form, publisher_id=publisher_id, sequence=sequence
+            )
+        except PortalSelectionError as error:
+            conflict = error.code in {"PUBLISHER_OWNED", "STALE_PUBLISHER"}
+            self._record_current_selection_event(
+                started=started, active=True, payload=payload, code=error.code
+            )
+            self._send_json(
+                {
+                    "error": "current_selection_refused" if conflict else "invalid_current_selection",
+                    "detail": error.code,
+                },
+                status=409 if conflict else 400,
+            )
+            return
+        self._record_current_selection_event(started=started, active=True, payload=payload, state=state)
+        self._send_json(state)
+
+    def post_portal_current_selection_fill(self) -> None:
+        """Mesa: best-effort fill of the exact form still inside the TTL.
+
+        Nothing is navigated and nothing is invented: the snapshot comes from the
+        transient observation. The click must carry the opaque observation id that
+        enabled its button; replaced, expired, or already reserved observations
+        fail closed. A stale click is still a real operator attempt, so it is
+        recorded as an AR-1 failure; NOT_FOUND and AMBIGUOUS never render the
+        button, so they are not counted as attempts.
+        """
+
+        if not self._require_session():
+            return
+        payload = self._read_json_body()
+        expected_observation_id = payload.get("observation_id")
+        tracker = self.mesa.portal_selection
+        try:
+            # The reservation is held until the request exists, so neither a
+            # newer observation nor the TTL can slip in between the check and
+            # the write; a replaced selection never produces a fill.
+            with tracker.fill_window(expected_observation_id) as snapshot:
+                request_id = self.mesa.fill.request_manual_fill(snapshot)
+        except PortalSelectionError as error:
+            # The tracker decided atomically whether the Mesa could have rendered
+            # this button; a click nobody could make is not an operator attempt.
+            if error.offered:
+                self.mesa.fill.record_manual_attempt_failure("FORM_NOT_AVAILABLE")
+            self._send_json(
+                {"error": "current_selection_not_fillable", "detail": error.code},
+                status=409,
+            )
+            return
+        except FillError as error:
+            self._send_json(
+                {"error": "current_selection_not_fillable", "detail": str(error)},
+                status=409,
+            )
+            return
+        request = self.mesa.store.get_fill_request(request_id) or {}
+        self._send_json(
+            {
+                "fill_request_id": request_id,
+                "state": request.get("state"),
+                "mode": "manual",
             },
             status=201,
         )
@@ -917,7 +1480,21 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         client_id = self._require_extension()
         if client_id is None:
             return
-        self._send_json({"command": self.mesa.store.claim_extension_command(client_id)})
+        started = time.monotonic()
+        self.mesa.note_extension_heartbeat()
+        command = self.mesa.fill.claim_extension_command(client_id)
+        if command is not None:
+            self.mesa.record_diagnostic(
+                {
+                    "component": "mesa",
+                    "step": "command_sent",
+                    "elapsed_ms": max(0, int((time.monotonic() - started) * 1000)),
+                    "command_id": command.get("id"),
+                    "command_type": command.get("type"),
+                    "result": "claimed",
+                }
+            )
+        self._send_json({"command": command})
 
     def handle_command_status(self, query: dict[str, list[str]], command_id: str) -> None:
         if not self._require_session():
@@ -927,6 +1504,30 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "command_not_found", "command_id": int(command_id)}, status=404)
             return
         self._send_json(command)
+
+    def handle_extension_command_status(self, query: dict[str, list[str]], command_id: str) -> None:
+        """Expose only the terminal status of a next-act command to its caller."""
+
+        client_id = self._require_extension()
+        if client_id is None:
+            return
+        command = self.mesa.store.get_extension_command(int(command_id))
+        if command is None:
+            self._send_json({"error": "command_not_found"}, status=404)
+            return
+        requester = str((command.get("payload") or {}).get("_requester_client_id") or "")
+        if command.get("type") != "OPEN_NEXT_ACT" or requester != client_id:
+            self._send_json({"error": "command_not_found"}, status=404)
+            return
+        self._send_json(
+            {
+                "id": int(command["id"]),
+                "type": str(command["type"]),
+                "state": str(command["state"]),
+                "result": command.get("result"),
+                "error": command.get("error"),
+            }
+        )
 
     def post_session_bootstrap(self) -> None:
         payload = self._read_json_body()
@@ -1012,12 +1613,24 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
         if client_id is None:
             return
         payload = self._read_json_body()
+        self._record_extension_diagnostic_sidecar(payload)
         command = self.mesa.store.get_extension_command(int(command_id))
         if command is None:
             self._send_json(
                 {"error": "command_not_found", "command_id": int(command_id)}, status=404
             )
             return
+        self.mesa.record_diagnostic(
+            {
+                "component": "mesa",
+                "step": "command_result_received",
+                "command_id": int(command_id),
+                "command_type": command.get("type"),
+                "code": payload.get("code"),
+                "result": "ok" if payload.get("ok") is True else "error" if payload.get("ok") is False else "invalid",
+                "error": payload.get("error"),
+            }
+        )
         error, invalid = check_command_result(
             str(command.get("type") or ""), payload, command.get("payload")
         )
@@ -1075,11 +1688,16 @@ class MesaRequestHandler(BaseHTTPRequestHandler):
                 status=500,
             )
             return
+        persisted_result = payload
+        if command.get("type") == "FILL_FORM":
+            persisted_result = dict(payload)
+            persisted_result.pop("document_nonce", None)
+            persisted_result.pop("documentNonce", None)
         outcome = self.mesa.store.complete_extension_command(
             int(command_id),
             client_id=client_id,
             claim_token=claim_token,
-            result=payload,
+            result=persisted_result,
             error=error,
         )
         if outcome != "ok":

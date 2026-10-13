@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 
 from app.api.views import area_summary_payload
 from app.core import store as store_module
-from app.core.models import ProcessRecord
+from app.core.models import DocumentRecord, FieldRecord, ProcessRecord
 from app.core.store import SCHEMA_V1, SCHEMA_VERSION, Store
 
 MARKER_LABEL = "PROFESSOR - IPERN - 2 RUBRICAS"
@@ -49,6 +49,222 @@ class AreaScanTestCase(unittest.TestCase):
 
 
 class AreaScanMappingTests(AreaScanTestCase):
+    def test_scan_alias_with_the_same_portal_act_id_reuses_the_archive_process(self):
+        process_id = self.store.upsert_process(
+            ProcessRecord(
+                process_key="102390/2026",
+                interested="Pessoa Exemplo Nome Completo",
+                interested_normalized="pessoa exemplo nome completo",
+                status="PRONTO",
+            )
+        )
+        self.store._connection.execute(
+            "UPDATE processes SET portal_act_id = ? WHERE id = ?", ("act-fixture-42", process_id)
+        )
+
+        scan_id = self.scan(
+            [
+                row(
+                    interested="Pessoa Exemplo",
+                    interested_normalized="pessoa exemplo",
+                    portal_act_id="act-fixture-42",
+                )
+            ]
+        )
+
+        self.assertEqual(len(self.store.list_processes()), 1)
+        self.assertEqual(self.store.list_processes()[0]["id"], process_id)
+        self.assertEqual(
+            self.store.get_area_scan(scan_id)["items"][0]["process_id"], process_id
+        )
+        self.assertEqual(
+            self.store.get_process(process_id)["interested"], "Pessoa Exemplo Nome Completo"
+        )
+
+    def test_different_name_without_a_shared_portal_act_id_stays_separate(self):
+        self.store.upsert_process(
+            ProcessRecord(
+                process_key="102390/2026",
+                interested="Pessoa Exemplo Nome Completo",
+                interested_normalized="pessoa exemplo nome completo",
+                status="PRONTO",
+            )
+        )
+
+        self.scan(
+            [
+                row(
+                    interested="Pessoa Exemplo",
+                    interested_normalized="pessoa exemplo",
+                    portal_act_id=None,
+                )
+            ]
+        )
+
+        self.assertEqual(len(self.store.list_processes()), 2)
+
+    def test_same_portal_act_id_does_not_merge_distinct_interested_records(self):
+        ready_id = self.store.upsert_process(
+            ProcessRecord(
+                process_key="102390/2026",
+                interested="Pessoa Exemplo Nome Completo",
+                interested_normalized="pessoa exemplo nome completo",
+                status="PRONTO",
+            )
+        )
+        pending_id = self.store.upsert_process(
+            ProcessRecord(
+                process_key="102390/2026",
+                interested="Pessoa Exemplo",
+                interested_normalized="pessoa exemplo",
+                status="PENDENTE",
+            )
+        )
+        self.store._connection.execute(
+            "UPDATE processes SET portal_act_id = ? WHERE id IN (?, ?)",
+            ("act-fixture-42", ready_id, pending_id),
+        )
+
+        scan_id = self.scan(
+            [
+                row(
+                    interested="Pessoa Exemplo",
+                    interested_normalized="pessoa exemplo",
+                    portal_act_id="act-fixture-42",
+                )
+            ]
+        )
+
+        processes = self.store.list_processes()
+        self.assertEqual(len(processes), 2)
+        self.assertEqual({process["id"] for process in processes}, {ready_id, pending_id})
+        self.assertEqual(
+            self.store.get_area_scan(scan_id)["items"][0]["process_id"], pending_id
+        )
+
+    def test_historically_proven_alias_reconciles_duplicate_and_preserves_archive_rows(self):
+        ready_id = self.store.upsert_process(
+            ProcessRecord(
+                process_key="102390/2026",
+                interested="Pessoa Exemplo Nome Completo",
+                interested_normalized="pessoa exemplo nome completo",
+                status="PRONTO",
+            )
+        )
+        self.store._connection.execute(
+            "UPDATE processes SET portal_act_id = ? WHERE id = ?", ("act-fixture-42", ready_id)
+        )
+        self.scan(
+            [row(interested="Pessoa Exemplo", interested_normalized="pessoa exemplo", portal_act_id="act-fixture-42")]
+        )
+        duplicate_id = self.store.upsert_process(
+            ProcessRecord(
+                process_key="102390/2026",
+                interested="Pessoa Exemplo",
+                interested_normalized="pessoa exemplo",
+                status="PENDENTE",
+            )
+        )
+        self.store._connection.execute(
+            "UPDATE processes SET portal_act_id = ? WHERE id = ?", ("act-fixture-42", duplicate_id)
+        )
+        self.store.replace_documents(
+            ready_id,
+            [DocumentRecord("archive-copy", "Ato.pdf", "archive/Ato.pdf", "a" * 64, 2)],
+        )
+        self.store.replace_documents(
+            duplicate_id,
+            [DocumentRecord("portal-copy", "Portal.pdf", "archive/Portal.pdf", "b" * 64, 1)],
+        )
+        self.store.replace_fields(
+            ready_id, [FieldRecord("cargo", "Professor", "found", confidence=0.9)]
+        )
+        self.store.replace_fields(
+            duplicate_id, [FieldRecord("matricula", "42", "found", confidence=0.8)]
+        )
+
+        scan_id = self.scan(
+            [row(interested="Pessoa Exemplo", interested_normalized="pessoa exemplo", portal_act_id="act-fixture-42")]
+        )
+
+        processes = self.store.list_processes()
+        self.assertEqual(len(processes), 1)
+        self.assertEqual(processes[0]["id"], ready_id)
+        self.assertEqual(processes[0]["status"], "PRONTO")
+        merged = self.store.get_process(ready_id)
+        self.assertEqual({doc["source_id"] for doc in merged["documents"]}, {"archive-copy", "portal-copy"})
+        self.assertEqual({field["field_name"] for field in merged["fields"]}, {"cargo", "matricula"})
+        self.assertEqual(self.store.get_area_scan(scan_id)["items"][0]["process_id"], ready_id)
+
+    def test_conflicting_field_evidence_keeps_proven_duplicates_separate(self):
+        ready_id = self.store.upsert_process(
+            ProcessRecord(
+                process_key="102390/2026",
+                interested="Pessoa Exemplo Nome Completo",
+                interested_normalized="pessoa exemplo nome completo",
+                status="PRONTO",
+            )
+        )
+        self.store._connection.execute(
+            "UPDATE processes SET portal_act_id = ? WHERE id = ?", ("act-fixture-42", ready_id)
+        )
+        self.scan(
+            [row(interested="Pessoa Exemplo", interested_normalized="pessoa exemplo", portal_act_id="act-fixture-42")]
+        )
+        duplicate_id = self.store.upsert_process(
+            ProcessRecord(
+                process_key="102390/2026",
+                interested="Pessoa Exemplo",
+                interested_normalized="pessoa exemplo",
+                status="PENDENTE",
+            )
+        )
+        self.store._connection.execute(
+            "UPDATE processes SET portal_act_id = ? WHERE id = ?", ("act-fixture-42", duplicate_id)
+        )
+        self.store.replace_fields(
+            ready_id, [FieldRecord("cargo", "Professor", "found", confidence=0.9)]
+        )
+        self.store.replace_fields(
+            duplicate_id, [FieldRecord("cargo", "Outra função", "found", confidence=0.7)]
+        )
+
+        scan_id = self.scan(
+            [row(interested="Pessoa Exemplo", interested_normalized="pessoa exemplo", portal_act_id="act-fixture-42")]
+        )
+
+        self.assertEqual(len(self.store.list_processes()), 2)
+        self.assertEqual(
+            [field["value"] for field in self.store.get_process(ready_id)["fields"]], ["Professor"]
+        )
+        self.assertEqual(
+            [field["value"] for field in self.store.get_process(duplicate_id)["fields"]], ["Outra função"]
+        )
+        item = self.store.get_area_scan(scan_id)["items"][0]
+        self.assertEqual(item["classification"], "AMBIGUO")
+        self.assertIsNone(item["process_id"])
+
+    def test_conflicting_portal_act_id_does_not_overwrite_or_resolve_by_name(self):
+        process_id = self.store.upsert_process(
+            ProcessRecord(
+                process_key="102390/2026",
+                interested="Pessoa Exemplo",
+                interested_normalized="pessoa exemplo",
+                status="PRONTO",
+            )
+        )
+        self.store._connection.execute(
+            "UPDATE processes SET portal_act_id = ? WHERE id = ?", ("act-fixture-old", process_id)
+        )
+
+        scan_id = self.scan([row(portal_act_id="act-fixture-new")])
+
+        process = self.store.get_process(process_id)
+        item = self.store.get_area_scan(scan_id)["items"][0]
+        self.assertEqual(process["portal_act_id"], "act-fixture-old")
+        self.assertEqual(item["classification"], "AMBIGUO")
+        self.assertIsNone(item["process_id"])
+
     def test_pending_row_maps_to_pendente_and_counts(self):
         scan_id = self.scan([row()])
 

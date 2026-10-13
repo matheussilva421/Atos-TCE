@@ -1,6 +1,7 @@
 """Tests for the read-only Mesa API (M1 Task 4)."""
 
 import json
+import io
 import os
 import socket
 import subprocess
@@ -14,11 +15,14 @@ from tempfile import TemporaryDirectory
 from unittest import mock
 from urllib.error import HTTPError
 from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
+import zipfile
 
+from app.api import server as server_module
 from app.api.bridge import Bridge, TRUSTED_EXTENSION_ID
-from app.api.server import serve
+from app.api.server import _reliability_build_id, serve
 from app.archive.legacy_import import blob_path, sha256_file
 from app.area_restrita import cdp_fallback
+from app.area_restrita.reliability import ReliabilityRecorder
 from app.econtas.legacy_queue import read_frozen_queue
 from app.econtas.service import AcquisitionService
 from app.core.models import DocumentRecord, FieldRecord, ProcessRecord
@@ -104,12 +108,26 @@ class ApiTestCase(unittest.TestCase):
                 )
             ],
         )
+
+
         self.store.add_workflow_event(self.process_id, "analysis_finished", {"status": "PRONTO"})
 
     def serve_kwargs(self) -> dict:
         """Subclasses may inject a coordinator (for example a fake collector)."""
 
         return {}
+
+    def set_capability_states(self, **states):
+        path = self.data_root / "reliability" / "capabilities.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        existing = {}
+        if path.exists():
+            existing = json.loads(path.read_text(encoding="utf-8")).get("capabilities", {})
+        capabilities = dict(existing)
+        capabilities.update({name: {"state": state} for name, state in states.items()})
+        path.write_text(
+            json.dumps({"capabilities": capabilities}, ensure_ascii=False), encoding="utf-8"
+        )
 
     def call(self, path, method="GET", headers=None, body=None, opener=None):
         payload = None if body is None else json.dumps(body).encode("utf-8")
@@ -209,6 +227,14 @@ class HealthTests(ApiTestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["schema_version"], SCHEMA_VERSION)
         self.assertEqual(payload["process_count"], 1)
+
+    def test_health_reports_the_runtime_build_id(self):
+        """Sanitized provenance: a packaged smoke proves the artefact by this."""
+
+        payload = self.get_json("/api/v1/health")
+
+        self.assertEqual(payload["build_id"], _reliability_build_id())
+        self.assertNotIn("data_root", payload["build_id"])
 
 
 class ProcessRouteTests(ApiTestCase):
@@ -1413,15 +1439,23 @@ class NextActRouteTests(ApiTestCase):
 
     def setUp(self):
         super().setUp()
+        self.set_capability_states(
+            next_process="PRODUCTION",
+            return_to_list="PRODUCTION",
+            open_act="PRODUCTION",
+            select_interested="PRODUCTION",
+        )
         self.extension = self.register_extension()
         self.opener = self.mesa_opener()
         self.current_identity = {
             "processKey": "102390/2026",
             "interestedNormalized": "pessoa exemplo",
+            "portalActId": "fixture-current-act",
         }
         self.target_identity = {
             "processKey": "100/2026",
             "interestedNormalized": "pessoa destino",
+            "portalActId": "fixture-target-act",
         }
         self.target_process_id = self.store.upsert_process(
             ProcessRecord(
@@ -1466,6 +1500,23 @@ class NextActRouteTests(ApiTestCase):
             opener=opener,
         )
 
+    def test_next_process_is_blocked_without_production_capability(self):
+        self.set_capability_states(next_process="UNQUALIFIED")
+        status, _headers, payload = self.post_next_act(
+            {"process_id": self.process_id},
+            headers=self.mesa_headers(),
+            opener=self.opener,
+        )
+
+        self.assertEqual(status, 409, payload)
+        self.assertEqual(payload["error"], "CAPABILITY_NOT_PRODUCTION")
+        self.assertEqual(
+            self.store._connection.execute(
+                "SELECT COUNT(*) FROM extension_commands WHERE command_type = 'OPEN_NEXT_ACT'"
+            ).fetchone()[0],
+            0,
+        )
+
     def test_mesa_session_resolves_and_queues_the_exact_scan_target(self):
         status, _headers, payload = self.post_next_act(
             {"process_id": self.process_id},
@@ -1504,6 +1555,48 @@ class NextActRouteTests(ApiTestCase):
         self.assertEqual(payload["target_process_id"], self.target_process_id)
         command = self.store.get_extension_command(payload["command_id"])
         self.assertEqual(command["payload"]["target_identity"], self.target_identity)
+
+    def test_extension_can_read_only_its_own_next_act_command_status(self):
+        status, _headers, created = self.post_next_act(
+            {"identity": self.current_identity}, headers=self.extension
+        )
+        self.assertEqual(status, 201, created)
+        command_id = created["command_id"]
+        other_extension = self.register_extension("other-extension")
+
+        status, _headers, queued = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/status", headers=self.extension
+        )
+        self.assertEqual(status, 200, queued)
+        self.assertEqual(queued["state"], "QUEUED")
+        denied_status, _headers, denied = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/status", headers=other_extension
+        )
+        self.assertEqual(denied_status, 404, denied)
+
+        _status, _headers, claimed = self.call_json(
+            "/api/v1/extension/commands/next", headers=self.extension
+        )
+        result = {
+            "ok": True,
+            "action": "next_act_ready",
+            "identity": self.target_identity,
+            "screen": "form",
+            "claim_token": claimed["command"]["claim_token"],
+        }
+        result_status, _headers, accepted = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/result",
+            method="POST",
+            headers=self.extension,
+            body=result,
+        )
+        self.assertEqual(result_status, 200, accepted)
+        terminal_status, _headers, terminal = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/status", headers=self.extension
+        )
+        self.assertEqual(terminal_status, 200, terminal)
+        self.assertEqual(terminal["state"], "SUCCEEDED")
+        self.assertEqual(terminal["result"]["identity"], self.target_identity)
 
     def test_request_without_either_local_credential_is_rejected(self):
         status, _headers, payload = self.post_next_act({"process_id": self.process_id})
@@ -1579,7 +1672,10 @@ class NextActRouteTests(ApiTestCase):
         valid_result = {
             "ok": True,
             "action": "next_act_ready",
-            "identity": self.target_identity,
+            "identity": {
+                **self.target_identity,
+                "interestedNormalized": "pessoa alias confirmada",
+            },
             "screen": "form",
         }
         invalid_results = (
@@ -1598,6 +1694,7 @@ class NextActRouteTests(ApiTestCase):
                     "identity": {
                         **self.target_identity,
                         "interestedNormalized": "outra pessoa",
+                        "portalActId": "different-fixture-act",
                     },
                 },
                 "identidade",
@@ -1633,6 +1730,7 @@ class FillOrchestrationTests(ApiTestCase):
 
     def setUp(self):
         super().setUp()
+        self.set_capability_states(open_act="PRODUCTION", select_interested="PRODUCTION")
         self.store.replace_fields(
             self.process_id,
             [
@@ -1690,6 +1788,26 @@ class FillOrchestrationTests(ApiTestCase):
         self.assertEqual(status, 201, payload)
         return payload["fill_request_id"]
 
+    def test_automatic_fill_is_blocked_without_production_capabilities(self):
+        self.set_capability_states(open_act="EXPERIMENTAL")
+        status, _headers, payload = self.call_json(
+            f"/api/v1/processes/{self.process_id}/fill",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={},
+            opener=self.opener,
+        )
+
+        self.assertEqual(status, 409, payload)
+        self.assertEqual(payload["error"], "CAPABILITY_NOT_PRODUCTION")
+        self.assertEqual(self.store.list_fill_requests(), [])
+        self.assertEqual(
+            self.store._connection.execute(
+                "SELECT COUNT(*) FROM extension_commands WHERE command_type = 'OPEN_ACT'"
+            ).fetchone()[0],
+            0,
+        )
+
     def fill_state(self, request_id):
         """Read the fill request through the authenticated Mesa session."""
 
@@ -1728,6 +1846,7 @@ class FillOrchestrationTests(ApiTestCase):
             "ok": True,
             "identity": dict(FILL_IDENTITY),
             "generation": 4,
+            "documentNonce": "abcdef0123456789abcdef0123456789",
             "fields": fields,
             "options": {},
         }
@@ -1739,6 +1858,7 @@ class FillOrchestrationTests(ApiTestCase):
             "ok": True,
             "identity": dict(FILL_IDENTITY),
             "generation_after": 5,
+            "document_nonce": "abcdef0123456789abcdef0123456789",
             "field_results": {
                 name: {"before": "", "proposed": value, "after": value, "status": "changed"}
                 for name, value in planned.items()
@@ -1796,6 +1916,7 @@ class FillOrchestrationTests(ApiTestCase):
                 "ok": True,
                 "identity": dict(FILL_IDENTITY),
                 "generation_after": 5,
+                "document_nonce": "abcdef0123456789abcdef0123456789",
             },
         )
 
@@ -2176,5 +2297,1384 @@ class ArchiveRouteTests(ApiTestCase):
         self.assertEqual(payload["error"], "process_not_found")
 
 
+class PortalReliabilityRouteTests(ApiTestCase):
+    def test_reliability_endpoint_returns_only_sanitized_capability_state(self):
+        headers = self.register_extension()
+        status, _headers, payload = self.call_json("/api/v1/portal/reliability", headers=headers)
+
+        self.assertEqual(status, 200, payload)
+        self.assertEqual(set(payload), {"capabilities"})
+        capabilities = payload["capabilities"]
+        self.assertEqual(
+            set(capabilities),
+            {
+                "manual_form_fill",
+                "open_act",
+                "select_interested",
+                "return_to_list",
+                "pagination",
+                "next_process",
+                "area_restrita_end_to_end",
+            },
+        )
+        for name, entry in capabilities.items():
+            self.assertEqual(set(entry), {"state", "real_dev_streak", "portable_streak"}, name)
+            self.assertEqual(entry["state"], "UNQUALIFIED", name)
+            self.assertEqual(entry["real_dev_streak"], 0, name)
+
+    def test_reliability_endpoint_hides_private_events_and_ignores_partial_pass_evidence(self):
+        headers = self.register_extension()
+        recorder = ReliabilityRecorder(self.data_root, "test-build")
+        run_id = recorder.start("manual_form_fill", "real-dev", browser_session_id="7c2e5a19-33b4-4f80-a1d2-5e6c0b9f4a77")
+        recorder.transition(
+            run_id,
+            boundary="fill_command_completed",
+            state_before="FORM",
+            state_after="FORM_FILLED",
+            result_code="SUCCEEDED",
+            expected_identity={"processKey": "102390/2026", "interestedNormalized": "pessoa exemplo"},
+            observed_identity={"processKey": "102390/2026", "interestedNormalized": "pessoa exemplo"},
+        )
+        recorder.finish(run_id, passed=True, result_code="SUCCEEDED")
+
+        status, _headers, payload = self.call_json("/api/v1/portal/reliability", headers=headers)
+        self.assertEqual(status, 200, payload)
+        raw = json.dumps(payload)
+        self.assertNotIn("102390/2026", raw)
+        self.assertNotIn("pessoa exemplo", raw)
+
+        self.assertNotIn("events", raw)
+        self.assertEqual(payload["capabilities"]["manual_form_fill"]["real_dev_streak"], 0)
+        self.assertEqual(payload["capabilities"]["manual_form_fill"]["state"], "UNQUALIFIED")
+
+    def test_reliability_endpoint_requires_the_registered_extension(self):
+        self.assertEqual(self.status_of("/api/v1/portal/reliability"), 401)
+        wrong = {
+            "Origin": EXTENSION_ORIGIN,
+            "Authorization": "Bearer not-a-token",
+            "X-TCE-Client": "unknown-client",
+        }
+        self.assertEqual(self.status_of("/api/v1/portal/reliability"), 401)
+        status, _headers, _payload = self.call_json("/api/v1/portal/reliability", headers=wrong)
+        self.assertEqual(status, 401)
+
+
+
+
+
+class PortalManualFormReliabilityTests(ApiTestCase):
+    def test_manual_form_records_ar1_telemetry_without_navigation(self):
+        opener = self.mesa_opener()
+
+        status, _headers, payload = self.call_json(
+            "/api/v1/portal/manual-form",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={
+                "identity": {"processKey": "102390/2026", "interestedNormalized": "pessoa exemplo"},
+                "generation": 3,
+                "documentNonce": "abcdef0123456789abcdef0123456789",
+                "fields": {},
+                "diagnostics": {
+                    "browser_session_id": "3f1c9b2e-0a44-4d5a-9c11-8b7f2e6a1d33",
+                    "tab_ref": "tab-1",
+                    "frame_ref": "frame-0",
+                    "route": "/SISTEMAS/PROCESSO/ComplementarAto.asp?processo=102390&doc=9",
+                    "screen": "form",
+                    "generation": 3,
+                },
+            },
+            opener=opener,
+        )
+
+        self.assertEqual(status, 201, payload)
+        request_id = payload["fill_request_id"]
+        ledger = self.data_root / "reliability" / "events.jsonl"
+        self.assertTrue(ledger.is_file())
+        raw = ledger.read_text(encoding="utf-8")
+        events = [json.loads(line) for line in raw.splitlines() if line.strip()]
+        run_id = f"manual-fill:{request_id}"
+        run_events = [event for event in events if event.get("run_id") == run_id]
+        self.assertEqual(run_events[0]["type"], "run_start")
+        self.assertEqual(run_events[0]["environment"], "real-dev")
+        boundaries = [
+            event["boundary"] for event in run_events if event.get("type") == "transition"
+        ]
+        self.assertIn("current_form_detected", boundaries)
+        self.assertIn("manual_fill_requested", boundaries)
+
+        types = [
+            row[0]
+            for row in self.store._connection.execute(
+                "SELECT command_type FROM extension_commands ORDER BY id"
+            )
+        ]
+        self.assertNotIn("OPEN_ACT", types)
+        self.assertNotIn("OPEN_NEXT_ACT", types)
+        # The private route and identity never reach the ledger.
+        self.assertNotIn("processo=", raw)
+        self.assertNotIn("102390", raw)
+        self.assertNotIn("pessoa exemplo", raw)
+
+
+    def test_a_reported_manual_attempt_failure_is_recorded(self):
+        opener = self.mesa_opener()
+
+        status, _headers, payload = self.call_json(
+            "/api/v1/portal/manual-form-attempt",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={"code": "FORM_NOT_AVAILABLE"},
+            opener=opener,
+        )
+
+        self.assertEqual(status, 201, payload)
+        self.assertTrue(payload["recorded"])
+        self.assertEqual(payload["code"], "FORM_NOT_AVAILABLE")
+        ledger = self.data_root / "reliability" / "events.jsonl"
+        events = [
+            json.loads(line)
+            for line in ledger.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        finished = [event for event in events if event.get("type") == "run_finished"]
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0]["passed"])
+        self.assertEqual(finished[0]["result_code"], "FORM_NOT_AVAILABLE")
+
+    def test_an_unknown_manual_attempt_code_is_rejected(self):
+        opener = self.mesa_opener()
+
+        status, _headers, payload = self.call_json(
+            "/api/v1/portal/manual-form-attempt",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={"code": "PESSOA EXEMPLO"},
+            opener=opener,
+        )
+
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"], "unknown_manual_attempt_code")
+        self.assertFalse((self.data_root / "reliability" / "events.jsonl").exists())
+
+    def test_the_attempt_route_requires_a_credential(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/portal/manual-form-attempt",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={"code": "FORM_NOT_AVAILABLE"},
+        )
+
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "unauthorized")
 if __name__ == "__main__":
     unittest.main()
+
+
+class PortalCurrentSelectionTests(ApiTestCase):
+    """The form the operator opened, as the Mesa sees it, and its fill button.
+
+    The tracker is memory-only: the public GET must never expose the private
+    snapshot, and NOT_FOUND/AMBIGUOUS must never invent a process."""
+
+    _CURRENT_OBSERVATION = object()
+    _DOCUMENT_NONCE = "abcdef0123456789abcdef0123456789"
+
+    def setUp(self):
+        super().setUp()
+        self.current_observation_id = None
+        self.publisher_id = "a" * 32
+        self.publisher_sequence = 0
+        self.store.replace_fields(
+            self.process_id,
+            [
+                FieldRecord(field_name=name, value=value, status="found", confidence=1.0)
+                for name, value in FILL_FIELDS.items()
+            ],
+        )
+        self.extension = self.register_extension()
+        self.opener = self.mesa_opener()
+
+    # ---------------------------------------------------------------- helpers
+
+    def observation(self, **overrides):
+        """The sanitized snapshot the extension really produces."""
+
+        fields = {
+            name: {"value": "", "disabled": False, "readOnly": False, "options": []}
+            for name in list(FILL_FIELDS) + ["genero"]
+        }
+        fields["modalidade"]["options"] = [
+            {"value": "M", "label": FILL_FIELDS["modalidade"]},
+        ]
+        fields["fundamento_legal"]["options"] = [
+            {"value": "A", "label": FILL_FIELDS["fundamento_legal"]},
+        ]
+        form = {
+            "identity": dict(FILL_IDENTITY),
+            "generation": 4,
+            "documentNonce": self._DOCUMENT_NONCE,
+            "screen": "form",
+            "fields": fields,
+            "options": {},
+        }
+        form.update(overrides)
+        return {"active": True, "form": form}
+
+    def publish(self, body, *, publisher_id=None, sequence=None):
+        selected_publisher = publisher_id or self.publisher_id
+        if sequence is None:
+            self.publisher_sequence += 1
+            selected_sequence = self.publisher_sequence
+        else:
+            selected_sequence = sequence
+            if selected_publisher == self.publisher_id:
+                self.publisher_sequence = max(self.publisher_sequence, sequence)
+        published_body = (
+            {**body, "publisher_id": selected_publisher, "sequence": selected_sequence}
+            if isinstance(body, dict)
+            else body
+        )
+        result = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=self.extension,
+            body=published_body,
+        )
+        if result[0] == 200:
+            self.current_observation_id = result[2].get("observation_id")
+        return result
+
+    def selection(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/portal/current-selection",
+            headers=self.mesa_headers(),
+            opener=self.opener,
+        )
+        self.assertEqual(status, 200, payload)
+        self.current_observation_id = payload.get("observation_id")
+        return payload
+
+    def click_fill_current(self, opener=True, *, observation_id=_CURRENT_OBSERVATION):
+        if observation_id is self._CURRENT_OBSERVATION:
+            observation_id = self.current_observation_id
+        body = {} if observation_id is None else {"observation_id": observation_id}
+        return self.call_json(
+            "/api/v1/portal/current-selection/fill",
+            method="POST",
+            headers=self.mesa_headers(),
+            body=body,
+            **({"opener": self.opener} if opener else {}),
+        )
+
+    def command_types(self):
+        return [
+            row[0]
+            for row in self.store._connection.execute(
+                "SELECT command_type FROM extension_commands ORDER BY id"
+            )
+        ]
+
+    def reliability_events(self):
+        ledger = self.data_root / "reliability" / "events.jsonl"
+        if not ledger.is_file():
+            return []
+        return [
+            json.loads(line)
+            for line in ledger.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+
+    # -------------------------------------------------------------------- auth
+
+    def test_the_observation_route_requires_the_registered_extension(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=self.mesa_headers(),
+            body=self.observation(),
+        )
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "unauthorized")
+
+        status, _headers, _payload = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers={**self.extension, "Authorization": "Bearer not-the-token"},
+            body=self.observation(),
+        )
+        self.assertEqual(status, 401)
+
+    def test_the_read_and_fill_routes_require_a_mesa_session(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/portal/current-selection", headers=self.mesa_headers()
+        )
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "session_required")
+
+        status, _headers, payload = self.click_fill_current(opener=False)
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "session_required")
+
+    # ------------------------------------------------------------ public state
+
+    def test_a_matched_observation_exposes_only_the_minimum(self):
+        status, _headers, payload = self.publish(self.observation())
+        self.assertEqual(status, 200, payload)
+        self.assertEqual(payload["state"], "MATCHED")
+        self.assertEqual(payload["process_id"], self.process_id)
+
+        state = self.selection()
+        self.assertEqual(
+            set(state),
+            {
+                "state",
+                "process_id",
+                "process_key",
+                "generation",
+                "screen",
+                "observed_at",
+                "observation_id",
+            },
+        )
+        self.assertEqual(state["state"], "MATCHED")
+        self.assertEqual(state["process_id"], self.process_id)
+        self.assertEqual(state["process_key"], "102390/2026")
+        self.assertEqual(state["generation"], 4)
+        self.assertEqual(state["screen"], "form")
+        self.assertTrue(state["observed_at"])
+        self.assertRegex(state["observation_id"], r"^[A-Za-z0-9_-]{43}$")
+        serialized = json.dumps(state)
+        for private in ("interestedNormalized", "cargo", "pessoa exemplo"):
+            self.assertNotIn(private, serialized)
+
+    def test_a_second_publisher_cannot_replace_a_live_selection(self):
+        publisher_a = "a" * 32
+        publisher_b = "b" * 32
+        status, _headers, first = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=self.extension,
+            body={**self.observation(), "publisher_id": publisher_a, "sequence": 10},
+        )
+        self.assertEqual(status, 200, first)
+
+        status, _headers, refused = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=self.extension,
+            body={
+                **self.observation(generation=5),
+                "publisher_id": publisher_b,
+                "sequence": 1,
+            },
+        )
+
+        self.assertEqual(status, 409, refused)
+        self.assertEqual(refused["detail"], "PUBLISHER_OWNED")
+        current = self.selection()
+        self.assertEqual(current["observation_id"], first["observation_id"])
+        self.assertEqual(current["generation"], 4)
+
+    def test_a_publisher_replay_cannot_regress_its_sequence(self):
+        publisher = "c" * 32
+        status, _headers, first = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=self.extension,
+            body={**self.observation(), "publisher_id": publisher, "sequence": 10},
+        )
+        self.assertEqual(status, 200, first)
+
+        status, _headers, refused = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=self.extension,
+            body={
+                **self.observation(generation=5),
+                "publisher_id": publisher,
+                "sequence": 9,
+            },
+        )
+
+        self.assertEqual(status, 409, refused)
+        self.assertEqual(refused["detail"], "STALE_PUBLISHER")
+        current = self.selection()
+        self.assertEqual(current["observation_id"], first["observation_id"])
+        self.assertEqual(current["generation"], 4)
+
+    def test_publisher_identity_and_sequence_are_validated_by_the_http_route(self):
+        cases = (
+            ({"active": True, "form": self.observation()["form"]}, "INVALID_PUBLISHER"),
+            (
+                {**self.observation(), "publisher_id": "A" * 32, "sequence": 1},
+                "INVALID_PUBLISHER",
+            ),
+            (
+                {**self.observation(), "publisher_id": "d" * 32, "sequence": True},
+                "INVALID_SEQUENCE",
+            ),
+            (
+                {**self.observation(), "publisher_id": "d" * 32, "sequence": 0},
+                "INVALID_SEQUENCE",
+            ),
+            (
+                {**self.observation(), "publisher_id": "d" * 32, "sequence": "1"},
+                "INVALID_SEQUENCE",
+            ),
+            (
+                {
+                    **self.observation(),
+                    "publisher_id": "d" * 32,
+                    "sequence": 2**53,
+                },
+                "INVALID_SEQUENCE",
+            ),
+        )
+        for body, detail in cases:
+            with self.subTest(detail=detail, body=body):
+                status, _headers, payload = self.call_json(
+                    "/api/v1/portal/current-selection",
+                    method="POST",
+                    headers=self.extension,
+                    body=body,
+                )
+                self.assertEqual(status, 400, payload)
+                self.assertEqual(payload["error"], "invalid_current_selection")
+                self.assertEqual(payload["detail"], detail)
+
+        self.assertEqual(self.selection()["state"], "NO_ACTIVE_FORM")
+
+    def test_publisher_metadata_is_transient_and_never_public_or_logged(self):
+        publisher_id = "e" * 32
+        status, _headers, _payload = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=self.extension,
+            body={
+                **self.observation(),
+                "publisher_id": publisher_id,
+                "sequence": 1,
+            },
+        )
+        self.assertEqual(status, 200)
+
+        public_state = self.selection()
+        serialized_state = json.dumps(public_state)
+        self.assertNotIn("publisher_id", serialized_state)
+        self.assertNotIn("sequence", serialized_state)
+        self.assertNotIn(publisher_id, serialized_state)
+        self.assertEqual(self.reliability_events(), [])
+        self.assertFalse((self.data_root / "reliability" / "events.jsonl").exists())
+
+    def test_a_conflicting_or_replayed_publisher_cannot_clear_an_observation(self):
+        publisher_a = "a" * 32
+        publisher_b = "b" * 32
+        status, _headers, matched = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=self.extension,
+            body={**self.observation(), "publisher_id": publisher_a, "sequence": 10},
+        )
+        self.assertEqual(status, 200, matched)
+
+        for publisher, sequence, detail in (
+            (publisher_b, 1, "PUBLISHER_OWNED"),
+            (publisher_a, 10, "STALE_PUBLISHER"),
+        ):
+            with self.subTest(detail=detail):
+                status, _headers, payload = self.call_json(
+                    "/api/v1/portal/current-selection",
+                    method="POST",
+                    headers=self.extension,
+                    body={
+                        "active": False,
+                        "code": "FORM_NOT_AVAILABLE",
+                        "publisher_id": publisher,
+                        "sequence": sequence,
+                    },
+                )
+                self.assertEqual(status, 409, payload)
+                self.assertEqual(payload["error"], "current_selection_refused")
+                self.assertEqual(payload["detail"], detail)
+                self.assertEqual(self.selection()["observation_id"], matched["observation_id"])
+
+        status, _headers, cleared = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=self.extension,
+            body={
+                "active": False,
+                "code": "FORM_NOT_AVAILABLE",
+                "publisher_id": publisher_a,
+                "sequence": 11,
+            },
+        )
+        self.assertEqual(status, 200, cleared)
+        self.assertEqual(cleared["state"], "NO_ACTIVE_FORM")
+
+    def test_the_observed_fill_is_available_for_a_process_that_is_not_pronto(self):
+        self.store.set_process_status(self.process_id, "REVISAR")
+        self.publish(self.observation())
+
+        status, _headers, payload = self.click_fill_current()
+
+        self.assertEqual(status, 201, payload)
+        self.assertEqual(payload["mode"], "manual")
+        self.assertEqual(self.store.get_process(self.process_id)["status"], "REVISAR")
+
+    def test_a_missing_process_is_reported_without_a_process_id(self):
+        self.publish(
+            self.observation(
+                identity={"processKey": "999999/2026", "interestedNormalized": "pessoa exemplo"}
+            )
+        )
+
+        state = self.selection()
+
+        self.assertEqual(state["state"], "NOT_FOUND")
+        self.assertNotIn("process_id", state)
+
+    def test_a_conflicting_alias_is_ambiguous_without_a_process_id(self):
+        self.store._connection.execute(
+            "UPDATE processes SET portal_act_id = ? WHERE id = ?",
+            ("act-fixture-1", self.process_id),
+        )
+        self.publish(
+            self.observation(
+                identity={**FILL_IDENTITY, "portalActId": "act-fixture-2"}
+            )
+        )
+
+        state = self.selection()
+
+        self.assertEqual(state["state"], "AMBIGUOUS")
+        self.assertNotIn("process_id", state)
+
+    def test_a_cleared_observation_is_never_matched(self):
+        for code in ("FORM_NOT_AVAILABLE", "PORTAL_TAB_NOT_ACTIVE"):
+            with self.subTest(code=code):
+                self.publish(self.observation())
+                status, _headers, _payload = self.publish({"active": False, "code": code})
+                self.assertEqual(status, 200)
+
+                state = self.selection()
+                self.assertEqual(state["state"], "NO_ACTIVE_FORM")
+                self.assertEqual(state["code"], code)
+                self.assertNotIn("process_id", state)
+
+    def test_an_ambiguous_clear_is_never_matched(self):
+        self.publish({"active": False, "code": "FORM_AMBIGUOUS"})
+
+        state = self.selection()
+
+        self.assertEqual(state["state"], "AMBIGUOUS")
+        self.assertNotIn("process_id", state)
+
+    def test_an_unobserved_mesa_reports_no_active_form(self):
+        self.assertEqual(self.selection(), {"state": "NO_ACTIVE_FORM"})
+
+    def test_an_invalid_observation_is_refused_without_replacing_the_selection(self):
+        self.publish(self.observation())
+
+        for body in (
+            {"active": True, "form": {"generation": 4}},
+            {"active": True, "form": {**self.observation()["form"], "generation": 0}},
+            {"active": True},
+            {"active": "sim"},
+        ):
+            with self.subTest(body=str(body)):
+                status, _headers, payload = self.publish(body)
+                self.assertEqual(status, 400)
+                self.assertEqual(payload["error"], "invalid_current_selection")
+
+        # A body that is not an object is refused by the shared parser first.
+        status, _headers, payload = self.publish([])
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"], "invalid_body")
+
+        # The last good observation is still the one being served.
+        self.assertEqual(self.selection()["state"], "MATCHED")
+
+    # ------------------------------------------------------- the fill button
+
+    def test_the_fill_button_uses_only_the_transient_snapshot(self):
+        self.publish(self.observation())
+
+        status, _headers, payload = self.click_fill_current()
+
+        self.assertEqual(status, 201, payload)
+        self.assertEqual(payload["mode"], "manual")
+        self.assertEqual(payload["state"], "FILLING")
+        request = self.store.get_fill_request(payload["fill_request_id"])
+        self.assertEqual(request["process_id"], self.process_id)
+        self.assertEqual(request["mode"], "manual")
+        # Best-effort never navigates: only the one write command is queued.
+        self.assertEqual(self.command_types(), ["FILL_FORM"])
+
+        command = self.claim()
+        self.assertEqual(command["type"], "FILL_FORM")
+        self.assertEqual(command["payload"]["fields"]["cargo"], "Professor")
+
+    def test_fill_result_validates_but_does_not_persist_the_document_nonce(self):
+        self.publish(self.observation())
+        status, _headers, started = self.click_fill_current()
+        self.assertEqual(status, 201, started)
+        command = self.claim()
+        fields = command["payload"]["fields"]
+        result = {
+            "ok": True,
+            "document_nonce": self._DOCUMENT_NONCE,
+            "identity": dict(FILL_IDENTITY),
+            "generation_after": 5,
+            "field_results": {
+                name: {"before": "", "proposed": value, "after": value, "status": "changed"}
+                for name, value in fields.items()
+            },
+        }
+
+        status, _headers, response = self.call_json(
+            f"/api/v1/extension/commands/{command['id']}/result",
+            method="POST",
+            headers=self.extension,
+            body={**result, "claim_token": command["claim_token"]},
+        )
+
+        self.assertEqual(status, 200, response)
+        stored = self.store.get_extension_command(command["id"])
+        self.assertNotIn("document_nonce", stored["result"])
+        self.assertNotIn(self._DOCUMENT_NONCE, json.dumps(stored["result"]))
+
+    def test_a_stale_click_for_a_cannot_reserve_or_fill_b(self):
+        process_b = self.store.upsert_process(
+            ProcessRecord(
+                process_key="20202/2026",
+                interested="Pessoa Dois",
+                interested_normalized="pessoa dois",
+                status="PRONTO",
+            )
+        )
+        self.store.replace_fields(
+            process_b,
+            [
+                FieldRecord(field_name=name, value=value, status="found", confidence=1.0)
+                for name, value in FILL_FIELDS.items()
+            ],
+        )
+
+        self.publish(self.observation())
+        observation_a = self.selection()
+        observation_a_id = observation_a.get("observation_id") or "legacy-observation-a"
+        self.publish(
+            self.observation(
+                identity={"processKey": "20202/2026", "interestedNormalized": "pessoa dois"}
+            )
+        )
+        observation_b = self.selection()
+        observation_b_id = observation_b.get("observation_id") or "legacy-observation-b"
+        self.assertNotEqual(observation_a_id, observation_b_id)
+
+        stale_status, _headers, stale_payload = self.click_fill_current(
+            observation_id=observation_a_id
+        )
+
+        self.assertEqual(stale_status, 409, stale_payload)
+        self.assertEqual(stale_payload.get("detail"), "STALE_SELECTION")
+        self.assertEqual(self.store.list_fill_requests(), [])
+        self.assertEqual(self.command_types(), [])
+        failures = [
+            event
+            for event in self.reliability_events()
+            if event.get("type") == "run_finished"
+        ]
+        self.assertEqual(len(failures), 1)
+        self.assertFalse(failures[0]["passed"])
+
+        current_status, _headers, current_payload = self.click_fill_current(
+            observation_id=observation_b_id
+        )
+
+        self.assertEqual(current_status, 201, current_payload)
+        self.assertEqual(
+            self.store.get_fill_request(current_payload["fill_request_id"])["process_id"],
+            process_b,
+        )
+        self.assertEqual(self.command_types(), ["FILL_FORM"])
+        current_request = self.store.get_fill_request(current_payload["fill_request_id"])
+        stored_command = self.store.get_extension_command(current_request["current_command_id"])
+        self.assertNotIn("document_nonce", stored_command["payload"])
+        self.assertNotIn(self._DOCUMENT_NONCE, json.dumps(current_request["form_snapshot"]))
+        self.assertNotIn(self._DOCUMENT_NONCE, json.dumps(self.reliability_events()))
+
+        delivery_status, _headers, delivery = self.call_json(
+            "/api/v1/extension/commands/next", headers=self.extension
+        )
+        self.assertEqual(delivery_status, 200, delivery)
+        self.assertEqual(delivery["command"]["payload"]["document_nonce"], self._DOCUMENT_NONCE)
+        self.assertNotIn(
+            "document_nonce",
+            self.store.get_extension_command(current_request["current_command_id"])["payload"],
+        )
+
+        replay_status, _headers, replay_payload = self.click_fill_current(
+            observation_id=observation_b_id
+        )
+
+        self.assertEqual(replay_status, 409, replay_payload)
+        self.assertEqual(replay_payload.get("detail"), "STALE_SELECTION")
+        self.assertEqual(len(self.store.list_fill_requests()), 1)
+        self.assertEqual(self.command_types(), ["FILL_FORM"])
+
+    def test_a_fill_requires_a_present_well_formed_observation_id(self):
+        self.publish(self.observation())
+
+        status, _headers, payload = self.click_fill_current(observation_id=None)
+
+        self.assertEqual(status, 409, payload)
+        self.assertEqual(payload.get("detail"), "INVALID_OBSERVATION_ID")
+        self.assertEqual(self.store.list_fill_requests(), [])
+        self.assertEqual(self.command_types(), [])
+
+    def test_an_unknown_or_malformed_observation_id_never_creates_a_fill(self):
+        self.publish(self.observation())
+
+        for observation_id in ("not-a-token", "A" * 43):
+            with self.subTest(observation_id=observation_id[:12]):
+                status, _headers, payload = self.click_fill_current(
+                    observation_id=observation_id
+                )
+                self.assertEqual(status, 409, payload)
+                self.assertIn(
+                    payload.get("detail"), {"INVALID_OBSERVATION_ID", "STALE_SELECTION"}
+                )
+                self.assertEqual(self.store.list_fill_requests(), [])
+                self.assertEqual(self.command_types(), [])
+
+    def test_a_click_after_the_ttl_refuses_without_writing(self):
+        self.publish(self.observation())
+        tracker = self.server.portal_selection
+        tracker._expires_at = tracker._clock() - 1.0  # the 10 s TTL elapsed
+
+        status, _headers, payload = self.click_fill_current()
+
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["error"], "current_selection_not_fillable")
+        self.assertEqual(self.store.list_fill_requests(), [])
+        self.assertEqual(self.command_types(), [])
+        finished = [
+            event for event in self.reliability_events() if event.get("type") == "run_finished"
+        ]
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0]["passed"])
+        self.assertEqual(finished[0]["result_code"], "FORM_NOT_AVAILABLE")
+
+    def test_two_simultaneous_clicks_consume_one_observation_once(self):
+        self.publish(self.observation())
+        observation_id = self.current_observation_id
+        gate = threading.Barrier(3)
+        results = []
+
+        def click():
+            gate.wait(timeout=5)
+            results.append(self.click_fill_current(observation_id=observation_id))
+
+        workers = [threading.Thread(target=click) for _ in range(2)]
+        for worker in workers:
+            worker.start()
+        gate.wait(timeout=5)
+        for worker in workers:
+            worker.join(timeout=10)
+
+        self.assertTrue(all(not worker.is_alive() for worker in workers))
+        self.assertCountEqual([result[0] for result in results], [201, 409])
+        self.assertEqual(len(self.store.list_fill_requests()), 1)
+        self.assertEqual(self.command_types(), ["FILL_FORM"])
+
+    def test_a_not_found_selection_is_never_an_attempt(self):
+        self.publish(
+            self.observation(
+                identity={"processKey": "999999/2026", "interestedNormalized": "pessoa exemplo"}
+            )
+        )
+
+        status, _headers, payload = self.click_fill_current()
+
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["error"], "current_selection_not_fillable")
+        self.assertEqual(self.store.list_fill_requests(), [])
+        # The Mesa never renders the button here, so nothing is recorded.
+        self.assertEqual(self.reliability_events(), [])
+
+    def test_ambiguous_and_invalid_selection_states_never_create_a_fill(self):
+        self.store._connection.execute(
+            "UPDATE processes SET portal_act_id = ? WHERE id = ?",
+            ("act-fixture-1", self.process_id),
+        )
+        self.publish(
+            self.observation(identity={**FILL_IDENTITY, "portalActId": "act-fixture-2"})
+        )
+        ambiguous_status, _headers, ambiguous_payload = self.click_fill_current()
+        self.assertEqual(ambiguous_status, 409, ambiguous_payload)
+        self.assertEqual(self.store.list_fill_requests(), [])
+        self.assertEqual(self.command_types(), [])
+
+        self.publish({"active": False, "code": "INVALID"})
+        invalid_status, _headers, invalid_payload = self.click_fill_current()
+        self.assertEqual(invalid_status, 409, invalid_payload)
+        self.assertEqual(self.store.list_fill_requests(), [])
+        self.assertEqual(self.command_types(), [])
+
+    def test_a_click_with_no_observation_at_all_is_never_an_attempt(self):
+        status, _headers, payload = self.click_fill_current()
+
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["error"], "current_selection_not_fillable")
+        self.assertEqual(self.store.list_fill_requests(), [])
+        self.assertEqual(self.reliability_events(), [])
+
+    def test_a_malformed_inactive_code_never_clears_the_selection(self):
+        self.publish(self.observation())
+
+        status, _headers, payload = self.publish({"active": False, "code": "typo"})
+
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"], "invalid_current_selection")
+        # The good observation is still served, and still fillable.
+        self.assertEqual(self.selection()["state"], "MATCHED")
+        self.assertEqual(self.click_fill_current()[0], 201)
+
+    def claim(self):
+        status, _headers, payload = self.call_json(
+            "/api/v1/extension/commands/next", headers=self.extension
+        )
+        self.assertEqual(status, 200, payload)
+        command = payload["command"]
+        if command:
+            self.claim_tokens = getattr(self, "claim_tokens", {})
+            self.claim_tokens[int(command["id"])] = command.get("claim_token")
+        return command
+
+    def test_hidden_old_form_through_real_detector_heartbeat_and_local_fill(self):
+        helper = REPO_ROOT / "extension" / "tests" / "helpers" / "current-selection-smoke.mjs"
+        client_id = self.extension["X-TCE-Client"]
+        token = self.extension["Authorization"].split(" ", 1)[1]
+        extension_id = TRUSTED_EXTENSION_ID
+        completed = subprocess.run(
+            ["node", str(helper), self.base, client_id, token, extension_id],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        smoke = json.loads(completed.stdout)
+        self.assertTrue(smoke["poll"]["ok"])
+        self.assertEqual(len(smoke["publications"]), 1)
+        published = smoke["publications"][0]
+        self.assertTrue(published["result"]["ok"], published["result"])
+        self.assertEqual(
+            published["observation"]["form"]["identity"]["processKey"],
+            "102390/2026",
+        )
+        self.assertEqual(published["result"]["payload"]["state"], "MATCHED")
+
+        state = self.selection()
+        self.assertEqual(state["state"], "MATCHED")
+        self.assertEqual(state["process_id"], self.process_id)
+        self.assertNotIn("fields", state)
+        self.assertEqual(self.command_types(), [])
+
+        status, _headers, started = self.click_fill_current()
+        self.assertEqual(status, 201, started)
+        self.assertEqual(started["mode"], "manual")
+        command = self.claim()
+        self.assertEqual(command["type"], "FILL_FORM")
+        planned = command["payload"]["fields"]
+        self.assertEqual(planned["cargo"], "Professor")
+        self.assertEqual(self.command_types(), ["FILL_FORM"])
+
+        completed = subprocess.run(
+            ["node", str(helper), "fill"],
+            cwd=str(REPO_ROOT),
+            input=json.dumps(command["payload"]),
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        applied = json.loads(completed.stdout)
+        result = applied["result"]
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["identity"], command["payload"]["identity"])
+        self.assertEqual(result["field_results"]["cargo"]["status"], "changed")
+        self.assertEqual(applied["oldCargo"], {"value": "", "writeCount": 0})
+        self.assertEqual(applied["currentCargo"]["value"], planned["cargo"])
+        self.assertEqual(applied["currentCargo"]["writeCount"], 1)
+        status, _headers, reported = self.call_json(
+            f"/api/v1/extension/commands/{command['id']}/result",
+            method="POST",
+            headers=self.extension,
+            body={**result, "claim_token": command.get("claim_token")},
+        )
+        self.assertEqual(status, 200, reported)
+
+        finished = self.store.get_fill_request(started["fill_request_id"])
+        self.assertEqual(finished["state"], "PREENCHIDO")
+        self.assertTrue(finished["form_snapshot"]["summary"]["best_effort_satisfied"])
+        self.assertTrue(finished["form_snapshot"]["summary"]["mandatory_satisfied"])
+        self.assertEqual(self.command_types(), ["FILL_FORM"])
+
+
+class PackagedReliabilityBootstrapTests(unittest.TestCase):
+    """A package-approved clean install can start AR-1 without synthetic runs."""
+
+    def write_bootstrap(self, path: Path, build: str) -> None:
+        path.write_text(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "build_id": build,
+                    "capabilities": {"manual_form_fill": "EXPERIMENTAL"},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def start_packaged_server(self, data_root: Path, manifest: Path, build: str) -> None:
+        store = Store.open(data_root / "atos-tce.db")
+        server = None
+        try:
+            with mock.patch.object(
+                server_module,
+                "RELIABILITY_BOOTSTRAP_MANIFEST",
+                manifest,
+                create=True,
+            ), mock.patch.object(
+                server_module, "_reliability_build_id", return_value=build
+            ), mock.patch.object(
+                server_module, "_packaged_build_id", return_value=build
+            ):
+                server = serve(store, data_root, port=0, bridge=Bridge())
+        finally:
+            if server is not None:
+                server.server_close()
+            store.close()
+
+    def test_clean_approved_install_bootstraps_only_manual_fill_and_preserves_downgrade(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            data_root = root / "data"
+            manifest = root / "reliability-bootstrap.json"
+            build = "a" * 40
+            self.write_bootstrap(manifest, build)
+
+            self.start_packaged_server(data_root, manifest, build)
+
+            recorder = ReliabilityRecorder(data_root, build)
+            capabilities = recorder.capabilities()
+            self.assertEqual(capabilities["manual_form_fill"]["state"], "EXPERIMENTAL")
+            self.assertEqual(capabilities["manual_form_fill"]["real_dev_streak"], 0)
+            self.assertEqual(capabilities["manual_form_fill"]["portable_streak"], 0)
+            for name, entry in capabilities.items():
+                if name != "manual_form_fill":
+                    self.assertEqual(entry["state"], "UNQUALIFIED", name)
+            self.assertFalse((recorder.root / "events.jsonl").exists())
+            self.assertFalse((recorder.root / "identity.key").exists())
+
+            recorder.downgrade("manual_form_fill", reason="downgrade explicit test")
+            self.start_packaged_server(data_root, manifest, build)
+
+            self.assertEqual(
+                ReliabilityRecorder(data_root, build).capabilities()["manual_form_fill"]["state"],
+                "UNQUALIFIED",
+            )
+
+    def test_bootstrap_from_another_build_does_not_apply(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            data_root = root / "data"
+            manifest = root / "reliability-bootstrap.json"
+            self.write_bootstrap(manifest, "b" * 40)
+
+            self.start_packaged_server(data_root, manifest, "a" * 40)
+
+            self.assertEqual(
+                ReliabilityRecorder(data_root, "a" * 40).capabilities()["manual_form_fill"]["state"],
+                "UNQUALIFIED",
+            )
+            self.assertFalse((data_root / "reliability" / "events.jsonl").exists())
+
+    def test_bootstrap_cannot_follow_environment_override_away_from_package_build(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            data_root = root / "data"
+            manifest = root / "reliability-bootstrap.json"
+            approved_build = "a" * 40
+            package_build = "b" * 40
+            self.write_bootstrap(manifest, approved_build)
+
+            with mock.patch.object(server_module, "RELIABILITY_BOOTSTRAP_MANIFEST", manifest), mock.patch.object(
+                server_module, "_packaged_build_id", return_value=package_build
+            ), mock.patch.dict(os.environ, {"ATOS_TCE_BUILD_ID": approved_build}):
+                applied = server_module._apply_packaged_reliability_bootstrap(data_root)
+
+            self.assertFalse(applied)
+            self.assertEqual(
+                ReliabilityRecorder(data_root, approved_build).capabilities()["manual_form_fill"]["state"],
+                "UNQUALIFIED",
+            )
+
+
+class DiagnosticApiTests(ApiTestCase):
+    def events(self):
+        sessions = self.data_root / "diagnostics" / "sessions"
+        return [
+            json.loads(line)
+            for path in sessions.glob("*.jsonl")
+            for line in path.read_text(encoding="utf-8").splitlines()
+        ]
+
+    def test_diagnostic_routes_require_a_mesa_session(self):
+        for path, method, body in (
+            ("/api/v1/diagnostics", "GET", None),
+            ("/api/v1/diagnostics/export", "GET", None),
+            ("/api/v1/diagnostics/control", "POST", {"action": "pause"}),
+            (
+                "/api/v1/diagnostics/events",
+                "POST",
+                {"event": {"step": "COMMAND_TIMEOUT", "code": "COMMAND_TIMEOUT"}},
+            ),
+        ):
+            with self.subTest(path=path):
+                status, _headers, payload = self.call_json(
+                    path, method=method, headers=self.mesa_headers(), body=body
+                )
+                self.assertEqual(status, 401, payload)
+
+    def test_diagnostic_status_reports_on_and_latest_extension_state(self):
+        opener = self.mesa_opener()
+        extension = self.register_extension()
+        polled_status, _headers, polled = self.call_json(
+            "/api/v1/extension/commands/next", headers=extension
+        )
+        self.assertEqual(polled_status, 200, polled)
+        self.assertIsNone(polled["command"])
+
+        status, _headers, diagnostic = self.call_json(
+            "/api/v1/diagnostics",
+            headers=self.mesa_headers(),
+            opener=opener,
+        )
+
+        self.assertEqual(status, 200, diagnostic)
+        self.assertIs(diagnostic["diagnostic_enabled"], True)
+        self.assertIs(diagnostic["active"], True)
+        self.assertEqual(diagnostic["last_event"]["component"], "extension")
+        self.assertEqual(diagnostic["last_event"]["step"], "heartbeat")
+        self.assertIsInstance(diagnostic["heartbeat_age_ms"], int)
+
+    def test_diagnostic_status_keeps_last_command_and_error_after_heartbeat(self):
+        self.server.record_diagnostic(
+            {
+                "component": "mesa",
+                "step": "command_sent",
+                "command_id": 17,
+                "command_type": "FILL_FORM",
+            }
+        )
+        self.server.record_diagnostic(
+            {
+                "component": "mesa",
+                "step": "command_timeout",
+                "command_id": 17,
+                "command_type": "FILL_FORM",
+                "result": "timeout",
+                "code": "COMMAND_TIMEOUT",
+            }
+        )
+        self.server.note_extension_heartbeat()
+
+        status = self.server.diagnostic_status()
+
+        self.assertEqual(status["last_event"]["step"], "heartbeat")
+        self.assertEqual(status["last_command_type"], "FILL_FORM")
+        self.assertEqual(status["last_result_code"], "COMMAND_TIMEOUT")
+        self.assertEqual(status["last_error_code"], "COMMAND_TIMEOUT")
+        self.assertEqual(status["portal_state"], "NO_ACTIVE_FORM")
+
+    def test_diagnostic_status_exposes_current_selection_codes_after_heartbeat(self):
+        self.server.portal_selection.clear(
+            "FORM_NOT_AVAILABLE", publisher_id="c" * 32, sequence=1
+        )
+        self.server.note_extension_heartbeat()
+
+        status = self.server.diagnostic_status()
+
+        self.assertEqual(status["form_state"], "NO_ACTIVE_FORM")
+        self.assertEqual(status["form_code"], "FORM_NOT_AVAILABLE")
+        self.assertEqual(status["current_selection_state"], "NO_ACTIVE_FORM")
+        self.assertEqual(status["current_selection_code"], "FORM_NOT_AVAILABLE")
+
+    def test_diagnostic_control_pauses_resumes_and_clears(self):
+        opener = self.mesa_opener()
+
+        def control(action):
+            return self.call_json(
+                "/api/v1/diagnostics/control",
+                method="POST",
+                headers=self.mesa_headers(),
+                body={"action": action},
+                opener=opener,
+            )
+
+        pause_status, _headers, paused = control("pause")
+        self.assertEqual(pause_status, 200, paused)
+        self.assertIs(paused["active"], False)
+        resume_status, _headers, resumed = control("resume")
+        self.assertEqual(resume_status, 200, resumed)
+        self.assertIs(resumed["active"], True)
+        previous_session = resumed["session_id"]
+        clear_status, _headers, cleared = control("clear")
+        self.assertEqual(clear_status, 200, cleared)
+        self.assertNotEqual(cleared["session_id"], previous_session)
+        self.assertEqual(cleared["event_count"], 0)
+        self.assertIs(cleared["diagnostic_enabled"], True)
+
+    def test_diagnostic_export_returns_named_zip(self):
+        opener = self.mesa_opener()
+        self.call_json(
+            "/api/v1/diagnostics/events",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={"event": {"component": "mesa", "step": "command_timeout", "code": "COMMAND_TIMEOUT", "result": "timeout"}},
+            opener=opener,
+        )
+
+        status, headers, body = self.call(
+            "/api/v1/diagnostics/export",
+            headers=self.mesa_headers(),
+            opener=opener,
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "application/zip")
+        self.assertRegex(
+            headers["Content-Disposition"],
+            r'diagnostico-atos-tce-\d{8}-\d{6}\.zip',
+        )
+        with zipfile.ZipFile(io.BytesIO(body)) as archive:
+            self.assertEqual(
+                set(archive.namelist()),
+                {"resumo.txt", "timeline.jsonl", "ambiente.json", "mesa.log", "extensao.log", "ultima-sessao.json"},
+            )
+
+    def test_mesa_diagnostic_event_records_command_timeout(self):
+        opener = self.mesa_opener()
+        status, _headers, result = self.call_json(
+            "/api/v1/diagnostics/events",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={"event": {"step": "COMMAND_TIMEOUT", "code": "COMMAND_TIMEOUT", "result": "timeout"}},
+            opener=opener,
+        )
+
+        self.assertEqual(status, 201, result)
+        self.assertTrue(result["recorded"])
+        self.assertIn("COMMAND_TIMEOUT", json.dumps(self.events()))
+
+    def test_current_selection_records_diagnostics_in_the_shared_session(self):
+        extension = self.register_extension()
+        opener = self.mesa_opener()
+        status, _headers, public_state = self.call_json(
+            "/api/v1/portal/current-selection",
+            method="POST",
+            headers=extension,
+            body={
+                "active": False,
+                "code": "FORM_NOT_AVAILABLE",
+                "publisher_id": "a" * 32,
+                "sequence": 1,
+                "diagnostic_events": [
+                    {"component": "spoofed", "step": "frames_scanned", "elapsed_ms": 84}
+                ],
+            },
+        )
+
+        self.assertEqual(status, 200, public_state)
+        self.assertNotIn("diagnostic_events", public_state)
+        events = self.events()
+        session_ids = {event["session_id"] for event in events}
+        diagnostic = self.call_json(
+            "/api/v1/diagnostics", headers=self.mesa_headers(), opener=opener
+        )[2]
+        self.assertEqual(session_ids, {diagnostic["session_id"]})
+        sidecar = next(event for event in events if event.get("step") == "frames_scanned")
+        self.assertEqual(sidecar["component"], "extension")
+        self.assertEqual(sidecar["elapsed_ms"], 84)
+        serialized = json.dumps(events)
+        self.assertNotIn('"fields"', serialized)
+        self.assertNotIn("documentNonce", serialized)
+
+    def test_command_result_diagnostic_sidecar_is_removed_before_validation_and_persistence(self):
+        opener = self.mesa_opener()
+        _status, _headers, created = self.call_json(
+            "/api/v1/area/analyze",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={},
+            opener=opener,
+        )
+        extension = self.register_extension()
+        _status, _headers, claimed = self.call_json(
+            "/api/v1/extension/commands/next", headers=extension
+        )
+        command_id = created["command_id"]
+        self.assertEqual(claimed["command"]["id"], command_id)
+        result_body = {
+            **SNAPSHOT,
+            "command_id": command_id,
+            "ok": True,
+            "claim_token": claimed["command"]["claim_token"],
+            "diagnostic_events": [
+                {
+                    "component": "spoofed",
+                    "step": "frames_scanned",
+                    "elapsed_ms": 32,
+                    "process": "102390/2026",
+                    "extension_token": "must-not-be-recorded",
+                }
+            ],
+        }
+
+        status, _headers, posted = self.call_json(
+            f"/api/v1/extension/commands/{command_id}/result",
+            method="POST",
+            headers=extension,
+            body=result_body,
+        )
+
+        self.assertEqual(status, 200, posted)
+        stored = self.store.get_extension_command(command_id)["result"]
+        self.assertNotIn("diagnostic_events", stored)
+        serialized_events = json.dumps(self.events())
+        self.assertIn("frames_scanned", serialized_events)
+        self.assertNotIn("must-not-be-recorded", serialized_events)
+
+    def test_malformed_diagnostic_sidecar_does_not_change_command_validation(self):
+        opener = self.mesa_opener()
+        created_status, _headers, created = self.call_json(
+            "/api/v1/extension/commands",
+            method="POST",
+            headers=self.mesa_headers(),
+            body={"type": "STATUS", "payload": {}},
+            opener=opener,
+        )
+        self.assertEqual(created_status, 201, created)
+        extension = self.register_extension()
+        _status, _headers, claimed = self.call_json(
+            "/api/v1/extension/commands/next", headers=extension
+        )
+
+        status, _headers, posted = self.call_json(
+            f"/api/v1/extension/commands/{created['command_id']}/result",
+            method="POST",
+            headers=extension,
+            body={
+                "ok": True,
+                "claim_token": claimed["command"]["claim_token"],
+                "diagnostic_events": {"arbitrary": "malformed"},
+            },
+        )
+
+        self.assertEqual(status, 200, posted)
+        self.assertNotIn("diagnostic_events", self.store.get_extension_command(created["command_id"])["result"])
+
+    def test_fill_result_sidecar_is_removed_before_fill_service_and_sqlite(self):
+        self.store.replace_fields(
+            self.process_id,
+            [
+                FieldRecord(field_name=name, value=value, status="found", confidence=1.0)
+                for name, value in FILL_FIELDS.items()
+            ],
+        )
+        controls = {
+            name: {"value": "", "disabled": False, "readOnly": False, "options": []}
+            for name in list(FILL_FIELDS) + ["genero"]
+        }
+        controls["modalidade"]["options"] = [
+            {"value": "M", "label": FILL_FIELDS["modalidade"]}
+        ]
+        controls["fundamento_legal"]["options"] = [
+            {"value": "A", "label": FILL_FIELDS["fundamento_legal"]}
+        ]
+        request_id = self.server.fill.request_manual_fill(
+            {
+                "identity": dict(FILL_IDENTITY),
+                "generation": 4,
+                "documentNonce": "abcdef0123456789abcdef0123456789",
+                "fields": controls,
+                "options": {},
+            }
+        )
+        extension = self.register_extension()
+        _status, _headers, claimed = self.call_json(
+            "/api/v1/extension/commands/next", headers=extension
+        )
+        command = claimed["command"]
+        self.assertEqual(command["type"], "FILL_FORM")
+        result = {
+            "ok": True,
+            "identity": dict(FILL_IDENTITY),
+            "generation_after": 5,
+            "document_nonce": "abcdef0123456789abcdef0123456789",
+            "field_results": {
+                name: {"before": "", "proposed": value, "after": value, "status": "changed"}
+                for name, value in command["payload"]["fields"].items()
+            },
+            "claim_token": command["claim_token"],
+            "diagnostic_events": [
+                {
+                    "step": "field_write",
+                    "elapsed_ms": 8,
+                    "fields": {"cargo": {"before": "", "proposed": "Professor", "after": "Professor"}},
+                }
+            ],
+        }
+
+        status, _headers, posted = self.call_json(
+            f"/api/v1/extension/commands/{command['id']}/result",
+            method="POST",
+            headers=extension,
+            body=result,
+        )
+
+        self.assertEqual(status, 200, posted)
+        stored = self.store.get_extension_command(command["id"])["result"]
+        request = self.store.get_fill_request(request_id)
+        self.assertNotIn("diagnostic_events", stored)
+        self.assertNotIn("diagnostic_events", json.dumps(request["form_snapshot"]))
+        self.assertNotIn('"elapsed_ms"', json.dumps(request["form_snapshot"]))
+        self.assertEqual(request["state"], "PREENCHIDO")
+        self.assertIn("field_write", json.dumps(self.events()))
+
+    def test_recorder_failure_does_not_change_current_selection_response(self):
+        extension = self.register_extension()
+        body = {
+            "active": False,
+            "code": "FORM_NOT_AVAILABLE",
+            "publisher_id": "b" * 32,
+            "sequence": 1,
+        }
+
+        with mock.patch.object(self.server.diagnostics, "record", side_effect=OSError("disk full")):
+            status, _headers, public_state = self.call_json(
+                "/api/v1/portal/current-selection",
+                method="POST",
+                headers=extension,
+                body=body,
+            )
+
+        self.assertEqual(status, 200, public_state)
+        self.assertEqual(public_state["state"], "NO_ACTIVE_FORM")

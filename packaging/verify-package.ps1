@@ -4,7 +4,9 @@ param(
     [switch]$AllowMissingRuntime,
     [switch]$SkipSmoke,
     [string]$ExtractRoot,
-    [int]$HealthTimeoutSeconds = 90
+    [int]$HealthTimeoutSeconds = 90,
+    [string]$ExpectedBuildId,
+    [switch]$RequireManualFormFillQualificationBootstrap
 )
 
 $ErrorActionPreference = 'Stop'
@@ -20,11 +22,14 @@ $forbiddenPrefixes = @(
     'acervo-tce/',
     'dados-locais/',
     'profile/',
+    'profiles/',
     'outputs/',
     'versions/',
     'work/',
     'logs/',
-    'tmp/portal-lab/'
+    'tmp/portal-lab/',
+    'tmp/portal-reliability/',
+    'scripts/portal-reliability/'
 )
 $forbiddenPathSegments = @(
     'devtools',
@@ -58,7 +63,8 @@ $requiredEntries = @(
     'START.cmd',
     'README.md',
     'LEIA-ME-OUTRO-PC.txt',
-    'scripts/scan-area-cdp.ps1'
+    'scripts/scan-area-cdp.ps1',
+    'package-manifest.json'
 )
 $runtimeRequiredEntries = @(
     'runtime-manifest.json',
@@ -69,6 +75,42 @@ $runtimeRequiredEntries = @(
 function Get-NormalizedEntryName {
     param([Parameter(Mandatory)][string]$Name)
     return ($Name.Replace('\', '/').TrimStart('/'))
+}
+
+# Product sources the package manifest is responsible for. A package that
+# carries the embedded runtime leaves its runtime tree and licences to
+# runtime-manifest.json; every other entry is product source and must be
+# declared in package-manifest.json.
+$runtimeOwnedPrefixes = @('runtime/', 'licenses/')
+$runtimeOwnedExact = @('runtime-manifest.json')
+
+function Get-CanonicalEntryName {
+    param([Parameter(Mandatory)][string]$Name)
+    # A disguised path ('./app/x', 'app//x', 'APP/x') must resolve to the same
+    # canonical form, or it could smuggle an undeclared source past the checks.
+    $normalized = $Name
+    while ($normalized.StartsWith('./')) { $normalized = $normalized.Substring(2) }
+    while ($normalized.Contains('//')) { $normalized = $normalized.Replace('//', '/') }
+    return $normalized.TrimStart('/')
+}
+
+function Test-CoveredProductPath {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][bool]$RuntimeContract
+    )
+    $normalized = (Get-CanonicalEntryName -Name $Name).ToLowerInvariant()
+    if ($normalized -eq 'package-manifest.json') { return $false }
+    # Only a package that actually carries the runtime contract may leave its
+    # runtime and licence files to runtime-manifest.json; otherwise every entry
+    # is product source and has to be declared.
+    if ($RuntimeContract) {
+        foreach ($prefix in $runtimeOwnedPrefixes) {
+            if ($normalized.StartsWith($prefix)) { return $false }
+        }
+        if ($runtimeOwnedExact -contains $normalized) { return $false }
+    }
+    return $true
 }
 
 function Get-EntrySha256 {
@@ -85,6 +127,45 @@ function Get-EntrySha256 {
         }
     } finally {
         $stream.Dispose()
+    }
+    return ([BitConverter]::ToString($hash)).Replace('-', '').ToLowerInvariant()
+}
+
+function Get-EntryBlobId {
+    param(
+        [Parameter(Mandatory)][System.IO.Compression.ZipArchiveEntry]$Entry
+    )
+    # Git blob IDs are SHA-1("blob <byte-length>\0" + content). Compute that
+    # directly over the ZIP bytes so no Git filters, inherited config, process
+    # encoding, or archive path can affect the provenance result.
+    $stream = $Entry.Open()
+    try {
+        $memory = New-Object System.IO.MemoryStream
+        try {
+            $stream.CopyTo($memory)
+            $bytes = $memory.ToArray()
+        } finally {
+            $memory.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
+    }
+
+    $blob = New-Object System.IO.MemoryStream
+    try {
+        $header = [System.Text.Encoding]::ASCII.GetBytes(('blob {0}' -f $bytes.Length))
+        $blob.Write($header, 0, $header.Length)
+        $blob.WriteByte(0)
+        $blob.Write($bytes, 0, $bytes.Length)
+        $blob.Position = 0
+        $algorithm = [Security.Cryptography.SHA1]::Create()
+        try {
+            $hash = $algorithm.ComputeHash($blob)
+        } finally {
+            $algorithm.Dispose()
+        }
+    } finally {
+        $blob.Dispose()
     }
     return ([BitConverter]::ToString($hash)).Replace('-', '').ToLowerInvariant()
 }
@@ -233,7 +314,8 @@ function Invoke-PackageSmoke {
     param(
         [Parameter(Mandatory)][string]$ArchivePath,
         [Parameter(Mandatory)][string]$DestinationRoot,
-        [Parameter(Mandatory)][int]$TimeoutSeconds
+        [Parameter(Mandatory)][int]$TimeoutSeconds,
+        [string]$ExpectedBuildId
     )
 
     if (Test-Path -LiteralPath $DestinationRoot) {
@@ -264,7 +346,16 @@ function Invoke-PackageSmoke {
         '--port', [string]$port,
         '--no-browser'
     )
-    $process = Start-Process -FilePath $launcher -ArgumentList $arguments -WorkingDirectory $DestinationRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+    # The smoke must measure the identity the extracted package derives on its
+    # own, so an ambient override is cleared rather than injected: pinning the
+    # expected value here would make the health comparison a tautology.
+    $previousBuildId = $env:ATOS_TCE_BUILD_ID
+    $env:ATOS_TCE_BUILD_ID = ''
+    try {
+        $process = Start-Process -FilePath $launcher -ArgumentList $arguments -WorkingDirectory $DestinationRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+    } finally {
+        $env:ATOS_TCE_BUILD_ID = $previousBuildId
+    }
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $health = $null
     try {
@@ -292,6 +383,16 @@ function Invoke-PackageSmoke {
         if (-not (Test-Path -LiteralPath $database -PathType Leaf)) {
             throw "Smoke não criou o banco em raiz de dados isolada: $database"
         }
+
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedBuildId)) {
+            $reportedBuildId = [string]$health.build_id
+            if ([string]::IsNullOrWhiteSpace($reportedBuildId)) {
+                throw 'Runtime empacotado não reportou build_id em /api/v1/health: não é possível provar a proveniência do artefato.'
+            }
+            if ($reportedBuildId -ne $ExpectedBuildId) {
+                throw "Runtime build_id = $reportedBuildId / package-manifest build_id = $ExpectedBuildId"
+            }
+        }
     } finally {
         Stop-SmokeProcess -Process $process -DestinationRoot $DestinationRoot
     }
@@ -302,6 +403,7 @@ function Invoke-PackageSmoke {
         port = $port
         database = $database
         health = $health
+        runtime_build_id = [string]$health.build_id
         extension_version = [string]$extensionIdentity.version
     }
 }
@@ -317,13 +419,35 @@ $smokeRoot = $null
 $smokeResult = $null
 try {
     $entries = @{}
+    $entryNames = New-Object System.Collections.Generic.List[string]
+    $seenNames = @{}
     $forbidden = New-Object System.Collections.ArrayList
     foreach ($entry in $archive.Entries) {
-        $name = Get-NormalizedEntryName -Name $entry.FullName
-        if ([string]::IsNullOrWhiteSpace($name)) { continue }
-        if (-not $entries.ContainsKey($name)) {
-            $entries[$name] = $entry
+        $rawName = $entry.FullName
+        $candidate = Get-NormalizedEntryName -Name $rawName
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            if (-not [string]::IsNullOrWhiteSpace($rawName)) {
+                throw "Pacote com entrada irregular (nome vazio após normalização): '$rawName'"
+            }
+            continue
         }
+        # Canonicalize once: coverage, duplicate detection, the runtime-tree test
+        # and the manifest lookups all use this same form, so a disguised path is
+        # never handled differently by different checks.
+        $name = Get-CanonicalEntryName -Name $candidate
+        if ([string]::IsNullOrWhiteSpace($name)) {
+            throw "Pacote com entrada irregular: '$rawName'"
+        }
+        # A path that repeats under a different case is an irregular package: it
+        # would otherwise vanish from a case-insensitive lookup and smuggle an
+        # undeclared source past the coverage check.
+        $nameKey = $name.ToLowerInvariant()
+        if ($seenNames.ContainsKey($nameKey)) {
+            throw "Pacote com entrada duplicada (ou variação de caixa): $name"
+        }
+        $seenNames[$nameKey] = $true
+        $entryNames.Add($name)
+        $entries[$name] = $entry
         $lower = $name.ToLowerInvariant()
         foreach ($prefix in $forbiddenPrefixes) {
             if ($lower.StartsWith($prefix)) {
@@ -373,6 +497,15 @@ try {
 
     $runtimeIncluded = $entries.ContainsKey('runtime-manifest.json')
     $runtimeEntryCount = 0
+    # A runtime tree without its manifest is an irregular package, and any
+    # runtime tree makes this a release artefact that must prove its commit.
+    # Release shape is deliberately not read from a switch, so a package cannot
+    # opt out of provenance by omitting the manifest.
+    $hasRuntimeTree = @($entryNames | Where-Object { $_.ToLowerInvariant().StartsWith('runtime/') }).Count -gt 0
+    if ($hasRuntimeTree -and -not $runtimeIncluded) {
+        throw 'Pacote com árvore runtime/ mas sem runtime-manifest.json: artefato irregular.'
+    }
+    $releaseShaped = $runtimeIncluded -or $hasRuntimeTree
     if ($runtimeIncluded) {
         $missingRuntime = @($runtimeRequiredEntries | Where-Object { -not $entries.ContainsKey($_) })
         if ($missingRuntime.Count -gt 0) {
@@ -393,7 +526,7 @@ try {
         }
         $declaredPaths = @{}
         foreach ($item in $declared) {
-            $declaredPath = Get-NormalizedEntryName -Name ([string]$item.path)
+            $declaredPath = Get-CanonicalEntryName -Name ([string]$item.path)
             if ($declaredPaths.ContainsKey($declaredPath)) { continue }
             $declaredPaths[$declaredPath] = $true
             if (-not $entries.ContainsKey($declaredPath)) {
@@ -421,6 +554,155 @@ try {
         throw 'Pacote sem runtime: runtime-manifest.json ausente (use -AllowMissingRuntime somente para fixtures de contrato)'
     }
 
+    # ------------------------------------------------- package provenance
+    # The manifest is the package's own claim about which build produced these
+    # bytes. Structural validity is not enough: every declared file must match
+    # the archive, and no covered source may exist without being declared.
+    $manifestEntry = $entries['package-manifest.json']
+    $manifestStream = $manifestEntry.Open()
+    try {
+        $manifestReader = New-Object IO.StreamReader($manifestStream)
+        try { $manifestText = $manifestReader.ReadToEnd() } finally { $manifestReader.Dispose() }
+    } finally {
+        $manifestStream.Dispose()
+    }
+    try {
+        $packageManifest = $manifestText | ConvertFrom-Json
+    } catch {
+        throw "package-manifest.json inválido: $($_.Exception.Message)"
+    }
+    if ([int]$packageManifest.schema -ne 1) {
+        throw "package-manifest.json com schema desconhecido: $($packageManifest.schema)"
+    }
+    $packageBuildId = [string]$packageManifest.build_id
+    if ($packageBuildId -notmatch '^[0-9a-fA-F]{7,64}$') {
+        throw "package-manifest.json sem build_id válido: '$packageBuildId'"
+    }
+    $bootstrapPath = 'app/reliability-bootstrap.json'
+    $bootstrapVerified = $false
+    if ($entries.ContainsKey($bootstrapPath)) {
+        $bootstrapStream = $entries[$bootstrapPath].Open()
+        try {
+            $bootstrapReader = New-Object IO.StreamReader($bootstrapStream)
+            try { $bootstrapText = $bootstrapReader.ReadToEnd() } finally { $bootstrapReader.Dispose() }
+        } finally {
+            $bootstrapStream.Dispose()
+        }
+        try {
+            $bootstrap = $bootstrapText | ConvertFrom-Json
+        } catch {
+            throw "Manifesto de bootstrap inválido: $($_.Exception.Message)"
+        }
+        $bootstrapKeys = @($bootstrap.PSObject.Properties.Name | Sort-Object)
+        if (($bootstrapKeys -join ',') -cne 'build_id,capabilities,schema') {
+            throw 'Manifesto de bootstrap deve conter somente schema, build_id e capabilities.'
+        }
+        $bootstrapSchemaType = if ($null -eq $bootstrap.schema) { '' } else { $bootstrap.schema.GetType().FullName }
+        if (@('System.Int32', 'System.Int64') -notcontains $bootstrapSchemaType -or [long]$bootstrap.schema -ne 1) {
+            throw 'Manifesto de bootstrap com schema desconhecido.'
+        }
+        $bootstrapBuildType = if ($null -eq $bootstrap.build_id) { '' } else { $bootstrap.build_id.GetType().FullName }
+        if ($bootstrapBuildType -cne 'System.String' -or $bootstrap.build_id -cne $packageBuildId) {
+            throw 'Manifesto de bootstrap declara build_id divergente do pacote.'
+        }
+        $bootstrapCapabilityProperties = @($bootstrap.capabilities.PSObject.Properties)
+        if (
+            $null -eq $bootstrap.capabilities -or
+            $bootstrapCapabilityProperties.Count -ne 1 -or
+            $bootstrapCapabilityProperties[0].Name -cne 'manual_form_fill' -or
+            $bootstrapCapabilityProperties[0].Value.GetType().FullName -cne 'System.String' -or
+            [string]$bootstrapCapabilityProperties[0].Value -cne 'EXPERIMENTAL'
+        ) {
+            throw 'Manifesto de bootstrap pode habilitar somente manual_form_fill=EXPERIMENTAL.'
+        }
+        $bootstrapVerified = $true
+    } elseif ($RequireManualFormFillQualificationBootstrap) {
+        throw 'Pacote sem o manifesto de bootstrap exigido para manual_form_fill.'
+    }
+    if ($RequireManualFormFillQualificationBootstrap -and -not $bootstrapVerified) {
+        throw 'Manifesto de bootstrap de manual_form_fill não foi validado.'
+    }
+    # A package that carries the embedded runtime is release-shaped, so it must
+    # come from a committed tree. A runtime-less package is a declared contract
+    # fixture and may honestly report a dirty source.
+    if ($packageManifest.source_dirty -ne $false -and $releaseShaped) {
+        throw 'package-manifest.json declara source_dirty: o pacote não corresponde a uma árvore commitada.'
+    }
+    $declaredFiles = @($packageManifest.files)
+    if ($declaredFiles.Count -eq 0) {
+        throw 'package-manifest.json sem arquivos declarados.'
+    }
+    $declaredProductPaths = @{}
+    foreach ($item in $declaredFiles) {
+        $declaredPath = Get-CanonicalEntryName -Name ([string]$item.path)
+        if ($declaredProductPaths.ContainsKey($declaredPath)) {
+            throw "package-manifest.json com caminho duplicado: $declaredPath"
+        }
+        $declaredProductPaths[$declaredPath] = $true
+        if (-not $entries.ContainsKey($declaredPath)) {
+            throw "Arquivo declarado no package-manifest.json está ausente do pacote: $declaredPath"
+        }
+        $declaredEntry = $entries[$declaredPath]
+        if ([long]$item.size -ne [long]$declaredEntry.Length) {
+            throw "Tamanho divergente para ${declaredPath}: manifesto $($item.size), pacote $($declaredEntry.Length)"
+        }
+        $declaredHash = ([string]$item.sha256).ToLowerInvariant()
+        if ($declaredHash -notmatch '^[0-9a-f]{64}$') {
+            throw "Hash inválido no package-manifest.json para ${declaredPath}: $declaredHash"
+        }
+        $actualHash = Get-EntrySha256 -Entry $declaredEntry
+        if ($actualHash -ne $declaredHash) {
+            throw "SHA-256 divergente para ${declaredPath}: manifesto $declaredHash, pacote $actualHash"
+        }
+    }
+    foreach ($name in $entryNames) {
+        if (-not (Test-CoveredProductPath -Name $name -RuntimeContract $runtimeIncluded)) { continue }
+        if (-not $declaredProductPaths.ContainsKey($name)) {
+            throw "Source empacotado não declarado no package-manifest.json: $name"
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedBuildId)) {
+        $expected = $ExpectedBuildId.Trim()
+        if ($packageBuildId -ne $expected) {
+            throw "Build divergente: ExpectedBuildId = $expected / package build_id = $packageBuildId"
+        }
+    }
+    # A release artefact is only proven when its bytes are the commit it names.
+    # The in-ZIP manifest vouches for itself, so every declared product file is
+    # hashed with git's own rules and compared against that commit's blob: a
+    # rewritten manifest cannot authenticate bytes the commit never had, and a
+    # file that is not tracked at that commit cannot pass at all.
+    if ($releaseShaped) {
+        if ([string]::IsNullOrWhiteSpace($ExpectedBuildId)) {
+            throw 'Verificação de release exige -ExpectedBuildId <sha>: informe o commit esperado do artefato.'
+        }
+        & git -C $RepositoryRoot cat-file -e "$($packageBuildId)^{commit}" 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Proveniência não comprovada: o commit $packageBuildId não existe neste repositório."
+        }
+        foreach ($item in $declaredFiles) {
+            $relative = Get-CanonicalEntryName -Name ([string]$item.path)
+            if ($relative.Contains('"')) {
+                throw "Proveniência não comprovada: nome de entrada irregular em $relative."
+            }
+            # This exact file is generated after the commit from its build ID;
+            # its strict schema and payload were validated above. Every other
+            # product byte still has to match the named Git tree.
+            if ($bootstrapVerified -and $relative -ceq $bootstrapPath) { continue }
+            $committed = @(& git -C $RepositoryRoot rev-parse "$($packageBuildId):$relative" 2>$null)
+            if ($committed.Count -eq 0 -or [string]::IsNullOrWhiteSpace([string]$committed[0])) {
+                throw "Proveniência não comprovada: $relative não está no commit $packageBuildId."
+            }
+            $packagedBlob = Get-EntryBlobId -Entry $entries[$relative]
+            $committedBlob = ([string]$committed[0]).Trim()
+            if ($packagedBlob -ne $committedBlob) {
+                throw "Proveniência não comprovada para ${relative}: commit $committedBlob, pacote $packagedBlob."
+            }
+        }
+    }
+
+
+
     if (-not $SkipSmoke) {
         if ([string]::IsNullOrWhiteSpace($ExtractRoot)) {
             $smokeRoot = Join-Path $RepositoryRoot ('tmp\package-test-' + [guid]::NewGuid().ToString('N'))
@@ -434,7 +716,7 @@ try {
 
 if (-not $SkipSmoke) {
     try {
-        $smokeResult = Invoke-PackageSmoke -ArchivePath $zipFullPath -DestinationRoot $smokeRoot -TimeoutSeconds $HealthTimeoutSeconds
+        $smokeResult = Invoke-PackageSmoke -ArchivePath $zipFullPath -DestinationRoot $smokeRoot -TimeoutSeconds $HealthTimeoutSeconds -ExpectedBuildId $packageBuildId
     } catch {
         Write-Host "Smoke falhou; extração preservada em $smokeRoot"
         throw
@@ -452,6 +734,7 @@ $summary = [pscustomobject]@{
     zip = $zipFullPath
     zip_sha256 = (Get-FileHash -LiteralPath $zipFullPath -Algorithm SHA256).Hash.ToLowerInvariant()
     entries = $entries.Count
+    build_id = $packageBuildId
     runtime_included = $runtimeIncluded
     runtime_files = $runtimeEntryCount
     smoke = if ($null -eq $smokeResult) { $null } else { $smokeResult }

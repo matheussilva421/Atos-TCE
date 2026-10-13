@@ -1,11 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { executeCommand, installRouter, scanAreaPages } from "../background/router.js";
-import { MESSAGE_TYPES } from "../lib/protocol.js";
+import {
+  executeCommand,
+  installRouter,
+  scanAreaPages,
+  PORTAL_SELECTION_KEEPALIVE_MS,
+} from "../background/router.js";
+import { COMMAND_TYPES, MESSAGE_TYPES, PORTAL_ORIGIN } from "../lib/protocol.js";
 import { fakeChrome } from "./helpers.mjs";
 
 const PORTAL = "https://novaarearestrita.tce.rn.gov.br";
+
+//: The exact shape ``readCurrentForm`` resolves for one open act form.
+const OBSERVED_FORM = {
+  identity: { processKey: "102390/2026", interestedNormalized: "pessoa exemplo" },
+  generation: 4,
+};
 
 function page(rows, { page: number = 1, total_pages = 1 } = {}) {
   return { role: "list", source_scope: "sector_finalistic", marker: null, page: number, total_pages, rows };
@@ -227,7 +238,8 @@ test("poll reports the reread target after OPEN_NEXT_ACT navigation", async () =
 
   assert.equal(reported.length, 1);
   assert.equal(reported[0].commandId, 82);
-  assert.deepEqual(reported[0].result, {
+  const { diagnostic_events: diagnosticEvents, ...functionalResult } = reported[0].result;
+  assert.deepEqual(functionalResult, {
     command_id: 82,
     ok: true,
     action: "next_act_ready",
@@ -235,6 +247,7 @@ test("poll reports the reread target after OPEN_NEXT_ACT navigation", async () =
     screen: "form",
     claim_token: "lease-next-act",
   });
+  assert.ok(Array.isArray(diagnosticEvents));
   assert.deepEqual(calls.map(([action]) => action), ["openAct", "readTargetForm", "activateTab"]);
 });
 
@@ -413,6 +426,90 @@ test("next-act activates the tab containing the reread exact target form", async
 
   assert.equal(result.ok, true);
   assert.deepEqual(harness.calls.at(-1), ["activateTab", 42]);
+});
+
+test("OPEN_NEXT_ACT confirms a target in a second portal tab after focus moves to the Mesa", async () => {
+  const tabs = [
+    { id: 1, active: false, url: "http://127.0.0.1:18743/" },
+    portalTab(2, { active: true }),
+    { id: 3, active: false, url: `${PORTAL}/complementarAto.asp` },
+  ];
+  let currentReturnedToList = false;
+  let targetOpened = false;
+  let focusChangedToMesa = false;
+  const activatedTabs = [];
+  const chromeApi = fakeChrome({
+    tabs,
+    frames: {
+      2: [{ frameId: 4, url: `${PORTAL}/ProcessonoSetor.asp` }],
+      3: [{ frameId: 7, url: `${PORTAL}/complementarAto.asp` }],
+    },
+    onMessage: (message, tabId) => {
+      if (message.type === MESSAGE_TYPES.READ_FORM) {
+        if (!currentReturnedToList && !message.payload?.identity && tabId === 2) {
+          return { ok: true, form: { identity: IDENTITY, generation: 4 } };
+        }
+        if (targetOpened && message.payload?.identity && tabId === 3) {
+          return { ok: true, form: { identity: NEXT_IDENTITY, generation: 5 } };
+        }
+        return { ok: false, code: "FORM_NOT_AVAILABLE" };
+      }
+      if (message.type === MESSAGE_TYPES.RETURN_TO_LIST) {
+        currentReturnedToList = true;
+        tabs.forEach((tab) => { tab.active = false; });
+        tabs[0].active = true;
+        focusChangedToMesa = true;
+        return { ok: true };
+      }
+      if (message.type === MESSAGE_TYPES.SCAN_PAGE) {
+        return tabId === 2
+          ? {
+              ok: true,
+              snapshot: {
+                ...page([{ process_key: NEXT_IDENTITY.processKey, interested_normalized: NEXT_IDENTITY.interestedNormalized }]),
+                marker: NEXT_PAYLOAD.context.marker,
+              },
+            }
+          : { ok: true, snapshot: { role: "unknown" } };
+      }
+      if (message.type === MESSAGE_TYPES.OPEN_ACT && tabId === 2) {
+        targetOpened = true;
+        return { ok: true, action: "open_act", screen: "list", waitingForFrame: true };
+      }
+      return { ok: false };
+    },
+  });
+  chromeApi.tabs.update = async (tabId, patch) => {
+    tabs.forEach((tab) => { tab.active = false; });
+    const updated = tabs.find((tab) => tab.id === tabId);
+    Object.assign(updated, patch);
+    activatedTabs.push(tabId);
+    return updated;
+  };
+  const router = installRouter({
+    api: idleApi(),
+    chromeApi,
+    timing: { ...FAST, nextActAttempts: 1, nextActDelayMs: 1 },
+  });
+
+  const result = await router.openNextAct(NEXT_PAYLOAD);
+
+  assert.deepEqual(result, {
+    ok: true,
+    action: "next_act_ready",
+    identity: NEXT_IDENTITY,
+    screen: "form",
+  });
+  assert.equal(focusChangedToMesa, true);
+  assert.deepEqual(activatedTabs, [3]);
+  assert.equal(tabs[0].active, false);
+  assert.equal(tabs[2].active, true);
+  assert.ok(chromeApi.sent.some((entry) =>
+    entry.tabId === 3 &&
+    entry.message.type === MESSAGE_TYPES.READ_FORM &&
+    entry.message.payload?.identity?.processKey === NEXT_IDENTITY.processKey
+  ));
+  assert.equal(chromeApi.sent.some((entry) => entry.tabId === 1), false);
 });
 
 test("an OPEN_ACT command reports the navigation outcome", async () => {
@@ -781,6 +878,40 @@ test("poll does nothing when the Mesa has no command", async () => {
   assert.equal(reported.length, 0);
 });
 
+test("poll reports command received and execution timings without changing the result", async () => {
+  const reported = [];
+  const ticks = [100, 105, 110, 130];
+  let tick = 0;
+  const router = installRouter({
+    api: {
+      nextCommand: async () => ({
+        ok: true,
+        command: { id: 41, type: "STATUS", claim_token: "claim-41", payload: {} },
+      }),
+      reportResult: async (commandId, result) => reported.push({ commandId, result }),
+    },
+    chromeApi: fakeChrome(),
+    monotonicNow: () => ticks[tick++],
+  });
+
+  const outcome = await router.poll();
+
+  assert.deepEqual(outcome.result, { command_id: 41, ok: true, status: "ready" });
+  assert.equal(reported[0].commandId, 41);
+  assert.deepEqual(
+    reported[0].result.diagnostic_events.map(({ step, elapsed_ms, result }) => ({ step, elapsed_ms, result })),
+    [
+      { step: "command_received", elapsed_ms: 5, result: "ok" },
+      { step: "command_execution", elapsed_ms: 20, result: "ok" },
+    ],
+  );
+  assert.equal(reported[0].result.claim_token, "claim-41");
+  assert.deepEqual(
+    Object.keys(reported[0].result).filter((key) => key !== "diagnostic_events").sort(),
+    ["claim_token", "command_id", "ok", "status"],
+  );
+});
+
 test("the router answers the content-script heartbeat", async () => {
   const chromeApi = fakeChrome();
   const polls = [];
@@ -864,6 +995,133 @@ test("the router answers the sidepanel READ_CURRENT_FORM message", async () => {
   assert.equal(response.form.identity.processKey, "102391/2026");
 });
 
+test("READ_CURRENT_FORM preserves FORM_AMBIGUOUS reported inside one frame", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 8, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) =>
+      message.type === "READ_FORM"
+        ? { ok: false, code: "FORM_AMBIGUOUS", error: "duas estruturas visíveis" }
+        : { ok: false },
+  });
+  installRouter({
+    api: { nextCommand: async () => ({ ok: true, command: null }), reportResult: async () => {} },
+    chromeApi,
+  });
+
+  const response = await sendRuntime(chromeApi, { type: "READ_CURRENT_FORM" });
+
+  assert.equal(response.ok, false);
+  assert.equal(response.code, "FORM_AMBIGUOUS");
+});
+
+test("the background heartbeat preserves a current-form ambiguity when Mesa is active", async () => {
+  const published = [];
+  const chromeApi = fakeChrome({
+    tabs: [
+      { id: 1, active: true, url: "http://127.0.0.1:18743/" },
+      { id: 2, active: false, url: `${PORTAL}/complementarato.asp` },
+    ],
+    onMessage: (message, tabId) =>
+      message.type === "READ_FORM" && tabId === 2
+        ? { ok: false, code: "FORM_AMBIGUOUS", error: "duas estruturas visíveis" }
+        : { ok: false },
+  });
+  const router = installRouter({
+    api: {
+      nextCommand: async () => ({ ok: true, command: null }),
+      reportResult: async () => {},
+      publishCurrentSelection: async (observation) => {
+        published.push(observation);
+        return { ok: true };
+      },
+    },
+    chromeApi,
+  });
+
+  await router.observeCurrentForm();
+
+  assert.equal(published.length, 1);
+  assertPublishedObservation(published[0], { active: false, code: "FORM_AMBIGUOUS" }, 1);
+});
+
+test("the form observation reports portal, frame-scan and detection timings", async () => {
+  const published = [];
+  const portalUrl = `${PORTAL}/complementarato.asp`;
+  const ticks = [100, 105, 200, 210, 500, 525];
+  let tick = 0;
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 3, active: true, url: portalUrl }],
+    frames: {
+      3: [
+        { frameId: 0, url: portalUrl },
+        { frameId: 4, url: portalUrl },
+      ],
+    },
+    onMessage: (message, _tabId, frameId) =>
+      message.type === "READ_FORM" && frameId === 4
+        ? { ok: true, form: OBSERVED_FORM }
+        : { ok: false, code: "FORM_NOT_AVAILABLE" },
+  });
+  const router = installRouter({
+    api: {
+      publishCurrentSelection: async (observation) => {
+        published.push(observation);
+        return { ok: true };
+      },
+      nextCommand: async () => ({ ok: true, command: null }),
+      reportResult: async () => {},
+    },
+    chromeApi,
+    monotonicNow: () => ticks[tick++],
+  });
+
+  await router.observeCurrentForm();
+
+  const events = published[0].diagnostic_events;
+  assert.deepEqual(events.map((event) => event.step), [
+    "portal_detected",
+    "frames_scanned",
+    "form_detected",
+  ]);
+  assert.deepEqual(events.map((event) => event.elapsed_ms), [5, 10, 25]);
+  assert.equal(published[0].active, true);
+  assert.deepEqual(published[0].form, OBSERVED_FORM);
+});
+
+test("current-selection timing is a diagnostic sidecar and preserves publisher fields", async () => {
+  const published = [];
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(6, { active: true })],
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  const router = installRouter({
+    api: {
+      publishCurrentSelection: async (observation) => {
+        published.push(observation);
+        return { ok: true };
+      },
+      nextCommand: async () => ({ ok: true, command: null }),
+      reportResult: async () => {},
+    },
+    chromeApi,
+    monotonicNow: () => 10,
+  });
+
+  await router.observeCurrentForm();
+
+  const observation = published[0];
+  assert.deepEqual(
+    Object.keys(observation).filter((key) => key !== "diagnostic_events").sort(),
+    ["active", "form", "publisher_id", "sequence"],
+  );
+  assert.deepEqual(observation.form, OBSERVED_FORM);
+  assert.equal(typeof observation.publisher_id, "string");
+  assert.equal(observation.sequence, 1);
+  assert.ok(Array.isArray(observation.diagnostic_events));
+  assert.ok(observation.diagnostic_events.every((event) => !("form" in event)));
+});
+
 test("the router answers MESA_STATUS through the Mesa API", async () => {
   const chromeApi = fakeChrome();
   installRouter({
@@ -907,7 +1165,7 @@ test("the router sends manual fill through its Mesa API", async () => {
   assert.deepEqual(received, form);
 });
 
-test("the router forwards only the current composed identity for next-process", async () => {
+test("the router forwards only the current identity and strong act id for next-process", async () => {
   const chromeApi = fakeChrome();
   let received = null;
   installRouter({
@@ -928,6 +1186,7 @@ test("the router forwards only the current composed identity for next-process", 
       identity: {
         processKey: "current/2026",
         interestedNormalized: "pessoa atual",
+        portalActId: "act-current",
         target_identity: { processKey: "forged/2026", interestedNormalized: "forjada" },
       },
     },
@@ -937,6 +1196,7 @@ test("the router forwards only the current composed identity for next-process", 
   assert.deepEqual(received, {
     processKey: "current/2026",
     interestedNormalized: "pessoa atual",
+    portalActId: "act-current",
   });
 });
 
@@ -962,6 +1222,31 @@ test("the router refuses next-process requests without both current identity fie
 
   assert.deepEqual(response, { ok: false, error: "current_identity_required" });
   assert.equal(requestCount, 0);
+});
+
+test("the sidepanel can read one authoritative next-act command status", async () => {
+  const chromeApi = fakeChrome();
+  let requestedId = null;
+  const command = { id: 42, type: "OPEN_NEXT_ACT", state: "FAILED", error: "TARGET_NOT_FOUND" };
+  installRouter({
+    api: {
+      commandStatus: async (commandId) => {
+        requestedId = commandId;
+        return { ok: true, status: 200, command };
+      },
+      nextCommand: async () => ({ ok: true, command: null }),
+      reportResult: async () => {},
+    },
+    chromeApi,
+  });
+
+  const response = await sendRuntime(chromeApi, {
+    type: "READ_NEXT_ACT_STATUS",
+    payload: { command_id: 42 },
+  });
+
+  assert.equal(requestedId, 42);
+  assert.deepEqual(response.command, command);
 });
 
 test("the router registers a slow recovery alarm", () => {
@@ -1000,6 +1285,154 @@ function idleApi() {
 function portalTab(id, { active = false } = {}) {
   return { id, active, url: `${PORTAL}/ProcessonoSetor.asp` };
 }
+
+test("OPEN_ACT keeps a list frame's specific refusal when another frame is unknown", async () => {
+  let openCalls = 0;
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1)],
+    frames: { 1: [
+      { frameId: 4, url: `${PORTAL}/ProcessonoSetor.asp` },
+      { frameId: 0, url: `${PORTAL}/telaPrincipalMenu.asp` },
+    ] },
+    onMessage: (message, _tabId, frameId) => {
+      if (message.type === "READ_FORM") return { ok: false, code: "FORM_NOT_AVAILABLE" };
+      if (message.type === "SCAN_PAGE") {
+        return { ok: true, snapshot: { role: frameId === 4 ? "list" : "unknown" } };
+      }
+      if (message.type === "OPEN_ACT") {
+        openCalls += 1;
+        return frameId === 4
+          ? { ok: false, code: "ROW_ACTION_NOT_FOUND" }
+          : { ok: false, code: "SCREEN_NOT_NAVIGABLE" };
+      }
+      return { ok: false };
+    },
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const result = await router.openAct({ identity: IDENTITY });
+
+  assert.equal(result.code, "ROW_ACTION_NOT_FOUND");
+  assert.equal(openCalls, 1);
+});
+
+test("OPEN_ACT recognizes an exact form in another portal tab before clicking a list row", async () => {
+  let openCalls = 0;
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1), portalTab(2)],
+    frames: {
+      1: [{ frameId: 4, url: `${PORTAL}/ProcessonoSetor.asp` }],
+      2: [{ frameId: 7, url: `${PORTAL}/complementarAto.asp` }],
+    },
+    onMessage: (message, tabId, frameId) => {
+      if (message.type === "READ_FORM") {
+        return tabId === 2 && frameId === 7
+          ? { ok: true, form: { identity: IDENTITY } }
+          : { ok: false, code: "FORM_NOT_AVAILABLE" };
+      }
+      if (message.type === "SCAN_PAGE") return { ok: true, snapshot: { role: "list" } };
+      if (message.type === "OPEN_ACT") {
+        openCalls += 1;
+        return { ok: true, action: "open_act", screen: "list", waitingForFrame: true };
+      }
+      return { ok: false };
+    },
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const result = await router.openAct({ identity: IDENTITY });
+
+  assert.equal(result.action, "already_open");
+  assert.equal(result.screen, "form");
+  assert.equal(openCalls, 0);
+});
+
+test("OPEN_ACT refuses multiple list frames before causing navigation", async () => {
+  let openCalls = 0;
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1)],
+    frames: { 1: [
+      { frameId: 4, url: `${PORTAL}/ProcessonoSetor.asp` },
+      { frameId: 5, url: `${PORTAL}/MeusProcessos.asp` },
+    ] },
+    onMessage: (message) => {
+      if (message.type === "READ_FORM") return { ok: false, code: "FORM_NOT_AVAILABLE" };
+      if (message.type === "SCAN_PAGE") return { ok: true, snapshot: { role: "list" } };
+      if (message.type === "OPEN_ACT") {
+        openCalls += 1;
+        return { ok: true, action: "open_act", screen: "list" };
+      }
+      return { ok: false };
+    },
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const result = await router.openAct({ identity: IDENTITY });
+
+  assert.equal(result.code, "LIST_AMBIGUOUS");
+  assert.equal(openCalls, 0);
+});
+
+test("OPEN_ACT reuses the frozen paginated navigator for a target on a later page", async () => {
+  const context = {
+    scan_id: 8,
+    source_scope: "sector_finalistic",
+    marker: { label: "M", value: "marker-8" },
+  };
+  let pageNumber = 1;
+  let opened = false;
+  let advances = 0;
+  let openCalls = 0;
+  const router = installRouter({
+    api: idleApi(),
+    chromeApi: fakeChrome(),
+    timing: { ...FAST, nextActPageCap: 3, nextActAttempts: 1 },
+    nextActDependencies: {
+      async readTargetForm(identity) {
+        return opened
+          ? { ok: true, form: { identity }, tabId: 4, frameId: 3 }
+          : { ok: false, code: "FORM_NOT_AVAILABLE" };
+      },
+      async readListPage() {
+        return {
+          ok: true,
+          frame: { tabId: 4, frameId: 6 },
+          snapshot: {
+            role: "list",
+            source_scope: context.source_scope,
+            marker: context.marker,
+            page: pageNumber,
+            total_pages: 2,
+          },
+        };
+      },
+      async openAct(_identity, frame) {
+        openCalls += 1;
+        assert.deepEqual(frame, { tabId: 4, frameId: 6 });
+        if (pageNumber === 1) return { ok: false, code: "ROW_ACTION_NOT_FOUND" };
+        opened = true;
+        return { ok: true, action: "open_act", screen: "list" };
+      },
+      async advancePage(_frame, currentPage) {
+        advances += 1;
+        pageNumber = currentPage + 1;
+        return { ok: true, page_after: pageNumber };
+      },
+      async activateTab(tabId) {
+        assert.equal(tabId, 4);
+        return { ok: true };
+      },
+    },
+  });
+
+  const result = await router.openAct({ identity: IDENTITY, context });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.action, "open_act");
+  assert.equal(result.screen, "form");
+  assert.equal(openCalls, 2);
+  assert.equal(advances, 1);
+});
 
 test("the scan is addressed to the list frame, not to the top frame", async () => {
   let pageAdvances = 0;
@@ -1234,12 +1667,15 @@ test("a form that never appears is reported after the bounded wait", async () =>
 });
 
 test("FILL_FORM is written in exactly one confirmed frame", async () => {
+  const documentNonce = "a".repeat(32);
   const chromeApi = fakeChrome({
     tabs: [portalTab(1)],
     frames: { 1: [{ frameId: 0 }, { frameId: 2 }, { frameId: 5 }] },
     onMessage: (message, tabId, frameId) => {
       if (message.type === "READ_FORM") {
-        if (frameId === 2) return { ok: true, form: { identity: IDENTITY, generation: 4 } };
+        if (frameId === 2) {
+          return { ok: true, form: { identity: IDENTITY, generation: 4, documentNonce } };
+        }
         if (frameId === 5) {
           return {
             ok: true,
@@ -1259,7 +1695,12 @@ test("FILL_FORM is written in exactly one confirmed frame", async () => {
   });
   const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
 
-  const outcome = await router.fillForm({ identity: IDENTITY, generation: 4, fields: { cargo: "Professor" } });
+  const outcome = await router.fillForm({
+    identity: IDENTITY,
+    generation: 4,
+    document_nonce: documentNonce,
+    fields: { cargo: "Professor" },
+  });
 
   assert.equal(outcome.ok, true);
   const writes = chromeApi.sent.filter((entry) => entry.message.type === "FILL_FORM");
@@ -1274,11 +1715,68 @@ test("a fill without a confirmed frame writes nowhere", async () => {
   });
   const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
 
-  const outcome = await router.fillForm({ identity: IDENTITY, fields: { cargo: "Professor" } });
+  const outcome = await router.fillForm({
+    identity: IDENTITY,
+    document_nonce: "a".repeat(32),
+    fields: { cargo: "Professor" },
+  });
 
   assert.equal(outcome.ok, false);
   assert.equal(outcome.code, "FORM_NOT_AVAILABLE");
   assert.equal(chromeApi.sent.filter((entry) => entry.message.type === "FILL_FORM").length, 0);
+});
+
+test("a matching identity in a different document nonce is stale and receives no fill", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1)],
+    frames: { 1: [{ frameId: 2 }] },
+    onMessage: (message) => message.type === "READ_FORM"
+      ? { ok: true, form: { identity: IDENTITY, generation: 1, documentNonce: "b".repeat(32) } }
+      : { ok: true },
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const outcome = await router.fillForm({
+    identity: IDENTITY,
+    generation: 1,
+    document_nonce: "a".repeat(32),
+    fields: { cargo: "Professor" },
+  });
+
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.code, "STALE_FORM");
+  assert.equal(chromeApi.sent.filter((entry) => entry.message.type === "FILL_FORM").length, 0);
+});
+
+test("the router selects the one frame with the expected document nonce", async () => {
+  const expectedNonce = "b".repeat(32);
+  const chromeApi = fakeChrome({
+    tabs: [portalTab(1)],
+    frames: { 1: [{ frameId: 2 }, { frameId: 5 }] },
+    onMessage: (message, _tabId, frameId) => message.type === "READ_FORM"
+      ? {
+          ok: true,
+          form: {
+            identity: IDENTITY,
+            generation: 1,
+            documentNonce: frameId === 2 ? "a".repeat(32) : expectedNonce,
+          },
+        }
+      : { ok: true },
+  });
+  const router = installRouter({ api: idleApi(), chromeApi, timing: FAST });
+
+  const outcome = await router.fillForm({
+    identity: IDENTITY,
+    generation: 1,
+    document_nonce: expectedNonce,
+    fields: { cargo: "Professor" },
+  });
+
+  assert.equal(outcome.ok, true);
+  const writes = chromeApi.sent.filter((entry) => entry.message.type === "FILL_FORM");
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].frameId, 5);
 });
 
 test("a frame that disappears is retried and then reported", async () => {
@@ -1441,4 +1939,457 @@ test("scanAreaPages freezes the scope and the marker of the first page", async (
   assert.equal(snapshot.role, "list");
   assert.equal(snapshot.source_scope, "sector_finalistic");
   assert.deepEqual(snapshot.marker, { label: "M", value: "6189" });
+});
+
+test("the router serves the reliability status through the service worker", async () => {
+  const chromeApi = fakeChrome();
+  const capabilities = {
+    manual_form_fill: { state: "UNQUALIFIED", real_dev_streak: 0, portable_streak: 0 },
+  };
+  let calls = 0;
+  installRouter({
+    api: {
+      reliabilityStatus: async () => {
+        calls += 1;
+        return { ok: true, status: 200, capabilities };
+      },
+      nextCommand: async () => ({ ok: true, command: null }),
+      reportResult: async () => {},
+    },
+    chromeApi,
+  });
+
+  const response = await sendRuntime(chromeApi, { type: MESSAGE_TYPES.RELIABILITY_STATUS });
+
+  assert.equal(calls, 1);
+  assert.equal(response.ok, true);
+  assert.deepEqual(response.capabilities, capabilities);
+});
+
+test("the reliability status route is a request, never a queued command", () => {
+  assert.equal(Object.hasOwn(MESSAGE_TYPES, "RELIABILITY_STATUS"), true);
+  assert.equal(Object.hasOwn(COMMAND_TYPES, "RELIABILITY_STATUS"), false);
+});
+
+test("the router forwards a reported AR-1 attempt failure", async () => {
+  const chromeApi = fakeChrome();
+  let received = null;
+  installRouter({
+    api: {
+      reportAr1Attempt: async (payload) => {
+        received = payload;
+        return { ok: true, status: 201, payload: { recorded: true, code: payload.code } };
+      },
+      nextCommand: async () => ({ ok: true, command: null }),
+      reportResult: async () => {},
+    },
+    chromeApi,
+  });
+
+  const response = await sendRuntime(chromeApi, {
+    type: MESSAGE_TYPES.REPORT_AR1_ATTEMPT,
+    payload: { code: "form_not_available" },
+  });
+
+  assert.deepEqual(received, { code: "FORM_NOT_AVAILABLE" });
+  assert.equal(response.ok, true);
+});
+
+test("the router refuses an AR-1 attempt report without a code", async () => {
+  const chromeApi = fakeChrome();
+  let calls = 0;
+  installRouter({
+    api: {
+      reportAr1Attempt: async () => {
+        calls += 1;
+        return { ok: true };
+      },
+      nextCommand: async () => ({ ok: true, command: null }),
+      reportResult: async () => {},
+    },
+    chromeApi,
+  });
+
+  const response = await sendRuntime(chromeApi, { type: MESSAGE_TYPES.REPORT_AR1_ATTEMPT });
+
+  assert.deepEqual(response, { ok: false, error: "attempt_code_required" });
+  assert.equal(calls, 0);
+});
+
+test("readCurrentForm returns only sanitized structural diagnostics", async () => {
+  const url = `${PORTAL_ORIGIN}/SISTEMAS/PROCESSO/ComplementarAto.asp?processo=102390&doc=9#top`;
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 1, url, active: true, lastFocusedWindow: true }],
+    frames: { 1: [{ frameId: 0, url }] },
+    onMessage: () => ({ ok: true, form: { identity: IDENTITY, generation: 4, fields: {} } }),
+  });
+  const router = installRouter({
+    api: { nextCommand: async () => ({ ok: true, command: null }) },
+    chromeApi,
+    timing: FAST,
+  });
+
+  const response = await router.readCurrentForm();
+
+  assert.equal(response.ok, true);
+  assert.deepEqual(Object.keys(response.diagnostics).sort(), [
+    "browser_session_id",
+    "frame_ref",
+    "generation",
+    "route",
+    "screen",
+    "tab_ref",
+  ]);
+  assert.equal(response.diagnostics.route, "/SISTEMAS/PROCESSO/ComplementarAto.asp");
+  assert.equal(response.diagnostics.screen, "form");
+  assert.equal(response.diagnostics.generation, 4);
+  assert.equal(response.diagnostics.tab_ref, "tab-1");
+  assert.equal(response.diagnostics.frame_ref, "frame-0");
+  assert.deepEqual(response.form.identity, IDENTITY);
+  const serialized = JSON.stringify(response);
+  assert.doesNotMatch(serialized, /processo=|doc=9|#top/u);
+});
+
+test("two visible forms in the active tab never become the current form", async () => {
+  const url = `${PORTAL_ORIGIN}/SISTEMAS/PROCESSO/ComplementarAto.asp`;
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 1, url, active: true, lastFocusedWindow: true }],
+    frames: { 1: [{ frameId: 0, url }, { frameId: 1, url }] },
+    onMessage: () => ({ ok: true, form: { identity: IDENTITY, generation: 4 } }),
+  });
+  const router = installRouter({
+    api: { nextCommand: async () => ({ ok: true, command: null }) },
+    chromeApi,
+    timing: FAST,
+  });
+
+  const response = await router.readCurrentForm();
+
+  assert.equal(response.ok, false);
+  assert.equal(response.code, "FORM_AMBIGUOUS");
+  assert.equal(response.diagnostics, undefined);
+});
+
+function observingApi(published) {
+  return {
+    nextCommand: async () => ({ ok: true, command: null }),
+    reportResult: async () => {},
+    publishCurrentSelection: async (observation) => {
+      published.push(observation);
+      return { ok: true, status: 200 };
+    },
+  };
+}
+
+function assertPublishedObservation(actual, expected, sequence) {
+  const {
+    publisher_id: publisherId,
+    sequence: actualSequence,
+    diagnostic_events: _diagnosticEvents,
+    ...observation
+  } = actual;
+  assert.match(publisherId, /^[a-f0-9]{32}$/u);
+  assert.equal(actualSequence, sequence);
+  assert.deepEqual(observation, expected);
+  return publisherId;
+}
+
+test("the heartbeat publishes the open form with no sidepanel message at all", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  const published = [];
+  const router = installRouter({ api: observingApi(published), chromeApi });
+
+  await router.poll();
+
+  assert.equal(published.length, 1);
+  assertPublishedObservation(published[0], { active: true, form: OBSERVED_FORM }, 1);
+});
+
+test("an identical observation is deduplicated until the keepalive window", async () => {
+  let clock = 0;
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  const published = [];
+  const router = installRouter({ api: observingApi(published), chromeApi, now: () => clock });
+
+  await router.poll();
+  assert.equal(published.length, 1);
+
+  clock = 1500;
+  await router.poll();
+  assert.equal(published.length, 1, "a repeat inside the window is not republished");
+
+  clock = PORTAL_SELECTION_KEEPALIVE_MS;
+  await router.poll();
+  assert.equal(published.length, 2, "the keepalive renews the TTL");
+  const publisherId = assertPublishedObservation(published[0], { active: true, form: OBSERVED_FORM }, 1);
+  assert.equal(assertPublishedObservation(published[1], { active: true, form: OBSERVED_FORM }, 2), publisherId);
+});
+
+test("a new router lifecycle receives a distinct publisher identity", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  const firstPublished = [];
+  const secondPublished = [];
+  const firstRouter = installRouter({ api: observingApi(firstPublished), chromeApi });
+  const secondRouter = installRouter({ api: observingApi(secondPublished), chromeApi });
+
+  await firstRouter.poll();
+  await secondRouter.poll();
+
+  const firstPublisher = assertPublishedObservation(
+    firstPublished[0],
+    { active: true, form: OBSERVED_FORM },
+    1,
+  );
+  const secondPublisher = assertPublishedObservation(
+    secondPublished[0],
+    { active: true, form: OBSERVED_FORM },
+    1,
+  );
+  assert.notEqual(secondPublisher, firstPublisher);
+});
+
+test("the router fails closed when secure publisher randomness is unavailable", async () => {
+  const originalCrypto = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  const published = [];
+  try {
+    Object.defineProperty(globalThis, "crypto", { configurable: true, value: undefined });
+    const router = installRouter({ api: observingApi(published), chromeApi });
+
+    const outcome = await router.poll();
+
+    assert.equal(outcome.ok, true);
+    assert.equal(published.length, 0);
+  } finally {
+    if (originalCrypto) Object.defineProperty(globalThis, "crypto", originalCrypto);
+    else delete globalThis.crypto;
+  }
+});
+
+test("a refused publisher retries with a new sequence and deduplicates after acceptance", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  const published = [];
+  let attempt = 0;
+  const api = {
+    ...observingApi(published),
+    publishCurrentSelection: async (observation) => {
+      published.push(observation);
+      attempt += 1;
+      return attempt === 1
+        ? { ok: false, status: 409, error: "PUBLISHER_OWNED" }
+        : { ok: true, status: 200 };
+    },
+  };
+  const router = installRouter({ api, chromeApi, now: () => 0 });
+
+  await router.poll();
+  await router.poll();
+  await router.poll();
+
+  assert.equal(published.length, 2);
+  const publisherId = assertPublishedObservation(
+    published[0],
+    { active: true, form: OBSERVED_FORM },
+    1,
+  );
+  assert.equal(
+    assertPublishedObservation(published[1], { active: true, form: OBSERVED_FORM }, 2),
+    publisherId,
+  );
+});
+
+test("a changed form is published immediately, without waiting for the keepalive", async () => {
+  let clock = 0;
+  let current = OBSERVED_FORM;
+  const other = {
+    identity: { processKey: "100/2026", interestedNormalized: "outra pessoa" },
+    generation: 9,
+  };
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) => (message.type === "READ_FORM" ? { ok: true, form: current } : { ok: false }),
+  });
+  const published = [];
+  const router = installRouter({ api: observingApi(published), chromeApi, now: () => clock });
+
+  await router.poll();
+  clock = 1500;
+  current = other;
+  await router.poll();
+
+  assert.equal(published.length, 2);
+  const publisherId = assertPublishedObservation(published[0], { active: true, form: OBSERVED_FORM }, 1);
+  assert.equal(assertPublishedObservation(published[1], { active: true, form: other }, 2), publisherId);
+});
+
+test("a new document nonce republishes even when identity and generation repeat", async () => {
+  let clock = 0;
+  let current = { ...OBSERVED_FORM, documentNonce: "a".repeat(32) };
+  const firstDocument = current;
+  const nextDocument = { ...OBSERVED_FORM, documentNonce: "b".repeat(32) };
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) => (message.type === "READ_FORM" ? { ok: true, form: current } : { ok: false }),
+  });
+  const published = [];
+  const router = installRouter({ api: observingApi(published), chromeApi, now: () => clock });
+
+  await router.poll();
+  clock = 1500;
+  current = nextDocument;
+  await router.poll();
+
+  assert.equal(published.length, 2);
+  const publisherId = assertPublishedObservation(published[0], { active: true, form: firstDocument }, 1);
+  assert.equal(assertPublishedObservation(published[1], { active: true, form: nextDocument }, 2), publisherId);
+});
+
+test("the selection is cleared when no single form is open", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: () => ({ ok: false }),
+  });
+  const published = [];
+  const router = installRouter({ api: observingApi(published), chromeApi });
+
+  await router.poll();
+  await router.poll();
+
+  assert.equal(published.length, 1, "an identical clear is deduplicated");
+  assertPublishedObservation(published[0], { active: false, code: "FORM_NOT_AVAILABLE" }, 1);
+});
+
+test("two candidate forms are published as ambiguous, never as a match", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    frames: {
+      7: [
+        { frameId: 0, url: `${PORTAL}/complementarato.asp` },
+        { frameId: 4, url: `${PORTAL}/formulario.asp` },
+      ],
+    },
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  const published = [];
+  const router = installRouter({ api: observingApi(published), chromeApi });
+
+  await router.poll();
+
+  assert.equal(published.length, 1);
+  assertPublishedObservation(published[0], { active: false, code: "FORM_AMBIGUOUS" }, 1);
+});
+
+test("the keepalive still renews while the operator is looking at the Mesa", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [
+      { id: 1, active: true, url: "http://127.0.0.1:18743/" },
+      { id: 7, active: false, url: `${PORTAL}/complementarato.asp` },
+    ],
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  const published = [];
+  const router = installRouter({ api: observingApi(published), chromeApi });
+
+  await router.poll();
+
+  assert.equal(published.length, 1);
+  assertPublishedObservation(published[0], { active: true, form: OBSERVED_FORM }, 1);
+});
+
+test("no Área Restrita tab at all is reported as an inactive portal tab", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 1, active: true, url: "http://127.0.0.1:18743/" }],
+  });
+  const published = [];
+  const router = installRouter({ api: observingApi(published), chromeApi });
+
+  await router.poll();
+
+  assertPublishedObservation(published[0], { active: false, code: "PORTAL_TAB_NOT_ACTIVE" }, 1);
+});
+
+test("publishing never replaces command polling", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  const reported = [];
+  const published = [];
+  const router = installRouter({
+    api: {
+      nextCommand: async () => ({ ok: true, command: { id: 11, type: "STATUS", payload: {} } }),
+      reportResult: async (commandId, result) => reported.push({ commandId, result }),
+      publishCurrentSelection: async (observation) => {
+        published.push(observation);
+        return { ok: true };
+      },
+    },
+    chromeApi,
+  });
+
+  const outcome = await router.poll();
+
+  assert.equal(published.length, 1);
+  assert.equal(outcome.command, 11);
+  assert.equal(reported.length, 1);
+  assert.equal(reported[0].result.ok, true);
+  assert.equal(reported[0].result.command_id, 11);
+});
+
+test("a slow observation cannot let an older tick overwrite a newer one", async () => {
+  const chromeApi = fakeChrome({
+    tabs: [{ id: 7, active: true, url: `${PORTAL}/complementarato.asp` }],
+    onMessage: (message) =>
+      message.type === "READ_FORM" ? { ok: true, form: OBSERVED_FORM } : { ok: false },
+  });
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const published = [];
+  const router = installRouter({
+    api: {
+      nextCommand: async () => {
+        await gate;
+        return { ok: true, command: null };
+      },
+      reportResult: async () => {},
+      publishCurrentSelection: async (observation) => {
+        published.push(observation);
+        return { ok: true };
+      },
+    },
+    chromeApi,
+  });
+
+  const first = router.poll();
+  const second = await router.poll();
+
+  assert.deepEqual(second, { ok: true, skipped: true }, "poll is serialized by its latch");
+  release();
+  await first;
+  assert.equal(published.length, 1);
 });

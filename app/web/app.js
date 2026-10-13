@@ -8,6 +8,14 @@
  * parear). Every document is reached by SQLite id, never by a file path.
  */
 import { clampScale, normalizeRotation, renderPdfPage, viewerUrl } from "/pdf-viewer.js";
+import {
+  PORTAL_SELECTION_POLL_MS,
+  classifyPortalProcess,
+  currentFillAvailability,
+  followAction,
+  portalFieldModels,
+  resumeAction,
+} from "/portal-current.js";
 
 let pdfjsPromise = null;
 
@@ -62,6 +70,7 @@ async function loadPdfjs() {
     BLOQUEADO: "Preenchimento bloqueado.",
     ERRO: "O preenchimento falhou.",
   };
+  const FILLABLE_STATUSES = new Set(["PRONTO", "PREENCHIDO"]);
 
   function renderFillSummary(request) {
     const summaryHost = document.getElementById("fill-summary");
@@ -126,23 +135,68 @@ async function loadPdfjs() {
     status.textContent = "Solicitando o preenchimento…";
     try {
       const created = await postJson(`/api/v1/processes/${processId}/fill`, {});
-      const deadline = Date.now() + 300000;
-      for (;;) {
-        await sleep(1000);
-        const request = await getJson(`/api/v1/fill-requests/${created.fill_request_id}`);
-        status.textContent = FILL_STATE_LABELS[request.state] || request.state;
-        if (request.error) status.textContent += ` (${request.error})`;
-        if (["PREENCHIDO", "BLOQUEADO", "ERRO"].includes(request.state)) {
-          state.fillResults[processId] = request;
-          renderFillSummary(request);
-          break;
-        }
-        if (Date.now() > deadline) {
-          status.textContent = "O preenchimento não respondeu a tempo. Verifique a extensão.";
-          break;
-        }
-      }
+      await followFillRequest(processId, created.fill_request_id, status);
+      await refreshProcesses();
       if (state.selectedId === processId) await selectProcess(processId);
+    } catch (error) {
+      status.textContent = `Não foi possível preencher: ${error.message}`;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  /** Follow one fill request to its terminal state, for both entry points. */
+  async function followFillRequest(processId, fillRequestId, status) {
+    const startedAt = Date.now();
+    const deadline = Date.now() + 300000;
+    for (;;) {
+      await sleep(1000);
+      const request = await getJson(`/api/v1/fill-requests/${fillRequestId}`);
+      if (status) status.textContent = FILL_STATE_LABELS[request.state] || request.state;
+      if (status && request.error) status.textContent += ` (${request.error})`;
+      if (["PREENCHIDO", "BLOQUEADO", "ERRO"].includes(request.state)) {
+        state.fillResults[processId] = request;
+        renderFillSummary(request);
+        return request;
+      }
+      if (Date.now() > deadline) {
+        if (status) {
+          status.textContent = "O preenchimento não respondeu a tempo. Verifique a extensão.";
+        }
+        reportCommandTimeout("FILL_FORM", fillRequestId, startedAt);
+        return null;
+      }
+    }
+  }
+
+  /**
+   * Best-effort fill of the exact form the extension observed.
+   *
+   * It uses only the transient selection route: no navigation is queued and no
+   * per-process fill is requested. If the observation expired between the render
+   * and this click, the backend refuses before writing anything.
+   */
+  async function startCurrentPortalFill(processId, observationId) {
+    const button = document.getElementById("portal-fill");
+    const status = document.getElementById("portal-fill-status");
+    if (
+      !Number.isSafeInteger(processId) ||
+      typeof observationId !== "string" ||
+      !observationId ||
+      !button ||
+      !status
+    ) return;
+    delete state.fillResults[processId];
+    renderFillSummary(null);
+    button.disabled = true;
+    status.textContent = "Solicitando o preenchimento do formulário aberto…";
+    try {
+      const created = await postJson("/api/v1/portal/current-selection/fill", {
+        observation_id: observationId,
+      });
+      await followFillRequest(processId, created.fill_request_id, status);
+      await refreshProcesses();
+      if (state.selectedId === processId) await selectProcess(processId, { source: "portal" });
     } catch (error) {
       status.textContent = `Não foi possível preencher: ${error.message}`;
     } finally {
@@ -163,6 +217,13 @@ async function loadPdfjs() {
     detail: null,
     fillResults: {},
     viewer: { documentId: null, page: 1, pageCount: 1, scale: 1.5, rotation: 0, rects: [] },
+    // Portal Atual: the follow is local UI state. The observation it reads is
+    // memory-only on the server and expires on its own after ten seconds.
+    followPortal: true,
+    portalProcessId: null,
+    portalObservation: null,
+    portalPollRunning: false,
+    diagnostics: null,
   };
 
   const numberFormat = new Intl.NumberFormat("pt-BR");
@@ -170,8 +231,10 @@ async function loadPdfjs() {
   function updateNextProcessButton() {
     const button = document.getElementById("next-process");
     if (!button) return;
-    button.disabled =
-      !state.selectedId || state.nextProcessRunning || state.nextProcessNeedsReview;
+    // Reliability Reset Phase 1: next_process is UNQUALIFIED, so the operator
+    // UI never offers automatic navigation. Supervised benchmark tooling calls
+    // the endpoint directly instead.
+    button.disabled = true;
   }
 
   async function startNextProcess() {
@@ -213,6 +276,7 @@ async function loadPdfjs() {
       }
 
       status.textContent = "Abrindo próximo…";
+      const commandStartedAt = Date.now();
       const deadline = Date.now() + 300000;
       let ticks = 0;
       for (;;) {
@@ -243,6 +307,7 @@ async function loadPdfjs() {
         if (Date.now() > deadline) {
           state.nextProcessNeedsReview = true;
           status.textContent = "A solicitação não foi confirmada em 5 minutos. Verifique o portal antes de repetir.";
+          reportCommandTimeout("OPEN_NEXT_ACT", commandId, commandStartedAt);
           break;
         }
       }
@@ -317,6 +382,117 @@ async function loadPdfjs() {
       throw error;
     }
     return payload || {};
+  }
+
+  function renderDiagnostics(payload) {
+    state.diagnostics = { ...(state.diagnostics || {}), ...(payload || {}) };
+    const diagnostics = state.diagnostics;
+    const setText = (id, value) => {
+      document.getElementById(id).textContent = value === null || value === undefined || value === ""
+        ? "—"
+        : String(value);
+    };
+    const mode = document.getElementById("diagnostics-mode");
+    mode.textContent = diagnostics.paused ? "PAUSADO" : diagnostics.diagnostic_enabled ? "ON" : "OFF";
+    mode.setAttribute("data-paused", diagnostics.paused ? "true" : "false");
+    setText("diagnostics-mesa", diagnostics.mesa_state);
+    setText("diagnostics-extension", diagnostics.extension_state);
+    setText("diagnostics-portal", diagnostics.portal_state);
+    const heartbeatAge = diagnostics.heartbeat_age_ms;
+    setText(
+      "diagnostics-heartbeat",
+      heartbeatAge === null || heartbeatAge === undefined
+        ? "—"
+        : heartbeatAge >= 1000
+          ? `${(heartbeatAge / 1000).toFixed(1)} s`
+          : `${Math.max(0, heartbeatAge)} ms`
+    );
+    setText("diagnostics-form-state", diagnostics.form_state);
+    setText("diagnostics-form-code", diagnostics.form_code);
+    setText("diagnostics-selection-state", diagnostics.current_selection_state);
+    setText("diagnostics-selection-code", diagnostics.current_selection_code);
+    setText("diagnostics-command", diagnostics.last_command_type);
+    setText("diagnostics-result", diagnostics.last_result_code);
+    setText("diagnostics-error", diagnostics.last_error_code);
+    document.getElementById("diagnostics-toggle").textContent = diagnostics.paused
+      ? "Retomar diagnóstico"
+      : "Pausar diagnóstico";
+  }
+
+  async function refreshDiagnostics() {
+    try {
+      renderDiagnostics(await getJson("/api/v1/diagnostics"));
+      document.getElementById("diagnostics-action-status").textContent = "";
+      return state.diagnostics;
+    } catch (error) {
+      document.getElementById("diagnostics-action-status").textContent =
+        `Não foi possível atualizar o diagnóstico: ${error.message}`;
+      return null;
+    }
+  }
+
+  async function controlDiagnostics(action) {
+    const status = document.getElementById("diagnostics-action-status");
+    try {
+      renderDiagnostics(await postJson("/api/v1/diagnostics/control", { action }));
+      await refreshDiagnostics();
+      status.textContent = action === "pause"
+        ? "Diagnóstico pausado."
+        : action === "resume"
+          ? "Diagnóstico retomado."
+          : "Diagnóstico limpo; a captura continua ativa.";
+    } catch (error) {
+      status.textContent = `Ação de diagnóstico não concluída: ${error.message}`;
+    }
+  }
+
+  async function exportDiagnostics() {
+    const status = document.getElementById("diagnostics-action-status");
+    let objectUrl = null;
+    try {
+      const response = await fetch("/api/v1/diagnostics/export", {
+        headers: { Accept: "application/zip" },
+      });
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+      const disposition = response.headers?.get("Content-Disposition") || "";
+      const suggested = disposition.match(/filename="?([^";]+)"?/i)?.[1]?.trim();
+      const filename = suggested && /^[\w.-]+\.zip$/i.test(suggested)
+        ? suggested
+        : "diagnostico-atos-tce.zip";
+      objectUrl = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = filename;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      const downloadedObjectUrl = objectUrl;
+      objectUrl = null;
+      window.setTimeout(() => URL.revokeObjectURL(downloadedObjectUrl), 1000);
+      status.textContent = `Diagnóstico exportado: ${filename}`;
+    } catch (error) {
+      status.textContent = `Não foi possível exportar o diagnóstico: ${error.message}`;
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+  // Extension field timings arrive through its diagnostic_events sidecar; this
+  // event covers Mesa commands whose UI poll deadline expires first.
+  function reportCommandTimeout(commandType, commandId, startedAt) {
+    const event = {
+      step: "command_timeout",
+      code: "COMMAND_TIMEOUT",
+      command_type: commandType,
+      elapsed_ms: Math.max(0, Date.now() - startedAt),
+    };
+    if (commandId !== null && commandId !== undefined) event.command_id = commandId;
+    void postJson("/api/v1/diagnostics/events", { event }).catch((error) => {
+      const status = document.getElementById("diagnostics-action-status");
+      if (status) {
+        status.textContent = `O timeout ocorreu, mas não foi possível registrar o diagnóstico: ${error.message}`;
+      }
+    });
   }
 
   function renderFailures(items) {
@@ -526,6 +702,7 @@ async function loadPdfjs() {
     button.disabled = true;
     clearAreaCounters();
     status.textContent = "Solicitando a leitura do portal…";
+    const commandStartedAt = Date.now();
     try {
       const created = await postJson("/api/v1/area/analyze", {});
       status.textContent = "Analisando a Área Restrita…";
@@ -548,6 +725,7 @@ async function loadPdfjs() {
         }
         if (Date.now() > deadline) {
           status.textContent = "A análise não respondeu em 15 minutos. Verifique a extensão.";
+          reportCommandTimeout("ANALYZE_AREA", created.command_id, commandStartedAt);
           break;
         }
       }
@@ -761,7 +939,11 @@ async function loadPdfjs() {
           element("h4", { text: `Histórico (${process.events.length})` }),
           historyList(process.events),
         ]),
+      portal: () => renderPortalCurrent(process),
     };
+    // The workspace moves the shared viewer; return it before the detail is
+    // replaced, or the renderer would be removed from the document with it.
+    restoreViewerHome();
     host.replaceChildren(
       element("h3", { text: `${process.process_key}` }),
       element("p", { className: "detail-sub", text: process.interested }),
@@ -845,16 +1027,216 @@ async function loadPdfjs() {
       }),
     ]);
     const button = panel.querySelector("button");
-    if (process.status === "PRONTO") {
+    if (FILLABLE_STATUSES.has(process.status)) {
       button.addEventListener("click", startFill);
     } else {
       button.hidden = true;
     }
-    if (process.status !== "PRONTO" && !fillResult) {
+    if (!FILLABLE_STATUSES.has(process.status) && !fillResult) {
       panel.hidden = true;
       return panel;
     }
     return panel;
+  }
+
+  // ----------------------------------------------------------- Portal atual
+
+  const PORTAL_STATE_MESSAGES = {
+    NO_ACTIVE_FORM: "Área Restrita conectada · nenhum formulário aberto.",
+    FILL_RESERVED: "Preenchimento já solicitado para esta observação. Aguarde uma nova observação.",
+    NOT_FOUND: "Processo identificado no portal, mas não encontrado no acervo local.",
+    AMBIGUOUS: "Correspondência ambígua. Nenhum processo foi selecionado automaticamente.",
+    INVALID: "Observação estrutural inválida no portal. Nada foi preenchido.",
+  };
+
+  const PORTAL_VERDICT_CLASS = {
+    ENCONTRADO: "chip-ok",
+    REVISAR: "chip-warn",
+    PENDENTE: "chip-neutral",
+  };
+
+  /** The follow controls live outside the detail, so they survive a re-render. */
+  function renderPortalFollow() {
+    const status = document.getElementById("portal-follow-status");
+    const button = document.getElementById("portal-follow-toggle");
+    if (!status || !button) return;
+    button.textContent = state.followPortal
+      ? "Pausar acompanhamento"
+      : "Retomar acompanhamento";
+    if (!state.followPortal) {
+      status.textContent = "○ Acompanhamento pausado";
+      return;
+    }
+    const observed = state.portalObservation;
+    const detail =
+      observed && observed.state !== "MATCHED"
+        ? ` ${PORTAL_STATE_MESSAGES[observed.state] || ""}`
+        : "";
+    status.textContent = `● Acompanhando portal${detail}`.trimEnd();
+  }
+
+  /** Put the shared viewer back before the detail is re-rendered. */
+  function restoreViewerHome() {
+    const viewer = document.getElementById("pdf-viewer");
+    const home = document.getElementById("viewer-home");
+    if (viewer && home && viewer.parentElement !== home) home.append(viewer);
+  }
+
+  /** Copy a value the analysis actually found. A pendency offers no copy. */
+  function portalCopyButton(model) {
+    const button = element("button", {
+      className: "ghost",
+      text: "Copiar valor",
+      attrs: { type: "button" },
+    });
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(model.value);
+      } catch {
+        // Clipboard access can be denied; the value stays on screen to copy by hand.
+      }
+    });
+    return button;
+  }
+
+  function portalEvidenceButton(process, model) {
+    const button = element("button", {
+      className: "ghost",
+      text: "Ver evidência",
+      attrs: { type: "button" },
+    });
+    button.addEventListener("click", () => openFieldEvidence(process.id, model.name));
+    return button;
+  }
+
+  /** One card per known field: a found value offers copy and evidence. */
+  function portalFieldCard(process, model) {
+    const children = [
+      element("span", { className: "portal-field-label", text: model.label }),
+      element("span", { className: `chip ${PORTAL_VERDICT_CLASS[model.verdict]}`, text: model.verdict }),
+      element("span", {
+        className: "portal-field-value",
+        text: model.value || "Não localizado com segurança",
+      }),
+    ];
+    if (model.verdict !== "PENDENTE") {
+      const actions = [portalEvidenceButton(process, model)];
+      if (model.verdict === "ENCONTRADO") actions.unshift(portalCopyButton(model));
+      children.push(element("div", { className: "portal-field-actions" }, actions));
+    }
+    return element(
+      "li",
+      { className: `portal-field portal-field-${model.verdict.toLowerCase()}` },
+      children
+    );
+  }
+
+  /** The "Portal atual" workspace: the one viewer beside the process sheet. */
+  function renderPortalCurrent(process) {
+    const quality = classifyPortalProcess(process);
+    const models = portalFieldModels(process);
+    const availability = currentFillAvailability(state.portalObservation, process.id);
+
+    const viewerColumn = element("div", { className: "portal-viewer-column" }, [
+      element("p", {
+        className: "muted",
+        text: "Abra um documento ou uma evidência para vê-la aqui.",
+      }),
+    ]);
+    // The workspace adopts the existing renderer; a second one is never created.
+    const viewer = document.getElementById("pdf-viewer");
+    if (viewer) viewerColumn.append(viewer);
+
+    const fillButton = element("button", {
+      className: "primary",
+      text: "Preencher dados encontrados",
+      attrs: { type: "button", id: "portal-fill" },
+    });
+    if (availability.available) {
+      fillButton.addEventListener("click", () =>
+        startCurrentPortalFill(process.id, availability.observationId)
+      );
+    } else {
+      fillButton.hidden = true;
+    }
+
+    const sheet = element("div", { className: "portal-ficha" }, [
+      element("h4", { text: `Portal atual — ${quality.state}` }),
+      element("p", {
+        className: "muted",
+        text:
+          `${numberFormat.format(quality.foundCount)} campo(s) encontrado(s), ` +
+          `${numberFormat.format(quality.pendingCount)} pendente(s), ` +
+          `${numberFormat.format(quality.conflictCount)} em conflito.`,
+      }),
+      element(
+        "ul",
+        { className: "portal-fields" },
+        models.map((model) => portalFieldCard(process, model))
+      ),
+      element("div", { className: "portal-fill-actions" }, [
+        fillButton,
+        element("span", { className: "muted", attrs: { id: "portal-fill-status" } }),
+      ]),
+      element("p", { className: "muted", text: availability.message }),
+    ]);
+
+    return element("div", { className: "detail-workspace portal-layout" }, [
+      viewerColumn,
+      sheet,
+    ]);
+  }
+
+  /** Poll the observed form and follow it, without ever stealing the sub-tab. */
+  async function refreshPortalSelection() {
+    if (state.portalPollRunning) return null;
+    state.portalPollRunning = true;
+    try {
+      const observation = await getJson("/api/v1/portal/current-selection");
+      state.portalObservation = observation;
+      const decision = followAction(
+        {
+          followPortal: state.followPortal,
+          selectedId: state.selectedId,
+          portalProcessId: state.portalProcessId,
+          activeTab: state.tab,
+        },
+        observation
+      );
+      state.portalProcessId = decision.portalProcessId;
+      renderPortalFollow();
+      if (decision.selectProcessId !== null && decision.selectProcessId !== state.selectedId) {
+        await selectProcess(decision.selectProcessId, {
+          source: "portal",
+          openTab: decision.openPortalTab ? "portal" : null,
+        });
+      }
+      return observation;
+    } catch {
+      // The Mesa keeps working when the observation endpoint is unavailable.
+      return null;
+    } finally {
+      state.portalPollRunning = false;
+    }
+  }
+
+  async function togglePortalFollow() {
+    if (state.followPortal) {
+      state.followPortal = false;
+      renderPortalFollow();
+      return;
+    }
+    state.followPortal = true;
+    renderPortalFollow();
+    // Resume returns to the form the portal is showing right now, never to a
+    // process id remembered from an observation that already expired.
+    const decision = resumeAction(await refreshPortalSelection());
+    if (decision.selectProcessId !== null) {
+      await selectProcess(decision.selectProcessId, {
+        source: "portal",
+        openTab: decision.openPortalTab ? "portal" : null,
+      });
+    }
   }
 
   function refreshTabBar() {
@@ -971,7 +1353,13 @@ async function loadPdfjs() {
     }
   }
 
-  async function selectProcess(processId) {
+  async function selectProcess(processId, { source = "manual", openTab = null } = {}) {
+    // Picking a process that is not the observed one hands control back to the
+    // operator, so the follow pauses instead of stealing the selection.
+    if (source === "manual" && processId !== state.portalProcessId) {
+      state.followPortal = false;
+    }
+    if (openTab) state.tab = openTab;
     state.selectedId = processId;
     state.detail = null;
     updateNextProcessButton();
@@ -1055,16 +1443,30 @@ async function loadPdfjs() {
     });
     document.getElementById("handoff-session").addEventListener("click", handoffSession);
     document.getElementById("resume-acquisition").addEventListener("click", resumeAcquisition);
+    document.getElementById("portal-follow-toggle").addEventListener("click", togglePortalFollow);
+    document.getElementById("diagnostics-toggle").addEventListener("click", () => {
+      return controlDiagnostics(state.diagnostics?.paused ? "resume" : "pause");
+    });
+    document.getElementById("diagnostics-clear").addEventListener("click", () => {
+      return controlDiagnostics("clear");
+    });
+    document.getElementById("diagnostics-export").addEventListener("click", exportDiagnostics);
 
     refreshHealth();
     refreshStorage();
     refreshProcesses();
     refreshArea();
     refreshAcquisition();
+    refreshPortalSelection();
+    refreshDiagnostics();
     window.setInterval(() => {
       refreshHealth();
       if (!state.acquisitionRunning) refreshAcquisition();
+      refreshDiagnostics();
     }, 5000);
+    // The follow polls faster than the 5 s dashboard refresh so a form the
+    // operator opens is picked up while its 10 s server-side TTL is still valid.
+    window.setInterval(refreshPortalSelection, PORTAL_SELECTION_POLL_MS);
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

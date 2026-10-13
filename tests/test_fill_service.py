@@ -9,8 +9,11 @@ from app.area_restrita.fill_service import (
     FILL_STATES,
     FillError,
     FillService,
+    ar1_run_id,
+    sanitize_browser_diagnostics,
     summarize_field_results,
 )
+from app.area_restrita.reliability import ReliabilityRecorder
 from app.area_restrita.preflight import FillBlocked, FillPlan, build_fill_plan
 from app.analysis.legal import RULES_VERSION, selectable_legal_options
 from app.core.models import DocumentRecord, FieldRecord, ProcessRecord
@@ -35,7 +38,16 @@ class FillRequestTestCase(unittest.TestCase):
         self.data = Path(self._tmp.name) / "data"
         self.store = Store.open(self.data / "atos-tce.db")
         self.addCleanup(self.store.close)
-        self.service = FillService(self.store)
+        self.capability_provider = CapabilityStateFixture(
+            open_act="PRODUCTION",
+            select_interested="PRODUCTION",
+            next_process="PRODUCTION",
+            return_to_list="PRODUCTION",
+        )
+        self.service = FillService(
+            self.store,
+            capability_provider=self.capability_provider,
+        )
 
     def make_process(self, *, status="PRONTO", process_key="102390/2026"):
         process_id = self.store.upsert_process(
@@ -62,7 +74,85 @@ class FillRequestTestCase(unittest.TestCase):
         return process_id
 
 
+class CapabilityStateFixture:
+    def __init__(self, **states):
+        self.states = states
+
+    def capabilities(self):
+        return {name: {"state": state} for name, state in self.states.items()}
+
+
 class FillStateMachineTests(FillRequestTestCase):
+    def test_automatic_navigation_requires_production_capabilities_before_reserving(self):
+        for states in (
+            {"open_act": "UNQUALIFIED", "select_interested": "PRODUCTION"},
+            {"open_act": "PRODUCTION", "select_interested": "EXPERIMENTAL"},
+            {"open_act": "PRODUCTION", "select_interested": "QUALIFIED"},
+            {"open_act": "PRODUCTION"},
+        ):
+            with self.subTest(states=states):
+                process_id = self.make_process(process_key=f"10{len(self.store.list_fill_requests())}/2026")
+                service = FillService(self.store, reliability=CapabilityStateFixture(**states))
+
+                with self.assertRaises(FillError) as raised:
+                    service.request_fill(process_id)
+
+                self.assertIn("CAPABILITY_NOT_PRODUCTION", str(raised.exception))
+                self.assertEqual(self.store.list_fill_requests(), [])
+                self.assertIsNone(self.store.claim_extension_command("extension-test"))
+
+    def test_a_preenchido_process_can_start_another_fill_request(self):
+        process_id = self.make_process(status="PREENCHIDO")
+
+        request_id = self.service.request_fill(process_id)
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "OPENING")
+        self.assertEqual(request["mode"], "automatic")
+
+    def test_automatic_fill_uses_the_exact_portal_alias_from_the_latest_scan(self):
+        process_id = self.make_process()
+        self.store._connection.execute(
+            "UPDATE processes SET interested = ?, interested_normalized = ?, portal_act_id = ? WHERE id = ?",
+            ("Pessoa Exemplo Nome Completo", "pessoa exemplo nome completo", "act-fixture-42", process_id),
+        )
+        self.store.create_area_scan(
+            source_scope="sector_finalistic",
+            marker_label="FIXTURE - SANITIZADO",
+            marker_value="fixture-marker",
+            rows=[
+                {
+                    "process_key": "102390/2026",
+                    "interested": "Pessoa Exemplo",
+                    "interested_normalized": "pessoa exemplo",
+                    "portal_act_id": "act-fixture-42",
+                    "classification": "PRECISA_COMPLEMENTAR",
+                }
+            ],
+        )
+
+        request_id = self.service.request_fill(process_id)
+        command = self.store.get_extension_command(
+            self.store.get_fill_request(request_id)["current_command_id"]
+        )
+
+        self.assertEqual(
+            command["payload"]["identity"],
+            {
+                "processKey": "102390/2026",
+                "interestedNormalized": "pessoa exemplo",
+                "portalActId": "act-fixture-42",
+            },
+        )
+        self.assertEqual(
+            command["payload"]["context"],
+            {
+                "scan_id": self.store.latest_area_scan()["id"],
+                "source_scope": "sector_finalistic",
+                "marker": {"label": "FIXTURE - SANITIZADO", "value": "fixture-marker"},
+            },
+        )
+
     def test_a_pronto_process_opens_and_then_reads_the_form(self):
         process_id = self.make_process()
 
@@ -277,8 +367,8 @@ class FillStateMachineTests(FillRequestTestCase):
 
 
 class ManualFillRequestTests(FillRequestTestCase):
-    def ready_process(self, *, status="PRONTO"):
-        process_id = self.make_process(status=status)
+    def ready_process(self, *, status="PRONTO", process_key="102390/2026"):
+        process_id = self.make_process(status=status, process_key=process_key)
         self.store.replace_fields(
             process_id,
             [
@@ -288,10 +378,15 @@ class ManualFillRequestTests(FillRequestTestCase):
         )
         return process_id
 
-    def snapshot(self, process_key="102390/2026", interested="pessoa exemplo"):
+    def snapshot(self, process_key="102390/2026", interested="pessoa exemplo", portal_act_id=None):
         return {
-            "identity": {"processKey": process_key, "interestedNormalized": interested},
+            "identity": {
+                "processKey": process_key,
+                "interestedNormalized": interested,
+                **({"portalActId": portal_act_id} if portal_act_id is not None else {}),
+            },
             "generation": 3,
+            "documentNonce": "0123456789abcdef0123456789abcdef",
             "fields": form_controls(),
         }
 
@@ -312,6 +407,68 @@ class ManualFillRequestTests(FillRequestTestCase):
             request["form_snapshot"]["modality_decision"]["option_value"], "VOLUNTARIA"
         )
 
+    def test_manual_fill_resolves_a_scanned_name_alias_to_the_canonical_process(self):
+        process_id = self.ready_process()
+        self.store._connection.execute(
+            "UPDATE processes SET interested = ?, interested_normalized = ? WHERE id = ?",
+            ("Pessoa Exemplo Nome Completo", "pessoa exemplo nome completo", process_id),
+        )
+        self.store._connection.execute(
+            "UPDATE processes SET portal_act_id = ? WHERE id = ?", ("act-fixture-42", process_id)
+        )
+        self.store.create_area_scan(
+            source_scope="sector_finalistic",
+            marker_label="FIXTURE - SANITIZADO",
+            marker_value="fixture-marker",
+            rows=[
+                {
+                    "process_key": "102390/2026",
+                    "interested": "Pessoa Exemplo",
+                    "interested_normalized": "pessoa exemplo",
+                    "portal_act_id": "act-fixture-42",
+                    "classification": "PRECISA_COMPLEMENTAR",
+                }
+            ],
+        )
+
+        request_id = self.service.request_manual_fill(
+            self.snapshot(interested="pessoa exemplo")
+        )
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["process_id"], process_id)
+        self.assertEqual(request["state"], "FILLING")
+        self.assertEqual(len(self.store.list_processes()), 1)
+
+    def test_manual_fill_accepts_a_preenchido_process(self):
+        process_id = self.ready_process(status="PREENCHIDO")
+
+        request_id = self.service.request_manual_fill(self.snapshot())
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["process_id"], process_id)
+        self.assertEqual(request["state"], "FILLING")
+
+    def test_manual_fill_is_not_gated_by_the_local_process_status(self):
+        """Best-effort is authorized by the observed form, never by the status."""
+
+        statuses = ("PENDENTE", "IDENTIFICADO", "BAIXADO", "REVISAR", "ERRO", "PREENCHIDO")
+        for index, status in enumerate(statuses):
+            with self.subTest(status=status):
+                process_key = f"10239{index}/2026"
+                process_id = self.ready_process(status=status, process_key=process_key)
+
+                request_id = self.service.request_manual_fill(
+                    self.snapshot(process_key=process_key)
+                )
+
+                request = self.store.get_fill_request(request_id)
+                self.assertEqual(request["state"], "FILLING")
+                self.assertEqual(request["process_id"], process_id)
+                # A best-effort pass is not documentary completion: the local
+                # status must survive the attempt untouched.
+                self.assertEqual(self.store.get_process(process_id)["status"], status)
+
     def test_zero_matches_block(self):
         self.make_process()
 
@@ -319,8 +476,8 @@ class ManualFillRequestTests(FillRequestTestCase):
             self.service.request_manual_fill(self.snapshot(process_key="999999/2026"))
 
     def test_another_interested_person_does_not_match_the_same_process(self):
-        self.make_process()
-        self.store.upsert_process(
+        first = self.make_process()
+        second = self.store.upsert_process(
             ProcessRecord(
                 process_key="102390/2026",
                 interested="Outra Pessoa",
@@ -328,10 +485,20 @@ class ManualFillRequestTests(FillRequestTestCase):
                 status="REVISAR",
             )
         )
+        self.store.replace_fields(
+            second,
+            [
+                FieldRecord(field_name=name, value=value, status="found", confidence=1.0)
+                for name, value in MANDATORY_VALUES.items()
+            ],
+        )
 
         # Two rows share the process key, so matching must use the person too.
-        with self.assertRaises(FillError):
-            self.service.request_manual_fill(self.snapshot(interested="outra pessoa"))
+        request_id = self.service.request_manual_fill(self.snapshot(interested="outra pessoa"))
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["process_id"], second)
+        self.assertNotEqual(request["process_id"], first)
 
     def test_the_identity_is_matched_through_the_canonical_normalization(self):
         self.ready_process()
@@ -346,15 +513,74 @@ class ManualFillRequestTests(FillRequestTestCase):
         with self.assertRaises(FillError):
             self.service.request_manual_fill({"generation": 1})
 
-    def test_a_process_that_is_not_pronto_never_matches(self):
-        self.ready_process(status="REVISAR")
+    def test_the_observed_form_is_never_persisted_on_the_fill_request(self):
+        """Only the authorized plan may reach SQLite, never the raw observation."""
 
-        with self.assertRaises(FillError):
-            self.service.request_manual_fill(self.snapshot())
+        self.ready_process()
+        snapshot = self.snapshot()
+        snapshot["generation"] = 0  # an invalid generation fails inside the preflight
 
+        request_id = self.service.request_manual_fill(snapshot)
+        request = self.store.get_fill_request(request_id)
 
-class ManualFallbackTests(FillRequestTestCase):
-    """The operator-opened form must produce the same plan as the automatic path."""
+        self.assertEqual(request["state"], "ERRO")
+        stored = request["form_snapshot"]
+        self.assertNotIn("identity", stored)
+        self.assertNotIn("fields", stored)
+        self.assertNotIn("pessoa exemplo", json.dumps(stored))
+        self.assertNotIn("102390", json.dumps(stored))
+
+    def test_document_nonce_is_added_only_when_delivering_the_fill_command(self):
+        self.ready_process()
+        document_nonce = "0123456789abcdef0123456789abcdef"
+        snapshot = self.snapshot()
+        snapshot["documentNonce"] = document_nonce
+
+        request_id = self.service.request_manual_fill(snapshot)
+        request = self.store.get_fill_request(request_id)
+        command = self.store.get_extension_command(request["current_command_id"])
+
+        self.assertNotIn("document_nonce", command["payload"])
+        self.assertNotIn(document_nonce, json.dumps(request["form_snapshot"]))
+        delivered = self.service.command_for_extension(command)
+        self.assertEqual(delivered["payload"]["document_nonce"], document_nonce)
+        self.assertNotIn("document_nonce", self.store.get_extension_command(command["id"])["payload"])
+
+    def test_a_manual_fill_without_a_document_nonce_queues_no_write(self):
+        self.ready_process()
+        snapshot = self.snapshot()
+        snapshot.pop("documentNonce")
+
+        request_id = self.service.request_manual_fill(snapshot)
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "BLOQUEADO")
+        self.assertIn("document", request["error"])
+        self.assertIsNone(self.store.claim_extension_command("extension-test"))
+
+    def test_a_successful_fill_must_echo_the_bound_document_nonce(self):
+        process_id = self.ready_process()
+        request_id = self.service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        fields = command["payload"]["fields"]
+        result = {
+            "ok": True,
+            "identity": dict(IDENTITY),
+            "generation_after": 4,
+            "field_results": {
+                name: {"before": "", "proposed": value, "after": value, "status": "changed"}
+                for name, value in fields.items()
+            },
+        }
+
+        self.service.handle_command_result(command["id"], result)
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "BLOQUEADO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+
+class ManualSnapshotMixin:
+    """Shared helpers for the manual-fill test classes."""
 
     def ready_process(self, *, values=None):
         process_id = self.make_process()
@@ -362,7 +588,7 @@ class ManualFallbackTests(FillRequestTestCase):
             process_id,
             [
                 FieldRecord(field_name=name, value=value, status="found", confidence=1.0)
-                for name, value in (values or MANDATORY_VALUES).items()
+                for name, value in (MANDATORY_VALUES if values is None else values).items()
             ],
         )
         return process_id
@@ -377,15 +603,20 @@ class ManualFallbackTests(FillRequestTestCase):
         payload = {
             "identity": dict(IDENTITY),
             "generation": 3,
+            "documentNonce": "0123456789abcdef0123456789abcdef",
             "fields": controls,
             "options": {},
         }
         payload.update(overrides)
         return payload
 
+
+class ManualFallbackTests(ManualSnapshotMixin, FillRequestTestCase):
+    """The operator-opened form must produce the same plan as the automatic path."""
+
     def test_the_manual_path_queues_the_same_fill_command_as_the_automatic_path(self):
         process_id = self.ready_process()
-        service = FillService(self.store)
+        service = FillService(self.store, capability_provider=self.capability_provider)
 
         manual_request = service.request_manual_fill(self.snapshot())
         manual_command = self.store.claim_extension_command("extension-test")
@@ -427,7 +658,13 @@ class ManualFallbackTests(FillRequestTestCase):
         process_id = self.ready_process()
         service = FillService(self.store)
 
-        request_id = service.request_manual_fill({"identity": dict(IDENTITY), "generation": 3})
+        request_id = service.request_manual_fill(
+            {
+                "identity": dict(IDENTITY),
+                "generation": 3,
+                "documentNonce": "0123456789abcdef0123456789abcdef",
+            }
+        )
 
         request = self.store.get_fill_request(request_id)
         command = self.store.claim_extension_command("extension-test")
@@ -478,8 +715,8 @@ class FillResultSummaryTests(unittest.TestCase):
 
 
 class FillServiceOutcomeTests(FillRequestTestCase):
-    def ready_process(self, values=None):
-        process_id = self.make_process()
+    def ready_process(self, values=None, *, status="PRONTO"):
+        process_id = self.make_process(status=status)
         values = dict(MANDATORY_VALUES if values is None else values)
         self.store.replace_fields(
             process_id,
@@ -502,8 +739,25 @@ class FillServiceOutcomeTests(FillRequestTestCase):
                 "ok": True,
                 "identity": IDENTITY,
                 "generation": 3,
+                "documentNonce": "0123456789abcdef0123456789abcdef",
                 "fields": form_controls() if controls is None else controls,
             },
+        )
+        fill_command = self.store.claim_extension_command("extension-test")
+        self.assertEqual(fill_command["type"], "FILL_FORM")
+        return process_id, request_id, fill_command
+
+    def reach_manual_filling(self, *, values=None, controls=None, status="PRONTO"):
+        """The operator already opened the act, so no OPEN_ACT/READ_FORM happens."""
+
+        process_id = self.ready_process(values, status=status)
+        request_id = self.service.request_manual_fill(
+            {
+                "identity": dict(IDENTITY),
+                "generation": 3,
+                "documentNonce": "0123456789abcdef0123456789abcdef",
+                "fields": form_controls() if controls is None else controls,
+            }
         )
         fill_command = self.store.claim_extension_command("extension-test")
         self.assertEqual(fill_command["type"], "FILL_FORM")
@@ -516,6 +770,7 @@ class FillServiceOutcomeTests(FillRequestTestCase):
             "ok": True,
             "identity": dict(IDENTITY),
             "generation_after": 4,
+            "document_nonce": "0123456789abcdef0123456789abcdef",
             "field_results": {
                 name: {"before": "", "proposed": value, "after": value, "status": "changed"}
                 for name, value in fields.items()
@@ -532,6 +787,7 @@ class FillServiceOutcomeTests(FillRequestTestCase):
                 "ok": True,
                 "identity": dict(IDENTITY),
                 "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
                 "field_results": {
                     "cargo": {"before": "", "proposed": "Professor", "after": "Professor", "status": "changed"},
                     "matricula": {
@@ -554,6 +810,49 @@ class FillServiceOutcomeTests(FillRequestTestCase):
         retry_id = self.service.request_fill(process_id)
         self.assertEqual(self.store.get_fill_request(retry_id)["state"], "OPENING")
         self.assertEqual(self.store.claim_extension_command("extension-test")["type"], "OPEN_ACT")
+
+    def test_a_partial_manual_fill_in_revisar_never_launders_the_process_status(self):
+        process_id, request_id, fill_command = self.reach_manual_filling(
+            values={"cargo": "Professor", "matricula": "78.710-8/2"}, status="REVISAR"
+        )
+
+        self.service.handle_command_result(
+            fill_command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
+                "field_results": {
+                    "cargo": {
+                        "before": "",
+                        "proposed": "Professor",
+                        "after": "Professor",
+                        "status": "changed",
+                    },
+                    "matricula": {
+                        "before": "",
+                        "proposed": "78.710-8/2",
+                        "after": "",
+                        "status": "disabled",
+                        "warning": "control_disabled",
+                    },
+                },
+            },
+        )
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "PREENCHIDO")
+        summary = request["form_snapshot"]["summary"]
+        self.assertFalse(summary["mandatory_satisfied"])
+        self.assertFalse(summary["best_effort_satisfied"])
+        # The attempt finished; the document did not become complete.
+        self.assertEqual(self.store.get_process(process_id)["status"], "REVISAR")
+        event_types = [
+            event["event_type"] for event in self.store.list_workflow_events(process_id)
+        ]
+        self.assertIn("form_filled_partial", event_types)
+        self.assertNotIn("form_filled", event_types)
 
     def test_a_fully_satisfied_mandatory_plan_marks_the_process_filled(self):
         process_id, request_id, fill_command = self.reach_filling()
@@ -661,7 +960,13 @@ class FillServiceOutcomeTests(FillRequestTestCase):
         self.assertEqual(read_command["type"], "READ_FORM")
         self.service.handle_command_result(
             read_command["id"],
-            {"ok": True, "identity": IDENTITY, "generation": 5, "fields": form_controls()},
+            {
+                "ok": True,
+                "identity": IDENTITY,
+                "generation": 5,
+                "documentNonce": "0123456789abcdef0123456789abcdef",
+                "fields": form_controls(),
+            },
         )
         retried_fill = self.store.claim_extension_command("extension-test")
         self.assertEqual(retried_fill["type"], "FILL_FORM")
@@ -680,7 +985,13 @@ class FillServiceOutcomeTests(FillRequestTestCase):
         read_command = self.store.claim_extension_command("extension-test")
         self.service.handle_command_result(
             read_command["id"],
-            {"ok": True, "identity": IDENTITY, "generation": 5, "fields": form_controls()},
+            {
+                "ok": True,
+                "identity": IDENTITY,
+                "generation": 5,
+                "documentNonce": "0123456789abcdef0123456789abcdef",
+                "fields": form_controls(),
+            },
         )
         retried_fill = self.store.claim_extension_command("extension-test")
         self.service.handle_command_result(
@@ -1181,20 +1492,32 @@ class StubPreflight:
 class FillServicePreflightTests(FillRequestTestCase):
     def reach_reading(self, stub):
         process_id = self.make_process()
-        service = FillService(self.store, preflight=stub)
+        service = FillService(
+            self.store, preflight=stub, capability_provider=self.capability_provider
+        )
         request_id = service.request_fill(process_id)
         open_command = self.store.claim_extension_command("extension-test")
         service.handle_command_result(
             open_command["id"], {"ok": True, "action": "open_act", "screen": "list"}
         )
         read_command = self.store.claim_extension_command("extension-test")
-        service.handle_command_result(read_command["id"], {"ok": True, "identity": IDENTITY, "generation": 4})
+        service.handle_command_result(
+            read_command["id"],
+            {
+                "ok": True,
+                "identity": IDENTITY,
+                "generation": 4,
+                "documentNonce": "0123456789abcdef0123456789abcdef",
+            },
+        )
         return service, request_id
 
     def test_a_read_form_with_a_wrong_identity_blocks_before_the_preflight(self):
         stub = StubPreflight(error=AssertionError("o preflight não pode rodar com identidade errada"))
         process_id = self.make_process()
-        service = FillService(self.store, preflight=stub)
+        service = FillService(
+            self.store, preflight=stub, capability_provider=self.capability_provider
+        )
         request_id = service.request_fill(process_id)
         open_command = self.store.claim_extension_command("extension-test")
         service.handle_command_result(
@@ -1224,7 +1547,9 @@ class FillServicePreflightTests(FillRequestTestCase):
             plan=FillPlan(identity=dict(IDENTITY), generation=4, fields={"cargo": "Professor"})
         )
         process_id = self.make_process()
-        service = FillService(self.store, preflight=stub)
+        service = FillService(
+            self.store, preflight=stub, capability_provider=self.capability_provider
+        )
         service.request_fill(process_id)
         open_command = self.store.claim_extension_command("extension-test")
 
@@ -1272,6 +1597,798 @@ class FillServicePreflightTests(FillRequestTestCase):
         request = self.store.get_fill_request(request_id)
         self.assertEqual(request["state"], "ERRO")
         self.assertIn("preflight falhou", request["error"])
+        self.assertNotIn("documentNonce", json.dumps(request["form_snapshot"]))
+
+
+AR1_BUILD = "task3-build"
+
+
+def _preflight_that_fails(process, snapshot):
+    raise RuntimeError("preflight fixture failure")
+
+
+class Ar1ManualFillReliabilityTests(ManualSnapshotMixin, FillRequestTestCase):
+    """AR-1 must be navigation-independent and must emit sanitized telemetry."""
+
+    def ar1_service(self):
+        self.recorder = ReliabilityRecorder(self.data, AR1_BUILD)
+        return FillService(
+            self.store, reliability=self.recorder, reliability_environment="offline"
+        )
+
+    def events(self):
+        path = self.data / "reliability" / "events.jsonl"
+        if not path.exists():
+            return []
+        return [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+
+    def boundaries(self, request_id):
+        run_id = ar1_run_id(request_id)
+        return [
+            event["boundary"]
+            for event in self.events()
+            if event.get("type") == "transition" and event.get("run_id") == run_id
+        ]
+
+    def finishes(self):
+        return [event for event in self.events() if event.get("type") == "run_finished"]
+
+    def test_manual_fill_never_queues_open_act_or_open_next_act(self):
+        self.ready_process()
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+
+        types = [
+            row[0]
+            for row in self.store._connection.execute(
+                "SELECT command_type FROM extension_commands ORDER BY id"
+            )
+        ]
+        self.assertEqual(types, ["FILL_FORM"])
+        self.assertNotIn("OPEN_ACT", types)
+        self.assertNotIn("OPEN_NEXT_ACT", types)
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "FILLING")
+
+    def test_manual_fill_rejects_identity_change_before_write(self):
+        process_id = self.ready_process()
+        service = self.ar1_service()
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": {"processKey": "outro/2026", "interestedNormalized": "outra pessoa"},
+                "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
+                "field_results": {},
+            },
+        )
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "BLOQUEADO")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0]["passed"])
+
+    def test_manual_fill_records_form_not_available_as_ar1_failure(self):
+        self.ready_process()
+        service = self.ar1_service()
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+
+        service.handle_command_result(
+            command["id"],
+            {"ok": False, "code": "FORM_NOT_AVAILABLE", "error": "sem formulário"},
+        )
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "ERRO")
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0]["passed"])
+        self.assertEqual(finished[0]["result_code"], "FORM_NOT_AVAILABLE")
+
+    def test_manual_fill_records_the_ar1_boundary_sequence(self):
+        process_id = self.ready_process()
+        service = self.ar1_service()
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
+                "field_results": {
+                    name: {"before": "", "proposed": value, "after": value, "status": "changed"}
+                    for name, value in command["payload"]["fields"].items()
+                },
+            },
+        )
+
+        self.assertEqual(
+            self.boundaries(request_id),
+            [
+                "current_form_detected",
+                "manual_fill_requested",
+                "preflight_completed",
+                "fill_command_completed",
+                "reread_completed",
+            ],
+        )
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertTrue(finished[0]["passed"])
+        self.assertEqual(self.store.get_process(process_id)["status"], "PREENCHIDO")
+        run_id = ar1_run_id(request_id)
+        ordered = [event["type"] for event in self.events() if event.get("run_id") == run_id]
+        self.assertEqual(
+            ordered,
+            [
+                "run_start",
+                "transition",
+                "transition",
+                "transition",
+                "transition",
+                "transition",
+                "run_finished",
+            ],
+        )
+        raw = (self.data / "reliability" / "events.jsonl").read_text(encoding="utf-8")
+        self.assertNotIn("102390/2026", raw)
+        self.assertNotIn("pessoa exemplo", raw)
+
+    def test_ar1_never_persists_a_raw_route_or_identity_in_diagnostics(self):
+        self.ready_process()
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(
+            self.snapshot(
+                diagnostics={
+                    "browser_session_id": "3f1c9b2e-0a44-4d5a-9c11-8b7f2e6a1d33",
+                    "tab_ref": "tab-1",
+                    "frame_ref": "frame-0",
+                    "route": "/SISTEMAS/PROCESSO/ComplementarAto.asp?processo=102390&doc=9",
+                    "screen": "form",
+                    "generation": 3,
+                    "cpf": "000.000.000-00",
+                }
+            )
+        )
+
+        request = self.store.get_fill_request(request_id)
+        diagnostics = request["form_snapshot"]["diagnostics"]
+        self.assertEqual(
+            sorted(diagnostics),
+            ["browser_session_id", "frame_ref", "generation", "route", "screen", "tab_ref"],
+        )
+        self.assertEqual(diagnostics["route"], "/SISTEMAS/PROCESSO/ComplementarAto.asp")
+        raw = json.dumps(request)
+        self.assertNotIn("processo=", raw)
+        self.assertNotIn("cpf", raw.lower())
+
+    def test_marking_ar1_experimental_records_the_build_and_never_qualifies(self):
+        recorder = ReliabilityRecorder(self.data, AR1_BUILD)
+
+        recorder.mark_experimental(
+            "manual_form_fill", reason=f"contrato offline AR-1 verde em {AR1_BUILD}"
+        )
+
+        capability = recorder.capabilities()["manual_form_fill"]
+        self.assertEqual(capability["state"], "EXPERIMENTAL")
+        self.assertIn(AR1_BUILD, capability["reason"])
+        self.assertFalse(recorder.evaluate("manual_form_fill", "real-dev")["qualified"])
+        self.assertFalse(recorder.evaluate("manual_form_fill", "offline")["qualified"])
+
+    def test_a_failed_preflight_never_persists_raw_diagnostics(self):
+        self.ready_process()
+        recorder = ReliabilityRecorder(self.data, AR1_BUILD)
+        service = FillService(
+            self.store,
+            preflight=_preflight_that_fails,
+            reliability=recorder,
+            reliability_environment="offline",
+        )
+
+        request_id = service.request_manual_fill(
+            self.snapshot(
+                diagnostics={
+                    "browser_session_id": "3f1c9b2e-0a44-4d5a-9c11-8b7f2e6a1d33",
+                    "tab_ref": "tab-1",
+                    "route": "https://portal.tce.rn.gov.br/SISTEMAS/ato.asp?processo=102390",
+                    "screen": "form",
+                    "cpf": "000.000.000-00",
+                }
+            )
+        )
+
+        request = self.store.get_fill_request(request_id)
+        raw = json.dumps(request)
+        self.assertEqual(request["state"], "ERRO")
+        self.assertNotIn("processo=", raw)
+        self.assertNotIn("https://", raw)
+        self.assertNotIn("cpf", raw.lower())
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0]["passed"])
+
+    def test_the_diagnostics_sanitizer_rejects_urls_unknown_screens_and_bad_refs(self):
+        self.assertIsNone(
+            sanitize_browser_diagnostics(
+                {
+                    "route": "https://host/path?x=1",
+                    "screen": "banana",
+                    "tab_ref": "tab 1 / x",
+                }
+            )
+        )
+        self.assertEqual(
+            sanitize_browser_diagnostics(
+                {"route": "/A/B.asp", "screen": "FORM", "tab_ref": "tab-1"}
+            ),
+            {"route": "/A/B.asp", "screen": "form", "tab_ref": "tab-1"},
+        )
+
+    def test_a_restarted_service_fails_closed_when_transient_document_nonce_is_lost(self):
+        self.ready_process()
+        recorder = ReliabilityRecorder(self.data, AR1_BUILD)
+        first = FillService(self.store, reliability=recorder, reliability_environment="offline")
+        request_id = first.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+
+        restarted = FillService(self.store, reliability=recorder, reliability_environment="offline")
+        restarted.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
+                "field_results": {
+                    name: {"before": "", "proposed": value, "after": value, "status": "changed"}
+                    for name, value in command["payload"]["fields"].items()
+                },
+            },
+        )
+
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0]["passed"])
+        self.assertEqual(finished[0]["result_code"], "STALE_FORM")
+        self.assertEqual(finished[0]["run_id"], ar1_run_id(request_id))
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "BLOQUEADO")
+
+    def test_a_refused_manual_attempt_is_recorded_as_a_failed_run(self):
+        self.ready_process()
+        service = self.ar1_service()
+
+        unknown = self.snapshot()
+        unknown["identity"] = {**unknown["identity"], "processKey": "999999/2026"}
+        with self.assertRaises(FillError):
+            service.request_manual_fill(unknown)
+
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0]["passed"])
+        self.assertEqual(finished[0]["result_code"], "PROCESS_NOT_FOUND")
+        self.assertTrue(finished[0]["run_id"].startswith("manual-fill-attempt:"))
+
+    def test_a_best_effort_run_passes_when_mandatory_fields_have_no_proposal(self):
+        """A run passes on what it authorized, not on what the document lacks."""
+
+        process_id = self.ready_process(values={"cargo": "Professor"})
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        self.assertEqual(command["type"], "FILL_FORM")
+        self.assertEqual(sorted(command["payload"]["fields"]), ["cargo"])
+
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
+                "field_results": {
+                    "cargo": {
+                        "before": "",
+                        "proposed": "Professor",
+                        "after": "Professor",
+                        "status": "changed",
+                    }
+                },
+            },
+        )
+
+        summary = self.store.get_fill_request(request_id)["form_snapshot"]["summary"]
+        self.assertFalse(summary["mandatory_satisfied"])
+        self.assertTrue(summary["best_effort_satisfied"])
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertTrue(finished[0]["passed"])
+        self.assertEqual(finished[0]["result_code"], "BEST_EFFORT_OK")
+        # Best-effort success is not documentary completion.
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+
+    def test_a_disabled_planned_field_keeps_the_run_failing(self):
+        self.ready_process(values={"cargo": "Professor"})
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
+                "field_results": {
+                    "cargo": {
+                        "before": "",
+                        "proposed": "Professor",
+                        "after": "",
+                        "status": "disabled",
+                        "warning": "control_disabled",
+                    }
+                },
+            },
+        )
+
+        summary = self.store.get_fill_request(request_id)["form_snapshot"]["summary"]
+        self.assertFalse(summary["best_effort_satisfied"])
+        finished = self.finishes()
+        self.assertFalse(finished[-1]["passed"])
+        self.assertEqual(finished[-1]["result_code"], "BEST_EFFORT_FAILED")
+
+    def test_a_planned_field_diverging_from_the_proposal_keeps_the_run_failing(self):
+        self.ready_process(values={"cargo": "Professor"})
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
+                "field_results": {
+                    "cargo": {
+                        "before": "",
+                        "proposed": "Professor",
+                        "after": "Outro cargo",
+                        "status": "changed",
+                    }
+                },
+            },
+        )
+
+        summary = self.store.get_fill_request(request_id)["form_snapshot"]["summary"]
+        self.assertFalse(summary["best_effort_satisfied"])
+        self.assertFalse(self.finishes()[-1]["passed"])
+
+    def test_a_planned_field_missing_from_the_results_keeps_the_run_failing(self):
+        self.ready_process(values={"cargo": "Professor"})
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
+                "field_results": {},
+            },
+        )
+
+        summary = self.store.get_fill_request(request_id)["form_snapshot"]["summary"]
+        self.assertFalse(summary["best_effort_satisfied"])
+        self.assertFalse(self.finishes()[-1]["passed"])
+
+    def test_an_empty_plan_succeeds_as_best_effort_without_inventing_values(self):
+        process_id = self.ready_process(values={})
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        self.assertEqual(command["type"], "FILL_FORM")
+        # Nothing was authorized, so nothing may be written.
+        self.assertEqual(command["payload"]["fields"], {})
+
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
+                "field_results": {},
+            },
+        )
+
+        summary = self.store.get_fill_request(request_id)["form_snapshot"]["summary"]
+        self.assertFalse(summary["mandatory_satisfied"])
+        self.assertTrue(summary["best_effort_satisfied"])
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertTrue(finished[0]["passed"])
+        self.assertEqual(finished[0]["result_code"], "BEST_EFFORT_OK")
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+
+    def test_an_ambiguous_form_keeps_the_run_failing_before_any_write(self):
+        process_id = self.ready_process()
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(
+            command["id"], {"ok": False, "code": "FORM_AMBIGUOUS"}
+        )
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "BLOQUEADO")
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0]["passed"])
+        self.assertEqual(self.store.get_process(process_id)["status"], "PRONTO")
+
+    def test_a_proposal_that_does_not_match_the_plan_keeps_the_run_failing(self):
+        """The extension must write the value the backend authorized, not one of its own."""
+
+        self.ready_process(values={"cargo": "Professor"})
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        self.assertEqual(command["payload"]["fields"], {"cargo": "Professor"})
+
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
+                "field_results": {
+                    "cargo": {
+                        "before": "",
+                        "proposed": "Outro cargo",
+                        "after": "Outro cargo",
+                        "status": "changed",
+                    }
+                },
+            },
+        )
+
+        summary = self.store.get_fill_request(request_id)["form_snapshot"]["summary"]
+        self.assertFalse(summary["best_effort_satisfied"])
+        finished = self.finishes()
+        self.assertFalse(finished[-1]["passed"])
+        self.assertEqual(finished[-1]["result_code"], "BEST_EFFORT_FAILED")
+
+    def test_an_exhausted_stale_generation_keeps_the_run_failing(self):
+        self.ready_process()
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+        fill_command = self.store.claim_extension_command("extension-test")
+        self.assertEqual(fill_command["type"], "FILL_FORM")
+        service.handle_command_result(
+            fill_command["id"],
+            {"ok": False, "code": "STALE_GENERATION", "generation_after": 4},
+        )
+
+        read_command = self.store.claim_extension_command("extension-test")
+        self.assertEqual(read_command["type"], "READ_FORM")
+        service.handle_command_result(
+            read_command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation": 5,
+                "documentNonce": "0123456789abcdef0123456789abcdef",
+                "fields": form_controls(),
+            },
+        )
+
+        retried_fill = self.store.claim_extension_command("extension-test")
+        self.assertEqual(retried_fill["type"], "FILL_FORM")
+        service.handle_command_result(
+            retried_fill["id"],
+            {"ok": False, "code": "STALE_GENERATION", "generation_after": 6},
+        )
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "ERRO")
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0]["passed"])
+
+    def test_a_form_that_changes_to_another_process_blocks_without_touching_it(self):
+        """Review Focus #2: the act moved to B while A was being written."""
+
+        first = self.ready_process(values={"cargo": "Professor"})
+        second = self.make_process(status="PRONTO", process_key="200000/2026")
+        service = self.ar1_service()
+
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": {"processKey": "200000/2026", "interestedNormalized": "pessoa exemplo"},
+                "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
+                "field_results": {
+                    "cargo": {
+                        "before": "",
+                        "proposed": "Professor",
+                        "after": "Professor",
+                        "status": "changed",
+                    }
+                },
+            },
+        )
+
+        self.assertEqual(self.store.get_fill_request(request_id)["state"], "BLOQUEADO")
+        finished = self.finishes()
+        self.assertEqual(len(finished), 1)
+        self.assertFalse(finished[0]["passed"])
+        # Neither act was promoted: the write never belonged to B.
+        self.assertEqual(self.store.get_process(first)["status"], "PRONTO")
+        self.assertEqual(self.store.get_process(second)["status"], "PRONTO")
+
+    def test_an_exceptional_process_with_no_useful_field_still_passes_best_effort(self):
+        """Review Focus #5: ERRO/REVISAR without proposals is a pendency, not a failure."""
+
+        for index, status in enumerate(("ERRO", "REVISAR")):
+            with self.subTest(status=status):
+                process_key = f"30000{index}/2026"
+                process_id = self.make_process(status=status, process_key=process_key)
+                service = self.ar1_service()
+
+                request_id = service.request_manual_fill(
+                    self.snapshot(identity={**IDENTITY, "processKey": process_key})
+                )
+                command = self.store.claim_extension_command("extension-test")
+                self.assertEqual(command["type"], "FILL_FORM")
+                # Nothing was found, so nothing may be written.
+                self.assertEqual(command["payload"]["fields"], {})
+                service.handle_command_result(
+                    command["id"],
+                    {
+                        "ok": True,
+                        "identity": {**IDENTITY, "processKey": process_key},
+                        "generation_after": 4,
+                        "document_nonce": "0123456789abcdef0123456789abcdef",
+                        "field_results": {},
+                    },
+                )
+
+                summary = self.store.get_fill_request(request_id)["form_snapshot"]["summary"]
+                self.assertFalse(summary["mandatory_satisfied"])
+                self.assertTrue(summary["best_effort_satisfied"])
+                self.assertTrue(self.finishes()[-1]["passed"])
+                # The attempt never rewrites the incomplete local status.
+                self.assertEqual(self.store.get_process(process_id)["status"], status)
+
+    def run_successful_fill(self, service):
+        """One complete AR-1 trial: read the opened form, fill it, reread it."""
+
+        service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
+                "field_results": {
+                    name: {"before": "", "proposed": value, "after": value, "status": "changed"}
+                    for name, value in command["payload"]["fields"].items()
+                },
+            },
+        )
+
+    def test_a_refused_attempt_resets_a_nineteen_pass_streak(self):
+        self.ready_process()
+        service = self.ar1_service()
+        for _ in range(19):
+            self.run_successful_fill(service)
+        self.assertEqual(self.recorder.evaluate("manual_form_fill", "offline")["streak"], 19)
+
+        unknown = self.snapshot()
+        unknown["identity"] = {**unknown["identity"], "processKey": "999999/2026"}
+        with self.assertRaises(FillError):
+            service.request_manual_fill(unknown)
+
+        self.assertEqual(self.recorder.evaluate("manual_form_fill", "offline")["streak"], 0)
+
+    def test_a_reported_attempt_failure_is_recorded_and_resets_the_streak(self):
+        self.ready_process()
+        service = self.ar1_service()
+        for _ in range(19):
+            self.run_successful_fill(service)
+        self.assertEqual(self.recorder.evaluate("manual_form_fill", "offline")["streak"], 19)
+
+        service.record_manual_attempt_failure("FORM_AMBIGUOUS")
+
+        self.assertEqual(self.recorder.evaluate("manual_form_fill", "offline")["streak"], 0)
+        finished = self.finishes()
+        self.assertFalse(finished[-1]["passed"])
+        self.assertEqual(finished[-1]["result_code"], "FORM_AMBIGUOUS")
+        self.assertTrue(finished[-1]["run_id"].startswith("manual-fill-attempt:"))
+
+    def test_an_unknown_attempt_code_is_refused(self):
+        self.ready_process()
+        service = self.ar1_service()
+
+        with self.assertRaises(FillError):
+            service.record_manual_attempt_failure("PESSOA EXEMPLO")
+
+        self.assertEqual(self.finishes(), [])
+
+    def test_a_reported_detection_failure_does_not_claim_a_detected_form(self):
+        self.ready_process()
+        service = self.ar1_service()
+
+        service.record_manual_attempt_failure("FORM_NOT_AVAILABLE")
+
+        run_id = self.finishes()[0]["run_id"]
+        transitions = [
+            event
+            for event in self.events()
+            if event.get("run_id") == run_id and event.get("type") == "transition"
+        ]
+        self.assertEqual(transitions[0]["boundary"], "current_form_attempted")
+        self.assertEqual(transitions[0]["result_code"], "FORM_NOT_DETECTED")
+        self.assertEqual(transitions[0]["state_after"], "UNKNOWN")
+
+    def test_a_detected_form_refusal_still_records_the_detection(self):
+        self.ready_process()
+        service = self.ar1_service()
+
+        unknown = self.snapshot()
+        unknown["identity"] = {**unknown["identity"], "processKey": "999999/2026"}
+        with self.assertRaises(FillError):
+            service.request_manual_fill(unknown)
+
+        run_id = self.finishes()[0]["run_id"]
+        transitions = [
+            event
+            for event in self.events()
+            if event.get("run_id") == run_id and event.get("type") == "transition"
+        ]
+        self.assertEqual(transitions[0]["boundary"], "current_form_detected")
+        self.assertEqual(transitions[0]["result_code"], "FORM_DETECTED")
+
+
+class RecordingDiagnosticSink:
+    def __init__(self, *, fail=False):
+        self.events = []
+        self.fail = fail
+
+    def record(self, event):
+        if self.fail:
+            raise OSError("diagnostic storage unavailable")
+        self.events.append(dict(event))
+        return True
+
+
+class DiagnosticFillServiceTests(ManualSnapshotMixin, FillRequestTestCase):
+    def complete_manual_fill(self, service):
+        process_id = self.ready_process(values={"cargo": "Professor"})
+        request_id = service.request_manual_fill(self.snapshot())
+        command = self.store.claim_extension_command("extension-test")
+        service.handle_command_result(
+            command["id"],
+            {
+                "ok": True,
+                "identity": dict(IDENTITY),
+                "generation_after": 4,
+                "document_nonce": "0123456789abcdef0123456789abcdef",
+                "field_results": {
+                    name: {
+                        "before": "",
+                        "proposed": value,
+                        "after": value,
+                        "status": "changed",
+                    }
+                    for name, value in command["payload"]["fields"].items()
+                },
+            },
+        )
+        return process_id, request_id
+
+    def test_diagnostic_recorder_observes_preflight_and_fill_readback_values(self):
+        diagnostics = RecordingDiagnosticSink()
+        reliability = ReliabilityRecorder(self.data, AR1_BUILD)
+        service = FillService(
+            self.store,
+            reliability=reliability,
+            capability_provider=self.capability_provider,
+            diagnostics=diagnostics,
+        )
+
+        _process_id, request_id = self.complete_manual_fill(service)
+
+        preflight = next(event for event in diagnostics.events if event["step"] == "preflight")
+        result = next(event for event in diagnostics.events if event["step"] == "result")
+        self.assertEqual(preflight["code"], "PLAN_READY")
+        self.assertEqual(preflight["fields"]["cargo"]["proposed"], "Professor")
+        self.assertEqual(result["fields"]["cargo"]["before"], "")
+        self.assertEqual(result["fields"]["cargo"]["proposed"], "Professor")
+        self.assertEqual(result["fields"]["cargo"]["after"], "Professor")
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "PREENCHIDO")
+        snapshot = json.dumps(request["form_snapshot"])
+        self.assertNotIn("diagnostic_events", snapshot)
+        self.assertNotIn("elapsed_ms", snapshot)
+
+        ledger = (self.data / "reliability" / "events.jsonl").read_text(encoding="utf-8")
+        self.assertNotIn("diagnostic_events", ledger)
+        self.assertNotIn('"step":"preflight"', ledger)
+        self.assertTrue(
+            all(
+                json.loads(line).get("elapsed_ms") is None
+                for line in ledger.splitlines()
+                if line.strip()
+            )
+        )
+
+    def test_diagnostic_events_do_not_enter_reliability_ledger_or_fill_snapshot(self):
+        diagnostics = RecordingDiagnosticSink()
+        reliability = ReliabilityRecorder(self.data, AR1_BUILD)
+        service = FillService(
+            self.store,
+            reliability=reliability,
+            capability_provider=self.capability_provider,
+            diagnostics=diagnostics,
+        )
+
+        _process_id, request_id = self.complete_manual_fill(service)
+
+        request = self.store.get_fill_request(request_id)
+        persisted = json.dumps(request["form_snapshot"])
+        ledger_events = [
+            json.loads(line)
+            for line in (self.data / "reliability" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertTrue(diagnostics.events)
+        self.assertNotIn("diagnostic_events", persisted)
+        self.assertFalse(any(event.get("type") == "diagnostic" for event in ledger_events))
+        self.assertTrue(all(event.get("elapsed_ms") is None for event in ledger_events))
+
+    def test_recorder_failure_does_not_change_fill_result(self):
+        diagnostics = RecordingDiagnosticSink(fail=True)
+        service = FillService(
+            self.store,
+            capability_provider=self.capability_provider,
+            diagnostics=diagnostics,
+        )
+
+        _process_id, request_id = self.complete_manual_fill(service)
+
+        request = self.store.get_fill_request(request_id)
+        self.assertEqual(request["state"], "PREENCHIDO")
+        self.assertTrue(request["form_snapshot"]["summary"]["best_effort_satisfied"])
+
+
 
 
 if __name__ == "__main__":

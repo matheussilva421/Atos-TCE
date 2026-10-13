@@ -7,10 +7,11 @@
 import { MESA_ORIGIN, MESSAGE_TYPES, PORTAL_ORIGIN } from "../lib/protocol.js";
 import {
   describeMesaStatus,
+  describeManualFillCapability,
   describeNextActOutcome,
+  describeNextProcessCapability,
+  pollForNextActCommand,
   hasFormIdentity,
-  matchesFormIdentity,
-  pollForTargetForm,
   retainLastConfirmedIdentity,
 } from "./state.js";
 
@@ -19,6 +20,8 @@ let currentFormAvailable = false;
 let nextActInProgress = false;
 let acceptedNextTarget = null;
 let nextActFeedback = null;
+let reliabilityCapabilities = null;
+let lastFormReadCode = null;
 
 function setState(elementId, dotId, text, tone) {
   const label = document.getElementById(elementId);
@@ -32,6 +35,30 @@ async function refreshMesa() {
   const state = describeMesaStatus(status);
   setState("mesa-status", "mesa-dot", state.label, state.tone);
   return state;
+}
+
+/**
+ * The sidepanel never decides a capability's state: it reads the read-only
+ * ledger summary from the Mesa and reflects it on the operator controls.
+ */
+async function refreshReliability() {
+  try {
+    const outcome = await globalThis.chrome.runtime.sendMessage({
+      type: MESSAGE_TYPES.RELIABILITY_STATUS,
+    });
+    reliabilityCapabilities = outcome?.ok === true ? outcome.capabilities ?? {} : null;
+  } catch {
+    reliabilityCapabilities = null;
+  }
+  updateCapabilityStatus();
+  return reliabilityCapabilities;
+}
+
+function updateCapabilityStatus() {
+  const element = document.getElementById("capability-status");
+  const manualFill = describeManualFillCapability(reliabilityCapabilities);
+  if (element) element.textContent = `Preencher formulário atual: ${manualFill.label}`;
+  updateActionButtons();
 }
 
 async function refreshPortal() {
@@ -48,6 +75,7 @@ async function refresh() {
   const diagnostic = document.getElementById("diagnostic");
   try {
     const mesa = await refreshMesa();
+    await refreshReliability();
     await refreshPortal();
     await refreshCurrentForm();
     if (!nextActFeedback) {
@@ -68,14 +96,11 @@ async function refreshCurrentForm() {
   const info = document.getElementById("form-info");
   try {
     const response = await globalThis.chrome.runtime.sendMessage({ type: MESSAGE_TYPES.READ_CURRENT_FORM });
+    lastFormReadCode = response?.ok === true ? null : String(response?.code ?? "FORM_NOT_AVAILABLE");
     lastConfirmedFormIdentity = retainLastConfirmedIdentity(lastConfirmedFormIdentity, response);
     currentFormAvailable = response?.ok === true && hasFormIdentity(response.form?.identity);
     if (currentFormAvailable) {
       info.textContent = `Processo atual: ${response.form.identity.processKey} — ${response.form.identity.interestedNormalized}`;
-      if (matchesFormIdentity(response.form.identity, acceptedNextTarget)) {
-        acceptedNextTarget = null;
-        setNextActFeedback(`Formulário pronto: ${response.form.identity.processKey}`);
-      }
       updateActionButtons();
       return response.form;
     }
@@ -86,6 +111,7 @@ async function refreshCurrentForm() {
     return null;
   } catch {
     info.textContent = "Abra a Área Restrita autenticada para o modo manual.";
+    lastFormReadCode = "PORTAL_TAB_NOT_ACTIVE";
     currentFormAvailable = false;
     updateActionButtons();
     return null;
@@ -95,10 +121,23 @@ async function refreshCurrentForm() {
 function updateActionButtons() {
   const fillButton = document.getElementById("fill-current");
   const nextButton = document.getElementById("next-process");
-  if (fillButton) fillButton.disabled = !currentFormAvailable || nextActInProgress || Boolean(acceptedNextTarget);
+  const manualFill = describeManualFillCapability(reliabilityCapabilities);
+  const nextProcess = describeNextProcessCapability(reliabilityCapabilities);
+  if (fillButton) {
+    // A press is a trial: with no form open the attempt still has to reach the
+    // Mesa and count as a failure, not silently leave the sequence untouched.
+    fillButton.disabled = !manualFill.enabled || nextActInProgress || Boolean(acceptedNextTarget);
+    fillButton.textContent = manualFill.enabled
+      ? `Preencher formulário atual — ${manualFill.label}`
+      : "Preencher formulário atual";
+  }
   if (nextButton) {
+    // Phase 1: automatic navigation is never offered to the operator.
     nextButton.disabled =
-      !hasFormIdentity(lastConfirmedFormIdentity) || nextActInProgress || Boolean(acceptedNextTarget);
+      !nextProcess.enabled ||
+      !hasFormIdentity(lastConfirmedFormIdentity) ||
+      nextActInProgress ||
+      Boolean(acceptedNextTarget);
   }
 }
 
@@ -119,7 +158,15 @@ document.getElementById("fill-current").addEventListener("click", async () => {
   try {
     const form = await refreshCurrentForm();
     if (!form) {
-      diagnostic.textContent = "Abra o formulário do ato antes de preencher.";
+      const code = lastFormReadCode ?? "FORM_NOT_AVAILABLE";
+      const reported = await globalThis.chrome.runtime.sendMessage({
+        type: MESSAGE_TYPES.REPORT_AR1_ATTEMPT,
+        payload: { code },
+      });
+      diagnostic.className = "error";
+      diagnostic.textContent = reported?.ok
+        ? `Tentativa registrada sem preenchimento (${code}). Abra o formulário do ato e tente novamente.`
+        : `Nenhum formulário disponível (${code}).`;
       return;
     }
     const outcome = await globalThis.chrome.runtime.sendMessage({
@@ -165,21 +212,35 @@ document.getElementById("next-process").addEventListener("click", async () => {
 
     acceptedNextTarget = outcome.targetIdentity;
     updateActionButtons();
-    const form = await pollForTargetForm({
-      readCurrentForm: () =>
-        globalThis.chrome.runtime.sendMessage({ type: MESSAGE_TYPES.READ_CURRENT_FORM }),
+    const commandOutcome = await pollForNextActCommand({
+      readCommandStatus: (commandId) =>
+        globalThis.chrome.runtime.sendMessage({
+          type: MESSAGE_TYPES.READ_NEXT_ACT_STATUS,
+          payload: { command_id: commandId },
+        }),
+      commandId: outcome.commandId,
       targetIdentity: outcome.targetIdentity,
     });
-    if (form) {
-      lastConfirmedFormIdentity = retainLastConfirmedIdentity(lastConfirmedFormIdentity, { ok: true, form });
+    if (commandOutcome.state === "ready") {
+      const identity = commandOutcome.identity;
+      lastConfirmedFormIdentity = retainLastConfirmedIdentity(lastConfirmedFormIdentity, {
+        ok: true,
+        form: { identity },
+      });
       currentFormAvailable = true;
       document.getElementById("form-info").textContent =
-        `Processo atual: ${form.identity.processKey} — ${form.identity.interestedNormalized}`;
+        `Processo atual: ${identity.processKey} — ${identity.interestedNormalized}`;
       acceptedNextTarget = null;
-      setNextActFeedback(`Formulário pronto: ${form.identity.processKey}`);
+      setNextActFeedback(`Formulário pronto: ${identity.processKey}`);
+    } else if (commandOutcome.state === "error") {
+      acceptedNextTarget = null;
+      setNextActFeedback(
+        `Não foi possível abrir o próximo processo (${commandOutcome.code}): ${commandOutcome.message}`,
+        true,
+      );
     } else {
       setNextActFeedback(
-        "A Mesa aceitou a solicitação, mas o formulário alvo não foi confirmado. Confira a Área Restrita antes de tentar novamente.",
+        `A confirmação do comando ${outcome.commandId} ainda não chegou. A solicitação continua em acompanhamento; não a repita agora.`,
         true,
       );
     }

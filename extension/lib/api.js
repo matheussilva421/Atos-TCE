@@ -261,5 +261,64 @@ export function createApi({
           : response.payload?.detail ?? response.error ?? "request_failed",
       };
     },
+
+    async commandStatus(commandId) {
+      const normalizedId = Number(commandId);
+      if (!Number.isSafeInteger(normalizedId) || normalizedId < 1) {
+        return { ok: false, status: 0, command: null, error: "invalid_command_id" };
+      }
+      const response = await authenticatedRequest(
+        `/api/v1/extension/commands/${normalizedId}/status`,
+      );
+      return {
+        ok: response.ok,
+        status: response.status,
+        command: response.ok ? response.payload : null,
+        error: response.ok ? null : response.error ?? "request_failed",
+      };
+    },
+
+    /** Read-only Area Restrita capability status (Reliability Reset). */
+    async reliabilityStatus() {
+      const response = await authenticatedRequest("/api/v1/portal/reliability");
+      return {
+        ok: response.ok,
+        status: response.status,
+        capabilities: response.ok ? response.payload?.capabilities ?? {} : null,
+        error: response.ok ? null : response.error ?? "request_failed",
+      };
+    },
+
+    /** Record an AR-1 attempt that never produced a fill request. */
+    async reportAr1Attempt({ code } = {}) {
+      const response = await authenticatedRequest("/api/v1/portal/manual-form-attempt", {
+        method: "POST",
+        body: { code },
+      });
+      return {
+        ok: response.ok,
+        status: response.status,
+        payload: response.payload,
+        error: response.ok
+          ? null
+          : response.payload?.detail ?? response.error ?? "request_failed",
+      };
+    },
+
+    /** Publish (or clear) the portal form the operator currently has open. */
+    async publishCurrentSelection(observation) {
+      const response = await authenticatedRequest("/api/v1/portal/current-selection", {
+        method: "POST",
+        body: observation,
+      });
+      return {
+        ok: response.ok,
+        status: response.status,
+        payload: response.payload,
+        error: response.ok
+          ? null
+          : response.payload?.detail ?? response.error ?? "request_failed",
+      };
+    },
   };
 }

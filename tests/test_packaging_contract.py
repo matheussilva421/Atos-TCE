@@ -53,6 +53,7 @@ FORBIDDEN_PREFIXES = (
     "acervo-tce/",
     "dados-locais/",
     "profile/",
+    "profiles/",
     "outputs/",
     "Versions/",
     "work/",
@@ -62,6 +63,8 @@ FORBIDDEN_PREFIXES = (
     ".playwright-cli/",
     "node_modules/",
     "tmp/portal-lab/",
+    "tmp/portal-reliability/",
+    "scripts/portal-reliability/",
 )
 
 BASE_FILES = {
@@ -157,14 +160,110 @@ def runtime_entries(payload: bytes) -> dict:
     return entries
 
 
-def make_package(path: Path, entries: dict | None = None, base: dict | None = None) -> Path:
+def declared_scope(name: str, runtime_contract: bool) -> bool:
+    """Mirror of the verifier's Test-CoveredProductPath rule.
+
+    A package that carries the runtime contract leaves runtime/ and licences to
+    runtime-manifest.json; every other entry, in every package, is product source
+    that package-manifest.json has to declare. A licence file in a package
+    without the runtime contract is product source like any other.
+    """
+
+    lowered = name.lower()
+    if lowered == "package-manifest.json":
+        return False
+    if runtime_contract and (
+        lowered.startswith("runtime/")
+        or lowered.startswith("licenses/")
+        or lowered == "runtime-manifest.json"
+    ):
+        return False
+    return True
+
+
+PRODUCT_FILES = (
+    "START.cmd",
+    "README.md",
+    "LEIA-ME-OUTRO-PC.txt",
+    "scripts/scan-area-cdp.ps1",
+)
+
+
+def package_manifest(payload: dict, build_id: str = "c" * 40, *, drop=(), corrupt=()) -> bytes:
+    """A valid package-manifest.json over the product bytes of ``payload``."""
+
+    files = []
+    for name in sorted(
+        candidate
+        for candidate in payload
+        if declared_scope(candidate, "runtime-manifest.json" in payload)
+    ):
+        if name in drop:
+            continue
+        data = payload[name]
+        files.append(
+            {
+                "path": name,
+                "size": len(data),
+                "sha256": "0" * 64 if name in corrupt else hashlib.sha256(data).hexdigest(),
+            }
+        )
+    return json.dumps(
+        {"schema": 1, "build_id": build_id, "source_dirty": False, "files": files},
+        sort_keys=True,
+    ).encode("utf-8")
+
+
+def make_package(path: Path, entries: dict | None = None, base: dict | None = None, manifest="auto") -> Path:
+
     payload = dict(BASE_FILES if base is None else base)
     payload.update(entries or {})
+    # Every contract fixture carries a valid manifest unless a test asks for a
+    # broken one, so the negative cases keep failing for their own reason.
+    if manifest != "none":
+        payload.setdefault(
+            "package-manifest.json",
+            package_manifest(payload) if manifest == "auto" else manifest,
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for name, data in payload.items():
             archive.writestr(name, data)
     return path
+
+
+def repo_product_payload() -> dict:
+    """The committed product bytes of HEAD, for release-shaped fixtures.
+
+    Reading the commit rather than the worktree keeps these fixtures valid while
+    the checkout itself has work in progress.
+    """
+
+    listed = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "ls-files", "app", "extension"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    names = [name for name in listed if "__pycache__" not in name and not name.endswith(".pyc")]
+    names += [name for name in PRODUCT_FILES if (REPO_ROOT / name).is_file()]
+    return {
+        name: subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "show", f"HEAD:{name}"],
+            capture_output=True,
+            check=True,
+        ).stdout
+        for name in names
+    }
+
+
+def head_commit() -> str:
+    return subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
 
 
 class VerifierContractTests(unittest.TestCase):
@@ -240,6 +339,20 @@ class VerifierContractTests(unittest.TestCase):
                 result = self.verify(archive, "-AllowMissingRuntime", "-SkipSmoke")
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
 
+
+    def test_rejects_reliability_reset_dev_tooling(self):
+        cases = (
+            {"scripts/portal-reliability/controller-trial.mjs": b"// dev only\n"},
+            {"scripts/portal-reliability/qualification.py": b"# dev only\n"},
+            {"tmp/portal-reliability/raw/events.jsonl": b"{}\n"},
+            {"devtools/area-restrita/controller/navigation.mjs": b"// dev only\n"},
+            {"profiles/dev/Preferences": b"{}"},
+        )
+        for index, entries in enumerate(cases):
+            with self.subTest(entries=entries):
+                archive = make_package(self.tmp / f"reliability-{index}.zip", entries)
+                result = self.verify(archive, "-AllowMissingRuntime", "-SkipSmoke")
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
     def test_rejects_missing_required_entries(self):
         base = dict(BASE_FILES)
         base.pop("START.cmd")
@@ -273,15 +386,24 @@ class VerifierContractTests(unittest.TestCase):
     def test_verifies_every_runtime_file_against_the_runtime_manifest(self):
         payload = b"runtime payload"
 
-        good = make_package(self.tmp / "runtime-ok.zip", runtime_entries(payload))
-        result = self.verify(good, "-SkipSmoke")
+        # A release-shaped package must name a commit it really came from, so the
+        # product bytes here are the tracked ones and the manifest names HEAD.
+        build_id = head_commit()
+        entries = {**repo_product_payload(), **runtime_entries(payload)}
+        good = make_package(
+            self.tmp / "runtime-ok.zip", entries, manifest=package_manifest(entries, build_id)
+        )
+        result = self.verify(good, "-SkipSmoke", "-ExpectedBuildId", build_id)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(json.loads(result.stdout)["runtime_included"])
 
         corrupted = runtime_entries(payload)
         corrupted["runtime/python/python.exe"] = b"runtime payloaX"
-        bad = make_package(self.tmp / "runtime-ruim.zip", corrupted)
-        result = self.verify(bad, "-SkipSmoke")
+        corrupted = {**repo_product_payload(), **corrupted}
+        bad = make_package(
+            self.tmp / "runtime-ruim.zip", corrupted, manifest=package_manifest(corrupted, build_id)
+        )
+        result = self.verify(bad, "-SkipSmoke", "-ExpectedBuildId", build_id)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("python.exe", result.stderr + result.stdout)
 
@@ -304,7 +426,9 @@ class BuilderContractTests(unittest.TestCase):
         self.tmp = Path(self._tmp.name)
 
     def build(self, *arguments):
-        return powershell(BUILDER, "-SkipRuntime", *arguments)
+        # A fixture build has no runtime and is never a release artefact, so it
+        # declares the dirty source explicitly instead of pretending to be one.
+        return powershell(BUILDER, "-SkipRuntime", "-AllowDirtySource", *arguments)
 
     def test_builds_an_allowlisted_package_without_the_runtime(self):
         destination = self.tmp / "contract.zip"
@@ -343,6 +467,57 @@ class BuilderContractTests(unittest.TestCase):
         # A runtime-free ZIP is a contract fixture, never a release artefact.
         verification = powershell(VERIFIER, "-ZipPath", destination, "-SkipSmoke")
         self.assertNotEqual(verification.returncode, 0)
+
+    def test_manual_fill_bootstrap_is_opt_in_and_bound_to_the_package_build(self):
+        destination = self.tmp / "bootstrap.zip"
+        result = self.build(
+            "-OutputPath",
+            destination,
+            "-StagingRoot",
+            "staging-package-bootstrap",
+            "-EnableManualFormFillQualificationBootstrap",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        with zipfile.ZipFile(destination) as handle:
+            bootstrap = json.loads(
+                handle.read("app/reliability-bootstrap.json").decode("utf-8")
+            )
+            package = json.loads(handle.read("package-manifest.json").decode("utf-8"))
+        self.assertEqual(bootstrap["schema"], 1)
+        self.assertEqual(bootstrap["build_id"], package["build_id"])
+        self.assertEqual(
+            bootstrap["capabilities"], {"manual_form_fill": "EXPERIMENTAL"}
+        )
+        declared = {item["path"] for item in package["files"]}
+        self.assertIn("app/reliability-bootstrap.json", declared)
+        verified = powershell(
+            VERIFIER,
+            "-ZipPath",
+            destination,
+            "-AllowMissingRuntime",
+            "-SkipSmoke",
+            "-RequireManualFormFillQualificationBootstrap",
+        )
+        self.assertEqual(verified.returncode, 0, verified.stdout + verified.stderr)
+
+    def test_default_build_does_not_include_manual_fill_bootstrap(self):
+        destination = self.tmp / "without-bootstrap.zip"
+        result = self.build(
+            "-OutputPath", destination, "-StagingRoot", "staging-package-no-bootstrap"
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        with zipfile.ZipFile(destination) as handle:
+            self.assertNotIn("app/reliability-bootstrap.json", handle.namelist())
+        rejected = powershell(
+            VERIFIER,
+            "-ZipPath",
+            destination,
+            "-AllowMissingRuntime",
+            "-SkipSmoke",
+            "-RequireManualFormFillQualificationBootstrap",
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("bootstrap", (rejected.stdout + rejected.stderr).lower())
 
     def test_built_package_preserves_the_trusted_extension_identity(self):
         destination = self.tmp / "identity.zip"
@@ -394,10 +569,46 @@ class RealPackageContractTests(unittest.TestCase):
         self.assertEqual(packaged["key"], trusted_manifest()["key"])
         assert_trusted_extension_manifest(self, packaged)
 
-        result = powershell(VERIFIER, "-ZipPath", DIST_ZIP, "-SkipSmoke")
+        with zipfile.ZipFile(DIST_ZIP) as handle:
+            manifest = json.loads(handle.read("package-manifest.json").decode("utf-8"))
+        result = powershell(
+            VERIFIER,
+            "-ZipPath",
+            DIST_ZIP,
+            "-SkipSmoke",
+            "-ExpectedBuildId",
+            manifest["build_id"],
+        )
 
         self.assertEqual(result.returncode, 0, result.stderr)
 
+
+    def test_real_portable_zip_proves_its_build_id_through_the_smoke(self):
+        """End-to-end provenance: the extracted runtime must report the manifest build."""
+
+        if not DIST_ZIP.is_file():
+            self.skipTest(f"{DIST_ZIP} nao existe neste checkout (rode packaging/build-portable.ps1)")
+
+        with zipfile.ZipFile(DIST_ZIP) as handle:
+            manifest = json.loads(handle.read("package-manifest.json").decode("utf-8"))
+        self.assertEqual(manifest["source_dirty"], False)
+
+        result = powershell(
+            VERIFIER, "-ZipPath", DIST_ZIP, "-ExpectedBuildId", manifest["build_id"]
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_real_portable_zip_fails_against_the_wrong_expected_build(self):
+        if not DIST_ZIP.is_file():
+            self.skipTest(f"{DIST_ZIP} nao existe neste checkout (rode packaging/build-portable.ps1)")
+
+        result = powershell(
+            VERIFIER, "-ZipPath", DIST_ZIP, "-SkipSmoke", "-ExpectedBuildId", "f" * 40
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Build divergente", result.stdout + result.stderr)
 
 if __name__ == "__main__":
     unittest.main()
