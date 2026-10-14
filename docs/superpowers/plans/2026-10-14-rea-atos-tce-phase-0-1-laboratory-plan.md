@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- **This is a plan for human review, not execution authorization.** Do not install dependencies, edit code, run the browser or change the portal before plan approval.
+- **Aprovado pelo operador em 2026-10-14 para execução pelo Codex em modo subagent-driven.** Execute somente as Tasks 0–8 conforme o GOAL `docs/notes/2026-10-14-rea-phase-0-1-codex-goal.md`; esta publicação documental não representa execução. Não acesse o portal real, não faça merge em main e não avance para a Fase 2.
 - This plan covers **Phase 0 + Phase 1 only**. No AR-1/2/3 repairs or qualification, MV3/Controller production integration, Navigation Adapter implementation, package updates, SQLite migrations or updater/rollback implementation.
 - **No real portal access in this phase**: no TCE origin, authenticated Chrome profile, private DOM, real process data, cookies or operational credentials. Scenario scope is synthetic localhost only.
 - Login is human. Never automate credentials, submission, signature, tramitação or **Complementar Ato**. Forbidden commands: SUBMIT/SEND/AUTO_SUBMIT/COMPLEMENT_ACT/FINALIZE.
