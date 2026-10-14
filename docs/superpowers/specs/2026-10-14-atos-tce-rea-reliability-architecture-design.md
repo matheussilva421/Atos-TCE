@@ -1,7 +1,7 @@
 # Atos-TCE + REA — Especificação arquitetural de investigação, confiabilidade e runtime portátil
 
 **Data:** 2026-10-14  
-**Estado:** ESPECIFICAÇÃO PARA REVISÃO HUMANA — NÃO AUTORIZA IMPLEMENTAÇÃO  
+**Estado:** APROVADA PELO OPERADOR EM 2026-10-14 — ESCRITA DE PLANOS AUTORIZADA; IMPLEMENTAÇÃO AINDA NÃO AUTORIZADA  
 **Método:** Superpowers / brainstorming arquitetural, decisões 1–10 aprovadas em conversa.  
 **Repositório:** matheussilva421/Atos-TCE  
 **Escopo principal:** Área Restrita; observação investigativa, navegação, preenchimento assistido e qualificação.  
@@ -218,4 +218,4 @@ AR-4/5/6 não entram no primeiro plano do Reliability Reset; decisões de promo�
 
 ## 16. Gate documental Superpowers
 
-Este documento resulta da aprovação das dez decisões de brainstorming, mas **ainda depende da revisão e aprovação explícita do usuário**. Apenas depois dessa aprovação poderá ser invocado Superpowers writing-plans para detalhar a Fase 0/1 e submeter o primeiro plano a nova revisão. **Nenhum plano, instalação, migração, implementação, teste real ou merge fica autorizado por esta spec enquanto o gate estiver pendente.**
+As dez decisões de brainstorming e esta especificação formal foram **explicitamente aprovadas pelo operador em 2026-10-14**. A aprovação autoriza invocar Superpowers writing-plans e publicar um plano detalhado das Fases 0/1 para revisão. **Não autoriza executar o plano, instalar dependências, migrar dados, alterar código, testar o portal real ou realizar merge.** Um plano escrito precisará de sua própria aprovação explícita antes da implementação.
