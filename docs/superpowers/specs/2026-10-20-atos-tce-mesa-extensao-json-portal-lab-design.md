@@ -3,7 +3,7 @@
 **Data:** 2026-10-20  
 **Repositório:** matheussilva421/Atos-TCE  
 **Classificação Superpowers:** Architectural  
-**Estado:** SPEC PARA REVISÃO HUMANA — sem aprovação de implementação  
+**Estado:** APROVADA PELO USUÁRIO EM 2026-10-20 — implementação ainda não autorizada  
 **Branch documental:** codex/2026-10-20-atos-tce-mesa-extension-spec  
 **Base de código examinada:** main, commit 6e1acd50e7be8895b415d40bae4376e169e05ee1 (2026-10-13).  
 **Autoridade:** 29 decisões arquiteturais aprovadas em conversa de 2026-10-20 e revisão adicional expressa que exclui fundamentação legal e incorpora a investigação com REA e demais ferramentas.  
@@ -459,4 +459,4 @@ A revisão humana deve confirmar explicitamente:
 - [ ] Nenhum código, testes, banco ou runtime alterado pela criação desta spec.
 - [ ] Writing-plans somente após aprovação documental.
 
-**Estado de handoff:** documento pronto para revisão humana; ausência de aceite impede writing-plans e implementação.
+**Estado de handoff:** aprovação formal da spec registrada pelo usuário em 2026-10-20, com referência ao commit 18131a1. O writing-plans foi autorizado exclusivamente como documentação. Planos em docs/superpowers/plans/2026-10-20-atos-tce-master.md; implementação continua sujeita a aceite próprio.
