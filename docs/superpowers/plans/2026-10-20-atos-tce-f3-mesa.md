@@ -88,7 +88,7 @@
 
 - [ ] **Step 1 — RED:** `follow_switch_saves_draft_before_replacing_form`, `draft_save_failure_is_visible`, `auxiliary_navigation_preserves_selection_and_pdf`: assert que troca automática não declara proteção se receipt falhar; seleção permanece mesmo sem portal ativo, mas edição não se perde silenciosamente.
 - [ ] **Step 2 — Observar RED:** `node --test app/web/tests/mesa-navigation-drafts.test.mjs` FAIL.
-- [ ] **Step 3 — GREEN mínimo:** Conectar UI às APIs de draft com mensagens claras, restaurar edições ao retornar, expor revisão de conflito e Save humano; menus para aquisição, lotes, diagnósticos e configurações sem suprimir observação de F2.
+- [ ] **Step 3 — GREEN mínimo:** Conectar UI às APIs de draft com mensagens claras, restaurar edições ao retornar, expor revisão de conflito e Save humano; menus para aquisição, lotes, diagnósticos e configurações sem suprimir observação de F2. Se a persistência protegida falhar, conservar edição na memória da sessão, emitir alerta destacado de risco e ainda acompanhar imediatamente o novo processo, sem indicar que o rascunho foi protegido.
 - [ ] **Step 4 — Verificar:** Focado PASS, `node --test app/web/tests/*.test.mjs` PASS; navegador desktop/menor com foco/teclado e comparação visual.
 - [ ] **Step 5 — Commit:** `git add app/web/index.html app/web/app.js app/web/app.css app/web/tests/mesa-navigation-drafts.test.mjs && git commit -m "feat: connect Mesa draft recovery and auxiliary workspaces"`.
 - [ ] **Step 6 — Review:** Fresh reviewer avalia perda silenciosa de edição, navegação em múltiplas abas Mesa, áreas antigas e acessibilidade.
