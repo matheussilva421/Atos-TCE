@@ -93,6 +93,19 @@
 - [ ] **Step 5 — Commit:** `git add app/web/index.html app/web/app.js app/web/app.css app/web/tests/mesa-navigation-drafts.test.mjs && git commit -m "feat: connect Mesa draft recovery and auxiliary workspaces"`.
 - [ ] **Step 6 — Review:** Fresh reviewer avalia perda silenciosa de edição, navegação em múltiplas abas Mesa, áreas antigas e acessibilidade.
 
+### Task F3-T6: Exportação manual na área Lotes/JSON
+
+**Files:** Modify `app/web/app.js`, `app/web/index.html`; Create `app/web/tests/mesa-export-batch.test.mjs`.
+
+**Interfaces:** `requestBatchV2Download(selectedProcessIds) -> Promise<{filename,sha256,processCount,interestedCount}>` usa API de F0-T6; não modifica automaticamente o JSON ativo da extensão.
+
+- [ ] **Step 1 — RED:** `export_selected_lot_ignores_visual_filter` e `empty_selection_refuses_export`: selecionando A+B, o arquivo inclui A+B mesmo que busca visual mostre só A; lote vazio recusado.
+- [ ] **Step 2 — Confirm RED:** `node --test app/web/tests/mesa-export-batch.test.mjs` FAIL.
+- [ ] **Step 3 — GREEN:** Adicionar seleção explícita de lote, contagens e botão `Exportar JSON v2`; acionar somente rota F0-T6; reportar SHA e exigir reimportação manual na extensão.
+- [ ] **Step 4 — Verify:** `node --test app/web/tests/mesa-export-batch.test.mjs` e `node --test app/web/tests/*.test.mjs` PASS, com zero interessados e arquivo validável por F1.
+- [ ] **Step 5 — Commit:** `git add app/web/app.js app/web/index.html app/web/tests/mesa-export-batch.test.mjs && git commit -m "feat: download selected complete JSON batch from Mesa"`.
+- [ ] **Step 6 — Review:** Fresh reviewer verifica integridade do lote, filtro desacoplado e nenhuma importação/fill automático.
+
 ## F3 exit gate
 - [ ] Comparação visual com HTML antigo documentada; duas colunas e divisor acessível.
 - [ ] Mudança de formulário durante edição não grava dados oficiais, nem perde draft sem aviso.
