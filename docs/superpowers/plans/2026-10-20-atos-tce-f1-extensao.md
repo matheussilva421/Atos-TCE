@@ -72,9 +72,9 @@
 
 **Interfaces:** `buildLocalFillPlan(snapshot, record) -> {state:'READY'|'BLOCKED', fields, missing, preserved, conflicts}`.
 
-- [ ] **Step 1 — RED:** `divergent_existing_field_blocks_entire_operation`: assert.equal(plan.state,"BLOCKED"); assert.deepEqual(plan.fields,{}). `valid_partial_fills_independent_fields`: READY contém só campos presentes e elegíveis.
+- [ ] **Step 1 — RED:** `divergent_existing_field_blocks_entire_operation`: assert.equal(plan.state,"BLOCKED"); assert.deepEqual(plan.fields,{}). `valid_partial_fills_independent_fields`: READY contém só campos presentes e elegíveis, inclusive quando um select sem opção válida é omitido sem divergência.
 - [ ] **Step 2 — Observar RED:** `node --test extension/tests/fill-plan-v2.test.mjs` FAIL.
-- [ ] **Step 3 — GREEN mínimo:** Comparar cinco campos antes de escrever; equivalência canônica é no-op; qualquer divergência real bloqueia tudo e gera lista side-by-side só no conflito; select usa catálogo atual e nunca ranking arbitrário.
+- [ ] **Step 3 — GREEN mínimo:** Comparar cinco campos antes de escrever; equivalência canônica é no-op; qualquer divergência real de valor existente bloqueia tudo e gera lista side-by-side só no conflito. Proposta ausente/inválida ou opção indisponível torna somente aquele campo inelegível (sem escrever), permitindo outros campos seguros; select nunca usa ranking arbitrário.
 - [ ] **Step 4 — Verificar:** Focado PASS e `(cd extension && node --test)` PASS; testes incluem placeholder, sem select, data malformatada e opção homônima.
 - [ ] **Step 5 — Commit:** `git add extension/lib/fill-plan-v2.js extension/tests/fill-plan-v2.test.mjs && git commit -m "feat: block all writes on portal value divergence"`.
 - [ ] **Step 6 — Review:** Reviewer adversarial examina zero-write-before-preflight, controle disabled, geração e coerção de data.
