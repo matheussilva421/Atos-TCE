@@ -91,6 +91,19 @@
 - [ ] **Step 5 — Commit:** `git add app/web/portal-current.js app/web/tests/portal-current.test.mjs && git commit -m "refactor: show only five operational form fields"`.
 - [ ] **Step 6 — Review:** Reviewer verifica consistência visual e funcional entre cartões, contadores e classificação.
 
+### Task F0-T6: API autenticada para exportar lote completo
+
+**Files:** Modify `app/api/server.py`; Create `tests/test_batch_v2_api.py`. Reuse `app/exports/batch_v2.py` and `canonical_v2.py`.
+
+**Interfaces:** `POST /api/v1/exports/batch-v2` com `{scope:"selected",process_ids:[...]}` sob sessão Mesa autenticada. Resolve toda a seleção explícita, sem aplicar filtro visual.
+
+- [ ] **Step 1 — RED:** `BatchV2ApiTests.test_selected_batch_ignores_ui_filter`: resposta para IDs A+B inclui ambos e interessados mesmo com filtro visual mostrando A; requisição não autenticada é rejeitada.
+- [ ] **Step 2 — Confirm RED:** `python -m unittest tests.test_batch_v2_api -v` FAIL por rota ausente.
+- [ ] **Step 3 — GREEN:** Resolver dados oficiais sob snapshot coerente, validar IDs, produzir JSON v2 e checksum por F0-T3/T4; lista vazia bloqueada.
+- [ ] **Step 4 — Verify:** `python -m unittest tests.test_batch_v2_api tests.test_api_server -q` PASS; processo sem interessado consta.
+- [ ] **Step 5 — Commit:** `git add app/api/server.py tests/test_batch_v2_api.py && git commit -m "feat: expose complete batch v2 export API"`.
+- [ ] **Step 6 — Review:** Fresh reviewer verifica scope, sessão, acervo e nenhuma influência de filtros visuais.
+
 ## F0 exit gate
 - [ ] Cada tarefa tem RED/GREEN, SHA e review independente aceito.
 - [ ] Nenhuma migração destrutiva de dados históricos; nenhum valor jurídico no JSON v2.
