@@ -88,7 +88,7 @@
 
 - [ ] **Step 1 — RED:** `PackagingContractTests.test_devtools_never_in_zip`: um pacote de teste contendo a pasta de laboratório é rejeitado, enquanto versão limpa passa.
 - [ ] **Step 2 — Observar RED:** `python -m unittest tests.test_packaging_contract tests.test_devtools_runtime_boundary -v` FAIL.
-- [ ] **Step 3 — GREEN:** Atualizar manifesto/verificador para runtime raiz e smoke em extração limpa; sem alterar código legado por semelhança.
+- [ ] **Step 3 — GREEN:** Atualizar manifesto/verificador para runtime raiz e reconstruir o ZIP em fase autorizada usando packaging/build-portable.ps1; realizar smoke em extração limpa, sem alterar o legado por semelhança.
 - [ ] **Step 4 — Verificar:** Python raiz, `(cd extension && node --test)`, `node --test app/web/tests/*.test.mjs` PASS; `powershell.exe -NoProfile -File .\packaging\verify-package.ps1 -ZipPath .\dist\Atos-TCE-portable.zip` PASS após build autorizado.
 - [ ] **Step 5 — Commit:** `git add packaging/verify-package.ps1 tests/test_packaging_contract.py tests/test_devtools_runtime_boundary.py && git commit -m "test: verify standalone runtime excludes development tools"`.
 - [ ] **Step 6 — Review:** Reviewer valida ZIP, state machine, ausência de dados reais e handoff.
