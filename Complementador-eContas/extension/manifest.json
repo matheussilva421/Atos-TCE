@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Complementador e-Contas",
+  "version": "0.1.1",
+  "description": "Preenche campos do Complementar Ato a partir do documento aberto nos autos, sem salvar ou concluir o ato.",
+  "minimum_chrome_version": "110",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://processos.tce.rn.gov.br/*",
+    "https://novaarearestrita.tce.rn.gov.br/as/consultaprocessotemp/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://processos.tce.rn.gov.br/*"],
+      "js": ["autos-content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://processos.tce.rn.gov.br/*"],
+      "js": ["form-content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["vendor/pdf.worker.mjs"],
+      "matches": ["https://processos.tce.rn.gov.br/*"]
+    }
+  ]
+}

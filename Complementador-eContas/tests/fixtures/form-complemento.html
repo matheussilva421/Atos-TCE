@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Complementar Ato - fixture sintética</title></head>
+<body>
+<processos-complementar-ato-pessoal>
+  <h2 class="processo-titulo">COMPLEMENTAR ATO - PROCESSO 999001/2026</h2>
+  <section class="cartao">
+<button class="cartao-item selecionada" type="button"><i class="fa-solid fa-circle situacao"></i><span class="pessoa-texto">PESSOA UM 000.000.000-00</span></button>
+  </section>
+  <h3 class="dados-heading">DADOS DO ATO DE PESSOA UM</h3>
+  <tce-select-field class="modalidade-campo" label="Modalidade" bindlabelselect="descricao" bindvalueselect="idModalidade">
+    <div class="campo-rotulo">MODALIDADE *</div>
+    <ng-select class="custom ng-select ng-select-single">
+      <div class="ng-select-container">
+        <div class="ng-value-container"><div class="ng-placeholder">Selecione a modalidade do ato</div><div class="ng-value" style="display:none"></div></div>
+      </div>
+      <div class="ng-dropdown-panel" style="display:none">
+        <div class="ng-option">Aposentadoria compulsória</div>
+        <div class="ng-option">Aposentadoria Especial com fundamento na LC nº 51/1985</div>
+        <div class="ng-option">Aposentadoria Especial com fundamento no art. 57 da Lei nº 8.213/91</div>
+        <div class="ng-option">Aposentadoria por invalidez</div>
+        <div class="ng-option">Aposentadoria proporcional ao tempo de contribuição</div>
+        <div class="ng-option">Aposentadoria proporcional ao tempo de serviço</div>
+        <div class="ng-option">Aposentadoria voluntária por tempo de contribuição com proventos integrais</div>
+        <div class="ng-option">Aposentadoria voluntária por tempo de serviço com proventos integrais</div>
+        <div class="ng-option">Reforma</div>
+        <div class="ng-option">Revisão de Benefício</div>
+        <div class="ng-option">Transferência a pedido para a reserva remunerada</div>
+      </div>
+    </ng-select>
+  </tce-select-field>
+  <form class="campos">
+    <tce-input-field formcontrolname="dataDoeEstado" label="Data de publicação no DOE" type="date">
+      <div class="relative"><div class="form-group"><input bsdatepicker type="text" class="form-control"></div></div>
+    </tce-input-field>
+    <tce-input-field formcontrolname="cargo" label="Cargo" maxlength="50" placeholder="Ex.: Enfermeira">
+      <div class="relative"><div class="form-group"><input type="text" class="form-control" maxlength="50" placeholder="Ex.: Enfermeira"></div></div>
+    </tce-input-field>
+    <tce-input-field formcontrolname="matricula" label="Matrícula" maxlength="20" placeholder="Ex.: 123456-1">
+      <div class="relative"><div class="form-group"><input type="text" class="form-control" maxlength="20" placeholder="Ex.: 123456-1"></div></div>
+    </tce-input-field>
+    <tce-input-field formcontrolname="dataNascimento" label="Data de nascimento" type="date">
+      <div class="relative"><div class="form-group"><input bsdatepicker type="text" class="form-control"></div></div>
+    </tce-input-field>
+  </form>
+  <button type="button" class="btn btn-outline-secondary">Voltar</button>
+  <button type="button" class="btn btn-primary">Complementar ato</button>
+</processos-complementar-ato-pessoal>
+<script>
+(function () {
+  const cards = Array.from(document.querySelectorAll('button.cartao-item'));
+  cards.forEach((card) => card.addEventListener('click', () => {
+    cards.forEach((other) => other.classList.toggle('selecionada', other === card));
+    const nome = card.querySelector('.pessoa-texto').textContent.replace(/\s*\d{3}\.\d{3}\.\d{3}-\d{2}\s*$/, '').trim();
+    const heading = document.querySelector('.dados-heading');
+    if (heading) heading.textContent = 'DADOS DO ATO DE ' + nome;
+  }));
+  document.querySelectorAll('ng-select').forEach((ng) => {
+    const container = ng.querySelector('.ng-select-container');
+    const panel = ng.querySelector('.ng-dropdown-panel');
+    if (container && panel) container.addEventListener('click', () => { panel.style.display = 'block'; ng.classList.add('ng-select-opened'); });
+    ng.querySelectorAll('.ng-option').forEach((option) => option.addEventListener('click', () => {
+      const value = ng.querySelector('.ng-value');
+      const placeholder = ng.querySelector('.ng-placeholder');
+      if (value) { value.textContent = option.textContent.trim(); value.style.display = 'block'; }
+      if (placeholder) placeholder.style.display = 'none';
+      if (panel) panel.style.display = 'none';
+      ng.classList.remove('ng-select-opened');
+    }));
+  });
+})();
+</script>
+</body>
+</html>

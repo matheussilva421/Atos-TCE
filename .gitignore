@@ -125,3 +125,21 @@
 **/backups-acervo/
 **/profile/
 **/.env*
+
+# Complementador e-Contas: projeto Chrome MV3 separado, somente fonte e documentos.
+!/Complementador-eContas/
+/Complementador-eContas/*
+!/Complementador-eContas/.gitignore
+!/Complementador-eContas/README.md
+!/Complementador-eContas/package.json
+!/Complementador-eContas/package-lock.json
+!/Complementador-eContas/src/
+!/Complementador-eContas/src/**
+!/Complementador-eContas/tests/
+!/Complementador-eContas/tests/**
+!/Complementador-eContas/scripts/
+!/Complementador-eContas/scripts/**
+!/Complementador-eContas/extension/
+!/Complementador-eContas/extension/**
+!/Complementador-eContas/docs/
+!/Complementador-eContas/docs/**

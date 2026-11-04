@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-test/
+.superpowers/
+tests/output/
+*.log
+*.pdf
+!tests/fixtures/*.pdf
+release/
