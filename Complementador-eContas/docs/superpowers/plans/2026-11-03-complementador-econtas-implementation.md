@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Atualização 04/11/2026:** o operador autorizou a descoberta automática da Resolução Administrativa e da Guia Financeira/Taxação de Proventos nos cartões de evento. Onde este plano disser "nunca varrer eventos adicionais" ou "somente o documento atual", prevalece esta atualização.
+
 **Goal:** Construir uma extensão Chrome independente que, após um único clique em **⚡ Preencher** na aba Complementar Ato, leia integralmente o documento que o operador deixou aberto na outra aba do mesmo perfil, extraia informações em regras locais, preencha os campos admissíveis e não salve/conclua o ato.
 
 **Architecture:** Manifest V3, JavaScript sem framework de interface e roteamento entre duas abas pelo service worker. O adaptador de documento será escolhido após investigação passiva F0 com REA, sem pressupor acesso a `.textLayer`/`PDFViewerApplication`; o extrator e o formulário têm contratos puros/testáveis, com confirmação de identidade e verificação após escrita. Nenhum processamento de PDF antes do clique.
@@ -12,7 +14,7 @@
 
 ## Global Constraints
 
-1. **Projeto novo, independente:** não modificar `%USER%/Atos-TCE`, nenhum de seus worktrees, PDFs, perfis, branches, banco, extension ou pacotes. Reaproveitar apenas conhecimento documentado, nunca código ou estado privado sem revisão/autorização.
+1. **Projeto novo, independente:** não modificar `matheussilva421/Atos-TCE`, nenhum de seus worktrees, PDFs, perfis, branches, banco, extension ou pacotes. Reaproveitar apenas conhecimento documentado, nunca código ou estado privado sem revisão/autorização.
 2. **Entrada humana pré-posicionada:** o operador **deixará abertas** no **mesmo perfil do Chrome** duas abas/janelas: **Complementar Ato** e **Autos do mesmo processo, já exibindo o documento correto**. A extensão e REA devem inspecionar **essas abas já abertas**, sem exigir que o usuário selecione texto, escolha número fixo de evento ou baixe manualmente PDF.
 3. **Não interromper sessão profissional:** não fazer login, reload, fechamento/abertura de abas, navegação de evento, mudança de interessado/setor/marcador/filtro, restart de Chrome, flags, mudança de perfil ou sessão CDP sem autorização expressa. Se CDP loopback não estiver disponível, documentar e usar a via observacional permitida; nunca improvisar takeover.
 4. **Somente clique dispara trabalho:** detectar rota/mostrar botão sem leitura de PDF, OCR, parse ou extração. Após clique: leitura total do **documento selecionado atualmente**, validação, escrita seletiva, readback. Nunca varrer eventos adicionais.

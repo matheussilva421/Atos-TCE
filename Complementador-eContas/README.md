@@ -1,20 +1,26 @@
 # Complementador e-Contas
 
-Extensão Manifest V3 independente para o formulário **Complementar Ato** do e-Contas do TCE/RN. Ela lê o documento que o operador deixou aberto na aba de autos do mesmo processo, propõe os campos e preenche somente controles vazios e editáveis. **Não salva, não complementa o ato e não envia dados a serviços externos.**
+Extensão Manifest V3 independente para o formulário **Complementar Ato** do e-Contas do TCE/RN. Ela localiza nos eventos dos autos a Resolução Administrativa e a Guia Financeira/Taxação de Proventos do processo, propõe os campos e preenche somente controles vazios e editáveis. **Não salva, não complementa o ato e não envia dados a serviços externos.**
 
 ## O que faz
 
 - Mostra um único botão **⚡ Preencher** na tela Complementar Ato.
 - Não lê PDF, não extrai texto e não interpreta nada antes do clique.
 - Localiza a aba de autos do mesmo processo, sem escolher por aba mais recente.
-- Lê todas as páginas do PDF atual somente após o clique.
+- Lê o PDF atual somente após o clique.
+- Se o documento atual já contiver a Resolução completa, usa os dados; se faltar a Resolução ou a data de nascimento, percorre os cartões de evento dos autos.
+- Classifica os candidatos pelo texto do PDF e procura **Resolução Administrativa** e **Guia Financeira/Taxação de Proventos**.
+- Lê até 2 páginas de cada candidato para classificar e lê integralmente apenas os documentos relevantes.
+- Escolhe a Resolução com mais campos exatos; empate com valores divergentes falha fechado.
+- Correlaciona a data de nascimento ao interessado selecionado, usando o CPF transitório do cartão e o nome como fallback; ambiguidade falha.
+- Restaura o documento e a seleção originais dos Autos ao terminar.
+- Mantém um cache de sessão por processo com o hash do processo e os ids dos eventos da Resolução e da Guia. Processo diferente não reutiliza ids antigos.
 - Extrai modalidade do ato, data da resolução administrativa, cargo, matrícula e data de nascimento.
 - Preenche apenas campos vazios e editáveis; preserva valores existentes e readonly.
 - Relê cada campo após a escrita e mostra preenchidos, preservados e pendências.
 - O botão secundário **Diagnóstico L1 (somente leitura)** lê o PDF e mostra apenas páginas, caracteres e tempo; não altera campos.
 - O diagnóstico confere o título de processo dos autos e do formulário; divergência falha sem preencher.
 - O último resultado técnico do diagnóstico é recuperado após recarregar a aba, usando apenas chrome.storage.session com métricas sanitizadas.
-- Se a data de nascimento não estiver no documento atual, procura o documento **Guia Financeira/Taxação de Proventos** nos eventos dos autos, extrai somente a data de nascimento e completa o preenchimento. O primeiro clique pode levar alguns segundos; o evento localizado fica em cache de sessão para os próximos.
 - Cliques sintéticos gerados pela página são ignorados; somente eventos trusted iniciam o preenchimento ou o diagnóstico.
 - Exibe **Origem: data da resolução administrativa** para a data proposta ao campo DOE.
 - Cancela sem escrever se processo, interessado, aba, rota ou documento mudarem durante a leitura.
@@ -23,7 +29,7 @@ Extensão Manifest V3 independente para o formulário **Complementar Ato** do e-
 
 - Chrome ou Edge 110 ou superior.
 - Duas abas ou janelas do **mesmo perfil**: autos e Complementar Ato do mesmo processo.
-- O documento correto já aberto no visualizador de autos; o número do evento pode variar.
+- A lista de eventos dos autos disponível. Não é necessário abrir manualmente a Resolução ou a Guia; a extensão as procura.
 - O interessado correto selecionado no Complementar Ato.
 
 ## Instalação por pasta
@@ -38,18 +44,19 @@ A instalação no perfil profissional deve ser feita pelo operador, com a extens
 
 ## Uso
 
-1. Abra os autos do processo e deixe o documento correto aberto no visualizador.
+1. Abra os autos do processo. Pode deixar qualquer evento aberto; a extensão procura a Resolução e a Guia.
 2. Abra o Complementar Ato do mesmo processo e selecione o interessado.
 3. Clique em **⚡ Preencher**.
-4. Confira os campos e a legenda de origem da data.
-5. Se estiver correto, use os controles normais do portal para concluir o ato. A extensão não faz isso.
+4. O primeiro clique pode levar alguns segundos enquanto os eventos são percorridos. Os cliques seguintes usam o cache de sessão do mesmo processo.
+5. Confira os campos e a legenda de origem da data.
+6. Se estiver correto, use os controles normais do portal para concluir o ato. A extensão não faz isso.
 
 ## Segurança e limites
 
 - Permissões de host restritas a **processos.tce.rn.gov.br** e **novaarearestrita.tce.rn.gov.br**.
-- Sem storage persistente; o service worker usa chrome.storage.session para métricas sanitizadas do diagnóstico e para o id do evento da Guia. Sem all_urls, downloads, webRequest, debugger, cookies, IndexedDB ou telemetria.
+- Sem storage persistente; o service worker usa chrome.storage.session para métricas sanitizadas do diagnóstico e para o cache `complementadorDocumentCache`, que guarda apenas `processHash`, `resolutionEventId`, `guiaEventId` e `updatedAt`. Sem all_urls, downloads, webRequest, debugger, cookies, IndexedDB ou telemetria.
 - O content script não acessa storage; recebe somente resultados sanitizados por mensagens GET_DIAGNOSTIC/DIAGNOSTIC_UPDATE. Não há nome, CPF, matrícula, texto, URL documental ou identificador de processo.
-- Os únicos fetches de rede são os PDFs do documento atual e da Guia, no service worker, com validação de origem, caminho, tipo, tamanho e assinatura PDF. A busca da Guia clica somente nos cartões de evento e restaura o documento original.
+- Os únicos fetches de rede são os PDFs do documento atual e dos candidatos dos eventos, no service worker, com validação de origem, caminho, tipo, tamanho e assinatura PDF. A busca clica somente nos cartões de evento, lê até 2 páginas por candidato e restaura o documento original.
 - Nenhum PDF, texto integral, nome, CPF, matrícula, token ou cookie é persistido.
 - Sem OCR, LLM, backend, banco ou nuvem no MVP.
 - Se o documento tiver páginas sem texto legível, a extensão falha fechada e não preenche.
@@ -71,29 +78,25 @@ A instalação no perfil profissional deve ser feita pelo operador, com a extens
     npm run benchmark
 
 - **npm test** executa os testes unitários com node:test e jsdom.
-- **npm run test:browser** executa o fluxo sintético no Edge/Chromium. O Chrome gerenciado desta estação bloqueia extensões unpacked; o Edge foi usado como navegador de teste. O harness aceita TEST_BROWSER_CHANNEL.
+- **npm run test:browser** executa o fluxo sintético em navegador real. Com `TEST_BROWSER_EXECUTABLE` apontando para o Chrome for Testing, usa esse binário; sem a variável, usa o canal `msedge`. O harness aceita `TEST_BROWSER_CHANNEL` e `TEST_BROWSER_HEADLESS`.
 - **npm run build** gera **dist** com a extensão de produção.
 - **npm run build:test** gera **dist-test** com permissões para o servidor local de fixtures.
 - **npm run benchmark** mede clique até readback em PDF sintético e grava docs/evidence/benchmarks.md.
 
 ## Status verificável
 
-- **SYNTHETIC_PASS**: 100 testes unitários e 15 testes de navegador aprovados.
-- **SYNTHETIC_E2E_PASS**: leitura de PDF sintético, extração, preenchimento, readback, diagnóstico L1 multi-página, recuperação após recarregar a aba e busca da Guia com cache no Edge.
-- **REAL_READ_PASS**: leitura real no Chrome QA isolado com `L1_SUCCESS`: 1 página, 1.874 caracteres e 54.627 bytes; 502 ms na primeira execução e 1.026 ms na segunda, com HTTP 200 `application/pdf`. Evidência sanitizada em `docs/evidence/qa-real-2026-11-04.md`.
-- **REAL_VIEWER_VERIFIED_IN_QA**: o iframe real do portal foi lido por bytes e o PDF foi validado; o Chrome profissional não foi tocado.
-- **L1_DIAGNOSTIC_READY**: leitura real comprovada; a recuperação por `GET_DIAGNOSTIC` foi confirmada no QA.
-- **EXTENSION_RELOAD_VERIFIED**: a build 0.1.1 com a correção de rota foi recarregada no Chrome QA e os botões apareceram na aba original.
-- **FINAL_BUILD_VERIFIED_ON_DISK**: a build 0.1.1, o release e o ZIP coincidem com o código-fonte e os hashes registrados.
-- **FINAL_BUILD_RELOAD_PENDING**: a build final foi validada no Chrome QA; o Chrome profissional continua sem recarga, por não ter sido autorizado.
-- **DIAGNOSTIC_OBSERVABILITY_VERIFIED**: o resultado técnico sanitizado é recuperado após reload e em nova aba, tanto em teste quanto no QA real.
-- **SPA_ROUTE_FIX_VERIFIED**: `pushState`, `replaceState`, `hashchange` e saída de rota cobertos por testes; 15 PASS.
-- **MODALITY_READBACK_FIX_VERIFIED**: o rótulo da modalidade é lido sem o ícone de limpar `×`; o primeiro clique deixou de falhar.
-- **REAL_FILL_VERIFIED (L2 follow-up)**: com autorização explícita nesta continuação, um único clique no Chrome QA preencheu modalidade, DOE, cargo, matrícula e nascimento; a data de nascimento veio da Guia Financeira/Taxação de Proventos.
-- **BIRTH_GUIDE_SEARCH_VERIFIED**: primeiro clique real levou 8,9 s (varredura dos eventos); o segundo, com cache de sessão, levou 1,1 s. O documento original foi restaurado e o cache guarda apenas o id do evento.
+- **SYNTHETIC_PASS**: 114 testes unitários e 19 testes de navegador aprovados.
+- **SYNTHETIC_E2E_PASS**: descoberta automática a partir de documento diverso, Guia aberta, Resolução multipágina, documentos ausentes, readback, restauração dos Autos e isolamento do cache.
+- **REAL_DISCOVERY_VERIFIED**: no Chrome QA, a extensão encontrou a Resolução correta e a Guia em 20 eventos com nomes genéricos e documentos decoy; a Resolução correta tinha 1.812 caracteres e a Guia 1.247 caracteres.
+- **SINGLE_CLICK_VERIFIED**: um único clique preencheu os cinco campos em todas as amostras; a origem exibida incluiu Resolução e Guia.
+- **REAL_FIELD_READBACK_VERIFIED**: a leitura do formulário após o clique mostrou modalidade, DOE, cargo, matrícula e nascimento preenchidos, sem pendências.
+- **AUTOS_RESTORE_VERIFIED**: o iframe voltou ao mesmo `src` inicial e a quantidade de eventos selecionados foi preservada.
+- **REAL_PERFORMANCE**: primeiro clique a partir de documento diverso levou 14,3–14,5 s; com a Resolução já aberta e cache limpo, 7,096 s; com cache, amostras de 2,8–6,7 s (p50 3,026 s; p95 6,729 s).
+- **QA_EXTENSION_BUILD_VERIFIED**: os cinco arquivos carregados no Chrome QA coincidem byte a byte com `dist` (SHA-256 conferido no service worker).
+- **CACHE_ISOLATION_VERIFIED**: PASS sintético; processo diferente não reutiliza ids. Não houve teste real com dois processos distintos.
 - **NO_REAL_SAVE_OR_SUBMIT**: PASS; nenhum ato foi salvo, complementado ou enviado.
-- **L2_REAL_FILL_AUTHORIZED_IN_QA**: a escrita real ocorreu somente no Chrome QA; o Chrome profissional não foi tocado.
-- **NO_REAL_WRITE_VERIFIED (L1)**: as duas leituras L1 mantiveram o fingerprint do formulário e não escreveram campos.
+- **FINAL_BUILD_VERIFIED_ON_DISK**: build, pasta de release e ZIP extraído com os mesmos hashes.
+- **PROFESSIONAL_BROWSER_PENDING**: o Chrome profissional não foi tocado nem recarregado; a instalação lá continua manual.
 - Nenhum ato foi salvo ou concluído.
 
 ## Documentação

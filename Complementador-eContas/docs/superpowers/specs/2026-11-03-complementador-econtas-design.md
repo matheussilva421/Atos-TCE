@@ -4,7 +4,9 @@
 - **Estado:** DESIGN APROVADO PELO OPERADOR EM 03/11/2026 — plano de implementação em elaboração; implementação ainda não iniciada
 - **Produto:** extensão Google Chrome independente para complementação assistida de atos de pessoal no e-Contas do TCE/RN
 - **Referência funcional:** `https://processos.tce.rn.gov.br/` (origem a confirmar na F0)
-- **Autonomia:** repositório, código, configuração, testes e distribuição separados de `%USER%/Atos-TCE`
+- **Autonomia:** repositório, código, configuração, testes e distribuição separados de `matheussilva421/Atos-TCE`
+
+> **Atualização 04/11/2026:** o operador autorizou a descoberta automática da Resolução Administrativa e da Guia Financeira/Taxação de Proventos. Onde esta especificação disser que o operador navega manualmente ou que somente o documento atual é lido, prevalece esta atualização.
 
 ## 1. Problema e intenção
 
@@ -185,7 +187,7 @@ Falhas devem ser reversíveis: nunca apagar controles, salvar automaticamente, a
 ## 11. Referências e limites de conhecimento
 
 - **Base histórica (não o estado live atual):** `2026-10-21-econtas-l0-discovery-handoff(1).md`, investigação L0/L1. Registrou Angular 10.0.14 / e-Contas 2.6.17, estrutura de cinco campos e CDP/REA indisponível em 21/10/2026. Não confirma o PDF viewer dos autos nem a escrita L2.
-- **Produto legado:** `https://github.com/%USER%/Atos-TCE`, consultado apenas como referência; seu preenchimento da Área Restrita não atende automaticamente a rota nova do e-Contas.
+- **Produto legado:** `https://github.com/matheussilva421/Atos-TCE`, consultado apenas como referência; seu preenchimento da Área Restrita não atende automaticamente a rota nova do e-Contas.
 - **REA oficial:** `https://github.com/morluto/rea`; a inspeção web exige configuração/autorizações e, geralmente, endpoint CDP loopback.
 - **Chrome extensions:** mensagens entre abas são mecanismo previsto por Manifest V3, mas acesso ao visualizador interno de PDF não é garantido; F0 decide viabilidade.
 

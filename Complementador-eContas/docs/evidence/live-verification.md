@@ -1,12 +1,31 @@
 # Verificação real e gates
 
-> Atualização 04/11/2026: a leitura real foi comprovada no Chrome QA isolado e a correção de rota SPA foi validada. Na continuação, o L2 real também foi validado no QA com autorização explícita. Com a busca da Guia Financeira/Taxação de Proventos, um clique preencheu modalidade + DOE + cargo + matrícula + nascimento; o primeiro clique real levou 8,9 s e o segundo, com cache de sessão, 1,1 s. O documento original foi restaurado. Nada foi salvo ou concluído. Ver `qa-real-2026-11-04.md`. Os registros abaixo permanecem como histórico das tentativas anteriores.
+> Estado atual em 04/11/2026: a descoberta automática da Resolução e da Guia foi validada no Chrome QA isolado. Um único clique preencheu os cinco campos, com readback, origem dupla e Autos restaurados; o primeiro clique a partir de documento diverso levou 14,3–14,5 s, com a Resolução aberta e cache limpo 7,096 s, e com cache p50 3,026 s/p95 6,729 s. A build carregada no QA coincide byte a byte com `dist`. Nada foi salvo ou concluído. Ver `qa-real-2026-11-04.md`.
+
+## Matriz atual (04/11/2026)
+
+| Status | Resultado | Evidência |
+|---|---|---|
+| SYNTHETIC_PASS | PASS | 114 testes unitários e 19 testes de navegador. |
+| RESOLUTION_AUTO_DISCOVERY_VERIFIED | PASS | Resolução correta encontrada no evento 6 entre 20 eventos e decoys nos eventos 7/14. |
+| BIRTH_GUIDE_AUTO_DISCOVERY_VERIFIED | PASS | Guia encontrada no evento 10; nascimento correlacionado ao interessado. |
+| SINGLE_CLICK_VERIFIED | PASS | Um clique preencheu os cinco campos. |
+| REAL_FIELD_READBACK_VERIFIED | PASS | Modalidade, DOE, cargo, matrícula e nascimento presentes sem pendências. |
+| AUTOS_RESTORE_VERIFIED | PASS | Mesmo `src` inicial e 2 eventos selecionados antes/depois. |
+| QA_EXTENSION_BUILD_VERIFIED | PASS | SHA-256 dos cinco recursos carregados no service worker igual a `dist`. |
+| CACHE_ISOLATION_VERIFIED | PASS sintético | Processo diferente não reutiliza ids; sem teste real entre dois processos. |
+| FINAL_BUILD_VERIFIED_ON_DISK | PASS | Build, release e ZIP extraído com hashes iguais. |
+| NO_REAL_SAVE_OR_SUBMIT | PASS | Nenhum ato foi salvo, complementado ou enviado. |
+| PROFESSIONAL_BROWSER_PENDING | PENDENTE | O Chrome profissional não foi tocado nem recarregado. |
+| REAL_SAVE_OR_SUBMIT | NÃO EXECUTADO | Fora do escopo. |
+
+## Histórico das tentativas anteriores (03/11/2026)
 
 - Data: 03/11/2026
 - Ambiente: estação do operador, Chrome gerenciado, duas abas do e-Contas já abertas.
 - Privacidade: nenhum nome, CPF, matrícula, número de processo, conteúdo documental, cookie, token, HAR ou screenshot foi persistido.
 
-## Matriz de status
+### Matriz histórica
 
 | Status | Resultado | Evidência |
 |---|---|---|
