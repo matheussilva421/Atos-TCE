@@ -14,6 +14,7 @@
 - Descoberta real: 20 eventos com nomes genéricos; Resolução correta no evento 6 (1.812 caracteres), decoys nos eventos 7 e 14, Guia no evento 10 (1.247 caracteres), documento inicial diverso com 1.201 caracteres.
 - Performance real: primeiro clique a partir do documento diverso em 14,3–14,5 s; primeiro clique com a Resolução aberta e cache limpo em 7,096 s; com cache, p50 3,026 s e p95 6,729 s (amostras 6.729/3.026/2.833 ms; uma amostra posterior de 8.190 ms).
 - Resultado: cinco campos preenchidos em um clique, readback sem pendências, origem Resolução + Guia, Autos restaurados com mesmo `src` e 2 eventos selecionados, cache com os dois ids. Nenhum save/submit.
+- Aceite: `REAL_END_TO_END_PASS` no Chrome QA e `NO_SAVE_OR_SUBMIT_VERIFIED`; o Chrome profissional permanece `PROFESSIONAL_BROWSER_PENDING`.
 - Verificação de build no QA: os cinco recursos carregados no service worker coincidem byte a byte com `dist`.
 - Pendências: recarga manual no Chrome profissional (não autorizada nesta sessão); teste real do isolamento de cache entre dois processos distintos; comportamento de autosave do portal continua desconhecido.
 

@@ -7,6 +7,7 @@
 | Status | Resultado | Evidência |
 |---|---|---|
 | SYNTHETIC_PASS | PASS | 114 testes unitários e 19 testes de navegador. |
+| REAL_END_TO_END_PASS (Chrome QA) | PASS | Critérios do GOAL atendidos no QA; Chrome profissional pendente. |
 | RESOLUTION_AUTO_DISCOVERY_VERIFIED | PASS | Resolução correta encontrada no evento 6 entre 20 eventos e decoys nos eventos 7/14. |
 | BIRTH_GUIDE_AUTO_DISCOVERY_VERIFIED | PASS | Guia encontrada no evento 10; nascimento correlacionado ao interessado. |
 | SINGLE_CLICK_VERIFIED | PASS | Um clique preencheu os cinco campos. |
@@ -15,7 +16,7 @@
 | QA_EXTENSION_BUILD_VERIFIED | PASS | SHA-256 dos cinco recursos carregados no service worker igual a `dist`. |
 | CACHE_ISOLATION_VERIFIED | PASS sintético | Processo diferente não reutiliza ids; sem teste real entre dois processos. |
 | FINAL_BUILD_VERIFIED_ON_DISK | PASS | Build, release e ZIP extraído com hashes iguais. |
-| NO_REAL_SAVE_OR_SUBMIT | PASS | Nenhum ato foi salvo, complementado ou enviado. |
+| NO_SAVE_OR_SUBMIT_VERIFIED | PASS | Nenhum ato foi salvo, complementado ou enviado (`NO_REAL_SAVE_OR_SUBMIT`). |
 | PROFESSIONAL_BROWSER_PENDING | PENDENTE | O Chrome profissional não foi tocado nem recarregado. |
 | REAL_SAVE_OR_SUBMIT | NÃO EXECUTADO | Fora do escopo. |
 

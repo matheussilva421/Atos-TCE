@@ -86,6 +86,7 @@ A instalação no perfil profissional deve ser feita pelo operador, com a extens
 ## Status verificável
 
 - **SYNTHETIC_PASS**: 114 testes unitários e 19 testes de navegador aprovados.
+- **REAL_END_TO_END_PASS (Chrome QA)**: PASS; os critérios do GOAL foram atendidos no QA, incluindo descoberta dos dois documentos, um clique, cinco campos, readback, restauração e ausência de save/submit. O Chrome profissional continua pendente.
 - **SYNTHETIC_E2E_PASS**: descoberta automática a partir de documento diverso, Guia aberta, Resolução multipágina, documentos ausentes, readback, restauração dos Autos e isolamento do cache.
 - **REAL_DISCOVERY_VERIFIED**: no Chrome QA, a extensão encontrou a Resolução correta e a Guia em 20 eventos com nomes genéricos e documentos decoy; a Resolução correta tinha 1.812 caracteres e a Guia 1.247 caracteres.
 - **SINGLE_CLICK_VERIFIED**: um único clique preencheu os cinco campos em todas as amostras; a origem exibida incluiu Resolução e Guia.
@@ -94,7 +95,7 @@ A instalação no perfil profissional deve ser feita pelo operador, com a extens
 - **REAL_PERFORMANCE**: primeiro clique a partir de documento diverso levou 14,3–14,5 s; com a Resolução já aberta e cache limpo, 7,096 s; com cache, amostras de 2,8–6,7 s (p50 3,026 s; p95 6,729 s).
 - **QA_EXTENSION_BUILD_VERIFIED**: os cinco arquivos carregados no Chrome QA coincidem byte a byte com `dist` (SHA-256 conferido no service worker).
 - **CACHE_ISOLATION_VERIFIED**: PASS sintético; processo diferente não reutiliza ids. Não houve teste real com dois processos distintos.
-- **NO_REAL_SAVE_OR_SUBMIT**: PASS; nenhum ato foi salvo, complementado ou enviado.
+- **NO_SAVE_OR_SUBMIT_VERIFIED**: PASS; nenhum ato foi salvo, complementado ou enviado. Também registrado como `NO_REAL_SAVE_OR_SUBMIT`.
 - **FINAL_BUILD_VERIFIED_ON_DISK**: build, pasta de release e ZIP extraído com os mesmos hashes.
 - **PROFESSIONAL_BROWSER_PENDING**: o Chrome profissional não foi tocado nem recarregado; a instalação lá continua manual.
 - Nenhum ato foi salvo ou concluído.
