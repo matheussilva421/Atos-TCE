@@ -6,7 +6,7 @@
   "description": "Extensão Chrome independente para complementação assistida de atos no e-Contas do TCE/RN.",
   "scripts": {
     "test": "node --test tests/unit/*.test.mjs",
-    "test:browser": "node --test --test-concurrency=1 tests/browser/*.spec.mjs",
+    "test:browser": "node --test --test-force-exit --test-concurrency=1 tests/browser/*.spec.mjs",
     "build": "node scripts/build.mjs",
     "build:test": "node scripts/build.mjs --test",
     "benchmark": "node tests/browser/benchmark.mjs"

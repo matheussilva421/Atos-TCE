@@ -18,6 +18,16 @@ export function extractInterestedName(text) {
     .trim();
 }
 
+export function extractInterestedCpf(text) {
+  const raw = String(text ?? '');
+  const formatted = raw.match(/\d{3}\.\d{3}\.\d{3}-\d{2}/);
+  if (formatted) {
+    return formatted[0].replace(/\D/g, '');
+  }
+  const bare = raw.match(/(?:^|\D)(\d{11})(?:\D|$)/);
+  return bare ? bare[1] : '';
+}
+
 export function hashString(value) {
   const input = String(value ?? '');
   let hash = 0x811c9dc5;

@@ -18,6 +18,29 @@ let inFlight = false;
 let currentRequestId = null;
 let timeoutHandle = null;
 
+const FIELD_LABELS = Object.freeze({
+  modalidade: 'Modalidade',
+  dataDoeEstado: 'Data DOE',
+  cargo: 'Cargo',
+  matricula: 'Matrícula',
+  dataNascimento: 'Nascimento',
+});
+
+function fieldLabel(name) {
+  return FIELD_LABELS[name] || name || 'campo';
+}
+
+function pendingSummary(report) {
+  const pending = [];
+  for (const item of Array.isArray(report.skipped) ? report.skipped : []) {
+    pending.push(fieldLabel(item.field));
+  }
+  for (const item of Array.isArray(report.errors) ? report.errors : []) {
+    pending.push(fieldLabel(item.field) + (item.code ? ' (' + item.code + ')' : ''));
+  }
+  return [...new Set(pending)];
+}
+
 function ensureUi() {
   if (host && document.documentElement.contains(host)) {
     return;
@@ -188,7 +211,7 @@ async function onClick(event) {
     if (inFlight) {
       cancelLocal('Tempo esgotado. Nada foi salvo; tente novamente.');
     }
-  }, 30000);
+  }, 120000);
   try {
     const response = await chrome.runtime.sendMessage({
       type: MESSAGE.REQUEST_FILL,
@@ -198,6 +221,7 @@ async function onClick(event) {
         processLabel: form.processLabel,
         interestedKey: form.interestedKey,
         interestedName: form.interestedName,
+        interestedCpf: form.interestedCpf,
         interestedCount: form.interestedCount,
       },
     });
@@ -219,13 +243,13 @@ async function onClick(event) {
     const report = response.report || {};
     const filled = Array.isArray(report.filled) ? report.filled.length : 0;
     const preserved = Array.isArray(report.preserved) ? report.preserved.length : 0;
-    const skipped = Array.isArray(report.skipped) ? report.skipped.length : 0;
+    const pending = pendingSummary(report);
     const notes = [];
-    if (response.sourceNotes && response.sourceNotes.dataDoeEstado) {
-      notes.push('Origem: data da resolução administrativa');
-    }
-    if (response.sourceNotes && response.sourceNotes.dataNascimento) {
-      notes.push('Origem: Guia Financeira/Taxação de Proventos');
+    for (const key of ['dataDoeEstado', 'dataNascimento']) {
+      const note = response.sourceNotes && response.sourceNotes[key];
+      if (note) {
+        notes.push(note);
+      }
     }
     if (notes.length > 0) {
       setSourceNote(notes.join(' · '));
@@ -235,10 +259,12 @@ async function onClick(event) {
           .join(' · ');
       }
     }
-    if (report.ok === false) {
-      setStatus('Parcial: ' + filled + ' preenchido(s), ' + preserved + ' preservado(s), ' + skipped + ' pendente(s). Revise os campos.', 'warn');
-    } else {
+    if (pending.length === 0 && filled + preserved > 0) {
       setStatus('Concluído: ' + filled + ' campo(s) preenchido(s), ' + preserved + ' preservado(s). Revise antes de complementar.', 'ok');
+    } else if (filled + preserved === 0) {
+      setStatus('Nenhum campo preenchido. Pendentes: ' + (pending.join(', ') || 'nenhum campo identificado') + '.', 'warn');
+    } else {
+      setStatus('Parcial: ' + filled + ' preenchido(s), ' + preserved + ' preservado(s), ' + pending.length + ' pendente(s): ' + pending.join(', ') + '. Revise os campos.', 'warn');
     }
   } catch {
     if (inFlight) {
@@ -349,7 +375,7 @@ async function handleApplyPlan(message) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender) => {
-  if (!message || message.type !== MESSAGE.BIRTH_SEARCH) {
+  if (!message || message.type !== MESSAGE.DOCUMENT_SEARCH) {
     return false;
   }
   if (!sender || sender.id !== chrome.runtime.id) {
@@ -358,7 +384,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   if (!inFlight || message.requestId !== currentRequestId) {
     return false;
   }
-  setStatus('Procurando a Guia Financeira…', 'info');
+  setStatus('Procurando Resolução e Guia Financeira…', 'info');
   return false;
 });
 

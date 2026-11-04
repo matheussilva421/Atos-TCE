@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PROCESS_ID,
@@ -15,17 +15,48 @@ import {
   waitForServiceWorker,
 } from './harness.mjs';
 
+let sharedExtension = null;
+
+async function getSharedExtension() {
+  if (!sharedExtension) {
+    sharedExtension = await launchExtension();
+    const keepalive = await sharedExtension.context.newPage();
+    await keepalive.goto('about:blank');
+    sharedExtension.keepalive = keepalive;
+  }
+  return sharedExtension;
+}
+
 async function withStack(fn, serverOptions = {}) {
   const server = await startFixtureServer(serverOptions);
-  const extension = await launchExtension();
+  let extension = null;
   try {
-    await waitForServiceWorker(extension.context);
+    extension = await getSharedExtension();
     return await fn(server, extension);
   } finally {
-    await extension.close();
+    if (extension) {
+      const keepalive = extension.keepalive;
+      for (const page of extension.context.pages()) {
+        if (page !== keepalive) {
+          await page.close().catch(() => {});
+        }
+      }
+    }
     await server.close();
   }
 }
+
+after(async () => {
+  if (!sharedExtension) {
+    return;
+  }
+  const current = sharedExtension;
+  sharedExtension = null;
+  await Promise.race([
+    current.close().catch(() => {}),
+    new Promise((resolve) => setTimeout(resolve, 5000)),
+  ]);
+});
 
 test('button_only_on_complement_route_and_no_read_before_click', async () => {
   await withStack(async (server, extension) => {
@@ -126,7 +157,7 @@ test('full_click_to_read_to_fill', async () => {
     const fields = await readFields(formPage);
     assert.equal(ui.tone, 'ok', JSON.stringify(ui));
     assert.equal(ui.sourceVisible, true);
-    assert.equal(ui.lastSourceNote, 'data da resolução administrativa');
+    assert.equal(ui.lastSourceNote, 'data da resolução administrativa · resolução administrativa');
     assert.equal(fields.dataDoeEstado, '07/11/2025');
     assert.equal(fields.cargo, 'ANALISTA DE TESTES');
     assert.equal(fields.matricula, '001234-5/1');
@@ -319,8 +350,6 @@ test('l1_result_recovered_after_form_reload', async () => {
 
 test('birth_date_from_guia_document', async () => {
   await withStack(async (server, extension) => {
-    const sw = await waitForServiceWorker(extension.context);
-    await sw.evaluate(() => chrome.storage.session.clear());
     const formPage = await openFormPage(extension.context, server.origin);
     const autosPage = await openAutosPage(extension.context, server.origin);
     const initialSrc = await autosPage.evaluate(() => document.querySelector('#ifrm').src);
@@ -343,5 +372,91 @@ test('birth_date_from_guia_document', async () => {
   }, {
     scanEvents: true,
     resolutionText: 'RESOLUCAO ADMINISTRATIVA N. 1234, DE 7 DE NOVEMBRO DE 2025. RESOLVE conceder aposentadoria voluntaria por tempo de contribuicao com proventos integrais a PESSOA UM, no cargo de ANALISTA DE TESTES, matricula 001234-5/1. Natal, 7 de novembro de 2025.',
+  });
+});
+
+const RESOLUTION_WITHOUT_BIRTH = 'RESOLUCAO ADMINISTRATIVA N. 1234, DE 7 DE NOVEMBRO DE 2025. RESOLVE conceder aposentadoria voluntaria por tempo de contribuicao com proventos integrais a PESSOA UM, no cargo de ANALISTA DE TESTES, matricula 001234-5/1. Natal, 7 de novembro de 2025.';
+
+test('auto_discovers_resolution_and_guia_from_other_document', async () => {
+  await withStack(async (server, extension) => {
+    const formPage = await openFormPage(extension.context, server.origin);
+    const autosPage = await openAutosPage(extension.context, server.origin);
+    const initialSrc = await autosPage.evaluate(() => document.querySelector('#ifrm').src);
+    await clickFill(formPage);
+    const ui = await waitForResult(formPage, 40000);
+    const fields = await readFields(formPage);
+    assert.equal(ui.tone, 'ok', JSON.stringify(ui));
+    assert.equal(fields.dataDoeEstado, '07/11/2025');
+    assert.equal(fields.cargo, 'ANALISTA DE TESTES');
+    assert.equal(fields.matricula, '001234-5/1');
+    assert.equal(fields.dataNascimento, '01/02/1980');
+    assert.equal(fields.modalidade, 'Aposentadoria voluntária por tempo de contribuição com proventos integrais');
+    assert.match(ui.source || '', /resolução administrativa/i);
+    assert.match(ui.source || '', /Guia Financeira/i);
+    assert.equal(server.requests.some((entry) => entry.url === server.guiaPath), true);
+    const restoredSrc = await autosPage.evaluate(() => document.querySelector('#ifrm').src);
+    assert.equal(restoredSrc, initialSrc);
+    assert.equal(server.requests.some((entry) => entry.method === 'POST' || entry.method === 'PUT'), false);
+  }, { scanEvents: true, initialDocument: 'other', resolutionText: RESOLUTION_WITHOUT_BIRTH });
+});
+
+test('auto_discovers_resolution_when_guia_is_open', async () => {
+  await withStack(async (server, extension) => {
+    const formPage = await openFormPage(extension.context, server.origin);
+    const autosPage = await openAutosPage(extension.context, server.origin);
+    const initialSrc = await autosPage.evaluate(() => document.querySelector('#ifrm').src);
+    await clickFill(formPage);
+    const ui = await waitForResult(formPage, 40000);
+    const fields = await readFields(formPage);
+    assert.equal(ui.tone, 'ok', JSON.stringify(ui));
+    assert.equal(fields.dataDoeEstado, '07/11/2025');
+    assert.equal(fields.cargo, 'ANALISTA DE TESTES');
+    assert.equal(fields.matricula, '001234-5/1');
+    assert.equal(fields.dataNascimento, '01/02/1980');
+    assert.match(ui.source || '', /Guia Financeira/i);
+    const restoredSrc = await autosPage.evaluate(() => document.querySelector('#ifrm').src);
+    assert.equal(restoredSrc, initialSrc);
+  }, { scanEvents: true, initialDocument: 'guia', resolutionText: RESOLUTION_WITHOUT_BIRTH });
+});
+
+test('missing_documents_fail_safely_and_restore_autos', async () => {
+  await withStack(async (server, extension) => {
+    const formPage = await openFormPage(extension.context, server.origin);
+    const autosPage = await openAutosPage(extension.context, server.origin);
+    const initialSrc = await autosPage.evaluate(() => document.querySelector('#ifrm').src);
+    await clickFill(formPage);
+    const ui = await waitForResult(formPage, 40000);
+    const fields = await readFields(formPage);
+    assert.equal(ui.tone, 'warn', JSON.stringify(ui));
+    assert.match(ui.status, /Nenhum campo preenchido/i);
+    assert.equal(fields.dataDoeEstado, '');
+    assert.equal(fields.cargo, '');
+    assert.equal(fields.matricula, '');
+    assert.equal(fields.dataNascimento, '');
+    const restoredSrc = await autosPage.evaluate(() => document.querySelector('#ifrm').src);
+    assert.equal(restoredSrc, initialSrc);
+    assert.equal(server.requests.some((entry) => entry.method === 'POST' || entry.method === 'PUT'), false);
+  }, { scanEvents: true, initialDocument: 'other', resolutionText: 'Documento diverso.', guiaText: 'Documento diverso.', otherText: 'Documento diverso.' });
+});
+
+test('multipage_resolution_is_read_progressively', async () => {
+  await withStack(async (server, extension) => {
+    const formPage = await openFormPage(extension.context, server.origin);
+    const autosPage = await openAutosPage(extension.context, server.origin);
+    await clickFill(formPage);
+    const ui = await waitForResult(formPage, 40000);
+    const fields = await readFields(formPage);
+    assert.equal(ui.tone, 'ok', JSON.stringify(ui));
+    assert.equal(fields.dataDoeEstado, '07/11/2025');
+    assert.equal(fields.cargo, 'ANALISTA DE TESTES');
+    assert.equal(fields.matricula, '001234-5/1');
+    assert.equal(fields.dataNascimento, '01/02/1980');
+  }, {
+    scanEvents: true,
+    initialDocument: 'other',
+    resolutionPages: [
+      'RESOLUCAO ADMINISTRATIVA N. 1234, DE 7 DE NOVEMBRO DE 2025.',
+      'RESOLVE conceder aposentadoria voluntaria por tempo de contribuicao com proventos integrais a PESSOA UM, no cargo de ANALISTA DE TESTES, matricula 001234-5/1. Natal, 7 de novembro de 2025.',
+    ],
   });
 });

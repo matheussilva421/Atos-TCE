@@ -1,6 +1,8 @@
 import { MESSAGE } from '../shared/protocol.mjs';
 import { normalizeProcessLabel } from '../shared/identity.mjs';
 import { parseRoute, selectSourceTabs } from '../shared/routes.mjs';
+import { isBirthDocumentText, isResolutionDocumentText } from '../autos/document-locator.mjs';
+import { parseBirthDateForPerson } from '../extract/dates.mjs';
 
 export class BridgeError extends Error {
   constructor(code, message) {
@@ -119,6 +121,109 @@ function errorResponse(requestId, code, message) {
   };
 }
 
+const RESOLUTION_FIELDS = ['modalidade', 'dataDoeEstado', 'cargo', 'matricula'];
+const ABSENT_PROPOSAL = Object.freeze({ status: 'absent' });
+
+function resolutionScore(proposals) {
+  return RESOLUTION_FIELDS.filter((name) => proposals[name] && proposals[name].status === 'exact').length;
+}
+
+export function chooseResolutionCandidate(candidates) {
+  const list = Array.isArray(candidates) ? candidates.filter((candidate) => candidate && candidate.proposals) : [];
+  if (list.length === 0) {
+    return {
+      proposals: Object.fromEntries(RESOLUTION_FIELDS.map((name) => [name, ABSENT_PROPOSAL])),
+      eventId: null,
+      score: 0,
+    };
+  }
+  const scored = list.map((candidate) => ({ ...candidate, score: resolutionScore(candidate.proposals) }));
+  const topScore = Math.max(...scored.map((candidate) => candidate.score));
+  const top = scored.filter((candidate) => candidate.score === topScore);
+  if (top.length === 1) {
+    return { proposals: top[0].proposals, eventId: top[0].eventId || null, score: topScore };
+  }
+  const proposals = {};
+  for (const name of RESOLUTION_FIELDS) {
+    const exact = top
+      .map((candidate) => candidate.proposals[name])
+      .filter((proposal) => proposal && proposal.status === 'exact');
+    const values = [...new Set(exact.map((proposal) => proposal.value))];
+    if (values.length === 1) {
+      proposals[name] = exact[0];
+    } else if (values.length > 1) {
+      proposals[name] = { status: 'ambiguous', candidates: values };
+    } else {
+      proposals[name] = ABSENT_PROPOSAL;
+    }
+  }
+  const eventId = top.every((candidate) => candidate.eventId === top[0].eventId)
+    ? (top[0].eventId || null)
+    : null;
+  return { proposals, eventId, score: topScore };
+}
+
+export function chooseBirthCandidate(input) {
+  const {
+    currentProposals,
+    currentIsGuia,
+    currentIsResolution,
+    currentEventId,
+    guias,
+    selectedInterested,
+    selectedInterestedCpf,
+  } = input;
+  if (currentIsGuia || currentIsResolution) {
+    const current = currentProposals && currentProposals.dataNascimento;
+    if (current && current.status === 'exact') {
+      return {
+        proposal: current,
+        eventId: currentEventId || null,
+        source: currentIsGuia ? 'guia' : 'resolution',
+      };
+    }
+  }
+  const exact = [];
+  for (const guia of Array.isArray(guias) ? guias : []) {
+    if (!guia) {
+      continue;
+    }
+    let birth = guia.birthProposal;
+    if (!birth && Array.isArray(guia.pages)) {
+      birth = parseBirthDateForPerson(
+        guia.pages.join('\n'),
+        selectedInterested || '',
+        selectedInterestedCpf || '',
+      );
+    }
+    if (birth.status === 'exact') {
+      exact.push({
+        birth: {
+          ...birth,
+          dateBr: birth.dateBr || birth.value,
+        },
+        eventId: guia.eventId || null,
+      });
+    }
+  }
+  const dates = [...new Set(exact.map((entry) => entry.birth.dateBr))];
+  if (dates.length === 1) {
+    return {
+      proposal: {
+        status: 'exact',
+        value: dates[0],
+        source: 'data de nascimento na Guia Financeira/Taxação de Proventos',
+      },
+      eventId: exact[0].eventId,
+      source: 'guia',
+    };
+  }
+  if (dates.length > 1) {
+    return { proposal: { status: 'ambiguous', candidates: dates }, eventId: null, source: 'guia' };
+  }
+  return { proposal: ABSENT_PROPOSAL, eventId: null, source: null };
+}
+
 export async function runFillTransaction(input) {
   const {
     formTab,
@@ -129,9 +234,9 @@ export async function runFillTransaction(input) {
     sendToForm,
     extract,
     timeoutMs = 20000,
-    birthTimeoutMs = timeoutMs,
-    cachedBirthEventId = null,
-    onBirthFound,
+    documentTimeoutMs = 90000,
+    cached = null,
+    onDocumentsFound,
     isCancelled,
     onState,
   } = input;
@@ -178,60 +283,148 @@ export async function runFillTransaction(input) {
   if (typeof extract !== 'function') {
     return errorResponse(requestId, 'EXTRACT_NOT_CONFIGURED', 'Extração não configurada.');
   }
-  let proposals;
+
+  const context = {
+    processId: route.idProcesso,
+    selectedInterested: formSnapshot.interestedName,
+    selectedInterestedCpf: formSnapshot.interestedCpf || '',
+    interestedCount: formSnapshot.interestedCount || 1,
+  };
+  let currentProposals;
   try {
-    proposals = extract(read.document, {
-      processId: route.idProcesso,
-      selectedInterested: formSnapshot.interestedName,
-      interestedCount: formSnapshot.interestedCount || 1,
-    });
+    currentProposals = extract(read.document, context);
   } catch {
     return errorResponse(requestId, 'EXTRACT_FAILED', 'Não foi possível interpretar o documento.');
   }
 
-  const sourceNotes = {};
-  if (proposals.dataNascimento && proposals.dataNascimento.status !== 'exact') {
+  const currentText = Array.isArray(read.document.pages) ? read.document.pages.join('\n') : '';
+  const currentIsResolution = isResolutionDocumentText(currentText);
+  const currentIsGuia = isBirthDocumentText(currentText);
+  const currentResolutionComplete = currentIsResolution
+    && RESOLUTION_FIELDS.every((name) => currentProposals[name] && currentProposals[name].status === 'exact');
+  const currentBirthComplete = Boolean(currentProposals.dataNascimento && currentProposals.dataNascimento.status === 'exact');
+
+  let discovery = null;
+  if (!currentResolutionComplete || !currentBirthComplete) {
     try {
-      const pending = sendToForm(formTab.id, { type: MESSAGE.BIRTH_SEARCH, requestId });
+      const pending = sendToForm(formTab.id, { type: MESSAGE.DOCUMENT_SEARCH, requestId });
       if (pending && typeof pending.catch === 'function') {
         pending.catch(() => {});
       }
     } catch {
       // O aviso de progresso é opcional.
     }
-    let birthRead = null;
     try {
-      birthRead = await withTimeout(
+      discovery = await withTimeout(
         sendToSource(selection.tabId, {
-          type: MESSAGE.FIND_BIRTH_DOCUMENT,
+          type: MESSAGE.DISCOVER_DOCUMENTS,
           requestId,
           expectedProcessId: route.idProcesso,
-          cachedEventId: cachedBirthEventId || null,
+          cached: cached || null,
+          needsResolution: !currentResolutionComplete,
+          needsGuia: !currentBirthComplete,
+          selectedInterested: formSnapshot.interestedName,
+          selectedInterestedCpf: formSnapshot.interestedCpf || '',
         }),
-        birthTimeoutMs,
-        'BIRTH_SEARCH_TIMEOUT',
+        documentTimeoutMs,
+        'DOCUMENT_SEARCH_TIMEOUT',
       );
     } catch {
-      birthRead = null;
+      discovery = null;
     }
-    if (birthRead && birthRead.ok === true && Array.isArray(birthRead.pages)) {
+  }
+  if (typeof isCancelled === 'function' && isCancelled()) {
+    return errorResponse(requestId, 'TRANSACTION_CANCELLED', 'Transação cancelada.');
+  }
+
+  const currentEventId = discovery && discovery.currentEventId ? discovery.currentEventId : '';
+  const resolutionCandidates = [];
+  if (currentIsResolution) {
+    resolutionCandidates.push({
+      eventId: currentEventId || null,
+      proposals: currentProposals,
+      source: 'current',
+    });
+  }
+  if (discovery && Array.isArray(discovery.resolutions)) {
+    for (const candidate of discovery.resolutions) {
+      if (!candidate || !Array.isArray(candidate.pages)) {
+        continue;
+      }
       try {
-        const birthProposals = extract({ pages: birthRead.pages }, {
+        const proposals = extract({
+          pages: candidate.pages,
+          documentKey: candidate.documentKey,
           processId: route.idProcesso,
-          selectedInterested: formSnapshot.interestedName,
-          interestedCount: formSnapshot.interestedCount || 1,
+          sourceKind: 'pdf-bytes',
+          byteLength: candidate.byteLength,
+          observedAt: Date.now(),
+        }, context);
+        resolutionCandidates.push({
+          eventId: candidate.eventId || null,
+          proposals,
+          source: 'discovered',
         });
-        if (birthProposals.dataNascimento && birthProposals.dataNascimento.status === 'exact') {
-          proposals.dataNascimento = birthProposals.dataNascimento;
-          sourceNotes.dataNascimento = 'Origem: Guia Financeira/Taxação de Proventos';
-          if (typeof onBirthFound === 'function' && birthRead.eventId) {
-            await onBirthFound(birthRead.eventId);
-          }
-        }
       } catch {
-        // A busca da Guia não pode impedir o preenchimento dos demais campos.
+        // Um candidato inválido não impede os demais.
       }
     }
+  }
+  const resolution = chooseResolutionCandidate(resolutionCandidates);
+  const guiaCandidates = [];
+  if (discovery && Array.isArray(discovery.guias)) {
+    for (const guia of discovery.guias) {
+      if (!guia || !Array.isArray(guia.pages)) {
+        continue;
+      }
+      let birthProposal = null;
+      try {
+        const guiaProposals = extract({
+          pages: guia.pages,
+          documentKey: guia.documentKey,
+          processId: route.idProcesso,
+          sourceKind: 'pdf-bytes',
+          byteLength: guia.byteLength,
+          observedAt: Date.now(),
+        }, context);
+        birthProposal = guiaProposals.dataNascimento || null;
+      } catch {
+        // A correlação por páginas continua como fallback.
+      }
+      guiaCandidates.push({ eventId: guia.eventId, pages: guia.pages, birthProposal });
+    }
+  }
+  const birth = chooseBirthCandidate({
+    currentProposals,
+    currentIsGuia,
+    currentIsResolution,
+    currentEventId,
+    guias: guiaCandidates,
+    selectedInterested: formSnapshot.interestedName,
+    selectedInterestedCpf: formSnapshot.interestedCpf || '',
+  });
+
+  const proposals = {
+    modalidade: resolution.proposals.modalidade || ABSENT_PROPOSAL,
+    dataDoeEstado: resolution.proposals.dataDoeEstado || ABSENT_PROPOSAL,
+    cargo: resolution.proposals.cargo || ABSENT_PROPOSAL,
+    matricula: resolution.proposals.matricula || ABSENT_PROPOSAL,
+    dataNascimento: birth.proposal || ABSENT_PROPOSAL,
+  };
+  const sourceNotes = {};
+  if (proposals.dataDoeEstado.status === 'exact') {
+    sourceNotes.dataDoeEstado = 'Origem: data da resolução administrativa';
+  }
+  if (birth.source === 'guia') {
+    sourceNotes.dataNascimento = 'Origem: Guia Financeira/Taxação de Proventos';
+  } else if (birth.source === 'resolution') {
+    sourceNotes.dataNascimento = 'Origem: resolução administrativa';
+  }
+  if (typeof onDocumentsFound === 'function' && (resolution.eventId || birth.eventId)) {
+    await onDocumentsFound({
+      resolutionEventId: resolution.eventId || null,
+      guiaEventId: birth.eventId || null,
+    });
   }
 
   let apply;
@@ -271,8 +464,15 @@ export async function runFillTransaction(input) {
     },
     report: apply.report,
     sourceNotes: { ...(apply.sourceNotes || {}), ...sourceNotes },
+    discovery: discovery ? {
+      scannedCount: discovery.scannedCount || 0,
+      cachedUsed: Boolean(discovery.cachedUsed),
+      clickMs: discovery.clickMs || 0,
+      readMs: discovery.readMs || 0,
+    } : null,
   };
 }
+
 export async function runDocumentDiagnostic(input) {
   const {
     formTab,

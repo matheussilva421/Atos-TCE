@@ -2,8 +2,9 @@ import { PORTAL_ORIGIN } from '../shared/config.mjs';
 import { MESSAGE } from '../shared/protocol.mjs';
 import { parseRoute } from '../shared/routes.mjs';
 import { base64ToBytes, extractPagesFromPdf, getIframeSrc, readCurrentDocument } from './document-reader.mjs';
-import { isBirthDocumentText } from './document-locator.mjs';
+import { isBirthDocumentText, isResolutionDocumentText } from './document-locator.mjs';
 import { parsePdfUrl } from './pdf-identity.mjs';
+import { extractFields } from '../extract/fields.mjs';
 
 let route = parseRoute(location.href, PORTAL_ORIGIN);
 
@@ -24,6 +25,7 @@ if (window.navigation && typeof window.navigation.addEventListener === 'function
 
 const EVENT_CARD_SELECTOR = '.card-event';
 const EVENT_HEADER_SELECTOR = '#header-eventos';
+const RESOLUTION_FIELDS = ['modalidade', 'dataDoeEstado', 'cargo', 'matricula'];
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -71,7 +73,10 @@ async function ensureEventCards() {
   return cards;
 }
 
-function restoreAutosView(originalSrc, selectedIds) {
+async function restoreAutosView(initialRoute, originalSrc, selectedIds) {
+  if (location.href !== initialRoute) {
+    return;
+  }
   for (const card of document.querySelectorAll(EVENT_CARD_SELECTOR)) {
     card.classList.remove('escurecer');
   }
@@ -82,13 +87,21 @@ function restoreAutosView(originalSrc, selectedIds) {
       card.classList.add('escurecer');
     }
   }
+  const originalCard = selectedIds.length > 0
+    ? (document.getElementById(selectedIds[0])
+      || document.querySelector(EVENT_CARD_SELECTOR + '[data-id="' + selectedIds[0] + '"]'))
+    : null;
+  if (originalCard) {
+    originalCard.click();
+    await wait(700);
+  }
   const iframe = document.querySelector('iframe#ifrm');
-  if (iframe && originalSrc) {
+  if (iframe && originalSrc && getIframeSrc(document) !== originalSrc) {
     iframe.src = originalSrc;
   }
 }
 
-async function readCandidate(url, message) {
+async function readCandidate(url, message, maxPages = 2) {
   try {
     const response = await chrome.runtime.sendMessage({
       type: MESSAGE.FETCH_PDF,
@@ -102,7 +115,7 @@ async function readCandidate(url, message) {
     const pages = await extractPagesFromPdf(
       base64ToBytes(response.base64),
       { workerSrc: chrome.runtime.getURL('vendor/pdf.worker.mjs') },
-      { maxPages: 2 },
+      maxPages ? { maxPages } : {},
     );
     return {
       pages,
@@ -113,92 +126,179 @@ async function readCandidate(url, message) {
   }
 }
 
-async function findBirthDocument(message) {
+async function discoverDocuments(message) {
+  const initialRoute = location.href;
   const originalSrc = getIframeSrc(document);
   const selectedIds = [...document.querySelectorAll(EVENT_CARD_SELECTOR + '.escurecer')]
     .map(eventCardKey)
     .filter(Boolean);
+  const currentEventId = selectedIds[0] || '';
   const cards = await ensureEventCards();
   if (cards.length === 0) {
     return { ok: false, code: 'EVENTS_NOT_AVAILABLE' };
   }
-
+  const cached = message.cached && typeof message.cached === 'object' ? message.cached : {};
+  const needsResolution = message.needsResolution !== false;
+  const needsGuia = message.needsGuia !== false;
+  const resolutions = [];
+  const guias = [];
   const seen = new Set();
   let previousSrc = originalSrc;
+  let clickMs = 0;
+  let readMs = 0;
   let cachedUsed = false;
+  let resolutionReady = !needsResolution;
+  let guiaReady = !needsGuia;
 
-  const collectFromCard = async (card, timeoutMs) => {
+  const collect = async (card, timeoutMs) => {
+    const eventId = eventCardKey(card);
+    if (!eventId) {
+      return null;
+    }
+    if (eventId === currentEventId && originalSrc) {
+      const parsed = parsePdfUrl(originalSrc);
+      return parsed ? { eventId, src: originalSrc, documentKey: parsed.documentKey } : null;
+    }
+    const started = Date.now();
     card.click();
     const src = await waitForIframeSrcChange(previousSrc, timeoutMs);
+    clickMs += Date.now() - started;
     if (!src) {
       return null;
     }
     previousSrc = src;
     const parsed = parsePdfUrl(src);
-    const eventId = eventCardKey(card);
-    if (!parsed || !eventId || seen.has(eventId)) {
+    if (!parsed) {
       return null;
     }
-    seen.add(eventId);
     return { eventId, src, documentKey: parsed.documentKey };
   };
 
-  if (message.cachedEventId) {
-    const cachedCard = cards.find((card) => eventCardKey(card) === message.cachedEventId);
-    if (cachedCard) {
-      const cachedCandidate = await collectFromCard(cachedCard, 900);
-      if (cachedCandidate) {
-        cachedUsed = true;
-        const read = await readCandidate(cachedCandidate.src, message);
-        if (read && isBirthDocumentText(read.pages.join('\n'))) {
-          restoreAutosView(originalSrc, selectedIds);
-          return {
-            ok: true,
-            pages: read.pages,
-            documentKey: cachedCandidate.documentKey,
-            sourceKind: 'pdf-bytes',
-            byteLength: read.byteLength,
-            eventId: cachedCandidate.eventId,
-            cachedUsed: true,
-          };
+  const addCandidate = async (candidate) => {
+    if (!candidate || seen.has(candidate.eventId)) {
+      return false;
+    }
+    seen.add(candidate.eventId);
+    const firstStart = Date.now();
+    const first = await readCandidate(candidate.src, message, 2);
+    readMs += Date.now() - firstStart;
+    if (!first) {
+      return false;
+    }
+    const text = first.pages.join('\n');
+    let kind = null;
+    if (isResolutionDocumentText(text)) {
+      kind = 'resolution';
+    } else if (isBirthDocumentText(text)) {
+      kind = 'guia';
+    }
+    if (!kind) {
+      return false;
+    }
+    if ((kind === 'resolution' && !needsResolution) || (kind === 'guia' && !needsGuia)) {
+      return false;
+    }
+    const fullStart = Date.now();
+    const full = await readCandidate(candidate.src, message, null);
+    readMs += Date.now() - fullStart;
+    const pages = full ? full.pages : first.pages;
+    const item = {
+      eventId: candidate.eventId,
+      pages,
+      byteLength: full ? full.byteLength : first.byteLength,
+      documentKey: candidate.documentKey,
+    };
+    if (kind === 'resolution') {
+      try {
+        const proposals = extractFields({ pages }, {
+          selectedInterested: message.selectedInterested || '',
+          selectedInterestedCpf: message.selectedInterestedCpf || '',
+          interestedCount: 1,
+          processId: message.expectedProcessId,
+        });
+        if (RESOLUTION_FIELDS.every((name) => proposals[name] && proposals[name].status === 'exact')) {
+          resolutionReady = true;
+        }
+      } catch {
+        // O fundo ainda pode pontuar os campos.
+      }
+    } else {
+      try {
+        const proposals = extractFields({ pages }, {
+          selectedInterested: message.selectedInterested || '',
+          selectedInterestedCpf: message.selectedInterestedCpf || '',
+          interestedCount: 1,
+          processId: message.expectedProcessId,
+        });
+        if (proposals.dataNascimento && proposals.dataNascimento.status === 'exact') {
+          guiaReady = true;
+        }
+      } catch {
+        // O fundo ainda pode correlacionar o nascimento.
+      }
+    }
+    const list = kind === 'resolution' ? resolutions : guias;
+    if (list.some((entry) => entry.documentKey === candidate.documentKey)) {
+      return true;
+    }
+    list.push(item);
+    return true;
+  };
+
+  try {
+    if (cached.resolutionEventId) {
+      const card = cards.find((item) => eventCardKey(item) === cached.resolutionEventId);
+      if (card) {
+        const candidate = await collect(card, 1100);
+        if (candidate && await addCandidate(candidate)) {
+          cachedUsed = true;
         }
       }
     }
-  }
-
-  let found = null;
-  for (const card of cards) {
-    if (message.cachedEventId && eventCardKey(card) === message.cachedEventId) {
-      continue;
+    if (cached.guiaEventId) {
+      const card = cards.find((item) => eventCardKey(item) === cached.guiaEventId);
+      if (card) {
+        const candidate = await collect(card, 1100);
+        if (candidate && await addCandidate(candidate)) {
+          cachedUsed = true;
+        }
+      }
     }
-    const candidate = await collectFromCard(card, 900);
-    if (!candidate) {
-      continue;
+    if (!resolutionReady || !guiaReady) {
+      for (const card of cards) {
+        const eventId = eventCardKey(card);
+        if (eventId === currentEventId) {
+          continue;
+        }
+        const candidate = await collect(card, 1100);
+        if (candidate) {
+          await addCandidate(candidate);
+        }
+        if (resolutionReady && guiaReady) {
+          break;
+        }
+        if (resolutions.length >= 6 && guias.length >= 6) {
+          break;
+        }
+      }
     }
-    const read = await readCandidate(candidate.src, message);
-    if (read && isBirthDocumentText(read.pages.join('\n'))) {
-      found = { ...candidate, pages: read.pages, byteLength: read.byteLength };
-      break;
-    }
-  }
-  restoreAutosView(originalSrc, selectedIds);
-
-  if (found) {
     return {
       ok: true,
-      pages: found.pages,
-      documentKey: found.documentKey,
-      sourceKind: 'pdf-bytes',
-      byteLength: found.byteLength,
-      eventId: found.eventId,
+      currentEventId,
+      resolutions: resolutions.slice(0, 6),
+      guias: guias.slice(0, 6),
+      scannedCount: seen.size,
       cachedUsed,
+      clickMs,
+      readMs,
     };
+  } finally {
+    await restoreAutosView(initialRoute, originalSrc, selectedIds);
   }
-  return { ok: false, code: 'BIRTH_DOCUMENT_NOT_FOUND', cachedUsed };
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (!message || (message.type !== MESSAGE.READ_DOCUMENT && message.type !== MESSAGE.FIND_BIRTH_DOCUMENT)) {
+    if (!message || (message.type !== MESSAGE.READ_DOCUMENT && message.type !== MESSAGE.DISCOVER_DOCUMENTS)) {
       return false;
     }
     if (!sender || sender.id !== chrome.runtime.id) {
@@ -209,10 +309,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false, code: 'PROCESS_CHANGED' });
       return true;
     }
-    if (message.type === MESSAGE.FIND_BIRTH_DOCUMENT) {
-      findBirthDocument(message).then(
+    if (message.type === MESSAGE.DISCOVER_DOCUMENTS) {
+      discoverDocuments(message).then(
         (result) => sendResponse(result),
-        (error) => sendResponse({ ok: false, code: error.code || 'BIRTH_SEARCH_FAILED' }),
+        (error) => sendResponse({ ok: false, code: error.code || 'DOCUMENT_SEARCH_FAILED' }),
       );
       return true;
     }

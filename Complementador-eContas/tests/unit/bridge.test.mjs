@@ -6,7 +6,15 @@ const ORIGIN = 'https://processos.tce.rn.gov.br';
 const formTab = { id: 10, url: ORIGIN + '/#/dashboard/complementar-ato/999001' };
 const sourceTab = { id: 20, url: ORIGIN + '/#/dashboard/processos/999001/autos', windowId: 2 };
 const snapshot = { interestedName: 'PESSOA UM', interestedKey: 'abcd1234', interestedCount: 1, processLabel: '999001/2026' };
-const document = { documentKey: 'deadbeef', processId: '999001', processLabel: '999001/2026', pages: ['texto'], sourceKind: 'pdf-bytes', observedAt: 1 };
+const document = { documentKey: 'deadbeef', processId: '999001', processLabel: '999001/2026', pages: ['RESOLUÇÃO ADMINISTRATIVA N. 1, DE 7 DE NOVEMBRO DE 2025. RESOLVE conceder aposentadoria voluntária por tempo de contribuição com proventos integrais a PESSOA UM, no cargo de ANALISTA DE TESTES, matrícula 001234-5/1, nascida em 01/02/1980. Natal, 7 de novembro de 2025.'], sourceKind: 'pdf-bytes', observedAt: 1 };
+
+const completeProposals = () => ({
+  modalidade: { status: 'exact', value: 'Aposentadoria voluntária por tempo de contribuição com proventos integrais' },
+  dataDoeEstado: { status: 'exact', value: '07/11/2025' },
+  cargo: { status: 'exact', value: 'ANALISTA DE TESTES' },
+  matricula: { status: 'exact', value: '001234-5/1' },
+  dataNascimento: { status: 'exact', value: '01/02/1980' },
+});
 
 function deps(overrides = {}) {
   let sourceCalls = 0;
@@ -19,7 +27,7 @@ function deps(overrides = {}) {
     timeoutMs: 100,
     sendToSource: async () => { sourceCalls += 1; return { ok: true, document }; },
     sendToForm: async () => { formCalls += 1; return { ok: true, report: { ok: true, filled: [{ field: 'cargo' }] } }; },
-    extract: () => ({ cargo: { status: 'exact', value: 'ANALISTA DE TESTES' } }),
+    extract: () => completeProposals(),
     counts: () => ({ sourceCalls, formCalls }),
     ...overrides,
   };

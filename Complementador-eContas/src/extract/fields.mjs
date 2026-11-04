@@ -72,21 +72,30 @@ function matchModality(text) {
   return { status: 'absent' };
 }
 
-function personWindows(text, selectedInterested) {
+function personWindows(text, selectedInterested, selectedCpf = '') {
   const name = deaccent(selectedInterested);
-  if (!name) {
-    return [];
-  }
   const normalized = deaccent(text);
   const windows = [];
-  let from = 0;
-  while (from < normalized.length) {
-    const index = normalized.indexOf(name, from);
-    if (index < 0) {
-      break;
+  if (name) {
+    let from = 0;
+    while (from < normalized.length) {
+      const index = normalized.indexOf(name, from);
+      if (index < 0) {
+        break;
+      }
+      windows.push(text.slice(Math.max(0, index - 80), Math.min(text.length, index + name.length + 700)));
+      from = index + name.length;
     }
-    windows.push(text.slice(Math.max(0, index - 80), Math.min(text.length, index + name.length + 700)));
-    from = index + name.length;
+  }
+  const cpf = String(selectedCpf ?? '').replace(/\D/g, '');
+  if (/^\d{11}$/.test(cpf)) {
+    const pattern = /\d{3}\.?\s?\d{3}\.?\s?\d{3}-?\s?\d{2}/g;
+    let match;
+    while ((match = pattern.exec(normalized)) !== null) {
+      if (match[0].replace(/\D/g, '') === cpf) {
+        windows.push(text.slice(Math.max(0, match.index - 80), Math.min(text.length, match.index + 700)));
+      }
+    }
   }
   return windows;
 }
@@ -138,7 +147,7 @@ function extractCargo(windowText) {
 }
 
 function extractPersonFields(text, ctx) {
-  const windows = personWindows(text, ctx.selectedInterested);
+  const windows = personWindows(text, ctx.selectedInterested, ctx.selectedInterestedCpf);
   if (windows.length === 0) {
     return {
       cargo: { status: 'absent', reason: 'INTEREST_NOT_FOUND' },

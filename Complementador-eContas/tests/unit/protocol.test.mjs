@@ -5,7 +5,7 @@ import { TransactionManager, withTimeout } from '../../src/background/bridge.mjs
 
 test('protocol_messages_are_stable_and_serializable', () => {
   assert.deepEqual(Object.values(MESSAGE).sort(), [
-    'APPLY_PLAN', 'BIRTH_SEARCH', 'CANCEL', 'DIAGNOSE_DOCUMENT', 'DIAGNOSTIC_STATE', 'DIAGNOSTIC_UPDATE', 'FETCH_PDF', 'FIND_BIRTH_DOCUMENT', 'GET_DIAGNOSTIC', 'READ_DOCUMENT', 'REQUEST_FILL', 'RESULT',
+    'APPLY_PLAN', 'CANCEL', 'DIAGNOSE_DOCUMENT', 'DIAGNOSTIC_STATE', 'DIAGNOSTIC_UPDATE', 'DISCOVER_DOCUMENTS', 'DOCUMENT_SEARCH', 'FETCH_PDF', 'GET_DIAGNOSTIC', 'READ_DOCUMENT', 'REQUEST_FILL', 'RESULT',
   ].sort());
   const result = errorResult('req-12345678', 'X', 'message');
   assert.deepEqual(JSON.parse(JSON.stringify(result)), result);

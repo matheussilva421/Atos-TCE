@@ -1,4 +1,4 @@
-import { extractInterestedName, hashString, normalizeLabel, normalizeProcessLabel, normalizeText } from '../shared/identity.mjs';
+import { extractInterestedCpf, extractInterestedName, hashString, normalizeLabel, normalizeProcessLabel, normalizeText } from '../shared/identity.mjs';
 import { parseRoute } from '../shared/routes.mjs';
 
 export const FORM_ERROR = Object.freeze({
@@ -94,6 +94,7 @@ export function readForm(doc) {
     throw new FormError(FORM_ERROR.INTERESTED_NOT_SELECTED, 'Interessado selecionado sem identificação.');
   }
   const interestedKey = hashString(normalizeLabel(interestedName));
+  const interestedCpf = extractInterestedCpf(selectedCards[0].textContent || '');
   const values = {};
   const editable = {};
   const maxlength = {};
@@ -129,6 +130,7 @@ export function readForm(doc) {
     processLabel: readFormProcessLabel(doc),
     interestedKey,
     interestedName,
+    interestedCpf,
     interestedIndex: selectedIndex,
     interestedCount: cards.length,
     values,

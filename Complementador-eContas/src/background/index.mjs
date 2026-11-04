@@ -4,33 +4,47 @@ import { fetchPdfBytes } from './pdf-fetch.mjs';
 import { PORTAL_ORIGIN, PDF_ORIGIN } from '../shared/config.mjs';
 import { createDiagnosticRecorder, DIAGNOSTIC_STATES } from '../shared/diagnostic-store.mjs';
 import { MESSAGE, errorResult, isRequestId } from '../shared/protocol.mjs';
+import { DOCUMENT_CACHE_KEY, cacheMatches, mergeCacheEntry } from './document-cache.mjs';
 import { parseRoute } from '../shared/routes.mjs';
 import { runDocumentDiagnostic, runFillTransaction, TransactionManager } from './bridge.mjs';
 
-const transactions = new TransactionManager({ timeoutMs: 30000 });
+const transactions = new TransactionManager({ timeoutMs: 180000 });
 let diagnosticRecorder = null;
-const BIRTH_EVENT_KEY = 'complementadorBirthEvent';
 
-async function readBirthEvent() {
+async function readDocumentCache(processId) {
   if (!chrome.storage || !chrome.storage.session) {
     return null;
   }
   try {
-    const values = await chrome.storage.session.get(BIRTH_EVENT_KEY);
-    const value = values ? values[BIRTH_EVENT_KEY] : null;
-    return value && typeof value.eventId === 'string' ? value.eventId : null;
+    const values = await chrome.storage.session.get(DOCUMENT_CACHE_KEY);
+    const value = values ? values[DOCUMENT_CACHE_KEY] : null;
+    if (!cacheMatches(value, processId)) {
+      return null;
+    }
+    return {
+      processHash: value.processHash,
+      resolutionEventId: value.resolutionEventId || null,
+      guiaEventId: value.guiaEventId || null,
+    };
   } catch {
     return null;
   }
 }
 
-async function writeBirthEvent(eventId) {
-  if (!chrome.storage || !chrome.storage.session || typeof eventId !== 'string') {
+async function writeDocumentCache(processId, ids) {
+  if (!chrome.storage || !chrome.storage.session) {
     return;
   }
   try {
+    const values = await chrome.storage.session.get(DOCUMENT_CACHE_KEY);
+    const existing = values ? values[DOCUMENT_CACHE_KEY] : null;
+    const entry = mergeCacheEntry(existing, processId, ids || {});
+    if (!entry) {
+      await chrome.storage.session.remove(DOCUMENT_CACHE_KEY);
+      return;
+    }
     await chrome.storage.session.set({
-      [BIRTH_EVENT_KEY]: { eventId, updatedAt: Date.now() },
+      [DOCUMENT_CACHE_KEY]: entry,
     });
   } catch {
     // O cache é opcional.
@@ -117,7 +131,7 @@ async function handleRequestFill(message, sender) {
     return errorResult(message.requestId, 'BUSY', 'Já existe um preenchimento em andamento.');
   }
   try {
-    const cachedBirthEventId = await readBirthEvent();
+    const cached = await readDocumentCache(route.idProcesso);
     const tabs = await chrome.tabs.query({});
     const sourceTabs = tabs
       .filter((tab) => tab && tab.url && tab.url.startsWith(PORTAL_ORIGIN))
@@ -131,9 +145,9 @@ async function handleRequestFill(message, sender) {
       sendToForm: (tabId, payload) => chrome.tabs.sendMessage(tabId, payload),
       extract: extractFields,
       timeoutMs: 20000,
-      birthTimeoutMs: 25000,
-      cachedBirthEventId,
-      onBirthFound: (eventId) => writeBirthEvent(eventId),
+      documentTimeoutMs: 90000,
+      cached,
+      onDocumentsFound: (ids) => writeDocumentCache(route.idProcesso, ids),
       isCancelled: () => !transactions.isActive(sender.tab.id, message.requestId),
     });
   } finally {

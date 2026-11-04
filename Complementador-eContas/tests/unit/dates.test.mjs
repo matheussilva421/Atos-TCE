@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { parseResolutionDate, parseBirthDate } from '../../src/extract/dates.mjs';
+import { parseResolutionDate, parseBirthDate, parseBirthDateForPerson } from '../../src/extract/dates.mjs';
 
 const fixture = (name) => readFileSync(new URL('../fixtures/' + name, import.meta.url), 'utf8');
 
@@ -60,6 +60,27 @@ test('birth_date_requires_explicit_birth_context', () => {
 test('birth_date_after_other_fields_in_guia_layout', () => {
   const text = 'Guia Financeira/Taxacao de Proventos. Processo N. 999001. Segurado: PESSOA UM. CPF: 000.000.000-00. RG: 0000000. Data de Nascimento: Assunto: NOVO FLUXO. Regra: REGRA DE TRANSICAO. Data: 01/02/1980.';
   const result = parseBirthDate(text);
+  assert.equal(result.status, 'exact');
+  assert.equal(result.dateBr, '01/02/1980');
+});
+
+test('birth_date_correlates_with_selected_person_by_cpf', () => {
+  const text = 'Guia Financeira/Taxacao de Proventos. PESSOA UM CPF: 000.000.000-00. Data de Nascimento: 01/02/1980. PESSOA DOIS CPF: 111.111.111-11. Data de Nascimento: 03/04/1985.';
+  const result = parseBirthDateForPerson(text, 'PESSOA DOIS', '11111111111');
+  assert.equal(result.status, 'exact');
+  assert.equal(result.dateBr, '03/04/1985');
+});
+
+test('birth_date_correlates_with_selected_person_by_name', () => {
+  const text = 'Guia Financeira/Taxacao de Proventos. PESSOA UM, Data de Nascimento: 01/02/1980. PESSOA DOIS, Data de Nascimento: 03/04/1985.';
+  const result = parseBirthDateForPerson(text, 'PESSOA UM', '');
+  assert.equal(result.status, 'exact');
+  assert.equal(result.dateBr, '01/02/1980');
+});
+
+test('birth_date_falls_back_only_for_single_person_guide', () => {
+  const text = 'Guia Financeira/Taxacao de Proventos. Segurado: NOME DIFERENTE. Data de Nascimento: 01/02/1980.';
+  const result = parseBirthDateForPerson(text, 'PESSOA UM', '00000000000');
   assert.equal(result.status, 'exact');
   assert.equal(result.dateBr, '01/02/1980');
 });

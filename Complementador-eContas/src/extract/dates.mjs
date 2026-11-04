@@ -232,3 +232,120 @@ export function parseBirthDate(text) {
   }
   return { status: 'absent' };
 }
+
+function cpfDigits(value) {
+  return String(value ?? '').replace(/\D/g, '');
+}
+
+function allCpfAnchors(text) {
+  const anchors = [];
+  const pattern = /\d{3}\.?\s?\d{3}\.?\s?\d{3}-?\s?\d{2}/g;
+  let match;
+  while ((match = pattern.exec(text)) !== null) {
+    anchors.push({ index: match.index, digits: cpfDigits(match[0]) });
+  }
+  return anchors;
+}
+
+function cpfAnchors(text, cpf) {
+  if (!/^\d{11}$/.test(cpf)) {
+    return [];
+  }
+  return allCpfAnchors(text)
+    .filter((anchor) => anchor.digits === cpf)
+    .map((anchor) => anchor.index);
+}
+
+export function parseBirthDateForPerson(text, selectedName, selectedCpf) {
+  const normalized = deaccent(text);
+  const anchors = [];
+  anchors.push(...cpfAnchors(normalized, cpfDigits(selectedCpf)));
+  const name = deaccent(selectedName).replace(/\s+/g, ' ').trim();
+  if (name) {
+    let from = 0;
+    while (from < normalized.length) {
+      const index = normalized.indexOf(name, from);
+      if (index < 0) {
+        break;
+      }
+      anchors.push(index);
+      from = index + name.length;
+    }
+  }
+
+  const candidates = [];
+  const labels = [...normalized.matchAll(/data de nascimento/g)].map((match) => match.index);
+  const cpf = cpfDigits(selectedCpf);
+  const allCpfs = allCpfAnchors(normalized);
+  if (/^\d{11}$/.test(cpf) && allCpfs.some((anchor) => anchor.digits === cpf)) {
+    const cpfCandidates = [];
+    for (const anchor of allCpfs.filter((item) => item.digits === cpf)) {
+      const nextCpf = allCpfs.find((item) => item.index > anchor.index);
+      const block = normalized.slice(anchor.index, nextCpf ? nextCpf.index : normalized.length);
+      const datePattern = /\b(\d{1,2})\s*[\/.-]\s*(\d{1,2})\s*[\/.-]\s*(\d{4})\b/g;
+      let dateMatch;
+      while ((dateMatch = datePattern.exec(block)) !== null) {
+        const day = Number(dateMatch[1]);
+        const month = Number(dateMatch[2]);
+        const year = Number(dateMatch[3]);
+        if (isValidDate(day, month, year)) {
+          cpfCandidates.push({
+            dateBr: toBrDate(day, month, year),
+            evidence: contextOf(normalized, anchor.index, block.length).slice(0, 180),
+          });
+        }
+      }
+    }
+    const uniqueCpf = dedupeByDate(cpfCandidates);
+    if (uniqueCpf.length === 1) {
+      return {
+        status: 'exact',
+        dateBr: uniqueCpf[0].dateBr,
+        source: 'data de nascimento no documento',
+        evidence: uniqueCpf[0].evidence,
+      };
+    }
+    if (uniqueCpf.length > 1) {
+      return { status: 'ambiguous', candidates: uniqueCpf.map((candidate) => candidate.dateBr) };
+    }
+  }
+  for (const index of anchors) {
+    if (labels.length === 0) {
+      continue;
+    }
+    const distances = labels.map((label) => Math.abs(label - index));
+    const nearestDistance = Math.min(...distances);
+    if (distances.filter((distance) => distance === nearestDistance).length > 1) {
+      return { status: 'ambiguous' };
+    }
+    const labelIndex = labels[distances.indexOf(nearestDistance)];
+    const nextLabel = labels.find((label) => label > labelIndex);
+    const block = normalized.slice(labelIndex, nextLabel === undefined ? normalized.length : nextLabel);
+    const parsed = parseBirthDate(block);
+    if (parsed.status === 'ambiguous') {
+      return parsed;
+    }
+    if (parsed.status === 'exact') {
+      candidates.push(parsed);
+    }
+  }
+  const unique = dedupeByDate(candidates);
+  if (unique.length === 1) {
+    return {
+      status: 'exact',
+      dateBr: unique[0].dateBr,
+      source: 'data de nascimento no documento',
+      evidence: unique[0].evidence,
+    };
+  }
+  if (unique.length > 1) {
+    return { status: 'ambiguous', candidates: unique.map((candidate) => candidate.dateBr) };
+  }
+
+  const labelCount = (normalized.match(/data de nascimento/g) || []).length;
+  const dates = [...normalized.matchAll(/\b\d{1,2}\s*[\/.-]\s*\d{1,2}\s*[\/.-]\s*\d{4}\b/g)];
+  if (labelCount === 1 && dates.length === 1) {
+    return parseBirthDate(normalized);
+  }
+  return { status: 'absent' };
+}
