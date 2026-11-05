@@ -10,9 +10,11 @@ export function currentDocumentSrc(doc) {
 export async function ensureDocumentOpen(doc, options = {}) {
   const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 30000;
   const pollMs = Number.isFinite(options.pollMs) ? options.pollMs : 250;
+  const clickDelayMs = Number.isFinite(options.clickDelayMs) ? options.clickDelayMs : 5000;
   const sleep = options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   const click = options.click || ((element) => element.click());
 
+  const startedAt = Date.now();
   const deadline = Date.now() + timeoutMs;
   let clicked = false;
   for (;;) {
@@ -25,10 +27,11 @@ export async function ensureDocumentOpen(doc, options = {}) {
       const iframe = doc.querySelector('iframe#ifrm');
       if (direct && iframe) {
         iframe.setAttribute('src', direct);
-      } else {
+        clicked = true;
+      } else if (Date.now() - startedAt >= clickDelayMs) {
         click(card);
+        clicked = true;
       }
-      clicked = true;
     }
     if (Date.now() >= deadline) {
       return { ok: false, code: card ? 'NO_DOCUMENT' : 'NO_EVENT_CARD' };

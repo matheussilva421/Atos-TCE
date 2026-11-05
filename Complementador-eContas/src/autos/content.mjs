@@ -338,6 +338,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               details: details || {},
             });
 
+            if (pending && typeof pending.catch === 'function') pending.catch(() => {});
+          } catch {
+            // O observador nunca pode interromper a leitura.
+          }
+        },
+        now: () => performance.now(),
+      },
+    ).then(
+      (documentRead) => sendResponse({ ok: true, document: documentRead }),
+      (error) => sendResponse({ ok: false, code: error.code || 'DOCUMENT_NOT_READABLE' }),
+    );
+    return true;
+  });
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || message.type !== MESSAGE.BATCH_ENSURE_DOCUMENT) {
     return false;
@@ -356,16 +370,3 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   );
   return true;
 });
-            if (pending && typeof pending.catch === 'function') pending.catch(() => {});
-          } catch {
-            // O observador nunca pode interromper a leitura.
-          }
-        },
-        now: () => performance.now(),
-      },
-    ).then(
-      (documentRead) => sendResponse({ ok: true, document: documentRead }),
-      (error) => sendResponse({ ok: false, code: error.code || 'DOCUMENT_NOT_READABLE' }),
-    );
-    return true;
-  });

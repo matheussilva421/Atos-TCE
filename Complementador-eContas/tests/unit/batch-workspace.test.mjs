@@ -165,3 +165,22 @@ test('fresh_workspace_replaces_previous_tabs', async () => {
   assert.notEqual(workspace.formTabId, 72);
   assert.equal(api.tabs[workspace.autosTabId].url.includes('/702/autos'), true);
 });
+
+test('fresh_workspace_accepts_callback_style_remove', async () => {
+  const api = fakeTabs({
+    81: { id: 81, url: ORIGIN + '/#/dashboard/processos/701/autos' },
+    82: { id: 82, url: ORIGIN + '/#/dashboard/complementar-ato/701' },
+  });
+  api.remove = (tabId) => {
+    delete api.tabs[tabId];
+    return undefined;
+  };
+  const workspace = await openWorkspace({
+    processId: '703',
+    previous: { autosTabId: 81, formTabId: 82 },
+    tabsApi: api,
+    fresh: true,
+  });
+  assert.equal(Number.isInteger(workspace.autosTabId), true);
+  assert.equal(api.tabs[81], undefined);
+});

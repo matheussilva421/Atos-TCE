@@ -56,6 +56,15 @@ Suspeitas, em ordem: bundle antigo carregado pelo Chrome (execução desligada) 
 - Nenhum código mudou desde `9a141d1`; suíte em 249 PASS e build final com execução desligada.
 - Para retomar: reabrir o QA (`scripts/portal-lab/launch-qa-chromium.mjs`, porta 9333, perfil `C:\Users\slvma\.codex\qa-econtas`), carregar uma cópia nova do build (`work/qa-run-N`), fazer login, recarregar a listagem e rodar **um** processo. Se o clique pelo painel funcionar mas o CDP continuar travando, ler o diário pelo content script com `chrome.storage.local` (script `work/qa-state-via-content.mjs`).
 
+### Marco 05/11/2026 — preenchimento real comprovado
+
+- Causas encontradas e corrigidas em sequência: listener `BATCH_ENSURE_DOCUMENT` aninhado (nunca registrado), `tabs.remove()` sem Promise quebrando do segundo processo em diante, envio de mensagem aceitando `undefined` como sucesso e `FETCH_PDF` exigindo transação que o lote não abria.
+- Tempos ampliados: mensagem 60 s, documentos 300 s, preparação do documento 30 s com repetição.
+- Execução com o filtro do operador: 10 capturados, 7 examinados, 6 recusas corretas, **1 processo em `VALIDATING` com os quatro campos e a modalidade preenchidos**, 0 salvamentos, lote `SUSPENDED` no gate.
+- A aba do formulário confirma comprimentos 10/26/10/10 e modalidade selecionada; nenhum clique em Complementar ato.
+- Build final em `dist` com `BATCH_EXECUTION_ENABLED=false`; Chrome QA encerrado.
+- Próximo passo: repetir com poucos processos para confirmar estabilidade e, se o usuário autorizar, avaliar H2 (um salvamento real). H2/H3/G7 seguem `NOT_RUN`.
+
 ### Ambiente
 
 - Chrome QA: perfil em `C:\Users\slvma\.codex\qa-econtas`, porta CDP 9333, encerrado nesta pausa.

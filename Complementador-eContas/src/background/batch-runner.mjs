@@ -21,6 +21,8 @@ export function createBatchDriver({
   driveEnabled = BATCH_EXECUTION_ENABLED,
   saveEnabled = false,
   maxSteps = 200,
+  beginTransaction = null,
+  finishTransaction = null,
 }) {
   let deps = null;
   const getDeps = () => {
@@ -30,7 +32,9 @@ export function createBatchDriver({
         tabs,
         sendToTab,
         executionEnabled: saveEnabled === true,
-        fillTransaction: async ({ processId, formTabId, autosTabId }) => {
+        beginTransaction,
+        finishTransaction,
+        fillTransaction: async ({ processId, formTabId, autosTabId, requestId }) => {
           const formTab = await tabs.get(formTabId);
           const autosTab = await tabs.get(autosTabId);
           const snapshot = await sendToTab(formTabId, {
@@ -46,13 +50,13 @@ export function createBatchDriver({
           const result = await runFillTransaction({
             formTab,
             sourceTabs: [autosTab],
-            requestId: createRequestId(),
+            requestId,
             formSnapshot: snapshot.snapshot,
             sendToSource: (tabId, payload) => sendToTab(tabId, payload),
             sendToForm: (tabId, payload) => sendToTab(tabId, payload),
             extract: extractFields,
-            timeoutMs: 20000,
-            documentTimeoutMs: 90000,
+            timeoutMs: 60000,
+            documentTimeoutMs: 300000,
             cached,
             applyMessageType: MESSAGE.BATCH_APPLY,
             onDocumentsFound: (ids) => {

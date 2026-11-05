@@ -25,7 +25,7 @@ test('selects_first_event_when_nothing_is_open', async () => {
   doc.querySelector('.card-event').addEventListener('click', (event) => {
     doc.querySelector('#ifrm').setAttribute('src', event.currentTarget.dataset.pdf);
   });
-  const result = await ensureDocumentOpen(doc, { sleep: async () => {}, pollMs: 1 });
+  const result = await ensureDocumentOpen(doc, { sleep: async () => {}, pollMs: 1, clickDelayMs: 0 });
   assert.equal(result.ok, true);
   assert.equal(result.alreadyOpen, false);
   assert.equal(currentDocumentSrc(doc), '/one.pdf');
@@ -44,6 +44,7 @@ test('fails_closed_when_iframe_never_loads', async () => {
     sleep: async () => {},
     timeoutMs: 5,
     pollMs: 1,
+    clickDelayMs: 0,
   });
   assert.equal(result.ok, false);
   assert.equal(result.code, 'NO_DOCUMENT');
@@ -58,4 +59,19 @@ test('uses_data_pdf_directly_when_available', async () => {
   assert.equal(result.ok, true);
   assert.equal(clicks, 0);
   assert.equal(currentDocumentSrc(doc), 'https://example.invalid/doc.pdf');
+});
+
+test('does_not_click_before_grace_period', async () => {
+  const doc = document('<iframe id="ifrm" src=""></iframe><div class="card-event"></div>');
+  let clicks = 0;
+  doc.querySelector('.card-event').addEventListener('click', () => { clicks += 1; });
+  const result = await ensureDocumentOpen(doc, {
+    sleep: async () => {},
+    timeoutMs: 10,
+    pollMs: 1,
+    clickDelayMs: 60000,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'NO_DOCUMENT');
+  assert.equal(clicks, 0);
 });

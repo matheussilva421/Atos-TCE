@@ -11,6 +11,9 @@ import { BatchController } from '../batch/controller.mjs';
 import { createBatchDriver } from './batch-runner.mjs';
 import { retryAsync } from '../shared/retry.mjs';
 import { createDriveTracker } from '../batch/runtime-state.mjs';
+import { createTabSender } from '../batch/tab-sender.mjs';
+import { isBatchFetchAllowed } from '../batch/runtime-state.mjs';
+import { loadBatch } from '../batch/journal.mjs';
 
 const transactions = new TransactionManager({ timeoutMs: 180000 });
 let diagnosticRecorder = null;
@@ -64,14 +67,13 @@ function getBatchDriver() {
   batchDriver = createBatchDriver({
     storage: chrome.storage.local,
     tabs: chrome.tabs,
-    sendToTab: (tabId, payload) => retryAsync(
-      () => chrome.tabs.sendMessage(tabId, payload),
-      { attempts: 20, delayMs: 250 },
-    ),
+    sendToTab: createTabSender((tabId, payload) => chrome.tabs.sendMessage(tabId, payload)),
     runFillTransaction,
     readDocumentCache,
     writeDocumentCache,
     extractFields,
+    beginTransaction: (tabId, requestId) => transactions.begin(tabId, requestId),
+    finishTransaction: (tabId, requestId) => transactions.finish(tabId, requestId),
   });
   return batchDriver;
 }
@@ -390,7 +392,15 @@ async function handleFetchPdf(message, sender) {
   }
   const active = [...transactions.active.values()].some((entry) => entry.requestId === message.requestId && !entry.cancelled);
   if (!active) {
-    return { ok: false, code: 'STALE_TRANSACTION' };
+    let batch = null;
+    try {
+      batch = await loadBatch(chrome.storage.local);
+    } catch {
+      batch = null;
+    }
+    if (!isBatchFetchAllowed(batch, message.expectedProcessId)) {
+      return { ok: false, code: 'STALE_TRANSACTION' };
+    }
   }
   const parsed = parsePdfUrl(message.url, PDF_ORIGIN);
   if (!parsed) {

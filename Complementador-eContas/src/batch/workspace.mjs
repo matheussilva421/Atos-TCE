@@ -43,7 +43,11 @@ export async function openWorkspace({ processId, previous = null, tabsApi, fresh
     if (fresh) {
       for (const tabId of [previous.autosTabId, previous.formTabId]) {
         if (typeof tabsApi.remove === 'function') {
-          await tabsApi.remove(tabId).catch(() => {});
+          try {
+            await tabsApi.remove(tabId);
+          } catch {
+            // A aba pode já ter sido fechada.
+          }
         }
       }
     } else {

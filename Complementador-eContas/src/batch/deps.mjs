@@ -1,5 +1,5 @@
 import { PORTAL_ORIGIN } from '../shared/config.mjs';
-import { MESSAGE } from '../shared/protocol.mjs';
+import { createRequestId, MESSAGE } from '../shared/protocol.mjs';
 import { openWorkspace, waitForWorkspace } from './workspace.mjs';
 
 /**
@@ -15,6 +15,8 @@ export function createRunnerDeps({
   now = () => Date.now(),
   executionEnabled = false,
   workspaceTimeoutMs = 10000,
+  beginTransaction = null,
+  finishTransaction = null,
 }) {
   const session = { workspace: null };
   return {
@@ -50,6 +52,12 @@ export function createRunnerDeps({
       return sendToTab(formTabId, { type: MESSAGE.BATCH_SELECT_INTERESTED, processId });
     },
     async fill({ processId, formTabId, autosTabId }) {
+      const requestId = createRequestId();
+      if (typeof beginTransaction === 'function'
+        && beginTransaction(autosTabId, requestId) === false) {
+        return { ok: false, code: 'BUSY' };
+      }
+      try {
       const requestEnsure = () => sendToTab(autosTabId, {
         type: MESSAGE.BATCH_ENSURE_DOCUMENT,
         expectedProcessId: processId,
@@ -60,13 +68,23 @@ export function createRunnerDeps({
         ensured = await requestEnsure();
       }
       if (!ensured || ensured.ok !== true) {
-        return { ok: false, code: (ensured && ensured.code) || 'NO_DOCUMENT' };
+        return {
+          ok: false,
+          code: ensured === undefined
+            ? 'ENSURE_UNDEFINED'
+            : 'ENSURE_' + String(ensured.code || 'NO_CODE'),
+        };
       }
       const all = await tabs.query({});
       const sourceTabs = all
         .filter((tab) => tab && tab.url && tab.url.startsWith(PORTAL_ORIGIN))
         .map((tab) => ({ id: tab.id, url: tab.url, windowId: tab.windowId }));
-      return fillTransaction({ processId, formTabId, autosTabId, sourceTabs });
+      return fillTransaction({ processId, formTabId, autosTabId, sourceTabs, requestId });
+      } finally {
+        if (typeof finishTransaction === 'function') {
+          finishTransaction(autosTabId, requestId);
+        }
+      }
     },
     async validate({ processId, formTabId, interestedKey }) {
       const response = await sendToTab(formTabId, {

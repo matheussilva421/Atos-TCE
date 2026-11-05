@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createDriveTracker } from '../../src/batch/runtime-state.mjs';
+import { createDriveTracker, isBatchFetchAllowed } from '../../src/batch/runtime-state.mjs';
 
 test('records_only_sanitized_drive_fields', () => {
   const tracker = createDriveTracker(() => 123);
@@ -23,4 +23,13 @@ test('read_returns_copy_and_handles_empty', () => {
   const value = tracker.read();
   value.state = 'mutated';
   assert.equal(tracker.read().state, 'IDLE');
+});
+
+test('batch_fetch_allowed_only_for_current_running_process', () => {
+  const running = { state: 'RUNNING', current: { processId: '501' } };
+  assert.equal(isBatchFetchAllowed(running, '501'), true);
+  assert.equal(isBatchFetchAllowed(running, '502'), false);
+  assert.equal(isBatchFetchAllowed({ ...running, state: 'COMPLETED' }, '501'), false);
+  assert.equal(isBatchFetchAllowed({ ...running, current: null }, '501'), false);
+  assert.equal(isBatchFetchAllowed(null, '501'), false);
 });

@@ -21,3 +21,13 @@ export function createDriveTracker(now = () => Date.now()) {
     },
   };
 }
+
+export function isBatchFetchAllowed(batch, expectedProcessId) {
+  if (!batch || typeof expectedProcessId !== 'string') {
+    return false;
+  }
+  if (!['RUNNING', 'PAUSE_REQUESTED'].includes(batch.state)) {
+    return false;
+  }
+  return Boolean(batch.current && batch.current.processId === expectedProcessId);
+}

@@ -46,6 +46,7 @@ function deps(options = {}) {
   const tabs = options.tabs || fakeTabs();
   const messages = [];
   const fills = [];
+  const transactions = [];
   const instance = createRunnerDeps({
     storage: options.storage || {},
     tabs,
@@ -59,8 +60,15 @@ function deps(options = {}) {
     },
     now: () => 1000,
     executionEnabled: options.executionEnabled === true,
+    beginTransaction: (tabId, requestId) => {
+      transactions.push({ op: 'begin', tabId, requestId });
+      return true;
+    },
+    finishTransaction: (tabId, requestId) => {
+      transactions.push({ op: 'finish', tabId, requestId });
+    },
   });
-  return { instance, tabs, messages, fills };
+  return { instance, tabs, messages, fills, transactions };
 }
 
 test('open_workspace_replaces_tabs_between_processes', async () => {
@@ -74,13 +82,17 @@ test('open_workspace_replaces_tabs_between_processes', async () => {
 });
 
 test('fill_filters_source_tabs_to_portal_origin', async () => {
-  const { instance, fills, messages } = deps();
+  const { instance, fills, messages, transactions } = deps();
   const workspace = await instance.openWorkspace({ processId: '501' });
   await instance.fill({ processId: '501', formTabId: workspace.formTabId, autosTabId: workspace.autosTabId });
   assert.equal(fills.length, 1);
   assert.equal(messages[0].message.type, MESSAGE.BATCH_ENSURE_DOCUMENT);
   assert.deepEqual(fills[0].sourceTabs.map((tab) => tab.id), [1, 2]);
   assert.equal(fills[0].processId, '501');
+  assert.equal(transactions[0].op, 'begin');
+  assert.equal(transactions[1].op, 'finish');
+  assert.equal(transactions[0].requestId, fills[0].requestId);
+  assert.equal(transactions[0].tabId, workspace.autosTabId);
 });
 
 test('select_and_validate_use_dedicated_messages', async () => {
@@ -95,6 +107,26 @@ test('select_and_validate_use_dedicated_messages', async () => {
   ]);
   assert.equal(validation.ok, false);
   assert.equal(validation.code, 'INTERESTED_CHANGED');
+});
+
+test('fill_reports_missing_ensure_response', async () => {
+  const tabs = fakeTabs();
+  const instance = createRunnerDeps({
+    storage: {},
+    tabs,
+    sendToTab: async () => undefined,
+    fillTransaction: async () => ({ ok: true }),
+    now: () => 1000,
+    workspaceTimeoutMs: 20,
+  });
+  const workspace = await instance.openWorkspace({ processId: '501' });
+  const result = await instance.fill({
+    processId: '501',
+    formTabId: workspace.formTabId,
+    autosTabId: workspace.autosTabId,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'ENSURE_UNDEFINED');
 });
 
 test('save_is_closed_by_default', async () => {

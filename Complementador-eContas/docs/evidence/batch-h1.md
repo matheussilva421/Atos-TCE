@@ -54,3 +54,21 @@ Suíte de navegador: 21 testes PASS (19 anteriores + 2 novos), em fixtures locai
 ## Declaração de segurança
 
 `REAL_SAVE_NOT_TESTED`. Nenhum clique em Complementar ato, nenhum diálogo real confirmado e nenhum ato salvo. A UI de salvamento observada limita-se ao botão da tela e à ausência de modal antes do clique.
+
+## Execução real supervisionada com preenchimento (05/11/2026)
+
+Com o filtro do operador aplicado (marcador *Mutirão - Educação* e ATO COMPLEMENTADO = *Não*), o lote foi iniciado pelo painel com 10 examinados / 1 salvo.
+
+| Verificação | Resultado |
+| --- | --- |
+| Fila | 10 capturados na página atual |
+| Processos examinados | 7 até a suspensão |
+| Processos recusados | 6 em `REVIEW_REQUIRED` (múltiplos interessados ou campos ausentes) |
+| Processo preenchido | 1 em `VALIDATING` |
+| Campos | data DOE 10, cargo 26, matrícula 10, nascimento 10 caracteres; modalidade selecionada |
+| Salvamentos | 0 |
+| Estado final do lote | `SUSPENDED` (gate de salvamento) |
+
+O diário registra `READING → FILLING → VALIDATING → SUSPEND` para o processo, e a aba do formulário confirma os quatro campos e a modalidade preenchidos. Nenhum clique em Complementar ato.
+
+Defeitos corrigidos para chegar aqui: listener de preparação de documento aninhado no lugar errado, `tabs.remove()` sem Promise, envio de mensagem aceitando resposta vazia e `FETCH_PDF` recusando o lote por falta de transação. Tempos ampliados para 60 s (mensagem) e 300 s (documentos).
