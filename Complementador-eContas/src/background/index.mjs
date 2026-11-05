@@ -8,10 +8,12 @@ import { DOCUMENT_CACHE_KEY, cacheMatches, mergeCacheEntry } from './document-ca
 import { parseRoute } from '../shared/routes.mjs';
 import { runDocumentDiagnostic, runFillTransaction, TransactionManager } from './bridge.mjs';
 import { BatchController } from '../batch/controller.mjs';
+import { createBatchDriver } from './batch-runner.mjs';
 
 const transactions = new TransactionManager({ timeoutMs: 180000 });
 let diagnosticRecorder = null;
 let batchController = null;
+let batchDriver = null;
 
 const BATCH_TYPES = new Set([
   MESSAGE.BATCH_PREVIEW,
@@ -39,6 +41,25 @@ function getBatchController() {
   return batchController;
 }
 
+function getBatchDriver() {
+  if (batchDriver) {
+    return batchDriver;
+  }
+  if (!chrome.storage || !chrome.storage.local) {
+    return null;
+  }
+  batchDriver = createBatchDriver({
+    storage: chrome.storage.local,
+    tabs: chrome.tabs,
+    sendToTab: (tabId, payload) => chrome.tabs.sendMessage(tabId, payload),
+    runFillTransaction,
+    readDocumentCache,
+    writeDocumentCache,
+    extractFields,
+  });
+  return batchDriver;
+}
+
 try {
   if (chrome.storage && chrome.storage.local && typeof chrome.storage.local.setAccessLevel === 'function') {
     chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }).catch(() => {});
@@ -61,16 +82,32 @@ async function handleBatchCommand(message, sender) {
   switch (message.type) {
     case MESSAGE.BATCH_PREVIEW:
       return controller.preview(command);
-    case MESSAGE.BATCH_START:
-      return controller.start({ ...command, limits: message.limits, expectedContextKey: message.contextKey });
+    case MESSAGE.BATCH_START: {
+      const started = await controller.start({ ...command, limits: message.limits, expectedContextKey: message.contextKey });
+      if (started && started.ok) {
+        const driver = getBatchDriver();
+        if (driver) {
+          void driver.drive(started.batchId);
+        }
+      }
+      return started;
+    }
     case MESSAGE.BATCH_STATUS:
       return controller.status(command);
     case MESSAGE.BATCH_PAUSE:
       return controller.pause({ ...command, batchId: message.batchId, revision: message.revision });
     case MESSAGE.BATCH_STOP:
       return controller.stop({ ...command, batchId: message.batchId, revision: message.revision });
-    case MESSAGE.BATCH_RESUME:
-      return controller.resume({ ...command, batchId: message.batchId, revision: message.revision });
+    case MESSAGE.BATCH_RESUME: {
+      const resumed = await controller.resume({ ...command, batchId: message.batchId, revision: message.revision });
+      if (resumed && resumed.ok) {
+        const driver = getBatchDriver();
+        if (driver) {
+          void driver.drive(resumed.batchId);
+        }
+      }
+      return resumed;
+    }
     default:
       return { ok: false, code: 'UNKNOWN_BATCH_COMMAND' };
   }
