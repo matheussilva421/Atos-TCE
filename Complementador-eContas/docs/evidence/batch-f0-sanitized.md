@@ -47,7 +47,7 @@ O leitor `src/list/list-reader.mjs` foi executado sobre o HTML da página aberta
 
 ## O que permanece desconhecido
 
-- URL real da aba de Autos: a varredura dos bundles já carregados pela listagem (05/11/2026) não encontrou o literal "autos", e a navegação para um processo não foi observada. O construtor `autosUrl` em `src/batch/workspace.mjs` é provisório e não deve ser tratado como contrato.
+- Rota da aba de Autos: documentada como observada em 03/11/2026 (`docs/evidence/dom-contract.md`: `/#/dashboard/processos/:idProcesso/autos`). Não foi revalidada nesta sessão; a varredura dos bundles não a contradiz, apenas não a repete. Revalidar no QA antes de habilitar o lote.
 - Estrutura e texto do botão de salvamento e de eventual diálogo de confirmação: não observados sem executar um salvamento real. Permanecem `UNKNOWN_UNTIL_H2`.
 - Prova pós-salvamento no portal: não observada.
 - Comportamento de linhas com status ambíguo (nem pendente nem completo): o leitor classifica como `unknown` e exclui da fila.
