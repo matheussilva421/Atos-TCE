@@ -133,9 +133,22 @@ async function autoRestoreFilters() {
     return;
   }
   autoRestored = true;
+  const claim = await send({ type: MESSAGE.FILTER_AUTO_CLAIM, requestId: createRequestId() });
+  if (!claim || claim.apply !== true) {
+    return;
+  }
   const response = await send({ type: MESSAGE.FILTER_PRESET_GET, requestId: createRequestId() });
   if (response && response.ok && response.preset) {
-    await applyFilterPreset(document, response.preset, { search: false });
+    const applied = await applyFilterPreset(document, response.preset, { search: false });
+    if (!applied || applied.ok !== true) {
+      return;
+    }
+    await send({ type: MESSAGE.FILTER_AUTO_DONE, requestId: createRequestId() });
+    const search = [...document.querySelectorAll('button')]
+      .find((button) => /^BUSCAR$/i.test((button.textContent || '').replace(/\s+/g, ' ').trim()));
+    if (search) {
+      search.click();
+    }
   }
 }
 

@@ -30,6 +30,7 @@ const define = {
   __PORTAL_ORIGIN__: JSON.stringify(portalOrigin),
   __PDF_ORIGIN__: JSON.stringify(pdfOrigin),
   __BATCH_EXECUTION__: JSON.stringify(process.env.BATCH_EXECUTION === '1'),
+  __BATCH_FILL_ONLY__: JSON.stringify(process.env.BATCH_FILL_ONLY === '1'),
 };
 const common = {
   bundle: true,

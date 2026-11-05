@@ -5,6 +5,9 @@ import { createRequestId, MESSAGE } from '../shared/protocol.mjs';
 export const BATCH_EXECUTION_ENABLED = typeof __BATCH_EXECUTION__ === 'boolean'
   ? __BATCH_EXECUTION__
   : false;
+export const BATCH_FILL_ONLY = typeof __BATCH_FILL_ONLY__ === 'boolean'
+  ? __BATCH_FILL_ONLY__
+  : false;
 
 /**
  * Monta as dependências reais do runner e conduz os passos. Permanece desligado
@@ -78,12 +81,14 @@ export function createBatchDriver({
     return deps;
   };
   return {
-    enabled: driveEnabled === true,
+    enabled: driveEnabled === true || BATCH_FILL_ONLY === true,
     async drive(batchId) {
-      if (driveEnabled !== true) {
+      const canDrive = driveEnabled === true || BATCH_FILL_ONLY === true;
+      const canSave = BATCH_FILL_ONLY === true ? false : saveEnabled === true;
+      if (!canDrive) {
         return { state: 'DISABLED', steps: 0 };
       }
-      const activeDeps = getDeps();
+      const activeDeps = { ...getDeps(), saveEnabled: canSave };
       let steps = 0;
       for (; steps < maxSteps; steps += 1) {
         const result = await runOneStep({ batchId, deps: activeDeps });

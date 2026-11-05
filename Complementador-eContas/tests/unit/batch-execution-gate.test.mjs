@@ -16,6 +16,7 @@ test('batch_execution_flag_is_closed', () => {
   assert.equal(runner.includes("typeof __BATCH_EXECUTION__ === 'boolean'"), true);
   const build = readFileSync('scripts/build.mjs', 'utf8');
   assert.equal(build.includes("process.env.BATCH_EXECUTION === '1'"), true);
+  assert.equal(build.includes("process.env.BATCH_FILL_ONLY === '1'"), true);
   assert.equal(runner.includes('saveEnabled = false'), true);
   assert.equal(runner.includes('driveEnabled = BATCH_EXECUTION_ENABLED'), true);
 });

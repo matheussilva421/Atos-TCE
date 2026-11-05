@@ -73,6 +73,14 @@ Suspeitas, em ordem: bundle antigo carregado pelo Chrome (execução desligada) 
 - Testes: 263 unitários PASS (novos casos de filtro, sanitização e `MARK_FILLED`).
 - Ambiente: o Chrome QA voltou a ficar sem resposta ao CDP durante a rodada; browser encerrado e build final com `BATCH_EXECUTION_ENABLED=false`.
 
+### Atualização 05/11/2026 — auto-busca dos filtros e perfil QA novo
+
+- Filtros totalmente automáticos: o conteúdo pede autorização por aba (`FILTER_AUTO_CLAIM`), aplica o preset, confirma (`FILTER_AUTO_DONE`) e só então clica em BUSCAR. A confirmação evita laço de recarga quando o BUSCAR provoca navegação.
+- Modo estruturalmente só-preenchimento: `BATCH_FILL_ONLY=1` no build liga o motor e **força** `saveEnabled=false`; o caminho de salvamento não pode ser ativado nesse modo.
+- Perfil QA antigo (`C:\Users\slvma\.codex\qa-econtas`) corrompeu após encerramentos forçados e passou a mostrar "erro ao abrir seu perfil". A cópia de cookies para recuperar a sessão foi bloqueada pelo revisor automático por envolver autenticação; **não insistir**.
+- Perfil novo e vazio: `C:\Users\slvma\.codex\qa-econtas-fresh`, com a extensão `work/qa-run24` (só-preenchimento). Está na tela de login aguardando um login manual único.
+- Após o login: semear o preset com `work/qa-seed-preset.mjs` (aponta para a chave `complementadorFilterPreset`), recarregar a página e o painel aplica filtro + BUSCAR sozinho; então iniciar o lote 10/1.
+
 ### Ambiente
 
 - Chrome QA: perfil em `C:\Users\slvma\.codex\qa-econtas`, porta CDP 9333, encerrado nesta pausa.

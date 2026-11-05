@@ -399,6 +399,33 @@ async function handleFilterPreset(message, sender) {
   await chrome.storage.local.set({ [FILTER_PRESET_KEY]: preset });
   return { ok: true };
 }
+
+const filterAutoAppliedTabs = new Set();
+
+async function handleFilterAutoClaim(message, sender) {
+  if (!isTrusted(sender) || !sender.tab || !Number.isInteger(sender.tab.id)) {
+    return { apply: false };
+  }
+  const tabId = sender.tab.id;
+  if (chrome.storage && chrome.storage.session) {
+    const key = 'filterAutoApplied:' + tabId;
+    const values = await chrome.storage.session.get(key);
+    return { apply: !(values && values[key]) };
+  }
+  return { apply: !filterAutoAppliedTabs.has(tabId) };
+}
+
+async function handleFilterAutoDone(message, sender) {
+  if (!isTrusted(sender) || !sender.tab || !Number.isInteger(sender.tab.id)) {
+    return { ok: false };
+  }
+  const tabId = sender.tab.id;
+  if (chrome.storage && chrome.storage.session) {
+    await chrome.storage.session.set({ ['filterAutoApplied:' + tabId]: true });
+  }
+  filterAutoAppliedTabs.add(tabId);
+  return { ok: true };
+}
 async function handleFetchPdf(message, sender) {
   if (!isTrusted(sender) || !sender.tab || !isRequestId(message.requestId)) {
     return { ok: false, code: 'UNTRUSTED_SENDER' };
@@ -476,6 +503,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleFilterPreset(message, sender).then(
       (response) => sendResponse(response),
       () => sendResponse({ ok: false, code: 'FILTER_PRESET_FAILED' }),
+    );
+    return true;
+  }
+  if (message.type === MESSAGE.FILTER_AUTO_CLAIM) {
+    handleFilterAutoClaim(message, sender).then(
+      (response) => sendResponse(response),
+      () => sendResponse({ apply: false }),
+    );
+    return true;
+  }
+  if (message.type === MESSAGE.FILTER_AUTO_DONE) {
+    handleFilterAutoDone(message, sender).then(
+      (response) => sendResponse(response),
+      () => sendResponse({ ok: false }),
     );
     return true;
   }
