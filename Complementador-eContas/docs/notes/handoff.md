@@ -31,6 +31,15 @@ As duas últimas tentativas criaram a fila (10 capturados) mas ficaram em `RUNNI
 
 Suspeitas, em ordem: bundle antigo carregado pelo Chrome (execução desligada) e `runOneStep` retornando `IDLE`. Verificar primeiro qual é, com uma rodada de 1 processo.
 
+### Atualização 05/11/2026 (retomada após o desligamento)
+
+- **Causa do "0 examinados" encontrada**: o Chrome estava servindo um pacote antigo da extensão quando o mesmo caminho `dist` era reutilizado. Carregando uma cópia em caminho novo (`work/qa-run`), o driver passou a funcionar: lote de 1 processo examinado, abas de Autos e formulário abertas.
+- **Regra prática**: a cada build novo, copiar `dist` para um caminho novo (`work/qa-run-N`) e passar esse caminho ao launcher. O caminho reutilizado pode entregar código velho.
+- `BATCH_START` agora devolve `driverEnabled` e `lastDrive`; `BATCH_STATUS` também.
+- Launcher corrigido para escolher o service worker cujo manifesto é o do Complementador (antes podia pegar workers embutidos do Chromium).
+- `NO_DOCUMENT` continua: a aba de Autos real pode levar mais de 20 s para preencher o `iframe#ifrm`; a espera subiu para 30 s e o preenchimento repete a preparação uma vez após 4 s.
+- Última tentativa com `work/qa-run3`: diário apareceu vazio e o painel travou; o QA foi encerrado e o build final voltou a `BATCH_EXECUTION_ENABLED=false`.
+
 ### Ambiente
 
 - Chrome QA: perfil em `C:\Users\slvma\.codex\qa-econtas`, porta CDP 9333, encerrado nesta pausa.

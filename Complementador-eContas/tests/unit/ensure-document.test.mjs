@@ -33,7 +33,7 @@ test('selects_first_event_when_nothing_is_open', async () => {
 
 test('fails_closed_without_cards', async () => {
   const doc = document('<iframe id="ifrm" src=""></iframe>');
-  const result = await ensureDocumentOpen(doc, { sleep: async () => {} });
+  const result = await ensureDocumentOpen(doc, { sleep: async () => {}, timeoutMs: 5, pollMs: 1 });
   assert.equal(result.ok, false);
   assert.equal(result.code, 'NO_EVENT_CARD');
 });

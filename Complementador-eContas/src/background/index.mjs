@@ -106,7 +106,11 @@ async function handleBatchCommand(message, sender) {
           startDrive(driver, started.batchId);
         }
       }
-      return started;
+      return {
+        ...started,
+        driverEnabled: Boolean(getBatchDriver() && getBatchDriver().enabled),
+        lastDrive: driveTracker.read(),
+      };
     }
     case MESSAGE.BATCH_STATUS:
       {

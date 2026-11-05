@@ -49,10 +49,15 @@ export function createRunnerDeps({
       return sendToTab(formTabId, { type: MESSAGE.BATCH_SELECT_INTERESTED, processId });
     },
     async fill({ processId, formTabId, autosTabId }) {
-      const ensured = await sendToTab(autosTabId, {
+      const requestEnsure = () => sendToTab(autosTabId, {
         type: MESSAGE.BATCH_ENSURE_DOCUMENT,
         expectedProcessId: processId,
       });
+      let ensured = await requestEnsure();
+      if (!ensured || ensured.ok !== true) {
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        ensured = await requestEnsure();
+      }
       if (!ensured || ensured.ok !== true) {
         return { ok: false, code: (ensured && ensured.code) || 'NO_DOCUMENT' };
       }
