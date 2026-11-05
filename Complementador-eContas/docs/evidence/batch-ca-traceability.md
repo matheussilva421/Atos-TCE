@@ -9,9 +9,9 @@ Escopo: código local e testes sintéticos. Nenhum salvamento real, nenhum diál
 | CA-02 | Fila limitada à página atual | `batch-list-reader.test.mjs`; leitura real de 10 linhas sem paginar | PASS |
 | CA-03 | Concluídos excluídos sem gastar cota | `batch-queue.test.mjs` | PASS sintético |
 | CA-04 | Múltiplos interessados nunca salvos | `batch-interested.test.mjs`, `batch-form-content.test.mjs` | PASS sintético |
-| CA-05 | Interessado único selecionado e confirmado | `batch-interested.test.mjs` | PASS sintético |
+| CA-05 | Interessado único selecionado e confirmado | `batch-interested.test.mjs`; `batch-form.spec.mjs` | PASS sintético (unitário + navegador) |
 | CA-06 | Documentos corretos | `full-flow.spec.mjs` (descoberta no fluxo manual); lote ainda não exercitado | PARCIAL |
-| CA-07 | Cinco campos conforme regras | `batch-validation.test.mjs` | PASS sintético |
+| CA-07 | Cinco campos conforme regras | `batch-validation.test.mjs`; `batch-form.spec.mjs` (4 campos + modalidade) | PASS sintético (unitário + navegador) |
 | CA-08 | Preexistentes compatíveis mantidos; divergentes bloqueiam | `batch-validation.test.mjs`, `batch-manual-regression.test.mjs` | PASS sintético |
 | CA-09 | Dois limites não excedidos | `batch-queue.test.mjs`, `batch-state-machine.test.mjs` | PASS sintético |
 | CA-10 | Só contar salvamentos comprovados | `batch-saving.test.mjs` | PASS sintético |

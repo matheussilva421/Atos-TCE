@@ -28,9 +28,10 @@ Estado: `H1_INCOMPLETE`
 | Gate de execução e registro no service worker | `tests/unit/batch-execution-gate.test.mjs` (3 testes) | PASS |
 | Retry limitado para content script de aba nova | `tests/unit/retry.test.mjs` (3 testes) | PASS |
 | Painel do lote em navegador sintético | `tests/browser/batch-panel.spec.mjs` (1 teste) | PASS |
+| Pipeline de formulário do lote no navegador | `tests/browser/batch-form.spec.mjs` (1 teste) | PASS |
 
 Total: 237 testes unitários PASS (114 anteriores + 123 novos).
-Suíte de navegador: 20 testes PASS (19 anteriores + 1 novo), em fixtures locais, sem acesso ao portal.
+Suíte de navegador: 21 testes PASS (19 anteriores + 2 novos), em fixtures locais, sem acesso ao portal.
 
 ## Verificação no Chrome QA (05/11/2026)
 

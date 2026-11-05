@@ -28,6 +28,7 @@
 - Corrida de aba nova: o envio de mensagens do driver usa `retryAsync` (20 tentativas, 250 ms) para aguardar o content script após criar/reaproveitar a aba; 3 testes cobrem sucesso imediato, retry e esgotamento.
 - Verificação de abas: `createRunnerDeps.openWorkspace` agora chama `verifyWorkspace` e recusa operar se a aba não estiver no processo correto (`WRONG_PROCESS_TAB`), antes de qualquer mensagem. Teste cobre a recusa sem envio.
 - T24 (preparação): `docs/evidence/batch-release-candidate.md` registra hashes do build candidato e o ensaio de rollback — 64 hashes do backup conferidos, 0 divergências. Nada foi empacotado, publicado ou instalado.
+- T21 (formulário): `tests/browser/batch-form.spec.mjs` comprova no navegador a seleção do interessado único, o bloqueio por campos vazios, a aplicação do plano (`BATCH_APPLY`) e a validação final com os cinco campos. Suíte de navegador com 21 PASS.
 - Pendente: T09 (integração documental), T11 (readback pré-save no content script), T16 (ciclo MV3), T20/T21 (regressão do modo manual e E2E sintético).
 - Estado dos filtros do operador salvo em `work/qa-filters.json` e reaplicado por script após reiniciar o Chrome QA.
 - Gate de salvamento: o diálogo real de confirmação e a prova pós-salvamento continuam `UNKNOWN_UNTIL_H2`; por isso o adaptador não confirma diálogo desconhecido e retorna `unknown`.
