@@ -25,6 +25,7 @@
 - Novo evento `SAVE_NOT_DISPATCHED`: quando o clique não chega a ser disparado, a tentativa armada é limpa e o processo vai para `FAILED`; falha depois do clique continua indo para `SAVE_UNCERTAIN`.
 - Driver registrado no service worker: `BATCH_START` e `BATCH_RESUME` chamam `driver.drive(batchId)`, mas `BATCH_EXECUTION_ENABLED` é `false` e `drive` retorna `DISABLED` antes de tocar em abas ou mensagens. Teste de gate garante o flag fechado e a ausência de permissão `alarms`.
 - Rota de Autos: observada em 03/11/2026 (`docs/evidence/dom-contract.md`), não revalidada em 05/11/2026. A varredura de chunks não a contradiz. Revalidar no QA abrindo um processo antes de virar o gate de execução.
+- Corrida de aba nova: o envio de mensagens do driver usa `retryAsync` (20 tentativas, 250 ms) para aguardar o content script após criar/reaproveitar a aba; 3 testes cobrem sucesso imediato, retry e esgotamento.
 - Pendente: T09 (integração documental), T11 (readback pré-save no content script), T16 (ciclo MV3), T20/T21 (regressão do modo manual e E2E sintético).
 - Estado dos filtros do operador salvo em `work/qa-filters.json` e reaplicado por script após reiniciar o Chrome QA.
 - Gate de salvamento: o diálogo real de confirmação e a prova pós-salvamento continuam `UNKNOWN_UNTIL_H2`; por isso o adaptador não confirma diálogo desconhecido e retorna `unknown`.

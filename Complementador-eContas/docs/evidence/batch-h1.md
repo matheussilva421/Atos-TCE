@@ -26,9 +26,10 @@ Estado: `H1_INCOMPLETE`
 | Regressão do modo manual (inclui gate do BATCH_APPLY) | `tests/unit/batch-manual-regression.test.mjs` (7 testes) | PASS |
 | Driver do background montando dependências reais | `tests/unit/batch-driver.test.mjs` (2 testes) | PASS |
 | Gate de execução e registro no service worker | `tests/unit/batch-execution-gate.test.mjs` (3 testes) | PASS |
+| Retry limitado para content script de aba nova | `tests/unit/retry.test.mjs` (3 testes) | PASS |
 | Painel do lote em navegador sintético | `tests/browser/batch-panel.spec.mjs` (1 teste) | PASS |
 
-Total: 233 testes unitários PASS (114 anteriores + 119 novos).
+Total: 236 testes unitários PASS (114 anteriores + 122 novos).
 Suíte de navegador: 20 testes PASS (19 anteriores + 1 novo), em fixtures locais, sem acesso ao portal.
 
 ## Verificação no Chrome QA (05/11/2026)

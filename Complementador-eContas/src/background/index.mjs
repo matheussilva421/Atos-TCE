@@ -9,6 +9,7 @@ import { parseRoute } from '../shared/routes.mjs';
 import { runDocumentDiagnostic, runFillTransaction, TransactionManager } from './bridge.mjs';
 import { BatchController } from '../batch/controller.mjs';
 import { createBatchDriver } from './batch-runner.mjs';
+import { retryAsync } from '../shared/retry.mjs';
 
 const transactions = new TransactionManager({ timeoutMs: 180000 });
 let diagnosticRecorder = null;
@@ -51,7 +52,10 @@ function getBatchDriver() {
   batchDriver = createBatchDriver({
     storage: chrome.storage.local,
     tabs: chrome.tabs,
-    sendToTab: (tabId, payload) => chrome.tabs.sendMessage(tabId, payload),
+    sendToTab: (tabId, payload) => retryAsync(
+      () => chrome.tabs.sendMessage(tabId, payload),
+      { attempts: 20, delayMs: 250 },
+    ),
     runFillTransaction,
     readDocumentCache,
     writeDocumentCache,
