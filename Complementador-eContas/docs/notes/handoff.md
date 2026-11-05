@@ -15,6 +15,8 @@
 - Concluídos também: T06/T17 (protocolo e comandos no background) e T18 (painel na listagem). Verificado no Chrome QA: painel injetado, pré-visualização de 10 pendentes, início com 10 na fila e parada sem examinar nem salvar.
 - T13: núcleo do runner implementado e testado (checkpoint SAVE_PENDING antes do clique, tentativa única, SAVE_UNCERTAIN, reconciliação e gate de salvamento fechado). Falta ligar o runner ao background com as dependências reais (T09/T11) e o ciclo MV3 (T16).
 - T11 (lado formulário): comandos `BATCH_SELECT_INTERESTED` e `BATCH_VALIDATE_FORM` implementados em `src/form/batch-content.mjs` e registrados no content script, com 5 testes. Devolvem apenas códigos, booleanos e a chave transitória do interessado.
+- T09 (adaptador): `src/batch/deps.mjs` conecta abas, mensagens de formulário e preenchimento injetado às dependências do runner, com 5 testes. O salvamento continua fechado (`SAVE_GATE_CLOSED`) e o adaptador real não está ligado.
+- Falta para executar de fato: ligar `runOneStep` + `createRunnerDeps` ao background com o `runFillTransaction` real e o ciclo MV3 (T16); o flag de execução permanece desligado até lá.
 - Pendente: T09 (integração documental), T11 (readback pré-save no content script), T16 (ciclo MV3), T20/T21 (regressão do modo manual e E2E sintético).
 - Estado dos filtros do operador salvo em `work/qa-filters.json` e reaplicado por script após reiniciar o Chrome QA.
 - Gate de salvamento: o diálogo real de confirmação e a prova pós-salvamento continuam `UNKNOWN_UNTIL_H2`; por isso o adaptador não confirma diálogo desconhecido e retorna `unknown`.
