@@ -97,7 +97,16 @@ async function handleBatchCommand(message, sender) {
       return started;
     }
     case MESSAGE.BATCH_STATUS:
-      return controller.status(command);
+      {
+        const current = await controller.status(command);
+        if (current && current.ok && current.state === 'RUNNING') {
+          const driver = getBatchDriver();
+          if (driver) {
+            void driver.drive(current.batchId);
+          }
+        }
+        return current;
+      }
     case MESSAGE.BATCH_PAUSE:
       return controller.pause({ ...command, batchId: message.batchId, revision: message.revision });
     case MESSAGE.BATCH_STOP:

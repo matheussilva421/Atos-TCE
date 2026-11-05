@@ -119,3 +119,43 @@ test('driver_runs_process_and_stops_at_save_gate', async () => {
   assert.equal(stored.counters.saved, 0);
   assert.equal(stored.current.phase, 'VALIDATING');
 });
+
+test('driver_resumes_after_step_limit_and_reuses_tabs', async () => {
+  const storage = memoryStorage();
+  await runningBatch(storage);
+  const tabs = fakeTabs();
+  let creates = 0;
+  const wrappedTabs = {
+    ...tabs,
+    async create(properties) {
+      creates += 1;
+      return tabs.create(properties);
+    },
+  };
+  const driver = createBatchDriver({
+    storage,
+    tabs: wrappedTabs,
+    sendToTab: async (tabId, message) => {
+      if (message.type === MESSAGE.BATCH_SELECT_INTERESTED) {
+        return { ok: true, interestedKey: 'key-1', interestedCount: 1 };
+      }
+      if (message.type === MESSAGE.BATCH_FORM_SNAPSHOT) {
+        return { ok: true, snapshot: { processId: '777', interestedName: 'Pessoa', interestedKey: 'key-1' } };
+      }
+      return { ok: true };
+    },
+    runFillTransaction: async () => ({ ok: true, report: { filled: 5 } }),
+    driveEnabled: true,
+    saveEnabled: false,
+    maxSteps: 2,
+  });
+  let result = null;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    result = await driver.drive('batch-driver');
+    if (result.state !== 'STEP_LIMIT') {
+      break;
+    }
+  }
+  assert.equal(result.state, 'SUSPENDED');
+  assert.equal(creates, 2);
+});

@@ -49,6 +49,13 @@ export function createRunnerDeps({
       return sendToTab(formTabId, { type: MESSAGE.BATCH_SELECT_INTERESTED, processId });
     },
     async fill({ processId, formTabId, autosTabId }) {
+      const ensured = await sendToTab(autosTabId, {
+        type: MESSAGE.BATCH_ENSURE_DOCUMENT,
+        expectedProcessId: processId,
+      });
+      if (!ensured || ensured.ok !== true) {
+        return { ok: false, code: (ensured && ensured.code) || 'NO_DOCUMENT' };
+      }
       const all = await tabs.query({});
       const sourceTabs = all
         .filter((tab) => tab && tab.url && tab.url.startsWith(PORTAL_ORIGIN))

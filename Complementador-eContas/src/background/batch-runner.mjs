@@ -20,15 +20,12 @@ export function createBatchDriver({
   extractFields,
   driveEnabled = BATCH_EXECUTION_ENABLED,
   saveEnabled = false,
-  maxSteps = 25,
+  maxSteps = 200,
 }) {
-  return {
-    enabled: driveEnabled === true,
-    async drive(batchId) {
-      if (driveEnabled !== true) {
-        return { state: 'DISABLED', steps: 0 };
-      }
-      const deps = createRunnerDeps({
+  let deps = null;
+  const getDeps = () => {
+    if (!deps) {
+      deps = createRunnerDeps({
         storage,
         tabs,
         sendToTab,
@@ -73,9 +70,19 @@ export function createBatchDriver({
           };
         },
       });
+    }
+    return deps;
+  };
+  return {
+    enabled: driveEnabled === true,
+    async drive(batchId) {
+      if (driveEnabled !== true) {
+        return { state: 'DISABLED', steps: 0 };
+      }
+      const activeDeps = getDeps();
       let steps = 0;
       for (; steps < maxSteps; steps += 1) {
-        const result = await runOneStep({ batchId, deps });
+        const result = await runOneStep({ batchId, deps: activeDeps });
         if (!result.needsWake) {
           return { state: result.state, steps: steps + 1 };
         }

@@ -4,6 +4,7 @@ import { parseRoute } from '../shared/routes.mjs';
 import { base64ToBytes, extractPagesFromPdf, getIframeSrc, readCurrentDocument } from './document-reader.mjs';
 import { isBirthDocumentText, isResolutionDocumentText } from './document-locator.mjs';
 import { parsePdfUrl } from './pdf-identity.mjs';
+import { ensureDocumentOpen } from './ensure-document.mjs';
 import { extractFields } from '../extract/fields.mjs';
 
 let route = parseRoute(location.href, PORTAL_ORIGIN);
@@ -336,6 +337,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               requestId: message.requestId,
               details: details || {},
             });
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || message.type !== MESSAGE.BATCH_ENSURE_DOCUMENT) {
+    return false;
+  }
+  if (!sender || sender.id !== chrome.runtime.id) {
+    sendResponse({ ok: false, code: 'UNTRUSTED_SENDER' });
+    return true;
+  }
+  if (!route || route.kind !== 'autos' || message.expectedProcessId !== route.idProcesso) {
+    sendResponse({ ok: false, code: 'PROCESS_CHANGED' });
+    return true;
+  }
+  ensureDocumentOpen(document).then(
+    (result) => sendResponse(result),
+    () => sendResponse({ ok: false, code: 'ENSURE_DOCUMENT_FAILED' }),
+  );
+  return true;
+});
             if (pending && typeof pending.catch === 'function') pending.catch(() => {});
           } catch {
             // O observador nunca pode interromper a leitura.

@@ -35,6 +35,8 @@
 - Portal voltou e o QA foi retomado em 05/11/2026: filtros salvos e reaplicados (marcador, ato, ordenação, dois checkboxes), painel reinjetado e rota de Autos **revalidada** — `/#/dashboard/processos/<id>/autos` carrega com `#ifrm`, 54 cartões de evento e autos pronto.
 - Correção adicional: `waitForWorkspace` aguarda a aba recém-criada expor a URL antes de verificar (`tab.url` pode vir vazio), com 2 testes; o adaptador aceita `workspaceTimeoutMs`.
 - Build aceita `BATCH_EXECUTION=1` via ambiente (fora do build de teste) para habilitar a execução do lote pontualmente; padrão continua desligado.
+- Execução real supervisionada no QA (05/11): 10 processos capturados; com limite 3, três foram recusados por múltiplos interessados e nenhum campo foi preenchido. Com limite 10, 4 recusas por múltiplos, 1 sem interessado e 5 falhas `DOCUMENT_NOT_READABLE` (aba de Autos sem documento). Nenhum salvamento.
+- Correções: `maxSteps` 200, dependências do driver reaproveitadas, avanço disparado também pelo polling de status e `BATCH_ENSURE_DOCUMENT` para abrir o primeiro evento quando o visualizador está vazio.
 - Pendente: T09 (integração documental), T11 (readback pré-save no content script), T16 (ciclo MV3), T20/T21 (regressão do modo manual e E2E sintético).
 - Estado dos filtros do operador salvo em `work/qa-filters.json` e reaplicado por script após reiniciar o Chrome QA.
 - Gate de salvamento: o diálogo real de confirmação e a prova pós-salvamento continuam `UNKNOWN_UNTIL_H2`; por isso o adaptador não confirma diálogo desconhecido e retorna `unknown`.

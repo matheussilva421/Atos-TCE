@@ -70,10 +70,11 @@ test('open_workspace_reuses_two_tabs_across_processes', async () => {
 });
 
 test('fill_filters_source_tabs_to_portal_origin', async () => {
-  const { instance, fills } = deps();
+  const { instance, fills, messages } = deps();
   const workspace = await instance.openWorkspace({ processId: '501' });
   await instance.fill({ processId: '501', formTabId: workspace.formTabId, autosTabId: workspace.autosTabId });
   assert.equal(fills.length, 1);
+  assert.equal(messages[0].message.type, MESSAGE.BATCH_ENSURE_DOCUMENT);
   assert.deepEqual(fills[0].sourceTabs.map((tab) => tab.id), [1, 2]);
   assert.equal(fills[0].processId, '501');
 });

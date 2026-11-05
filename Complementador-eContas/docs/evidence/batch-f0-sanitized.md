@@ -57,3 +57,19 @@ O leitor `src/list/list-reader.mjs` foi executado sobre o HTML da página aberta
 
 - G1: contrato de listagem considerado comprovado para rota, linhas, IDs, status e contexto de filtros.
 - G1 permanece incompleto para a UI de salvamento; isso bloqueia T12 e H2, não o desenvolvimento sintético do restante.
+
+## Execução supervisionada no QA (05/11/2026)
+
+Com a lista filtrada pelo operador (marcador + ato não complementado), o lote foi iniciado pelo painel com o salvamento bloqueado.
+
+| Execução | Limites | Resultado |
+| --- | --- | --- |
+| 1 | 3 examinados / 1 salvo | 10 capturados, 3 examinados, 3 em revisão por múltiplos interessados, 0 salvos |
+| 2 | 10 examinados / 1 salvo | 10 examinados: 4 em revisão por múltiplos interessados, 1 sem interessado, 5 falhas `DOCUMENT_NOT_READABLE`, 0 salvos |
+
+Nenhum campo foi preenchido quando havia mais de um interessado, e nenhum salvamento foi executado. A segunda execução revelou dois defeitos:
+
+1. o motor parava em `RUNNING` ao atingir o limite de passos, sem concluir;
+2. a aba de Autos pode abrir sem documento no visualizador, e a leitura falhava antes de qualquer descoberta.
+
+Correções aplicadas: limite de passos elevado e dependências reaproveitadas entre ciclos; avanço também disparado pelo polling de status; preparo explícito do documento (`BATCH_ENSURE_DOCUMENT`) antes da leitura, com clique no primeiro evento e espera limitada pelo `src` do iframe.
