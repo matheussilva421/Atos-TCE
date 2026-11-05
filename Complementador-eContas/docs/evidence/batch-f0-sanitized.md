@@ -47,7 +47,7 @@ O leitor `src/list/list-reader.mjs` foi executado sobre o HTML da página aberta
 
 ## O que permanece desconhecido
 
-- Rota da aba de Autos: documentada como observada em 03/11/2026 (`docs/evidence/dom-contract.md`: `/#/dashboard/processos/:idProcesso/autos`). Não foi revalidada nesta sessão; a varredura dos bundles não a contradiz, apenas não a repete. Revalidar no QA antes de habilitar o lote.
+- Rota da aba de Autos: **revalidada em 05/11/2026** no Chrome QA. Abrir `/#/dashboard/processos/<id>/autos` carrega a página do processo com `iframe#ifrm`, 54 cartões de evento e o content script de Autos ativo (`data-complementador-autos="ready"`). O padrão documentado em 03/11/2026 está correto.
 - Estrutura e texto do botão de salvamento e de eventual diálogo de confirmação: não observados sem executar um salvamento real. Permanecem `UNKNOWN_UNTIL_H2`.
 - Prova pós-salvamento no portal: não observada.
 - Comportamento de linhas com status ambíguo (nem pendente nem completo): o leitor classifica como `unknown` e exclui da fila.

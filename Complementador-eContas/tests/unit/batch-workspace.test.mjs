@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { openWorkspace, recoverWorkspaceOnce, verifyWorkspace } from '../../src/batch/workspace.mjs';
+import {
+  openWorkspace,
+  recoverWorkspaceOnce,
+  verifyWorkspace,
+  waitForWorkspace,
+} from '../../src/batch/workspace.mjs';
 
 const ORIGIN = 'https://processos.tce.rn.gov.br';
 
@@ -93,4 +98,48 @@ test('form_and_autos_tabs_must_differ', async () => {
     () => openWorkspace({ processId: '701', previous: { autosTabId: 5, formTabId: 5 }, tabsApi: api }),
     (error) => error.code === 'INVALID_WORKSPACE',
   );
+});
+
+test('waits_for_tab_url_before_verifying', async () => {
+  const api = fakeTabs({
+    51: { id: 51, url: '' },
+    52: { id: 52, url: ORIGIN + '/#/dashboard/complementar-ato/701' },
+  });
+  let polls = 0;
+  const result = await waitForWorkspace({
+    processId: '701',
+    ids: { autosTabId: 51, formTabId: 52 },
+    tabsApi: {
+      ...api,
+      async get(id) {
+        polls += 1;
+        if (id === 51 && polls >= 3) {
+          api.tabs[51] = { id: 51, url: ORIGIN + '/#/dashboard/processos/701/autos' };
+        }
+        return api.tabs[id];
+      },
+    },
+    timeoutMs: 2000,
+    pollMs: 1,
+    sleep: async () => {},
+  });
+  assert.equal(result.ok, true);
+  assert.equal(polls >= 2, true);
+});
+
+test('wait_for_workspace_times_out_on_wrong_tab', async () => {
+  const api = fakeTabs({
+    61: { id: 61, url: ORIGIN + '/#/dashboard/processos/799/autos' },
+    62: { id: 62, url: ORIGIN + '/#/dashboard/complementar-ato/701' },
+  });
+  const result = await waitForWorkspace({
+    processId: '701',
+    ids: { autosTabId: 61, formTabId: 62 },
+    tabsApi: api,
+    timeoutMs: 5,
+    pollMs: 1,
+    sleep: async () => {},
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'WRONG_PROCESS_TAB');
 });

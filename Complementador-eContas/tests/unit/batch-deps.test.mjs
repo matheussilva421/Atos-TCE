@@ -124,6 +124,7 @@ test('workspace_is_verified_before_use', async () => {
     sendToTab: async (tabId, message) => { messages.push(message); return { ok: true }; },
     fillTransaction: async () => ({ ok: true }),
     now: () => 1000,
+    workspaceTimeoutMs: 20,
   });
   await assert.rejects(
     () => instance.openWorkspace({ processId: '501' }),

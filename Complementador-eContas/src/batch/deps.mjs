@@ -1,6 +1,6 @@
 import { PORTAL_ORIGIN } from '../shared/config.mjs';
 import { MESSAGE } from '../shared/protocol.mjs';
-import { openWorkspace, verifyWorkspace } from './workspace.mjs';
+import { openWorkspace, waitForWorkspace } from './workspace.mjs';
 
 /**
  * Adapta as APIs do navegador às dependências do runner. A execução real e o
@@ -14,6 +14,7 @@ export function createRunnerDeps({
   fillTransaction,
   now = () => Date.now(),
   executionEnabled = false,
+  workspaceTimeoutMs = 10000,
 }) {
   const session = { workspace: null };
   return {
@@ -30,7 +31,12 @@ export function createRunnerDeps({
         previous: session.workspace,
         tabsApi: tabs,
       });
-      const verified = await verifyWorkspace({ processId, ids: workspace, tabsApi: tabs });
+      const verified = await waitForWorkspace({
+        processId,
+        ids: workspace,
+        tabsApi: tabs,
+        timeoutMs: workspaceTimeoutMs,
+      });
       if (!verified.ok) {
         const error = new Error(verified.code);
         error.code = verified.code;

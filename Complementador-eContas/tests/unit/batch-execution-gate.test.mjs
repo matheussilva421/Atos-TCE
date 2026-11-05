@@ -13,7 +13,9 @@ test('background_registers_batch_driver', () => {
 
 test('batch_execution_flag_is_closed', () => {
   const runner = readFileSync('src/background/batch-runner.mjs', 'utf8');
-  assert.equal(runner.includes('export const BATCH_EXECUTION_ENABLED = false;'), true);
+  assert.equal(runner.includes("typeof __BATCH_EXECUTION__ === 'boolean'"), true);
+  const build = readFileSync('scripts/build.mjs', 'utf8');
+  assert.equal(build.includes("process.env.BATCH_EXECUTION === '1'"), true);
   assert.equal(runner.includes('saveEnabled = false'), true);
   assert.equal(runner.includes('driveEnabled = BATCH_EXECUTION_ENABLED'), true);
 });

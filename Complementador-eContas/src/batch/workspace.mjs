@@ -76,6 +76,29 @@ export async function verifyWorkspace({ processId, ids, tabsApi }) {
 }
 
 /**
+ * Aguarda a aba recém-criada/atualizada expor a URL do processo. Imediatamente
+ * após tabs.create/update, tab.url pode estar vazio; verificar uma única vez
+ * produziria WRONG_PROCESS_TAB falso-positivo.
+ */
+export async function waitForWorkspace({
+  processId,
+  ids,
+  tabsApi,
+  timeoutMs = 10000,
+  pollMs = 200,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+}) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const result = await verifyWorkspace({ processId, ids, tabsApi });
+    if (result.ok || Date.now() >= deadline) {
+      return result;
+    }
+    await sleep(pollMs);
+  }
+}
+
+/**
  * No máximo uma restauração, e nunca depois de uma tentativa de salvamento.
  */
 export async function recoverWorkspaceOnce({

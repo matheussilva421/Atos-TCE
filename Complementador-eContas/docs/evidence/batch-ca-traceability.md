@@ -28,7 +28,7 @@ Escopo: código local e testes sintéticos. Nenhum salvamento real, nenhum diál
 
 ## Lacunas que impedem H1 pleno
 
-1. Rota da aba de Autos documentada em 03/11/2026, mas não revalidada nesta sessão.
+1. ~~Rota da aba de Autos não revalidada~~ — revalidada em 05/11/2026 (iframe, 54 eventos, content script ativo).
 2. Fluxo de lote por processo não exercitado em navegador; apenas o painel foi coberto.
 3. Reinício do navegador e suspensão real do service worker não simulados.
 4. Nenhum salvamento real; H2/H3 permanecem `NOT_RUN`.

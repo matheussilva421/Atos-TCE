@@ -2,7 +2,9 @@ import { createRunnerDeps } from '../batch/deps.mjs';
 import { runOneStep } from '../batch/runner.mjs';
 import { createRequestId, MESSAGE } from '../shared/protocol.mjs';
 
-export const BATCH_EXECUTION_ENABLED = false;
+export const BATCH_EXECUTION_ENABLED = typeof __BATCH_EXECUTION__ === 'boolean'
+  ? __BATCH_EXECUTION__
+  : false;
 
 /**
  * Monta as dependências reais do runner e conduz os passos. Permanece desligado

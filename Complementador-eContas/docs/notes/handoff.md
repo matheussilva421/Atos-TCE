@@ -32,6 +32,9 @@
 - Correção de UI: o polling do painel preferia o lote cru (`response.batch`) e zerava os contadores; agora prefere o payload com relatório. O teste do painel aguarda um ciclo de polling (3,5 s) e exige "3 capturados"/"1 na fila".
 - Diagnóstico: o diário agora guarda o código sanitizado do motivo (`reason`) nos eventos de falha, útil para o relatório e para depurar fluxo real.
 - Tentativa de E2E completo do lote (lista → abas → documentos → formulário) foi descartada: habilitar execução no build de teste quebra o teste do painel e a descoberta de service worker é instável nesse harness. As mudanças experimentais foram revertidas; `BATCH_EXECUTION_ENABLED` segue `false`.
+- Portal voltou e o QA foi retomado em 05/11/2026: filtros salvos e reaplicados (marcador, ato, ordenação, dois checkboxes), painel reinjetado e rota de Autos **revalidada** — `/#/dashboard/processos/<id>/autos` carrega com `#ifrm`, 54 cartões de evento e autos pronto.
+- Correção adicional: `waitForWorkspace` aguarda a aba recém-criada expor a URL antes de verificar (`tab.url` pode vir vazio), com 2 testes; o adaptador aceita `workspaceTimeoutMs`.
+- Build aceita `BATCH_EXECUTION=1` via ambiente (fora do build de teste) para habilitar a execução do lote pontualmente; padrão continua desligado.
 - Pendente: T09 (integração documental), T11 (readback pré-save no content script), T16 (ciclo MV3), T20/T21 (regressão do modo manual e E2E sintético).
 - Estado dos filtros do operador salvo em `work/qa-filters.json` e reaplicado por script após reiniciar o Chrome QA.
 - Gate de salvamento: o diálogo real de confirmação e a prova pós-salvamento continuam `UNKNOWN_UNTIL_H2`; por isso o adaptador não confirma diálogo desconhecido e retorna `unknown`.
