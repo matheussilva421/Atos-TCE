@@ -21,7 +21,13 @@ export async function ensureDocumentOpen(doc, options = {}) {
     }
     const card = doc.querySelector('.card-event[data-pdf]') || doc.querySelector('.card-event');
     if (card && !clicked) {
-      click(card);
+      const direct = String(card.getAttribute && card.getAttribute('data-pdf') || '').trim();
+      const iframe = doc.querySelector('iframe#ifrm');
+      if (direct && iframe) {
+        iframe.setAttribute('src', direct);
+      } else {
+        click(card);
+      }
       clicked = true;
     }
     if (Date.now() >= deadline) {

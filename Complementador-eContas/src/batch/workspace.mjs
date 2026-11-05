@@ -29,7 +29,7 @@ function sameIds(ids) {
  * Abre ou reaproveita exatamente duas abas de trabalho do processo.
  * A aba da listagem nunca é recebida nem alterada.
  */
-export async function openWorkspace({ processId, previous = null, tabsApi }) {
+export async function openWorkspace({ processId, previous = null, tabsApi, fresh = false }) {
   if (!isValidProcessId(processId)) {
     throw new WorkspaceError('INVALID_PROCESS');
   }
@@ -40,9 +40,17 @@ export async function openWorkspace({ processId, previous = null, tabsApi }) {
     if (previous.autosTabId === previous.formTabId) {
       throw new WorkspaceError('INVALID_WORKSPACE');
     }
-    await tabsApi.update(previous.autosTabId, { url: autosUrl(processId), active: false });
-    await tabsApi.update(previous.formTabId, { url: formUrl(processId), active: false });
-    return { autosTabId: previous.autosTabId, formTabId: previous.formTabId };
+    if (fresh) {
+      for (const tabId of [previous.autosTabId, previous.formTabId]) {
+        if (typeof tabsApi.remove === 'function') {
+          await tabsApi.remove(tabId).catch(() => {});
+        }
+      }
+    } else {
+      await tabsApi.update(previous.autosTabId, { url: autosUrl(processId), active: false });
+      await tabsApi.update(previous.formTabId, { url: formUrl(processId), active: false });
+      return { autosTabId: previous.autosTabId, formTabId: previous.formTabId };
+    }
   }
   const autos = await tabsApi.create({ url: autosUrl(processId), active: false });
   const form = await tabsApi.create({ url: formUrl(processId), active: false });

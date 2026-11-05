@@ -143,3 +143,25 @@ test('wait_for_workspace_times_out_on_wrong_tab', async () => {
   assert.equal(result.ok, false);
   assert.equal(result.code, 'WRONG_PROCESS_TAB');
 });
+
+test('fresh_workspace_replaces_previous_tabs', async () => {
+  const api = fakeTabs({
+    71: { id: 71, url: ORIGIN + '/#/dashboard/processos/701/autos' },
+    72: { id: 72, url: ORIGIN + '/#/dashboard/complementar-ato/701' },
+  });
+  const removed = [];
+  api.remove = async (tabId) => {
+    removed.push(tabId);
+    delete api.tabs[tabId];
+  };
+  const workspace = await openWorkspace({
+    processId: '702',
+    previous: { autosTabId: 71, formTabId: 72 },
+    tabsApi: api,
+    fresh: true,
+  });
+  assert.deepEqual(removed, [71, 72]);
+  assert.notEqual(workspace.autosTabId, 71);
+  assert.notEqual(workspace.formTabId, 72);
+  assert.equal(api.tabs[workspace.autosTabId].url.includes('/702/autos'), true);
+});

@@ -30,6 +30,7 @@ export function createRunnerDeps({
         processId,
         previous: session.workspace,
         tabsApi: tabs,
+        fresh: true,
       });
       const verified = await waitForWorkspace({
         processId,

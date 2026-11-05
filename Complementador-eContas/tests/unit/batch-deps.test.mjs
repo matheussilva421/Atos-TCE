@@ -35,6 +35,10 @@ function fakeTabs() {
       if (!tabs[id]) throw new Error('missing');
       return tabs[id];
     },
+    async remove(id) {
+      calls.push({ op: 'remove', id });
+      delete tabs[id];
+    },
   };
 }
 
@@ -59,14 +63,14 @@ function deps(options = {}) {
   return { instance, tabs, messages, fills };
 }
 
-test('open_workspace_reuses_two_tabs_across_processes', async () => {
+test('open_workspace_replaces_tabs_between_processes', async () => {
   const { instance, tabs } = deps();
   const first = await instance.openWorkspace({ processId: '501' });
   const second = await instance.openWorkspace({ processId: '502' });
-  assert.deepEqual(second, first);
-  assert.equal(tabs.calls.filter((call) => call.op === 'create').length, 2);
-  assert.equal(tabs.calls.filter((call) => call.op === 'update').length, 2);
-  assert.equal(tabs.tabs[first.autosTabId].url.includes('/502/autos'), true);
+  assert.notDeepEqual(second, first);
+  assert.equal(tabs.calls.filter((call) => call.op === 'create').length, 4);
+  assert.equal(tabs.tabs[first.autosTabId], undefined);
+  assert.equal(tabs.tabs[second.autosTabId].url.includes('/502/autos'), true);
 });
 
 test('fill_filters_source_tabs_to_portal_origin', async () => {

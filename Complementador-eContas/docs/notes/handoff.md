@@ -40,6 +40,15 @@ Suspeitas, em ordem: bundle antigo carregado pelo Chrome (execução desligada) 
 - `NO_DOCUMENT` continua: a aba de Autos real pode levar mais de 20 s para preencher o `iframe#ifrm`; a espera subiu para 30 s e o preenchimento repete a preparação uma vez após 4 s.
 - Última tentativa com `work/qa-run3`: diário apareceu vazio e o painel travou; o QA foi encerrado e o build final voltou a `BATCH_EXECUTION_ENABLED=false`.
 
+### Atualização 05/11/2026 (continuação)
+
+- Aba de Autos real inspecionada: o portal **carrega o documento sozinho** (109 cartões, `#ifrm` com `src` após ~9 s) e os cartões **não têm `data-pdf`** (só `id` e `data-id`).
+- Correção estrutural: o lote passou a **criar abas novas por processo** em vez de reaproveitar a mesma aba via hash (`openWorkspace({fresh:true})`, remove as anteriores). Motivo: a atualização de hash na SPA deixava o visualizador vazio.
+- `ensureDocumentOpen` também usa `data-pdf` quando existir (não existe no portal real) e espera até 30 s; `deps.fill` repete a preparação após 4 s.
+- Testes: 249 unitários PASS (novo caso de workspace novo por processo).
+- Tentativa com `work/qa-run5`: novamente o diário apareceu vazio e o painel não respondeu; QA encerrado e build final em `BATCH_EXECUTION_ENABLED=false`.
+- Ponto de retomada: rodar **1 processo** com a aba nova e confirmar no diário se `NO_DOCUMENT` desapareceu; se persistir, capturar o `iframe#ifrm.src` da aba do processo no momento da falha.
+
 ### Ambiente
 
 - Chrome QA: perfil em `C:\Users\slvma\.codex\qa-econtas`, porta CDP 9333, encerrado nesta pausa.

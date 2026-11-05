@@ -48,3 +48,14 @@ test('fails_closed_when_iframe_never_loads', async () => {
   assert.equal(result.ok, false);
   assert.equal(result.code, 'NO_DOCUMENT');
 });
+
+test('uses_data_pdf_directly_when_available', async () => {
+  const doc = document('<iframe id="ifrm" src=""></iframe>'
+    + '<div class="card-event" data-pdf="https://example.invalid/doc.pdf"></div>');
+  let clicks = 0;
+  doc.querySelector('.card-event').addEventListener('click', () => { clicks += 1; });
+  const result = await ensureDocumentOpen(doc, { sleep: async () => {}, pollMs: 1 });
+  assert.equal(result.ok, true);
+  assert.equal(clicks, 0);
+  assert.equal(currentDocumentSrc(doc), 'https://example.invalid/doc.pdf');
+});
