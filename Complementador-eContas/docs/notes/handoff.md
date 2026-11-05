@@ -90,6 +90,13 @@ Suspeitas, em ordem: bundle antigo carregado pelo Chrome (execução desligada) 
 - Próxima fase (somente com autorização expressa): ligar o adaptador de salvamento, aprender o diálogo real na primeira gravação e então salvar os 4 preenchidos.
 - Caminho de salvamento preparado e **desligado por padrão**: `BATCH_SAVE` no formulário usa `clickComplementarAtoOnce` com tentativa única; diálogo desconhecido retorna `DIALOG_UNKNOWN` com título e botões (dígitos mascarados) para aprendizagem. `deps.save` só usa `saveTransaction` quando `executionEnabled` é verdadeiro; o diálogo aprendido ficaria em `complementadorKnownDialog` no `chrome.storage.local`. Testes: 266 PASS.
 
+### H2/H3 executados (05/11/2026)
+
+- O usuário autorizou salvar os quatro atos preenchidos. Cada um foi confirmado uma única vez no diálogo padrão (“Complementar ato” → “sim, complementar”).
+- Verificação independente: as quatro URLs, reabertas em aba nova, não exibem mais o botão “Complementar ato”. Quatro de quatro salvos.
+- O diálogo real ficou conhecido: título **Complementar ato**, confirmação **sim, complementar**, cancelamento **NÃO**. Esse é o contrato a usar em `complementadorKnownDialog`.
+- O salvamento foi supervisionado pelo operador; o adaptador automático continua desligado. Evidência sanitizada em `docs/evidence/batch-h2.md`.
+
 ### Ambiente
 
 - Chrome QA: perfil em `C:\Users\slvma\.codex\qa-econtas`, porta CDP 9333, encerrado nesta pausa.
