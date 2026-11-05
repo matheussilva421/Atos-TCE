@@ -1,5 +1,58 @@
 # Handoff — Complementador e-Contas
 
+> PAUSA 05/11/2026 (GOAL pausado a pedido do usuário; PC será desligado). Esta seção é o ponto de retomada.
+
+## Retomada após desligamento
+
+### Estado do trabalho
+
+- Objetivo: automação em lote do Complementador e-Contas (T00–T21 + preparação de T24), com H2/H3/G7 dependentes de autorização humana.
+- Branch: `codex/complementador-e-contas`. HEAD desta pausa: consultar `git log -1` (últimos commits: `fb1e67e`, `d1d9359`, `a30cfc3`).
+- Nada foi enviado ao GitHub; `main` permanece em `6e1acd5`.
+- Árvore de trabalho: limpa (verificar com `git status --short --branch`).
+
+### O que está implementado e testado
+
+- Núcleo: fila e limites, máquina de estados, diário sanitizado, leitura da listagem, esperas, relatório.
+- Fluxo: abas dedicadas com verificação de identidade, interessado único, validação de campos, adaptador de salvamento fail-closed, runner com checkpoint, recuperação e retry limitado.
+- Interface: painel na listagem (pré-visualizar, iniciar, pausar, parar, continuar) e comandos de formulário do lote.
+- Testes na última execução: **247 unitários PASS** e **21 de navegador PASS** (fixtures locais). Build `npm run build` PASS.
+
+### Evidência real já obtida no QA
+
+- Rota de Autos revalidada: `/#/dashboard/processos/<id>/autos` com `#iframe`, 54 cartões e content script ativo.
+- Lote supervisionado 1 (limite 3): 3 processos recusados por múltiplos interessados, nenhum campo preenchido, nenhum salvamento.
+- Lote supervisionado 2 (limite 10): 4 recusas por múltiplos, 1 sem interessado, 5 `DOCUMENT_NOT_READABLE` — origem do `BATCH_ENSURE_DOCUMENT`.
+- Nenhum salvamento real em nenhuma execução (H2/H3 `NOT_RUN`).
+
+### Pendência aberta (retomar por aqui)
+
+As duas últimas tentativas criaram a fila (10 capturados) mas ficaram em `RUNNING` com **0 examinados** e sem evento `BEGIN_PROCESS`. Instrumentação temporária foi revertida e não conclusiva. O diagnóstico `driverEnabled`/`lastDrive` foi adicionado ao `BATCH_STATUS` e ainda não foi observado no navegador.
+
+Suspeitas, em ordem: bundle antigo carregado pelo Chrome (execução desligada) e `runOneStep` retornando `IDLE`. Verificar primeiro qual é, com uma rodada de 1 processo.
+
+### Ambiente
+
+- Chrome QA: perfil em `C:\Users\slvma\.codex\qa-econtas`, porta CDP 9333, encerrado nesta pausa.
+- Build `dist` atual: **execução do lote desligada** (`BATCH_EXECUTION` não definido no build).
+- Estado dos filtros do operador: `work/qa-filters.json` (marcador *Mutirão - Educação*, ATO COMPLEMENTADO = *Não*, ordenação e dois checkboxes).
+- Scripts auxiliares (não versionados) em `work/`: `qa-refresh.mjs`, `qa-soft-reload.mjs`, `qa-page-reload.mjs`, `qa-filters-save.mjs`, `qa-filters-restore3.mjs`, `qa-filters-exact.mjs`, `qa-batch-run.mjs`, `qa-batch-step.mjs`, `qa-batch-stop.mjs`, `qa-panel-status.mjs`, `qa-inspect.mjs`, `qa-flag-check.mjs`.
+
+### Comandos para retomar
+
+1. `cd C:\Users\slvma\Downloads\Github\Atos-TCE\Complementador-eContas`
+2. `node --test tests/unit/*.test.mjs` (esperado: 247 PASS).
+3. Para repetir o teste real: `$env:BATCH_EXECUTION='1'; npm run build` e subir o QA com `scripts/portal-lab/launch-qa-chromium.mjs` (porta 9333, perfil `C:\Users\slvma\.codex\qa-econtas`, `--extension-root ...\dist`).
+4. Login manual, `node work\qa-soft-reload.mjs`, `node work\qa-filters-restore3.mjs`.
+5. Iniciar lote com limites 1/1 e ler o `BATCH_STATUS` pelo mundo isolado do content script: conferir `driverEnabled` e `lastDrive`.
+6. Ao terminar, `node work\qa-batch-stop.mjs` e `node work\qa-cleanup.mjs`; rebuild sem `BATCH_EXECUTION` para deixar a execução desligada.
+
+### Limites que continuam valendo
+
+- Não salvar ato real (H2), não rodar lote real (H3) e não publicar release (G7) sem autorização específica.
+- Não fazer push, merge ou force-push; `main` intocada.
+- Nunca clicar em Complementar ato com diálogo desconhecido; `SAVE_GATE_CLOSED` permanece.
+
 > Atualização 05/11/2026 (automação em lote): esta seção prevalece sobre todo o histórico abaixo.
 
 ## Automação em lote — checkpoint 05/11/2026

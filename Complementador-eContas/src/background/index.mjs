@@ -10,11 +10,23 @@ import { runDocumentDiagnostic, runFillTransaction, TransactionManager } from '.
 import { BatchController } from '../batch/controller.mjs';
 import { createBatchDriver } from './batch-runner.mjs';
 import { retryAsync } from '../shared/retry.mjs';
+import { createDriveTracker } from '../batch/runtime-state.mjs';
 
 const transactions = new TransactionManager({ timeoutMs: 180000 });
 let diagnosticRecorder = null;
 let batchController = null;
 let batchDriver = null;
+const driveTracker = createDriveTracker();
+
+function startDrive(driver, batchId) {
+  if (!driver) {
+    return;
+  }
+  void driver.drive(batchId).then(
+    (result) => driveTracker.record(result),
+    (error) => driveTracker.fail(error),
+  );
+}
 
 const BATCH_TYPES = new Set([
   MESSAGE.BATCH_PREVIEW,
@@ -91,7 +103,7 @@ async function handleBatchCommand(message, sender) {
       if (started && started.ok) {
         const driver = getBatchDriver();
         if (driver) {
-          void driver.drive(started.batchId);
+          startDrive(driver, started.batchId);
         }
       }
       return started;
@@ -102,10 +114,15 @@ async function handleBatchCommand(message, sender) {
         if (current && current.ok && current.state === 'RUNNING') {
           const driver = getBatchDriver();
           if (driver) {
-            void driver.drive(current.batchId);
+            startDrive(driver, current.batchId);
           }
         }
-        return current;
+        const driver = getBatchDriver();
+        return {
+          ...current,
+          driverEnabled: Boolean(driver && driver.enabled),
+          lastDrive: driveTracker.read(),
+        };
       }
     case MESSAGE.BATCH_PAUSE:
       return controller.pause({ ...command, batchId: message.batchId, revision: message.revision });
@@ -116,7 +133,7 @@ async function handleBatchCommand(message, sender) {
       if (resumed && resumed.ok) {
         const driver = getBatchDriver();
         if (driver) {
-          void driver.drive(resumed.batchId);
+          startDrive(driver, resumed.batchId);
         }
       }
       return resumed;
