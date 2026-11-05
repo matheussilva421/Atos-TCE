@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head><meta charset="utf-8"><title>Processos no Setor</title></head>
+  <body>
+    <processos-consulta-processo>
+      <form>
+        <tce-select-field formcontrolname="idMarcador">
+          <ng-select><span class="ng-value-label">Mutirão - Educação</span></ng-select>
+        </tce-select-field>
+        <tce-select-field formcontrolname="atoComplementado">
+          <ng-select><span class="ng-value-label">Não</span></ng-select>
+        </tce-select-field>
+        <tce-checkbox-field formcontrolname="ProcessosNoSetor">
+          <input type="checkbox" checked>
+        </tce-checkbox-field>
+      </form>
+      <tce-table id="tabela-processos-consulta-id">
+        <table class="table table-striped text-center">
+          <thead>
+            <tr>
+              <th></th>
+              <th class="col-marcadores"></th>
+              <th class="col-abrir-processo"></th>
+              <th class="col-processo">Processo</th>
+              <th class="col-acoes">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><input type="checkbox" class="checkbox-custom"></td>
+              <td class="cel-marcadores"></td>
+              <td class="cel-processo"><a href="#/dashboard/processos/501">501/2020 - PL</a></td>
+              <td class="cel-acoes"><a class="btn"><i class="fa-solid fa-file-signature complemento-ato-pendente"></i></a></td>
+            </tr>
+            <tr>
+              <td><input type="checkbox" class="checkbox-custom"></td>
+              <td class="cel-marcadores"></td>
+              <td class="cel-processo"><a href="#/dashboard/processos/501">501/2020 - PL</a></td>
+              <td class="cel-acoes"><a class="btn"><i class="fa-solid fa-file-signature complemento-ato-pendente"></i></a></td>
+            </tr>
+            <tr>
+              <td><input type="checkbox" class="checkbox-custom"></td>
+              <td class="cel-marcadores"></td>
+              <td class="cel-processo"><a href="#/dashboard/processos/502">502/2020 - PL</a></td>
+              <td class="cel-acoes"><a class="btn"><i class="fa-solid fa-file-signature complemento-ato-completo"></i></a></td>
+            </tr>
+            <tr>
+              <td><input type="checkbox" class="checkbox-custom"></td>
+              <td class="cel-marcadores"></td>
+              <td class="cel-processo"><a href="#/dashboard/processos/503">503/2020 - PL</a></td>
+              <td class="cel-acoes"></td>
+            </tr>
+            <tr style="display: none">
+              <td><input type="checkbox" class="checkbox-custom"></td>
+              <td class="cel-marcadores"></td>
+              <td class="cel-processo"><a href="#/dashboard/processos/504">504/2020 - PL</a></td>
+              <td class="cel-acoes"><i class="complemento-ato-pendente"></i></td>
+            </tr>
+          </tbody>
+        </table>
+        <ul class="ngx-pagination">
+          <li><a href="#/dashboard/processos-no-setor/no-setor?page=2">2</a></li>
+          <li><a href="#/dashboard/processos/505">505/2020</a></li>
+        </ul>
+      </tce-table>
+    </processos-consulta-processo>
+  </body>
+</html>

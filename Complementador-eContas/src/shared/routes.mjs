@@ -30,6 +30,30 @@ export function sameProcess(left, right) {
   return Boolean(left && right && left.idProcesso && left.idProcesso === right.idProcesso);
 }
 
+// Rota da listagem confirmada no Chrome QA em 05/11/2026:
+// https://processos.tce.rn.gov.br/#/dashboard/processos-no-setor/no-setor
+export function parseListRoute(url, portalOrigin = PORTAL_ORIGIN) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.origin !== portalOrigin || parsed.username || parsed.password) {
+    return null;
+  }
+  const rawHash = parsed.hash.startsWith('#') ? parsed.hash.slice(1) : parsed.hash;
+  const hashPath = rawHash.split('?')[0].replace(/\/+$/, '');
+  const parts = hashPath.split('/').filter(Boolean);
+  if (parts.length !== 3 || parts[0] !== 'dashboard') {
+    return null;
+  }
+  if (parts[1] === 'processos-no-setor' && parts[2] === 'no-setor') {
+    return { kind: 'list' };
+  }
+  return null;
+}
+
 export function selectSourceTabs(tabs, targetId, portalOrigin = PORTAL_ORIGIN) {
   if (!isValidProcessId(targetId)) {
     return { ok: false, code: 'INVALID_TARGET' };
