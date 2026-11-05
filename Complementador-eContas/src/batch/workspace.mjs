@@ -10,6 +10,9 @@ export class WorkspaceError extends Error {
   }
 }
 
+// PROVISÓRIO: o padrão /#/dashboard/processos/<id>/autos ainda não foi observado no
+// portal. A varredura dos chunks carregados em 05/11/2026 não encontrou o literal
+// "autos"; a navegação real precisa ser confirmada no G1 antes de habilitar o lote.
 function autosUrl(processId) {
   return PORTAL_ORIGIN + '/#/dashboard/processos/' + processId + '/autos';
 }

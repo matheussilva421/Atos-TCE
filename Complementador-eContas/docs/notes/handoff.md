@@ -24,6 +24,7 @@
 - Driver do background: `src/background/batch-runner.mjs` monta abas, snapshot do formulário, preenchimento e validação e chama `runOneStep`. Criado desligado (`driveEnabled=false`, `saveEnabled=false`) e ainda não registrado no service worker; há 2 testes cobrindo o estado desligado e a execução completa até o gate de salvamento.
 - Novo evento `SAVE_NOT_DISPATCHED`: quando o clique não chega a ser disparado, a tentativa armada é limpa e o processo vai para `FAILED`; falha depois do clique continua indo para `SAVE_UNCERTAIN`.
 - Driver registrado no service worker: `BATCH_START` e `BATCH_RESUME` chamam `driver.drive(batchId)`, mas `BATCH_EXECUTION_ENABLED` é `false` e `drive` retorna `DISABLED` antes de tocar em abas ou mensagens. Teste de gate garante o flag fechado e a ausência de permissão `alarms`.
+- Lacuna de contrato: a URL da aba de Autos (`/#/dashboard/processos/<id>/autos`) é provisória. A varredura dos chunks carregados não encontrou o literal "autos" e a navegação real não foi observada. Antes de virar o gate de execução, confirmar a rota no QA abrindo um processo.
 - Pendente: T09 (integração documental), T11 (readback pré-save no content script), T16 (ciclo MV3), T20/T21 (regressão do modo manual e E2E sintético).
 - Estado dos filtros do operador salvo em `work/qa-filters.json` e reaplicado por script após reiniciar o Chrome QA.
 - Gate de salvamento: o diálogo real de confirmação e a prova pós-salvamento continuam `UNKNOWN_UNTIL_H2`; por isso o adaptador não confirma diálogo desconhecido e retorna `unknown`.
