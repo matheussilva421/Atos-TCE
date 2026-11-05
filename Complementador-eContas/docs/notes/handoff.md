@@ -49,6 +49,13 @@ Suspeitas, em ordem: bundle antigo carregado pelo Chrome (execução desligada) 
 - Tentativa com `work/qa-run5`: novamente o diário apareceu vazio e o painel não respondeu; QA encerrado e build final em `BATCH_EXECUTION_ENABLED=false`.
 - Ponto de retomada: rodar **1 processo** com a aba nova e confirmar no diário se `NO_DOCUMENT` desapareceu; se persistir, capturar o `iframe#ifrm.src` da aba do processo no momento da falha.
 
+### Bloqueio 05/11/2026 (sessão QA sem resposta)
+
+- A página do e-Contas no perfil QA passou a não responder a `Runtime.evaluate` via CDP: até `location.href` trava, e o clique scriptado no painel não inicia o lote.
+- Foi pedido ao operador que clicasse em ⚡ Rodar automação com 10/1; não houve resposta até o encerramento.
+- Nenhum código mudou desde `9a141d1`; suíte em 249 PASS e build final com execução desligada.
+- Para retomar: reabrir o QA (`scripts/portal-lab/launch-qa-chromium.mjs`, porta 9333, perfil `C:\Users\slvma\.codex\qa-econtas`), carregar uma cópia nova do build (`work/qa-run-N`), fazer login, recarregar a listagem e rodar **um** processo. Se o clique pelo painel funcionar mas o CDP continuar travando, ler o diário pelo content script com `chrome.storage.local` (script `work/qa-state-via-content.mjs`).
+
 ### Ambiente
 
 - Chrome QA: perfil em `C:\Users\slvma\.codex\qa-econtas`, porta CDP 9333, encerrado nesta pausa.
