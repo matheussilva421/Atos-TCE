@@ -419,6 +419,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || message.type !== MESSAGE.BATCH_APPLY) {
+    return false;
+  }
+  if (!sender || sender.id !== chrome.runtime.id) {
+    sendResponse({ ok: false, code: 'UNTRUSTED_SENDER' });
+    return true;
+  }
+  handleApplyPlan(message).then(
+    (response) => sendResponse(response),
+    (error) => sendResponse({ ok: false, code: error && error.code ? error.code : 'BATCH_APPLY_FAILED' }),
+  );
+  return true;
+});
+
 window.addEventListener('hashchange', updateRoute);
 if (window.navigation && typeof window.navigation.addEventListener === 'function') {
   window.navigation.addEventListener('navigatesuccess', updateRoute);

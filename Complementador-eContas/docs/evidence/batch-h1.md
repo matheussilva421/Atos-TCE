@@ -23,10 +23,10 @@ Estado: `H1_INCOMPLETE`
 | Runner, checkpoint, salvamento incerto e despertar duplicado | `tests/unit/batch-saving.test.mjs` (9 testes) | PASS |
 | Comandos de formulário do lote | `tests/unit/batch-form-content.test.mjs` (5 testes) | PASS |
 | Adaptador de dependências do runner | `tests/unit/batch-deps.test.mjs` (5 testes) | PASS |
-| Regressão do modo manual | `tests/unit/batch-manual-regression.test.mjs` (6 testes) | PASS |
+| Regressão do modo manual (inclui gate do BATCH_APPLY) | `tests/unit/batch-manual-regression.test.mjs` (7 testes) | PASS |
 | Painel do lote em navegador sintético | `tests/browser/batch-panel.spec.mjs` (1 teste) | PASS |
 
-Total: 225 testes unitários PASS (114 anteriores + 111 novos).
+Total: 226 testes unitários PASS (114 anteriores + 112 novos).
 Suíte de navegador: 20 testes PASS (19 anteriores + 1 novo), em fixtures locais, sem acesso ao portal.
 
 ## Verificação no Chrome QA (05/11/2026)

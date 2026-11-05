@@ -40,6 +40,19 @@ test('manual_button_and_message_are_unchanged', () => {
   assert.equal(MESSAGE.REQUEST_FILL, 'REQUEST_FILL');
 });
 
+test('batch_apply_does_not_relax_manual_transaction_gate', () => {
+  const content = readFileSync('src/form/content.mjs', 'utf8');
+  const manualStart = content.indexOf("message.type !== MESSAGE.APPLY_PLAN");
+  const batchStart = content.indexOf('message.type !== MESSAGE.BATCH_APPLY');
+  assert.equal(manualStart > 0, true);
+  assert.equal(batchStart > manualStart, true);
+  const manualBlock = content.slice(manualStart, batchStart);
+  assert.equal(manualBlock.includes('STALE_TRANSACTION'), true);
+  const batchBlock = content.slice(batchStart, batchStart + 900);
+  assert.equal(batchBlock.includes('STALE_TRANSACTION'), false);
+  assert.equal(batchBlock.includes('UNTRUSTED_SENDER'), true);
+});
+
 test('manual_path_never_imports_batch_save', () => {
   for (const file of ['src/form/content.mjs', 'src/background/index.mjs']) {
     const source = readFileSync(file, 'utf8');

@@ -239,6 +239,7 @@ export async function runFillTransaction(input) {
     onDocumentsFound,
     isCancelled,
     onState,
+    applyMessageType = MESSAGE.APPLY_PLAN,
   } = input;
 
   const route = parseRoute(formTab && formTab.url);
@@ -431,7 +432,7 @@ export async function runFillTransaction(input) {
   try {
     apply = await withTimeout(
       sendToForm(formTab.id, {
-        type: MESSAGE.APPLY_PLAN,
+        type: applyMessageType,
         requestId,
         proposals,
         expected: {
