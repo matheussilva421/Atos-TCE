@@ -74,12 +74,33 @@ async function main() {
       ],
     });
 
-    let worker = context.serviceWorkers().find((candidate) => candidate.url().startsWith("chrome-extension://"));
+    const deadline = Date.now() + 20_000;
+    let worker = null;
+    while (!worker && Date.now() < deadline) {
+      for (const candidate of context.serviceWorkers()) {
+        if (!candidate.url().endsWith("/background.js")) {
+          continue;
+        }
+        try {
+          const loaded = await candidate.evaluate(() => chrome.runtime.getManifest());
+          if (loaded && loaded.name === manifest.name) {
+            worker = candidate;
+            break;
+          }
+        } catch {
+          // worker de outra extensão ou já encerrado
+        }
+      }
+      if (!worker) {
+        try {
+          await context.waitForEvent("serviceworker", { timeout: 1000 });
+        } catch {
+          // continua até o prazo
+        }
+      }
+    }
     if (!worker) {
-      worker = await context.waitForEvent("serviceworker", {
-        timeout: 20_000,
-        predicate: (candidate) => candidate.url().startsWith("chrome-extension://"),
-      });
+      throw new Error("Extension service worker not found");
     }
     const extensionId = new URL(worker.url()).hostname;
     const loadedManifest = await worker.evaluate(() => chrome.runtime.getManifest());
