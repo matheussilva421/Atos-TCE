@@ -23,8 +23,9 @@ Estado: `H1_INCOMPLETE`
 | Runner, checkpoint e salvamento incerto | `tests/unit/batch-saving.test.mjs` (8 testes) | PASS |
 | Comandos de formulário do lote | `tests/unit/batch-form-content.test.mjs` (5 testes) | PASS |
 | Adaptador de dependências do runner | `tests/unit/batch-deps.test.mjs` (5 testes) | PASS |
+| Regressão do modo manual | `tests/unit/batch-manual-regression.test.mjs` (6 testes) | PASS |
 
-Total: 218 testes unitários PASS (114 anteriores + 104 novos).
+Total: 224 testes unitários PASS (114 anteriores + 110 novos).
 
 ## Verificação no Chrome QA (05/11/2026)
 
