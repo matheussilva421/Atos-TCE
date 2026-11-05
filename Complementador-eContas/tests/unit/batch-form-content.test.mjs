@@ -103,3 +103,17 @@ test('wrong_process_and_untrusted_blocked', async () => {
   );
   assert.equal(untrusted.code, 'UNTRUSTED_SENDER');
 });
+
+test('snapshot_returns_form_identity_transiently', async () => {
+  const doc = document(filledForm());
+  const result = await handleBatchFormMessage(
+    { type: 'BATCH_FORM_SNAPSHOT', processId: '901' },
+    SENDER,
+    doc,
+    RUNTIME_ID,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.snapshot.processId, '901');
+  assert.equal(result.snapshot.interestedCount, 1);
+  assert.equal(typeof result.snapshot.interestedKey, 'string');
+});

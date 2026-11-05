@@ -212,3 +212,19 @@ test('concurrent_wake_does_not_duplicate_step', async () => {
   assert.equal(stored.counters.examined, 1);
   assert.equal(stored.current.phase, 'EXAMINING');
 });
+
+test('save_not_dispatched_does_not_leave_attempt_armed', async () => {
+  const storage = memoryStorage();
+  await runningBatch(storage);
+  const options = deps({
+    storage,
+    save: async () => ({ attempted: false, result: 'error', code: 'SAVE_BUTTON_NOT_FOUND' }),
+  });
+  for (let step = 0; step < 8; step += 1) {
+    await runOneStep({ batchId: 'batch-runner', deps: options });
+  }
+  const stored = await loadBatch(storage);
+  assert.equal(stored.queue[0].status, 'FAILED');
+  assert.equal(stored.current, null);
+  assert.equal(stored.counters.saved, 0);
+});

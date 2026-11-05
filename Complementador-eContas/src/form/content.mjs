@@ -409,7 +409,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!message || (message.type !== MESSAGE.BATCH_SELECT_INTERESTED && message.type !== MESSAGE.BATCH_VALIDATE_FORM)) {
+  if (!message || ![
+    MESSAGE.BATCH_SELECT_INTERESTED,
+    MESSAGE.BATCH_VALIDATE_FORM,
+    MESSAGE.BATCH_FORM_SNAPSHOT,
+  ].includes(message.type)) {
     return false;
   }
   handleBatchFormMessage(message, sender, document, chrome.runtime.id).then(

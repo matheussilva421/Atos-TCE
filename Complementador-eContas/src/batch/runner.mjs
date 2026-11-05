@@ -130,16 +130,14 @@ async function stepOnce({ batchId, deps }) {
         type: 'SAVE_ARMED', saveAttemptId: attemptId, at: deps.now(),
       });
       const outcome = await deps.save({ processId, attemptId });
+      const stored = await loadBatch(deps.storage);
+      if (outcome && outcome.attempted === false) {
+        return persist(deps.storage, stored, { type: 'SAVE_NOT_DISPATCHED', at: deps.now() });
+      }
       if (!outcome || outcome.result !== 'ack') {
-        if (outcome && outcome.result === 'error') {
-          const stored = await loadBatch(deps.storage);
-          return persist(deps.storage, stored, { type: 'MARK_FAILED', at: deps.now() });
-        }
-        const stored = await loadBatch(deps.storage);
         return persist(deps.storage, stored, { type: 'MARK_UNCERTAIN', at: deps.now() });
       }
       const observed = await deps.verify({ processId, attemptId });
-      const stored = await loadBatch(deps.storage);
       if (observed && observed.status === 'confirmed') {
         return persist(deps.storage, stored, { type: 'SAVE_ACK', at: deps.now() });
       }

@@ -21,6 +21,8 @@
 - T16 (parte pura): `runOneStep` ignora despertar concorrente do mesmo lote (`BUSY`) e há teste garantindo que dois eventos não avançam duas fases.
 - T21 (parcial): `tests/browser/batch-panel.spec.mjs` roda o painel em fixtures locais — pré-visualizar (1 pendente, 1 concluído, 1 sem status), iniciar (3 capturados, 1 na fila) e parar, sem requisição não-GET. Suíte de navegador com 20 testes PASS.
 - Caminho de aplicação do lote: `BATCH_APPLY` no formulário usa o mesmo `handleApplyPlan` do modo manual, mas sem o gate de transação do botão; `runFillTransaction` aceita `applyMessageType`. O gate manual (`STALE_TRANSACTION`) continua intacto e há teste estático cobrindo a separação.
+- Driver do background: `src/background/batch-runner.mjs` monta abas, snapshot do formulário, preenchimento e validação e chama `runOneStep`. Criado desligado (`driveEnabled=false`, `saveEnabled=false`) e ainda não registrado no service worker; há 2 testes cobrindo o estado desligado e a execução completa até o gate de salvamento.
+- Novo evento `SAVE_NOT_DISPATCHED`: quando o clique não chega a ser disparado, a tentativa armada é limpa e o processo vai para `FAILED`; falha depois do clique continua indo para `SAVE_UNCERTAIN`.
 - Pendente: T09 (integração documental), T11 (readback pré-save no content script), T16 (ciclo MV3), T20/T21 (regressão do modo manual e E2E sintético).
 - Estado dos filtros do operador salvo em `work/qa-filters.json` e reaplicado por script após reiniciar o Chrome QA.
 - Gate de salvamento: o diálogo real de confirmação e a prova pós-salvamento continuam `UNKNOWN_UNTIL_H2`; por isso o adaptador não confirma diálogo desconhecido e retorna `unknown`.

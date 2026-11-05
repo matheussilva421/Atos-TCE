@@ -40,7 +40,11 @@ export async function handleBatchFormMessage(message, sender, doc, runtimeId) {
   if (!sender || sender.id !== runtimeId) {
     return { ok: false, code: 'UNTRUSTED_SENDER' };
   }
-  if (!message || ![MESSAGE.BATCH_SELECT_INTERESTED, MESSAGE.BATCH_VALIDATE_FORM].includes(message.type)) {
+  if (!message || ![
+    MESSAGE.BATCH_SELECT_INTERESTED,
+    MESSAGE.BATCH_VALIDATE_FORM,
+    MESSAGE.BATCH_FORM_SNAPSHOT,
+  ].includes(message.type)) {
     return { ok: false, code: 'UNKNOWN_COMMAND' };
   }
   const route = parseRoute(locationHref(doc), PORTAL_ORIGIN);
@@ -56,6 +60,13 @@ export async function handleBatchFormMessage(message, sender, doc, runtimeId) {
       return { ok: false, code: selected.code };
     }
     return { ok: true, interestedKey: selected.interestedKey, interestedCount: 1 };
+  }
+  if (message.type === MESSAGE.BATCH_FORM_SNAPSHOT) {
+    try {
+      return { ok: true, snapshot: readForm(doc) };
+    } catch (error) {
+      return { ok: false, code: error && error.code ? error.code : 'FORM_NOT_READY' };
+    }
   }
   let snapshot;
   try {

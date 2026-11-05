@@ -139,6 +139,24 @@ export function reduceBatch(batch, event) {
       }
       break;
     }
+    case 'SAVE_NOT_DISPATCHED': {
+      if (!current || !current.saveAttemptId) {
+        fail('NO_SAVE_ATTEMPT');
+      }
+      const entry = entryFor(current.processId);
+      if (!entry || TERMINAL_STATUS.has(entry.status)) {
+        fail('PROCESS_FINISHED');
+      }
+      entry.status = 'FAILED';
+      next.events.push({ processId: current.processId, code: 'SAVE_NOT_DISPATCHED', at });
+      next.current = null;
+      if (next.state === 'PAUSE_REQUESTED') {
+        next.state = 'PAUSED';
+      } else if (next.state === 'STOP_REQUESTED') {
+        next.state = 'STOPPED';
+      }
+      break;
+    }
     case 'MARK_SKIPPED':
       finishProcess('SKIPPED', 'SKIPPED');
       break;
