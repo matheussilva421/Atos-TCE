@@ -24,8 +24,10 @@ Estado: `H1_INCOMPLETE`
 | Comandos de formulário do lote | `tests/unit/batch-form-content.test.mjs` (5 testes) | PASS |
 | Adaptador de dependências do runner | `tests/unit/batch-deps.test.mjs` (5 testes) | PASS |
 | Regressão do modo manual | `tests/unit/batch-manual-regression.test.mjs` (6 testes) | PASS |
+| Painel do lote em navegador sintético | `tests/browser/batch-panel.spec.mjs` (1 teste) | PASS |
 
 Total: 225 testes unitários PASS (114 anteriores + 111 novos).
+Suíte de navegador: 20 testes PASS (19 anteriores + 1 novo), em fixtures locais, sem acesso ao portal.
 
 ## Verificação no Chrome QA (05/11/2026)
 
@@ -38,9 +40,11 @@ Total: 225 testes unitários PASS (114 anteriores + 111 novos).
 ## O que ainda falta para H1
 
 - ~~Protocolo de comandos no background (T06)~~ e ~~controles Iniciar/Pausar/Parar/Continuar (T17)~~ concluídos.
-- Integração documental do fluxo de lote (T09) e readback no content script (T11).
-- Runner com checkpoint pré-clique e reconciliação (T13) e ciclo de vida MV3 (T16).
-- ~~Painel na listagem (T18)~~ concluído; faltam regressão explícita do modo manual (T20) e E2E sintético (T21).
+- ~~Integração documental do fluxo de lote (T09)~~ adaptador pronto; falta ligar o `runFillTransaction` real ao background.
+- ~~Readback no content script (T11)~~ comandos de formulário prontos.
+- ~~Regressão explícita do modo manual (T20)~~ concluída.
+- Runner com checkpoint pré-clique e reconciliação (T13) pronto no núcleo; falta o ciclo de vida MV3 completo (T16).
+- E2E sintético do fluxo por processo (T21 restante): documentos, interessados, formulário, limites e salvamento incerto no navegador.
 - Matriz CA-01–CA-20 preenchida com evidência de navegador, não apenas unitária.
 
 ## Declaração de segurança
