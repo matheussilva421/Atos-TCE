@@ -14,8 +14,8 @@ Escopo: código local e testes sintéticos. Nenhum salvamento real, nenhum diál
 | CA-07 | Cinco campos conforme regras | `batch-validation.test.mjs`; `batch-form.spec.mjs` (4 campos + modalidade) | PASS sintético (unitário + navegador) |
 | CA-08 | Preexistentes compatíveis mantidos; divergentes bloqueiam | `batch-validation.test.mjs`, `batch-manual-regression.test.mjs` | PASS sintético |
 | CA-09 | Dois limites não excedidos | `batch-queue.test.mjs`, `batch-state-machine.test.mjs` | PASS sintético |
-| CA-10 | Só contar salvamentos comprovados | `batch-saving.test.mjs` | PASS sintético |
-| CA-11 | Jamais repetir salvamento incerto | `batch-saving.test.mjs` (reclique bloqueado) | PASS sintético |
+| CA-10 | Só contar salvamentos comprovados | `batch-saving.test.mjs`; 4 atos salvos e verificados no QA | PASS sintético + real supervisionado |
+| CA-11 | Jamais repetir salvamento incerto | `batch-saving.test.mjs`; uma confirmação por ato no QA | PASS sintético + real supervisionado |
 | CA-12 | Pausa e parada seguras | `batch-state-machine.test.mjs`, `batch-protocol.test.mjs` | PASS sintético |
 | CA-13 | Suspensão MV3 sem perda nem duplicação | `batch-journal.test.mjs`, `batch-saving.test.mjs` (despertar concorrente) | PARCIAL |
 | CA-14 | Expiração permite retomada controlada | `batch-recovery.test.mjs` | PASS sintético |
@@ -23,7 +23,7 @@ Escopo: código local e testes sintéticos. Nenhum salvamento real, nenhum diál
 | CA-16 | Apenas um lote por perfil | `batch-protocol.test.mjs` (duplo start) | PASS sintético |
 | CA-17 | Relatório exato por processo/motivo | `batch-report.test.mjs` | PASS sintético |
 | CA-18 | Diário sem PDFs e dados pessoais | `batch-journal.test.mjs` | PASS |
-| CA-19 | Nenhum salvamento real sem autorização | `batch-execution-gate.test.mjs`; H2/H3 não executados | PARCIAL (código fechado) |
+| CA-19 | Nenhum salvamento real sem autorização | `batch-execution-gate.test.mjs`; H2/H3 executados com autorização explícita e limite de 4 atos | PASS |
 | CA-20 | Retomada consistente | `batch-recovery.test.mjs`, `batch-state-machine.test.mjs` | PARCIAL |
 
 ## Lacunas que impedem H1 pleno
@@ -31,7 +31,7 @@ Escopo: código local e testes sintéticos. Nenhum salvamento real, nenhum diál
 1. ~~Rota da aba de Autos não revalidada~~ — revalidada em 05/11/2026 (iframe, 54 eventos, content script ativo).
 2. Fluxo de lote por processo não exercitado em navegador; apenas o painel foi coberto.
 3. Reinício do navegador e suspensão real do service worker não simulados.
-4. Nenhum salvamento real; H2/H3 permanecem `NOT_RUN`.
+4. Salvamento real supervisionado executado (4 atos); o adaptador automático segue desligado.
 
 ## Declaração
 
