@@ -139,7 +139,7 @@ function schedulePoll() {
 async function refreshStatus() {
   const response = await send({ type: MESSAGE.BATCH_STATUS, requestId: createRequestId() });
   if (response && response.ok) {
-    renderStatus(response.batch || (response.batchId ? response : null));
+    renderStatus(response.report ? response : (response.batch || (response.batchId ? response : null)));
   }
 }
 

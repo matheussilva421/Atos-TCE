@@ -92,6 +92,12 @@ test('batch_panel_previews_starts_and_stops_on_current_page', async () => {
     assert.equal(started.disabled.start, true);
     assert.equal(started.disabled.stop, false);
 
+    // O painel atualiza por polling; os contadores não podem zerar na atualização.
+    await page.waitForTimeout(3500);
+    const polled = await panelState(page);
+    assert.match(polled.summary, /3 capturados/);
+    assert.match(polled.summary, /1 na fila/);
+
     await clickAction(page, 'stop');
     await page.waitForFunction(() => /Parado/.test(
       document.querySelector('#complementador-econtas-batch-root').shadowRoot.querySelector('.status').textContent,

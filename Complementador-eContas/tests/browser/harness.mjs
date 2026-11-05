@@ -228,11 +228,28 @@ export async function launchExtension() {
 }
 
 export async function waitForServiceWorker(context, timeoutMs = 15000) {
-  const existing = context.serviceWorkers();
-  if (existing.length > 0) {
-    return existing[0];
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    for (const worker of context.serviceWorkers()) {
+      if (!worker.url().startsWith('chrome-extension://')) {
+        continue;
+      }
+      try {
+        const name = await worker.evaluate(() => chrome.runtime.getManifest().name);
+        if (name === 'Complementador e-Contas') {
+          return worker;
+        }
+      } catch {
+        // worker de outra extensão ou já encerrado
+      }
+    }
+    try {
+      await context.waitForEvent('serviceworker', { timeout: Math.min(1000, deadline - Date.now()) });
+    } catch {
+      // continua até o prazo
+    }
   }
-  return context.waitForEvent('serviceworker', { timeout: timeoutMs });
+  throw new Error('EXTENSION_SERVICE_WORKER_NOT_FOUND');
 }
 
 export async function waitForContentScript(page, name = 'Complementador e-Contas', timeoutMs = 5000) {

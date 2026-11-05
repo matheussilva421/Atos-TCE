@@ -242,6 +242,7 @@ export function reduceBatch(batch, event) {
     processId: event.processId ?? (next.current ? next.current.processId : null),
     code: event.type,
     at,
+    ...(typeof event.reason === 'string' ? { reason: event.reason.slice(0, 40) } : {}),
   });
   return next;
 }

@@ -76,6 +76,7 @@ export function sanitizeBatch(batch) {
         processId: typeof event.processId === 'string' ? event.processId : null,
         code: typeof event.code === 'string' ? event.code.slice(0, 40) : '',
         at: toInt(event.at),
+        ...(typeof event.reason === 'string' ? { reason: event.reason.slice(0, 40) } : {}),
       })),
     updatedAt: toInt(batch.updatedAt),
     capture: {

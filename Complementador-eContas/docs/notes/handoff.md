@@ -29,6 +29,9 @@
 - Verificação de abas: `createRunnerDeps.openWorkspace` agora chama `verifyWorkspace` e recusa operar se a aba não estiver no processo correto (`WRONG_PROCESS_TAB`), antes de qualquer mensagem. Teste cobre a recusa sem envio.
 - T24 (preparação): `docs/evidence/batch-release-candidate.md` registra hashes do build candidato e o ensaio de rollback — 64 hashes do backup conferidos, 0 divergências. Nada foi empacotado, publicado ou instalado.
 - T21 (formulário): `tests/browser/batch-form.spec.mjs` comprova no navegador a seleção do interessado único, o bloqueio por campos vazios, a aplicação do plano (`BATCH_APPLY`) e a validação final com os cinco campos. Suíte de navegador com 21 PASS.
+- Correção de UI: o polling do painel preferia o lote cru (`response.batch`) e zerava os contadores; agora prefere o payload com relatório. O teste do painel aguarda um ciclo de polling (3,5 s) e exige "3 capturados"/"1 na fila".
+- Diagnóstico: o diário agora guarda o código sanitizado do motivo (`reason`) nos eventos de falha, útil para o relatório e para depurar fluxo real.
+- Tentativa de E2E completo do lote (lista → abas → documentos → formulário) foi descartada: habilitar execução no build de teste quebra o teste do painel e a descoberta de service worker é instável nesse harness. As mudanças experimentais foram revertidas; `BATCH_EXECUTION_ENABLED` segue `false`.
 - Pendente: T09 (integração documental), T11 (readback pré-save no content script), T16 (ciclo MV3), T20/T21 (regressão do modo manual e E2E sintético).
 - Estado dos filtros do operador salvo em `work/qa-filters.json` e reaplicado por script após reiniciar o Chrome QA.
 - Gate de salvamento: o diálogo real de confirmação e a prova pós-salvamento continuam `UNKNOWN_UNTIL_H2`; por isso o adaptador não confirma diálogo desconhecido e retorna `unknown`.

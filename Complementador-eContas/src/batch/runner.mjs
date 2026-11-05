@@ -86,7 +86,9 @@ async function stepOnce({ batchId, deps }) {
       });
       if (!selected || !selected.ok) {
         return persist(deps.storage, batch, {
-          type: eventForFailure(selected && selected.code), at: deps.now(),
+          type: eventForFailure(selected && selected.code),
+          reason: (selected && selected.code) || 'SELECTION_FAILED',
+          at: deps.now(),
         });
       }
       deps.session = { processId, ...workspace, interestedKey: selected.interestedKey };
@@ -102,7 +104,9 @@ async function stepOnce({ batchId, deps }) {
       });
       if (!filled || !filled.ok) {
         return persist(deps.storage, batch, {
-          type: eventForFailure(filled && filled.code), at: deps.now(),
+          type: eventForFailure(filled && filled.code),
+          reason: (filled && filled.code) || 'FILL_FAILED',
+          at: deps.now(),
         });
       }
       return persist(deps.storage, batch, { type: 'ADVANCE_PHASE', phase: 'FILLING', at: deps.now() });
@@ -116,7 +120,9 @@ async function stepOnce({ batchId, deps }) {
       });
       if (!validated || !validated.ok) {
         return persist(deps.storage, batch, {
-          type: eventForFailure(validated && validated.code), at: deps.now(),
+          type: eventForFailure(validated && validated.code),
+          reason: (validated && validated.code) || 'VALIDATION_FAILED',
+          at: deps.now(),
         });
       }
       return persist(deps.storage, batch, { type: 'ADVANCE_PHASE', phase: 'VALIDATING', at: deps.now() });
@@ -146,7 +152,9 @@ async function stepOnce({ batchId, deps }) {
     }
   } catch (error) {
     const code = error && error.code ? error.code : 'DEPENDENCY_ERROR';
-    return persist(deps.storage, batch, { type: eventForFailure(code), at: deps.now() });
+    return persist(deps.storage, batch, {
+      type: eventForFailure(code), reason: code, at: deps.now(),
+    });
   }
 
   return { state: batch.state, needsWake: false };
