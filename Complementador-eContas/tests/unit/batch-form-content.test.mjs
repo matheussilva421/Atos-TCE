@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { handleBatchFormMessage } from '../../src/form/batch-content.mjs';
+import { handleBatchFormMessage, handleBatchSave } from '../../src/form/batch-content.mjs';
 
 const RUNTIME_ID = 'ext-runtime';
 const URL_COMPLEMENT = 'https://processos.tce.rn.gov.br/#/dashboard/complementar-ato/901';
@@ -116,4 +116,46 @@ test('snapshot_returns_form_identity_transiently', async () => {
   assert.equal(result.snapshot.processId, '901');
   assert.equal(result.snapshot.interestedCount, 1);
   assert.equal(typeof result.snapshot.interestedKey, 'string');
+});
+
+test('batch_save_reports_unknown_dialog_for_learning', async () => {
+  const doc = document(filledForm({
+    extra: '<button class="btn btn-primary">Complementar ato</button>'
+      + '<div class="modal show"><h4 class="modal-title">Confirma a complementação?</h4>'
+      + '<button>Cancelar</button><button>Confirmar</button></div>',
+  }));
+  const result = await handleBatchSave(
+    { type: 'BATCH_SAVE', processId: '901', attemptId: 'attempt-901-learn' },
+    SENDER,
+    doc,
+    RUNTIME_ID,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'DIALOG_UNKNOWN');
+  assert.match(result.dialog.title, /Confirma/);
+  assert.deepEqual(result.dialog.buttons, ['Cancelar', 'Confirmar']);
+});
+
+test('batch_save_confirms_known_dialog_once', async () => {
+  const doc = document(filledForm({
+    extra: '<button class="btn btn-primary">Complementar ato</button>'
+      + '<div class="modal show"><h4 class="modal-title">Confirmar complementação</h4>'
+      + '<button>Confirmar</button></div>',
+  }));
+  let confirms = 0;
+  doc.querySelector('.modal button').addEventListener('click', () => { confirms += 1; });
+  const result = await handleBatchSave(
+    {
+      type: 'BATCH_SAVE',
+      processId: '901',
+      attemptId: 'attempt-901-known',
+      knownDialog: { title: 'Confirmar complementação', confirmText: 'Confirmar' },
+    },
+    SENDER,
+    doc,
+    RUNTIME_ID,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.result, 'ack');
+  assert.equal(confirms, 1);
 });

@@ -17,6 +17,7 @@ export function createRunnerDeps({
   workspaceTimeoutMs = 10000,
   beginTransaction = null,
   finishTransaction = null,
+  saveTransaction = null,
 }) {
   const session = { workspace: null };
   const keepForms = new Set();
@@ -104,9 +105,12 @@ export function createRunnerDeps({
       }
       return { ok: true };
     },
-    async save() {
+    async save({ processId, attemptId }) {
       if (executionEnabled !== true) {
         return { attempted: false, result: 'error', code: 'SAVE_GATE_CLOSED' };
+      }
+      if (typeof saveTransaction === 'function') {
+        return saveTransaction({ processId, attemptId });
       }
       return { attempted: false, result: 'error', code: 'SAVE_ADAPTER_NOT_WIRED' };
     },

@@ -37,6 +37,22 @@ export function createBatchDriver({
         executionEnabled: saveEnabled === true,
         beginTransaction,
         finishTransaction,
+        saveTransaction: async ({ processId, attemptId }) => {
+          const values = await storage.get('complementadorKnownDialog').catch(() => ({}));
+          const knownDialog = values && values.complementadorKnownDialog
+            ? values.complementadorKnownDialog
+            : null;
+          const workspace = deps && deps.session ? deps.session.workspace : null;
+          if (!workspace || !workspace.formTabId) {
+            return { attempted: false, result: 'error', code: 'NO_FORM_TAB' };
+          }
+          return sendToTab(workspace.formTabId, {
+            type: MESSAGE.BATCH_SAVE,
+            processId,
+            attemptId,
+            knownDialog,
+          });
+        },
         fillTransaction: async ({ processId, formTabId, autosTabId, requestId }) => {
           const formTab = await tabs.get(formTabId);
           const autosTab = await tabs.get(autosTabId);

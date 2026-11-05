@@ -139,6 +139,25 @@ test('filled_form_tabs_are_kept_for_manual_review', async () => {
   assert.notEqual(second.formTabId, first.formTabId);
 });
 
+test('save_uses_injected_save_transaction_when_enabled', async () => {
+  const calls = [];
+  const instance = createRunnerDeps({
+    storage: {},
+    tabs: fakeTabs(),
+    sendToTab: async () => ({ ok: true }),
+    fillTransaction: async () => ({ ok: true }),
+    now: () => 1000,
+    executionEnabled: true,
+    saveTransaction: async ({ processId, attemptId }) => {
+      calls.push({ processId, attemptId });
+      return { attempted: true, result: 'ack' };
+    },
+  });
+  const outcome = await instance.save({ processId: '501', attemptId: 'attempt-1' });
+  assert.deepEqual(outcome, { attempted: true, result: 'ack' });
+  assert.deepEqual(calls, [{ processId: '501', attemptId: 'attempt-1' }]);
+});
+
 test('save_is_closed_by_default', async () => {
   const { instance } = deps();
   assert.equal(instance.saveEnabled, false);

@@ -5,6 +5,54 @@ import { parseRoute } from '../shared/routes.mjs';
 import { validateBatchReady } from './batch-validation.mjs';
 import { readForm } from './form-reader.mjs';
 import { selectSingleInterested } from './interested-selector.mjs';
+import { clickComplementarAtoOnce } from './save-adapter.mjs';
+
+const dispatchedAttempts = new Set();
+
+function maskDigits(value) {
+  return String(value || '').replace(/\d/g, '9').replace(/\s+/g, ' ').trim();
+}
+
+function captureDialog(doc) {
+  const dialog = doc.querySelector('.modal.show, ngb-modal-window, .swal2-popup');
+  if (!dialog) return null;
+  const title = dialog.querySelector('.modal-title, h1, h2, h3, h4, .swal2-title');
+  const buttons = [...dialog.querySelectorAll('button, a.btn')]
+    .map((button) => maskDigits(normalizeText(button.textContent)))
+    .filter((label) => label.length > 0)
+    .slice(0, 6);
+  return {
+    title: maskDigits(normalizeText(title ? title.textContent : '')),
+    buttons,
+  };
+}
+
+export async function handleBatchSave(message, sender, doc, runtimeId) {
+  if (!sender || sender.id !== runtimeId) {
+    return { ok: false, code: 'UNTRUSTED_SENDER' };
+  }
+  const route = parseRoute(locationHref(doc), PORTAL_ORIGIN);
+  if (!route || route.kind !== 'complemento') {
+    return { ok: false, code: 'INVALID_TARGET' };
+  }
+  if (message.processId !== route.idProcesso) {
+    return { ok: false, code: 'PROCESS_MISMATCH' };
+  }
+  const result = await clickComplementarAtoOnce(doc, {
+    processId: message.processId,
+    attemptId: message.attemptId,
+    knownDialog: message.knownDialog || null,
+  }, { dispatched: dispatchedAttempts });
+  if (result.result === 'unknown' && result.code === 'UNKNOWN_DIALOG') {
+    return { ok: false, code: 'DIALOG_UNKNOWN', dialog: captureDialog(doc) };
+  }
+  return {
+    ok: result.result === 'ack',
+    attempted: result.attempted,
+    result: result.result,
+    code: result.code || null,
+  };
+}
 
 function locationHref(doc) {
   return (doc && doc.location && doc.location.href)

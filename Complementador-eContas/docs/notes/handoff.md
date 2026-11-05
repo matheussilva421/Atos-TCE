@@ -88,6 +88,7 @@ Suspeitas, em ordem: bundle antigo carregado pelo Chrome (execução desligada) 
 - Quatro abas de formulário permaneceram abertas, cada uma com um interessado selecionado, modalidade escolhida e os quatro campos preenchidos.
 - Teste de navegador novo `tests/browser/batch-filters.spec.mjs` cobre preset + aplicação + BUSCAR automáticos.
 - Próxima fase (somente com autorização expressa): ligar o adaptador de salvamento, aprender o diálogo real na primeira gravação e então salvar os 4 preenchidos.
+- Caminho de salvamento preparado e **desligado por padrão**: `BATCH_SAVE` no formulário usa `clickComplementarAtoOnce` com tentativa única; diálogo desconhecido retorna `DIALOG_UNKNOWN` com título e botões (dígitos mascarados) para aprendizagem. `deps.save` só usa `saveTransaction` quando `executionEnabled` é verdadeiro; o diálogo aprendido ficaria em `complementadorKnownDialog` no `chrome.storage.local`. Testes: 266 PASS.
 
 ### Ambiente
 
