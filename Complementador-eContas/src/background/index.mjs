@@ -7,9 +7,74 @@ import { MESSAGE, errorResult, isRequestId } from '../shared/protocol.mjs';
 import { DOCUMENT_CACHE_KEY, cacheMatches, mergeCacheEntry } from './document-cache.mjs';
 import { parseRoute } from '../shared/routes.mjs';
 import { runDocumentDiagnostic, runFillTransaction, TransactionManager } from './bridge.mjs';
+import { BatchController } from '../batch/controller.mjs';
 
 const transactions = new TransactionManager({ timeoutMs: 180000 });
 let diagnosticRecorder = null;
+let batchController = null;
+
+const BATCH_TYPES = new Set([
+  MESSAGE.BATCH_PREVIEW,
+  MESSAGE.BATCH_START,
+  MESSAGE.BATCH_STATUS,
+  MESSAGE.BATCH_PAUSE,
+  MESSAGE.BATCH_STOP,
+  MESSAGE.BATCH_RESUME,
+]);
+
+function getBatchController() {
+  if (batchController) {
+    return batchController;
+  }
+  if (!chrome.storage || !chrome.storage.local) {
+    return null;
+  }
+  batchController = new BatchController({
+    storage: chrome.storage.local,
+    runtimeId: chrome.runtime.id,
+    newBatchId: () => 'batch-' + Date.now() + '-' + Math.random().toString(16).slice(2, 8),
+    sendToTab: (tabId, payload) => chrome.tabs.sendMessage(tabId, payload),
+    now: () => Date.now(),
+  });
+  return batchController;
+}
+
+try {
+  if (chrome.storage && chrome.storage.local && typeof chrome.storage.local.setAccessLevel === 'function') {
+    chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }).catch(() => {});
+  }
+} catch {
+  // Versões sem setAccessLevel continuam funcionando; o diário não é enviado a content scripts.
+}
+
+async function handleBatchCommand(message, sender) {
+  const controller = getBatchController();
+  if (!controller) {
+    return { ok: false, code: 'STORAGE_UNAVAILABLE' };
+  }
+  const command = {
+    sender: {
+      id: sender && sender.id,
+      tab: sender && sender.tab ? { id: sender.tab.id, url: sender.tab.url } : null,
+    },
+  };
+  switch (message.type) {
+    case MESSAGE.BATCH_PREVIEW:
+      return controller.preview(command);
+    case MESSAGE.BATCH_START:
+      return controller.start({ ...command, limits: message.limits, expectedContextKey: message.contextKey });
+    case MESSAGE.BATCH_STATUS:
+      return controller.status(command);
+    case MESSAGE.BATCH_PAUSE:
+      return controller.pause({ ...command, batchId: message.batchId, revision: message.revision });
+    case MESSAGE.BATCH_STOP:
+      return controller.stop({ ...command, batchId: message.batchId, revision: message.revision });
+    case MESSAGE.BATCH_RESUME:
+      return controller.resume({ ...command, batchId: message.batchId, revision: message.revision });
+    default:
+      return { ok: false, code: 'UNKNOWN_BATCH_COMMAND' };
+  }
+}
 
 async function readDocumentCache(processId) {
   if (!chrome.storage || !chrome.storage.session) {
@@ -296,6 +361,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleFetchPdf(message, sender).then(
       (response) => sendResponse(response),
       () => sendResponse({ ok: false, code: 'PDF_FETCH_FAILED' }),
+    );
+    return true;
+  }
+  if (BATCH_TYPES.has(message.type)) {
+    handleBatchCommand(message, sender).then(
+      (response) => sendResponse(response),
+      () => sendResponse({ ok: false, code: 'BATCH_COMMAND_FAILED' }),
     );
     return true;
   }

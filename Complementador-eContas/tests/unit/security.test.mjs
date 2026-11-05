@@ -43,7 +43,7 @@ test('manifest_permissions_limited_to_portal', () => {
     'https://processos.tce.rn.gov.br/*',
   ]);
   assert.equal(JSON.stringify(manifest).includes('<all_urls>'), false);
-  assert.equal(manifest.content_scripts.length, 2);
+  assert.equal(manifest.content_scripts.length, 3);
   for (const script of manifest.content_scripts) {
     assert.deepEqual(script.matches, ['https://processos.tce.rn.gov.br/*']);
   }
@@ -215,12 +215,17 @@ test('diagnostic_path_cannot_call_fill_or_submit', () => {
 test('diagnostic_recovery_is_session_scoped', () => {
   const background = readFileSync('src/background/index.mjs', 'utf8');
   const form = readFileSync('src/form/content.mjs', 'utf8');
+  const list = readFileSync('src/list/content.mjs', 'utf8');
   const bridge = readFileSync('src/form/diagnostic-ui.mjs', 'utf8');
   assert.equal(background.includes('chrome.storage.session'), true);
   assert.equal(background.includes('GET_DIAGNOSTIC'), true);
-  assert.equal(background.includes('chrome.storage.local'), false);
+  // O armazenamento local é exclusivo do diário do lote, injetado no controlador.
+  assert.equal(background.includes('chrome.storage.local'), true);
+  assert.equal(background.includes('getBatchController'), true);
   assert.equal(background.includes('chrome.storage.sync'), false);
   assert.equal(form.includes('chrome.storage'), false);
+  assert.equal(list.includes('chrome.storage'), false);
   assert.equal(bridge.includes('chrome.storage'), false);
   assert.equal(bridge.includes('GET_DIAGNOSTIC'), true);
+  assert.equal(readFileSync('src/batch/journal.mjs', 'utf8').includes('chrome.storage'), false);
 });

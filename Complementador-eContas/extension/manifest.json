@@ -22,6 +22,11 @@
       "matches": ["https://processos.tce.rn.gov.br/*"],
       "js": ["form-content.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://processos.tce.rn.gov.br/*"],
+      "js": ["list-content.js"],
+      "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [

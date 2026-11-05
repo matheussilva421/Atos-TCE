@@ -12,7 +12,9 @@
 - Implementado e testado: T02 (leitor da listagem), T03 (fila e limites), T04 (máquina de estados), T05 (diário sanitizado), T07 (abas dedicadas), T08 (interessado único), T10 (campos preexistentes), T12 (adaptador de salvamento com diálogo desconhecido falhando fechado), T14 (recuperação), T15 (esperas), T19 (relatório).
 - Testes: `node --test tests/unit/*.test.mjs` com 185 testes PASS (114 originais + 71 novos). Nenhum teste de navegador novo nesta rodada.
 - Validação no DOM real: o leitor devolveu 10 linhas da página atual, todas `pending`, com paginação detectada, IDs numéricos e rótulos normalizados; nenhum dado pessoal foi impresso.
-- Pendente: T06/T17 (protocolo e comandos no background), T09 (integração documental), T11 (readback pré-save no content script), T13/T16 (runner e ciclo MV3), T18 (painel na listagem), T20/T21 (regressão do modo manual e E2E sintético).
+- Concluídos também: T06/T17 (protocolo e comandos no background) e T18 (painel na listagem). Verificado no Chrome QA: painel injetado, pré-visualização de 10 pendentes, início com 10 na fila e parada sem examinar nem salvar.
+- Pendente: T09 (integração documental), T11 (readback pré-save no content script), T13/T16 (runner e ciclo MV3), T20/T21 (regressão do modo manual e E2E sintético).
+- Estado dos filtros do operador salvo em `work/qa-filters.json` e reaplicado por script após reiniciar o Chrome QA.
 - Gate de salvamento: o diálogo real de confirmação e a prova pós-salvamento continuam `UNKNOWN_UNTIL_H2`; por isso o adaptador não confirma diálogo desconhecido e retorna `unknown`.
 - Nenhum salvamento real foi executado. H2, H3 e G7 permanecem `NOT_RUN`.
 

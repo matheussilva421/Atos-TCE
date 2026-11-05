@@ -44,9 +44,10 @@ const common = {
 await build({ ...common, entryPoints: ['src/background/index.mjs'], outfile: path.join(outdir, 'background.js') });
 await build({ ...common, entryPoints: ['src/form/content.mjs'], outfile: path.join(outdir, 'form-content.js') });
 await build({ ...common, entryPoints: ['src/autos/content.mjs'], outfile: path.join(outdir, 'autos-content.js') });
+await build({ ...common, entryPoints: ['src/list/content.mjs'], outfile: path.join(outdir, 'list-content.js') });
 await cp('node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs', path.join(outdir, 'vendor', 'pdf.worker.mjs'));
 
-const entries = ['background.js', 'form-content.js', 'autos-content.js', 'manifest.json'];
+const entries = ['background.js', 'form-content.js', 'autos-content.js', 'list-content.js', 'manifest.json'];
 for (const entry of entries) {
   const stat = await import('node:fs/promises').then((fs) => fs.stat(path.join(outdir, entry)));
   process.stdout.write(entry + ': ' + stat.size + ' bytes\n');

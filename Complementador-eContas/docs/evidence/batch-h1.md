@@ -18,15 +18,25 @@ Estado: `H1_INCOMPLETE`
 | Recuperação de contexto | `tests/unit/batch-recovery.test.mjs` (8 testes) | PASS |
 | Esperas e disjuntor | `tests/unit/batch-waits.test.mjs` (6 testes) | PASS |
 | Relatório sanitizado | `tests/unit/batch-report.test.mjs` (6 testes) | PASS |
+| Protocolo e controlador serializado | `tests/unit/batch-protocol.test.mjs` (8 testes) | PASS |
+| UI do painel da listagem | `tests/unit/batch-list-ui.test.mjs` (6 testes) | PASS |
 
-Total: 185 testes unitários PASS (114 anteriores + 71 novos).
+Total: 199 testes unitários PASS (114 anteriores + 85 novos).
+
+## Verificação no Chrome QA (05/11/2026)
+
+- Painel `#complementador-econtas-batch-root` injetado na listagem real com os cinco controles e dois campos de limite.
+- Pré-visualizar: 10 processos pendentes, 0 concluídos, 0 sem status.
+- Iniciar: lote criado com 10 capturados, 10 na fila, 0 examinados, 0 salvos, estado `RUNNING`.
+- Parar: estado `STOPPED`, sem examinar nenhum processo e sem salvar.
+- Nenhum clique em Complementar ato e nenhuma alteração de ato no portal.
 
 ## O que ainda falta para H1
 
-- Protocolo de comandos no background (T06) e controles Iniciar/Pausar/Parar/Continuar (T17).
+- ~~Protocolo de comandos no background (T06)~~ e ~~controles Iniciar/Pausar/Parar/Continuar (T17)~~ concluídos.
 - Integração documental do fluxo de lote (T09) e readback no content script (T11).
 - Runner com checkpoint pré-clique e reconciliação (T13) e ciclo de vida MV3 (T16).
-- Painel na listagem (T18), regressão explícita do modo manual (T20) e E2E sintético (T21).
+- ~~Painel na listagem (T18)~~ concluído; faltam regressão explícita do modo manual (T20) e E2E sintético (T21).
 - Matriz CA-01–CA-20 preenchida com evidência de navegador, não apenas unitária.
 
 ## Declaração de segurança
