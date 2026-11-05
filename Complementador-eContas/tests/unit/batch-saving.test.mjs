@@ -198,3 +198,17 @@ test('multiple_interested_marks_review_without_save', async () => {
   assert.equal(stored.queue[0].status, 'REVIEW_REQUIRED');
   assert.equal(stored.counters.saved, 0);
 });
+
+test('concurrent_wake_does_not_duplicate_step', async () => {
+  const storage = memoryStorage();
+  await runningBatch(storage);
+  const options = deps({ storage });
+  const results = await Promise.all([
+    runOneStep({ batchId: 'batch-runner', deps: options }),
+    runOneStep({ batchId: 'batch-runner', deps: options }),
+  ]);
+  assert.equal(results.filter((result) => result.state === 'BUSY').length, 1);
+  const stored = await loadBatch(storage);
+  assert.equal(stored.counters.examined, 1);
+  assert.equal(stored.current.phase, 'EXAMINING');
+});

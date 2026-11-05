@@ -18,11 +18,25 @@ async function persist(storage, batch, event) {
   return { state: next.state, needsWake: next.state === 'RUNNING' };
 }
 
+const inFlight = new Map();
+
 /**
  * Executa no máximo uma transição por chamada. O estado é sempre recarregado do
  * diário antes de agir, e o checkpoint SAVE_PENDING é persistido antes do clique.
  */
 export async function runOneStep({ batchId, deps }) {
+  if (inFlight.has(batchId)) {
+    return { state: 'BUSY', needsWake: true };
+  }
+  inFlight.set(batchId, true);
+  try {
+    return await stepOnce({ batchId, deps });
+  } finally {
+    inFlight.delete(batchId);
+  }
+}
+
+async function stepOnce({ batchId, deps }) {
   if (!deps || !deps.storage) {
     return { state: 'IDLE', needsWake: false };
   }

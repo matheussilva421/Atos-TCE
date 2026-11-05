@@ -18,6 +18,7 @@
 - T09 (adaptador): `src/batch/deps.mjs` conecta abas, mensagens de formulário e preenchimento injetado às dependências do runner, com 5 testes. O salvamento continua fechado (`SAVE_GATE_CLOSED`) e o adaptador real não está ligado.
 - Falta para executar de fato: ligar `runOneStep` + `createRunnerDeps` ao background com o `runFillTransaction` real e o ciclo MV3 (T16); o flag de execução permanece desligado até lá.
 - T20 concluído: testes travam o botão individual, o fluxo `REQUEST_FILL`, a preservação de valores existentes, a rejeição de remetente não confiável e a separação das chaves de armazenamento do lote e do cache de documentos.
+- T16 (parte pura): `runOneStep` ignora despertar concorrente do mesmo lote (`BUSY`) e há teste garantindo que dois eventos não avançam duas fases.
 - Pendente: T09 (integração documental), T11 (readback pré-save no content script), T16 (ciclo MV3), T20/T21 (regressão do modo manual e E2E sintético).
 - Estado dos filtros do operador salvo em `work/qa-filters.json` e reaplicado por script após reiniciar o Chrome QA.
 - Gate de salvamento: o diálogo real de confirmação e a prova pós-salvamento continuam `UNKNOWN_UNTIL_H2`; por isso o adaptador não confirma diálogo desconhecido e retorna `unknown`.
