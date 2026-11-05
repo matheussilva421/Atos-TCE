@@ -37,6 +37,9 @@
 - Build aceita `BATCH_EXECUTION=1` via ambiente (fora do build de teste) para habilitar a execução do lote pontualmente; padrão continua desligado.
 - Execução real supervisionada no QA (05/11): 10 processos capturados; com limite 3, três foram recusados por múltiplos interessados e nenhum campo foi preenchido. Com limite 10, 4 recusas por múltiplos, 1 sem interessado e 5 falhas `DOCUMENT_NOT_READABLE` (aba de Autos sem documento). Nenhum salvamento.
 - Correções: `maxSteps` 200, dependências do driver reaproveitadas, avanço disparado também pelo polling de status e `BATCH_ENSURE_DOCUMENT` para abrir o primeiro evento quando o visualizador está vazio.
+- Repetição com as correções (05/11, sessão restabelecida): o lote criou a fila (10 capturados) mas permaneceu em `RUNNING` com 0 examinados; nenhum evento `BEGIN_PROCESS`. A causa não foi isolada: a tentativa de instrumentar o retorno do driver ficou inconclusiva porque o painel desapareceu após o BUSCAR e o script de diagnóstico travou. Instrumentação revertida; build final voltou a `BATCH_EXECUTION_ENABLED=false`.
+- Estado final do QA: lote `STOPPED`, painel ativo, filtros reaplicados (marcador, ato, ordenação, dois checkboxes) e 10 linhas. Suíte unitária com 244 PASS.
+- Próximo diagnóstico recomendado: registrar o retorno de `drive()` em `chrome.storage.local` (chave temporária) ou expor `BATCH_DRIVE_STATE`, antes de novas rodadas reais; suspeita principal é o driver não habilitado no bundle carregado ou `runOneStep` retornando `IDLE`.
 - Pendente: T09 (integração documental), T11 (readback pré-save no content script), T16 (ciclo MV3), T20/T21 (regressão do modo manual e E2E sintético).
 - Estado dos filtros do operador salvo em `work/qa-filters.json` e reaplicado por script após reiniciar o Chrome QA.
 - Gate de salvamento: o diálogo real de confirmação e a prova pós-salvamento continuam `UNKNOWN_UNTIL_H2`; por isso o adaptador não confirma diálogo desconhecido e retorna `unknown`.
