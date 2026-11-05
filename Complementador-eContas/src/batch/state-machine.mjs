@@ -160,6 +160,9 @@ export function reduceBatch(batch, event) {
     case 'MARK_SKIPPED':
       finishProcess('SKIPPED', 'SKIPPED');
       break;
+    case 'MARK_FILLED':
+      finishProcess('FILLED', 'FILLED');
+      break;
     case 'MARK_REVIEW':
       finishProcess('REVIEW_REQUIRED', 'REVIEW_REQUIRED');
       break;

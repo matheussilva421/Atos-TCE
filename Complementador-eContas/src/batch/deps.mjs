@@ -19,10 +19,16 @@ export function createRunnerDeps({
   finishTransaction = null,
 }) {
   const session = { workspace: null };
+  const keepForms = new Set();
   return {
     storage,
     now,
     session,
+    markFilled() {
+      if (session.workspace) {
+        keepForms.add(session.workspace.formTabId);
+      }
+    },
     saveEnabled: executionEnabled === true,
     newAttemptId(processId) {
       return 'attempt-' + processId + '-' + now().toString(36);
@@ -33,6 +39,7 @@ export function createRunnerDeps({
         previous: session.workspace,
         tabsApi: tabs,
         fresh: true,
+        keepTabIds: [...keepForms],
       });
       const verified = await waitForWorkspace({
         processId,

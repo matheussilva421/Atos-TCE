@@ -3,6 +3,7 @@ import { MESSAGE, createRequestId } from '../shared/protocol.mjs';
 import { parseListRoute } from '../shared/routes.mjs';
 import { readVisibleList } from './list-reader.mjs';
 import { describeBatchState, describeControls, formatSummary, validateLimitsInput } from './list-ui.mjs';
+import { applyFilterPreset, readFilterPreset } from './filter-preset.mjs';
 
 const HOST_ID = 'complementador-econtas-batch-root';
 let host = null;
@@ -18,6 +19,7 @@ let savedInput = null;
 let currentStatus = null;
 let pollHandle = null;
 let busy = false;
+let autoRestored = false;
 
 function onListRoute() {
   return Boolean(parseListRoute(location.href, PORTAL_ORIGIN));
@@ -68,6 +70,8 @@ function ensureUi() {
     + '<label>Máx. salvos<input type="number" min="1" step="1" value="1" aria-label="Máximo de atos confirmados"></label></div>'
     + '<div class="row"><button type="button" data-action="preview" class="secondary">Pré-visualizar</button>'
     + '<button type="button" data-action="start">⚡ Rodar automação</button></div>'
+    + '<div class="row"><button type="button" data-action="save-filters" class="secondary">Salvar filtros</button>'
+    + '<button type="button" data-action="restore-filters" class="secondary">Restaurar filtros</button></div>'
     + '<div class="row"><button type="button" data-action="pause" class="secondary">Pausar</button>'
     + '<button type="button" data-action="stop" class="danger">Parar</button>'
     + '<button type="button" data-action="resume" class="secondary">Continuar</button></div>'
@@ -81,6 +85,8 @@ function ensureUi() {
   pauseButton = shadow.querySelector('button[data-action="pause"]');
   stopButton = shadow.querySelector('button[data-action="stop"]');
   resumeButton = shadow.querySelector('button[data-action="resume"]');
+  const saveFiltersButton = shadow.querySelector('button[data-action="save-filters"]');
+  const restoreFiltersButton = shadow.querySelector('button[data-action="restore-filters"]');
   examinedInput = shadow.querySelectorAll('input[type="number"]')[0];
   savedInput = shadow.querySelectorAll('input[type="number"]')[1];
   startButton.addEventListener('click', onStart);
@@ -88,8 +94,49 @@ function ensureUi() {
   pauseButton.addEventListener('click', () => onControl('pause'));
   stopButton.addEventListener('click', () => onControl('stop'));
   resumeButton.addEventListener('click', () => onControl('resume'));
+  saveFiltersButton.addEventListener('click', onSaveFilters);
+  restoreFiltersButton.addEventListener('click', onRestoreFilters);
   applyControls(null);
   void refreshStatus();
+  setTimeout(() => { void autoRestoreFilters(); }, 1200);
+}
+
+async function onSaveFilters() {
+  const preset = readFilterPreset(document);
+  const response = await send({ type: MESSAGE.FILTER_PRESET_SET, requestId: createRequestId(), preset });
+  if (statusElement) {
+    statusElement.dataset.tone = response && response.ok ? 'ok' : 'error';
+    statusElement.textContent = response && response.ok
+      ? 'Filtros salvos para as próximas sessões.'
+      : 'Não foi possível salvar os filtros.';
+  }
+}
+
+async function onRestoreFilters() {
+  const response = await send({ type: MESSAGE.FILTER_PRESET_GET, requestId: createRequestId() });
+  if (!response || !response.ok || !response.preset) {
+    if (statusElement) {
+      statusElement.dataset.tone = 'warn';
+      statusElement.textContent = 'Nenhum filtro salvo.';
+    }
+    return;
+  }
+  await applyFilterPreset(document, response.preset);
+  if (statusElement) {
+    statusElement.dataset.tone = 'ok';
+    statusElement.textContent = 'Filtros restaurados.';
+  }
+}
+
+async function autoRestoreFilters() {
+  if (autoRestored) {
+    return;
+  }
+  autoRestored = true;
+  const response = await send({ type: MESSAGE.FILTER_PRESET_GET, requestId: createRequestId() });
+  if (response && response.ok && response.preset) {
+    await applyFilterPreset(document, response.preset, { search: false });
+  }
 }
 
 function removeUi() {

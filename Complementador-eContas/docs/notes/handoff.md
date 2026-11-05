@@ -65,6 +65,14 @@ Suspeitas, em ordem: bundle antigo carregado pelo Chrome (execução desligada) 
 - Build final em `dist` com `BATCH_EXECUTION_ENABLED=false`; Chrome QA encerrado.
 - Próximo passo: repetir com poucos processos para confirmar estabilidade e, se o usuário autorizar, avaliar H2 (um salvamento real). H2/H3/G7 seguem `NOT_RUN`.
 
+### Atualização 05/11/2026 — filtros persistentes e preenchimento sem salvar
+
+- Filtros: o painel ganhou `Salvar filtros` e `Restaurar filtros`; o estado fica em `chrome.storage.local` (chave `complementadorFilterPreset`) e é reaplicado automaticamente ao abrir a listagem. O restauro automático **não** clica em BUSCAR (evita laço de recarga); o clique de busca fica no roteiro do teste.
+- Preset já semeado no perfil QA com o filtro do operador: marcador *Mutirão - Educação*, ATO COMPLEMENTADO = *Não*, ordenação e os checkboxes (ProcessosNoSetor e semDistribuicao).
+- Modo preenchimento: quando o salvamento está desligado, o lote marca o processo como `FILLED`, mantém a aba do formulário aberta e segue para o próximo (até 10). Nenhum salvamento.
+- Testes: 263 unitários PASS (novos casos de filtro, sanitização e `MARK_FILLED`).
+- Ambiente: o Chrome QA voltou a ficar sem resposta ao CDP durante a rodada; browser encerrado e build final com `BATCH_EXECUTION_ENABLED=false`.
+
 ### Ambiente
 
 - Chrome QA: perfil em `C:\Users\slvma\.codex\qa-econtas`, porta CDP 9333, encerrado nesta pausa.

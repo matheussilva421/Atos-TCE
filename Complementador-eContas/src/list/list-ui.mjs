@@ -71,9 +71,11 @@ export function formatSummary(status) {
   const examined = totals ? totals.examined : status.examined || 0;
   const saved = totals ? totals.saved : status.saved || 0;
   const confirmed = totals ? totals.confirmed : 0;
+  const filled = totals && Number.isSafeInteger(totals.filled) ? totals.filled : 0;
   const state = describeBatchState(status.state).label;
   const note = status.executionEnabled === false ? ' Execução automática aguardando homologação.' : '';
   return state + '. ' + captured + ' capturados, ' + skippedCompleted + ' pré-concluídos, '
     + skippedUnknown + ' sem status, ' + queued + ' na fila. '
-    + examined + ' examinados, ' + saved + ' salvos, ' + confirmed + ' confirmados.' + note;
+    + examined + ' examinados, ' + saved + ' salvos, ' + confirmed + ' confirmados, '
+    + filled + ' preenchidos sem salvar.' + note;
 }

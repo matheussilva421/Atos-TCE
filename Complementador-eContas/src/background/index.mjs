@@ -14,6 +14,7 @@ import { createDriveTracker } from '../batch/runtime-state.mjs';
 import { createTabSender } from '../batch/tab-sender.mjs';
 import { isBatchFetchAllowed } from '../batch/runtime-state.mjs';
 import { loadBatch } from '../batch/journal.mjs';
+import { FILTER_PRESET_KEY, sanitizePreset } from '../list/filter-preset.mjs';
 
 const transactions = new TransactionManager({ timeoutMs: 180000 });
 let diagnosticRecorder = null;
@@ -379,6 +380,25 @@ async function handleGetDiagnostic(message, sender) {
   }
   return { ok: true, diagnostic: await readDiagnostic() };
 }
+
+async function handleFilterPreset(message, sender) {
+  if (!isTrusted(sender)) {
+    return { ok: false, code: 'UNTRUSTED_SENDER' };
+  }
+  if (!chrome.storage || !chrome.storage.local) {
+    return { ok: false, code: 'STORAGE_UNAVAILABLE' };
+  }
+  if (message.type === MESSAGE.FILTER_PRESET_GET) {
+    const values = await chrome.storage.local.get(FILTER_PRESET_KEY);
+    return { ok: true, preset: values[FILTER_PRESET_KEY] || null };
+  }
+  const preset = sanitizePreset(message.preset);
+  if (!preset) {
+    return { ok: false, code: 'INVALID_PRESET' };
+  }
+  await chrome.storage.local.set({ [FILTER_PRESET_KEY]: preset });
+  return { ok: true };
+}
 async function handleFetchPdf(message, sender) {
   if (!isTrusted(sender) || !sender.tab || !isRequestId(message.requestId)) {
     return { ok: false, code: 'UNTRUSTED_SENDER' };
@@ -449,6 +469,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleBatchCommand(message, sender).then(
       (response) => sendResponse(response),
       () => sendResponse({ ok: false, code: 'BATCH_COMMAND_FAILED' }),
+    );
+    return true;
+  }
+  if (message.type === MESSAGE.FILTER_PRESET_GET || message.type === MESSAGE.FILTER_PRESET_SET) {
+    handleFilterPreset(message, sender).then(
+      (response) => sendResponse(response),
+      () => sendResponse({ ok: false, code: 'FILTER_PRESET_FAILED' }),
     );
     return true;
   }

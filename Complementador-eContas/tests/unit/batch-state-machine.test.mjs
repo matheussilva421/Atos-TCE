@@ -97,3 +97,11 @@ test('confirmed_id_cannot_confirm_twice', () => {
   assert.throws(() => reduceBatch(acked, { type: 'SAVE_ACK' }), (error) => error.code === 'INVALID_TRANSITION');
   assert.equal(acked.counters.saved, 1);
 });
+
+test('fill_only_marks_filled_without_saving', () => {
+  const filled = reduceBatch(validating(ready()), { type: 'MARK_FILLED', at: 950 });
+  assert.equal(filled.queue[0].status, 'FILLED');
+  assert.equal(filled.counters.saved, 0);
+  assert.equal(filled.current, null);
+  assert.equal(filled.state, 'RUNNING');
+});

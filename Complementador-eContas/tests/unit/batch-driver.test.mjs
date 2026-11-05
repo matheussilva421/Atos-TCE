@@ -107,7 +107,7 @@ test('driver_runs_process_and_stops_at_save_gate', async () => {
     saveEnabled: false,
   });
   const result = await driver.drive('batch-driver');
-  assert.equal(result.state, 'SUSPENDED');
+  assert.equal(result.state, 'COMPLETED');
   assert.equal(fillCalls.length, 1);
   assert.equal(fillCalls[0].applyMessageType, MESSAGE.BATCH_APPLY);
   assert.equal(fillCalls[0].sourceTabs.length, 1);
@@ -117,7 +117,8 @@ test('driver_runs_process_and_stops_at_save_gate', async () => {
   const stored = await loadBatch(storage);
   assert.equal(stored.counters.examined, 1);
   assert.equal(stored.counters.saved, 0);
-  assert.equal(stored.current.phase, 'VALIDATING');
+  assert.equal(stored.current, null);
+  assert.equal(stored.queue[0].status, 'FILLED');
 });
 
 test('driver_resumes_after_step_limit_and_reuses_tabs', async () => {
@@ -156,6 +157,6 @@ test('driver_resumes_after_step_limit_and_reuses_tabs', async () => {
       break;
     }
   }
-  assert.equal(result.state, 'SUSPENDED');
+  assert.equal(result.state, 'COMPLETED');
   assert.equal(creates, 2);
 });

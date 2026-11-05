@@ -177,8 +177,9 @@ test('save_gate_closed_suspends_before_click', async () => {
   }
   const stored = await loadBatch(storage);
   assert.equal(saves, 0);
-  assert.equal(stored.state, 'SUSPENDED');
-  assert.equal(stored.current.phase, 'VALIDATING');
+  assert.equal(stored.state, 'COMPLETED');
+  assert.equal(stored.queue[0].status, 'FILLED');
+  assert.equal(stored.counters.saved, 0);
 });
 
 test('multiple_interested_marks_review_without_save', async () => {

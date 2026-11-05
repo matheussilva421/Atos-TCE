@@ -61,6 +61,16 @@ test('uncertain_not_counted_as_saved', () => {
   assert.equal(report.totals.saved, 0);
 });
 
+test('filled_without_save_is_not_confirmed', () => {
+  const report = buildBatchReport(batch({
+    queue: [{ processId: '401', processLabel: '401/2020', status: 'FILLED' }],
+    counters: { examined: 1, saved: 0 },
+  }));
+  assert.equal(report.totals.filled, 1);
+  assert.equal(report.totals.confirmed, 0);
+  assert.equal(report.totals.saved, 0);
+});
+
 test('reasons_are_sanitized', () => {
   const report = buildBatchReport(batch({
     queue: [{

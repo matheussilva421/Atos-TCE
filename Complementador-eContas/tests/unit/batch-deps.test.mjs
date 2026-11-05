@@ -129,6 +129,16 @@ test('fill_reports_missing_ensure_response', async () => {
   assert.equal(result.code, 'ENSURE_UNDEFINED');
 });
 
+test('filled_form_tabs_are_kept_for_manual_review', async () => {
+  const { instance, tabs } = deps();
+  const first = await instance.openWorkspace({ processId: '501' });
+  instance.markFilled({ processId: '501' });
+  const second = await instance.openWorkspace({ processId: '502' });
+  assert.equal(tabs.tabs[first.formTabId] !== undefined, true);
+  assert.equal(tabs.tabs[first.autosTabId], undefined);
+  assert.notEqual(second.formTabId, first.formTabId);
+});
+
 test('save_is_closed_by_default', async () => {
   const { instance } = deps();
   assert.equal(instance.saveEnabled, false);

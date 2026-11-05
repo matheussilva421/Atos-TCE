@@ -29,7 +29,9 @@ function sameIds(ids) {
  * Abre ou reaproveita exatamente duas abas de trabalho do processo.
  * A aba da listagem nunca é recebida nem alterada.
  */
-export async function openWorkspace({ processId, previous = null, tabsApi, fresh = false }) {
+export async function openWorkspace({
+  processId, previous = null, tabsApi, fresh = false, keepTabIds = [],
+}) {
   if (!isValidProcessId(processId)) {
     throw new WorkspaceError('INVALID_PROCESS');
   }
@@ -42,6 +44,9 @@ export async function openWorkspace({ processId, previous = null, tabsApi, fresh
     }
     if (fresh) {
       for (const tabId of [previous.autosTabId, previous.formTabId]) {
+        if (keepTabIds.includes(tabId)) {
+          continue;
+        }
         if (typeof tabsApi.remove === 'function') {
           try {
             await tabsApi.remove(tabId);

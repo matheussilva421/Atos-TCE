@@ -130,7 +130,12 @@ async function stepOnce({ batchId, deps }) {
 
     if (phase === 'VALIDATING') {
       if (deps.saveEnabled !== true) {
-        return persist(deps.storage, batch, { type: 'SUSPEND', at: deps.now() });
+        if (typeof deps.markFilled === 'function') {
+          deps.markFilled({ processId });
+        }
+        return persist(deps.storage, batch, {
+          type: 'MARK_FILLED', reason: 'FILL_ONLY', at: deps.now(),
+        });
       }
       const attemptId = deps.newAttemptId(processId);
       const armed = await persist(deps.storage, batch, {
