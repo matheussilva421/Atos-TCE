@@ -109,3 +109,25 @@ test('execution_flag_does_not_enable_real_save_adapter', async () => {
   assert.equal(outcome.result, 'error');
   assert.equal(outcome.code, 'SAVE_ADAPTER_NOT_WIRED');
 });
+
+test('workspace_is_verified_before_use', async () => {
+  const tabs = fakeTabs();
+  const get = tabs.get.bind(tabs);
+  tabs.get = async (id) => {
+    const tab = await get(id);
+    return { ...tab, url: tab.url.replace(/\/\d{3}\//, '/999/') };
+  };
+  const messages = [];
+  const instance = createRunnerDeps({
+    storage: {},
+    tabs,
+    sendToTab: async (tabId, message) => { messages.push(message); return { ok: true }; },
+    fillTransaction: async () => ({ ok: true }),
+    now: () => 1000,
+  });
+  await assert.rejects(
+    () => instance.openWorkspace({ processId: '501' }),
+    (error) => error.code === 'WRONG_PROCESS_TAB',
+  );
+  assert.equal(messages.length, 0);
+});
