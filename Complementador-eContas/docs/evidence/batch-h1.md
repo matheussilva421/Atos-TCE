@@ -72,3 +72,17 @@ Com o filtro do operador aplicado (marcador *Mutirão - Educação* e ATO COMPLE
 O diário registra `READING → FILLING → VALIDATING → SUSPEND` para o processo, e a aba do formulário confirma os quatro campos e a modalidade preenchidos. Nenhum clique em Complementar ato.
 
 Defeitos corrigidos para chegar aqui: listener de preparação de documento aninhado no lugar errado, `tabs.remove()` sem Promise, envio de mensagem aceitando resposta vazia e `FETCH_PDF` recusando o lote por falta de transação. Tempos ampliados para 60 s (mensagem) e 300 s (documentos).
+
+## Preenchimento em lote sem salvar (05/11/2026)
+
+Build estruturalmente só-preenchimento (`BATCH_FILL_ONLY=1`), com `saveEnabled` forçado a falso. Filtro do operador aplicado e BUSCAR executados automaticamente pelo painel.
+
+| Verificação | Resultado |
+| --- | --- |
+| Processos examinados | 10 |
+| Preenchidos (`FILLED`) | 4 |
+| Revisão (`MISSING_FIELDS`) | 6 |
+| Salvamentos | 0 |
+| Abas de formulário mantidas | 4 |
+
+Cada aba mantida tem um interessado selecionado, modalidade escolhida e os quatro campos preenchidos (comprimentos observados 10/26–32/9–11/10). O lote terminou em `COMPLETED` com `counters.saved = 0`.

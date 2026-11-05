@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head><meta charset="utf-8"><title>Processos no Setor</title></head>
+  <body>
+    <processos-consulta-processo>
+      <tce-select-field formcontrolname="idMarcador">
+        <ng-select><div class="ng-select-container"><input></div></ng-select>
+      </tce-select-field>
+      <tce-select-field formcontrolname="atoComplementado">
+        <ng-select><div class="ng-select-container"><input></div></ng-select>
+      </tce-select-field>
+      <tce-checkbox-field formcontrolname="ProcessosNoSetor"><input type="checkbox"></tce-checkbox-field>
+      <button id="buscar" type="button">BUSCAR</button>
+      <tce-table id="tabela-processos-consulta-id">
+        <table><tbody>
+          <tr>
+            <td></td>
+            <td class="cel-marcadores"></td>
+            <td class="cel-processo"><a href="#/dashboard/processos/999001">999001/2026</a></td>
+            <td class="cel-acoes"><i class="complemento-ato-pendente"></i></td>
+          </tr>
+        </tbody></table>
+      </tce-table>
+    </processos-consulta-processo>
+    <script>
+      window.__searches = 0;
+      document.getElementById('buscar').addEventListener('click', function () {
+        window.__searches += 1;
+      });
+      document.querySelectorAll('tce-select-field').forEach(function (field) {
+        var name = field.getAttribute('formcontrolname');
+        var options = name === 'idMarcador' ? ['Mutirão - Educação', 'Outro'] : ['Sim', 'Não'];
+        field.querySelector('.ng-select-container').addEventListener('click', function () {
+          var existing = document.querySelector('.ng-dropdown-panel');
+          if (existing) existing.remove();
+          var panel = document.createElement('div');
+          panel.className = 'ng-dropdown-panel';
+          options.forEach(function (label) {
+            var option = document.createElement('div');
+            option.className = 'ng-option';
+            option.textContent = label;
+            option.addEventListener('click', function () {
+              field.querySelector('ng-select').innerHTML =
+                '<span class="ng-value-label">' + label + '</span>';
+              panel.remove();
+            });
+            panel.appendChild(option);
+          });
+          document.body.appendChild(panel);
+        });
+      });
+    </script>
+  </body>
+</html>

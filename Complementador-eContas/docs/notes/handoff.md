@@ -81,6 +81,14 @@ Suspeitas, em ordem: bundle antigo carregado pelo Chrome (execução desligada) 
 - Perfil novo e vazio: `C:\Users\slvma\.codex\qa-econtas-fresh`, com a extensão `work/qa-run24` (só-preenchimento). Está na tela de login aguardando um login manual único.
 - Após o login: semear o preset com `work/qa-seed-preset.mjs` (aponta para a chave `complementadorFilterPreset`), recarregar a página e o painel aplica filtro + BUSCAR sozinho; então iniciar o lote 10/1.
 
+### Resultado do preenchimento em lote (05/11/2026)
+
+- Perfil QA novo (`qa-econtas-fresh`) com login do operador; preset de filtros semeado e aplicado automaticamente, incluindo BUSCAR (chips confirmam marcador).
+- Lote 10/1 em modo só-preenchimento: **4 processos `FILLED`**, 6 em `REVIEW_REQUIRED` por `MISSING_FIELDS`, 0 salvamentos, estado `COMPLETED`.
+- Quatro abas de formulário permaneceram abertas, cada uma com um interessado selecionado, modalidade escolhida e os quatro campos preenchidos.
+- Teste de navegador novo `tests/browser/batch-filters.spec.mjs` cobre preset + aplicação + BUSCAR automáticos.
+- Próxima fase (somente com autorização expressa): ligar o adaptador de salvamento, aprender o diálogo real na primeira gravação e então salvar os 4 preenchidos.
+
 ### Ambiente
 
 - Chrome QA: perfil em `C:\Users\slvma\.codex\qa-econtas`, porta CDP 9333, encerrado nesta pausa.

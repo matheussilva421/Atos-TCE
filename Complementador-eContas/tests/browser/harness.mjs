@@ -39,6 +39,7 @@ const OTHER_TEXT = 'Documento diverso do processo, sem resolução administrativ
 export async function startFixtureServer(options = {}) {
   const formHtml = await readFile(new URL('../fixtures/form-complemento.html', import.meta.url), 'utf8');
   const listHtml = await readFile(new URL('../fixtures/batch/list.html', import.meta.url), 'utf8');
+  const listFiltersHtml = await readFile(new URL('../fixtures/batch/list-filters.html', import.meta.url), 'utf8');
   const requests = [];
   const resolutionPages = options.resolutionPages || options.pdfPages || [options.resolutionText || RESOLUTION_TEXT];
   const pdfBytes = makePdf(resolutionPages);
@@ -81,6 +82,11 @@ export async function startFixtureServer(options = {}) {
     if (url.pathname === '/lista') {
       response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       response.end(listHtml);
+      return;
+    }
+    if (url.pathname === '/lista-filtros') {
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      response.end(listFiltersHtml);
       return;
     }
     if (url.pathname.startsWith('/as/consultaprocessotemp/')) {
