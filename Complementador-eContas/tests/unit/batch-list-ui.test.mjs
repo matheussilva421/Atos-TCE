@@ -78,3 +78,16 @@ test('unknown_state_is_labeled', () => {
   assert.equal(describeBatchState('WEIRD').label, 'Estado desconhecido');
   assert.equal(describeBatchState('WEIRD').tone, 'warn');
 });
+
+test('summary_states_execution_gate', () => {
+  const text = formatSummary({
+    state: 'RUNNING',
+    captured: 1,
+    queueLength: 1,
+    examined: 0,
+    saved: 0,
+    executionEnabled: false,
+    report: { totals: { captured: 1, skippedCompleted: 0, skippedUnknown: 0, queued: 1, examined: 0, saved: 0, confirmed: 0 } },
+  });
+  assert.equal(text.includes('aguardando homologação'), true);
+});

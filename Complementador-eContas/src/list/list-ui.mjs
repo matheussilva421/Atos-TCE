@@ -72,7 +72,8 @@ export function formatSummary(status) {
   const saved = totals ? totals.saved : status.saved || 0;
   const confirmed = totals ? totals.confirmed : 0;
   const state = describeBatchState(status.state).label;
+  const note = status.executionEnabled === false ? ' Execução automática aguardando homologação.' : '';
   return state + '. ' + captured + ' capturados, ' + skippedCompleted + ' pré-concluídos, '
     + skippedUnknown + ' sem status, ' + queued + ' na fila. '
-    + examined + ' examinados, ' + saved + ' salvos, ' + confirmed + ' confirmados.';
+    + examined + ' examinados, ' + saved + ' salvos, ' + confirmed + ' confirmados.' + note;
 }

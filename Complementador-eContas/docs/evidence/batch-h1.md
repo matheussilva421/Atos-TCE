@@ -20,8 +20,9 @@ Estado: `H1_INCOMPLETE`
 | Relatório sanitizado | `tests/unit/batch-report.test.mjs` (6 testes) | PASS |
 | Protocolo e controlador serializado | `tests/unit/batch-protocol.test.mjs` (8 testes) | PASS |
 | UI do painel da listagem | `tests/unit/batch-list-ui.test.mjs` (6 testes) | PASS |
+| Runner, checkpoint e salvamento incerto | `tests/unit/batch-saving.test.mjs` (8 testes) | PASS |
 
-Total: 199 testes unitários PASS (114 anteriores + 85 novos).
+Total: 208 testes unitários PASS (114 anteriores + 94 novos).
 
 ## Verificação no Chrome QA (05/11/2026)
 

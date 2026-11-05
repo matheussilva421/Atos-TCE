@@ -46,13 +46,14 @@ function statusPayload(batch) {
  * operações para que dois eventos simultâneos não criem dois lotes.
  */
 export class BatchController {
-  constructor({ storage, runtimeId, sendToTab, newBatchId, now, timeouts }) {
+  constructor({ storage, runtimeId, sendToTab, newBatchId, now, timeouts, executionEnabled }) {
     this.storage = storage;
     this.runtimeId = runtimeId;
     this.sendToTab = sendToTab;
     this.newBatchId = newBatchId || (() => 'batch-' + Date.now());
     this.now = now || (() => Date.now());
     this.timeouts = { read: 4000, snapshot: 6000, command: 20000, ...(timeouts || {}) };
+    this.executionEnabled = executionEnabled === true;
     this.lock = Promise.resolve();
   }
 
@@ -179,7 +180,7 @@ export class BatchController {
       }
       const running = reduceBatch(batch, { type: 'START', at: this.now() });
       await saveBatch(this.storage, running);
-      return { ...statusPayload(running) };
+      return { ...statusPayload(running), executionEnabled: this.executionEnabled };
     });
   }
 
@@ -195,7 +196,7 @@ export class BatchController {
       if (!existing.batch) {
         return { ok: true, batch: null };
       }
-      return { ...statusPayload(existing.batch), batch: existing.batch };
+      return { ...statusPayload(existing.batch), batch: existing.batch, executionEnabled: this.executionEnabled };
     });
   }
 
@@ -225,7 +226,7 @@ export class BatchController {
         return failure(error && error.code ? error.code : 'INVALID_TRANSITION');
       }
       await saveBatch(this.storage, next);
-      return { ...statusPayload(next) };
+      return { ...statusPayload(next), executionEnabled: this.executionEnabled };
     });
   }
 
