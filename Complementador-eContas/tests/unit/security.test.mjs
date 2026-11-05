@@ -81,10 +81,22 @@ const background = readFileSync('src/background/index.mjs', 'utf8');
 
 test('no_submit_commands_or_network_writes', () => {
   for (const { file, text } of readAll(sourceFiles())) {
-    assert.equal(text.includes('Complementar ato'), false, file + ' references the final button');
-    assert.equal(text.includes('Salvar modalidade'), false, file + ' references save');
+    const normalized = file.split('\\').join('/');
+    const isSaveAdapter = normalized.endsWith('src/form/save-adapter.mjs');
+    if (!isSaveAdapter) {
+      assert.equal(text.includes('Complementar ato'), false, file + ' references the final button');
+      assert.equal(text.includes('Salvar modalidade'), false, file + ' references save');
+    }
     assert.equal(/\.submit\(|requestSubmit|dispatchEvent\(new [A-Za-z]*Event\('submit'/.test(text), false, file + ' may submit');
   }
+  // O adaptador de salvamento é exclusivo do modo lote e nunca é importado pelo fluxo manual.
+  for (const manual of ['src/form/content.mjs', 'src/background/index.mjs', 'src/background/bridge.mjs']) {
+    const text = readFileSync(manual, 'utf8');
+    assert.equal(text.includes('save-adapter'), false, manual + ' imports the batch save adapter');
+  }
+  const adapter = readFileSync('src/form/save-adapter.mjs', 'utf8');
+  assert.equal(adapter.includes('ALREADY_ATTEMPTED'), true);
+  assert.equal(adapter.includes('UNKNOWN_DIALOG'), true);
 });
 
 test('no_external_network', () => {

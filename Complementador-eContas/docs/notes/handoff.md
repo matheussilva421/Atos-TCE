@@ -1,5 +1,21 @@
 # Handoff — Complementador e-Contas
 
+> Atualização 05/11/2026 (automação em lote): esta seção prevalece sobre todo o histórico abaixo.
+
+## Automação em lote — checkpoint 05/11/2026
+
+- GOAL vigente: automação em lote (T00–T21 e preparação de T24), com H2/H3/G7 dependentes de autorização humana separada.
+- Branch: `codex/complementador-e-contas`. Nenhum push, merge ou alteração em `main` nesta rodada.
+- Baseline T00: 114 testes unitários e 19 de navegador PASS, build PASS; backup em `work/batch-baseline-2026-11-05` (59 arquivos de fonte + 5 do build, `SHA256SUMS.txt` com 64 linhas, restauração de amostra conferida).
+- Ambiente de teste novo: o Chrome de marca não aceita `--load-extension`; a suíte de navegador passou a usar `C:\Users\slvma\AppData\Local\ms-playwright\chromium-1248\chrome-win64\chrome.exe` com `TEST_BROWSER_HEADLESS=1`.
+- G1 (listagem): rota `#/dashboard/processos-no-setor/no-setor` e contrato de tabela, link, status e filtros confirmados no Chrome QA; detalhes em `docs/evidence/batch-f0-sanitized.md`.
+- Implementado e testado: T02 (leitor da listagem), T03 (fila e limites), T04 (máquina de estados), T05 (diário sanitizado), T07 (abas dedicadas), T08 (interessado único), T10 (campos preexistentes), T12 (adaptador de salvamento com diálogo desconhecido falhando fechado), T14 (recuperação), T15 (esperas), T19 (relatório).
+- Testes: `node --test tests/unit/*.test.mjs` com 185 testes PASS (114 originais + 71 novos). Nenhum teste de navegador novo nesta rodada.
+- Validação no DOM real: o leitor devolveu 10 linhas da página atual, todas `pending`, com paginação detectada, IDs numéricos e rótulos normalizados; nenhum dado pessoal foi impresso.
+- Pendente: T06/T17 (protocolo e comandos no background), T09 (integração documental), T11 (readback pré-save no content script), T13/T16 (runner e ciclo MV3), T18 (painel na listagem), T20/T21 (regressão do modo manual e E2E sintético).
+- Gate de salvamento: o diálogo real de confirmação e a prova pós-salvamento continuam `UNKNOWN_UNTIL_H2`; por isso o adaptador não confirma diálogo desconhecido e retorna `unknown`.
+- Nenhum salvamento real foi executado. H2, H3 e G7 permanecem `NOT_RUN`.
+
 > Atualização 04/11/2026: esta seção prevalece sobre o histórico abaixo.
 
 ## Correção final — descoberta automática de Resolução e Guia (04/11/2026)
