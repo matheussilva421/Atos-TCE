@@ -49,6 +49,14 @@ O ZIP contém apenas `manifest.json`, os quatro bundles e `vendor/pdf.worker.mjs
 - `BATCH_SAVE_ENABLED=false` (capacidade de salvamento desligada).
 - Mesmo em um build com `BATCH_EXECUTION=1`, o salvamento exige simultaneamente `BATCH_SAVE=1`, lote criado com `saveAuthorized=true` e clique consciente em Iniciar. O padrão e o build de distribuição nunca habilitam esses três.
 
+## Build de QA preparado (não executado)
+
+- Caminho: `work/qa-save-build-2026-11-05` (ignorado pelo Git, com aviso `NAO-DISTRIBUIR.txt`).
+- Gerado com `BATCH_EXECUTION=1` e `BATCH_SAVE=1`, apenas para o futuro GATE A/F7.
+- `background.js`: 132.374 bytes, SHA-256 `C69E92C062FE810F3C98F63CF8FDCCAC6F21FC2BE60C5F5EB23537B2A832CBDB`.
+- Nunca foi carregado, executado ou instalado. O `dist` seguro foi restaurado depois; os hashes seguros continuam iguais aos do ZIP.
+- Este build não é release, não é candidato de distribuição e não autoriza salvamento.
+
 ## Gates
 
 | Gate | Estado |

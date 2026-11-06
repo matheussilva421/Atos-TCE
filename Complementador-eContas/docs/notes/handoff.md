@@ -7,6 +7,7 @@
 > - Testes finais: **322 unitários PASS**; **24 navegador PASS** em um ciclo; `build`/`build:test` PASS; benchmark p50 428 ms/p95 704 ms.
 > - Status: `PARTIAL_WITH_EVIDENCE` · `SUPERVISED_REAL_SAVE_VERIFIED (4/4)` · `AUTOMATED_SAVE_NOT_RUN` · `MV3_WORKER_KILL_TEST_NOT_RUN` · `G7_PENDING`.
 > - Candidato seguro: `release/Complementador-eContas-0.1.1-batch-safe.zip` (SHA-256 `D820E4A9E32FB66F99C27D5B8B2E777E65E901153BC9076DE05EE154A8319E0C`), motor desligado.
+> - Build de QA com salvamento habilitado preparado em `work/qa-save-build-2026-11-05` (background SHA-256 `C69E92C062FE810F3C98F63CF8FDCCAC6F21FC2BE60C5F5EB23537B2A832CBDB`), **não executado**; `dist` seguro foi restaurado.
 > - Relatórios: `docs/evidence/batch-final-{baseline,tests,diagnostics,security,release}.md`; matriz em `batch-ca-traceability.md`.
 > - Pendências: F7 (um ato real via adaptador) exige autorização específica; F8 lote pequeno e F9 Chrome profissional/G7 também. Os seis `MISSING_FIELDS` reais ainda não foram reclassificados. Autosave e kill físico do worker não foram provados.
 > - Nenhum salvamento novo foi feito. Os quatro atos anteriores não autorizam novos.
