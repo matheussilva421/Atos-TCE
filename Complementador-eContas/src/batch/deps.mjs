@@ -14,6 +14,7 @@ export function createRunnerDeps({
   fillTransaction,
   now = () => Date.now(),
   executionEnabled = false,
+  verify = null,
   workspaceTimeoutMs = 10000,
   beginTransaction = null,
   finishTransaction = null,
@@ -114,7 +115,10 @@ export function createRunnerDeps({
       }
       return { attempted: false, result: 'error', code: 'SAVE_ADAPTER_NOT_WIRED' };
     },
-    async verify() {
+    async verify(args) {
+      if (typeof verify === 'function') {
+        return verify(args);
+      }
       return { status: 'unknown', evidence: [] };
     },
   };

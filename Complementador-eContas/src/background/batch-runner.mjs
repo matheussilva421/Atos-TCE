@@ -8,6 +8,9 @@ export const BATCH_EXECUTION_ENABLED = typeof __BATCH_EXECUTION__ === 'boolean'
 export const BATCH_FILL_ONLY = typeof __BATCH_FILL_ONLY__ === 'boolean'
   ? __BATCH_FILL_ONLY__
   : false;
+export const BATCH_SAVE_ENABLED = typeof __BATCH_SAVE__ === 'boolean'
+  ? __BATCH_SAVE__
+  : false;
 
 /**
  * Monta as dependências reais do runner e conduz os passos. Permanece desligado
@@ -22,7 +25,8 @@ export function createBatchDriver({
   writeDocumentCache,
   extractFields,
   driveEnabled = BATCH_EXECUTION_ENABLED,
-  saveEnabled = false,
+  saveEnabled = BATCH_SAVE_ENABLED,
+  verify = null,
   maxSteps = 200,
   beginTransaction = null,
   finishTransaction = null,
@@ -35,6 +39,7 @@ export function createBatchDriver({
         tabs,
         sendToTab,
         executionEnabled: saveEnabled === true,
+        verify,
         beginTransaction,
         finishTransaction,
         saveTransaction: async ({ processId, attemptId }) => {

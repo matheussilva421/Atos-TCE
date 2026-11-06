@@ -8,7 +8,7 @@ import { DOCUMENT_CACHE_KEY, cacheMatches, mergeCacheEntry } from './document-ca
 import { parseRoute } from '../shared/routes.mjs';
 import { runDocumentDiagnostic, runFillTransaction, TransactionManager } from './bridge.mjs';
 import { BatchController } from '../batch/controller.mjs';
-import { createBatchDriver } from './batch-runner.mjs';
+import { createBatchDriver, BATCH_SAVE_ENABLED } from './batch-runner.mjs';
 import { retryAsync } from '../shared/retry.mjs';
 import { createDriveTracker } from '../batch/runtime-state.mjs';
 import { createTabSender } from '../batch/tab-sender.mjs';
@@ -54,6 +54,7 @@ function getBatchController() {
     newBatchId: () => 'batch-' + Date.now() + '-' + Math.random().toString(16).slice(2, 8),
     sendToTab: (tabId, payload) => chrome.tabs.sendMessage(tabId, payload),
     now: () => Date.now(),
+    saveEnabled: BATCH_SAVE_ENABLED,
   });
   return batchController;
 }
@@ -73,6 +74,7 @@ function getBatchDriver() {
     readDocumentCache,
     writeDocumentCache,
     extractFields,
+    saveEnabled: BATCH_SAVE_ENABLED,
     beginTransaction: (tabId, requestId) => transactions.begin(tabId, requestId),
     finishTransaction: (tabId, requestId) => transactions.finish(tabId, requestId),
   });

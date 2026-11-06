@@ -34,6 +34,7 @@ async function runningBatch(storage, limits = { maxExamined: 1, maxSaved: 1 }) {
     entries: [{ processId: '301', processLabel: '301/2020', status: 'pending' }],
     limits,
     startedAt: 10,
+    saveAuthorized: true,
   });
   const running = reduceBatch(created, { type: 'START', at: 11 });
   await saveBatch(storage, running);

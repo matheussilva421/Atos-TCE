@@ -32,7 +32,7 @@ export function validateLimits(input) {
  * Processos pré-excluídos não consomem o limite de examinados.
  * @returns {object} BatchRecord mínimo conforme contrato do plano.
  */
-export function createFrozenBatch({ batchId, listTabId, contextKey, entries, limits, startedAt }) {
+export function createFrozenBatch({ batchId, listTabId, contextKey, entries, limits, startedAt, saveAuthorized = false }) {
   if (typeof batchId !== 'string' || !/^[A-Za-z0-9._:-]{6,80}$/.test(batchId)) {
     throw new BatchQueueError('INVALID_BATCH_ID');
   }
@@ -80,6 +80,7 @@ export function createFrozenBatch({ batchId, listTabId, contextKey, entries, lim
     listTabId,
     contextKey,
     limits: normalizedLimits,
+    saveAuthorized: saveAuthorized === true,
     queue,
     cursor: 0,
     counters: { examined: 0, saved: 0 },

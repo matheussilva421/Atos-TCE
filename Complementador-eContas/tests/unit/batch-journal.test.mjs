@@ -77,7 +77,7 @@ test('journal_drops_pdf_and_personal_values', async () => {
   const stored = storage.data[BATCH_JOURNAL_KEY];
   assert.deepEqual(Object.keys(stored).sort(), [
     'batchId', 'capture', 'contextKey', 'counters', 'current', 'cursor', 'events',
-    'limits', 'listTabId', 'queue', 'revision', 'schemaVersion', 'state', 'updatedAt',
+    'limits', 'listTabId', 'queue', 'revision', 'saveAuthorized', 'schemaVersion', 'state', 'updatedAt',
   ]);
 });
 

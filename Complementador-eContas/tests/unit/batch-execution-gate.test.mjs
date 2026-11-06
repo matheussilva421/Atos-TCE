@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import {
+  BATCH_EXECUTION_ENABLED,
+  BATCH_FILL_ONLY,
+  BATCH_SAVE_ENABLED,
+} from '../../src/background/batch-runner.mjs';
+
 
 test('background_registers_batch_driver', () => {
   const background = readFileSync('src/background/index.mjs', 'utf8');
@@ -17,8 +23,16 @@ test('batch_execution_flag_is_closed', () => {
   const build = readFileSync('scripts/build.mjs', 'utf8');
   assert.equal(build.includes("process.env.BATCH_EXECUTION === '1'"), true);
   assert.equal(build.includes("process.env.BATCH_FILL_ONLY === '1'"), true);
-  assert.equal(runner.includes('saveEnabled = false'), true);
+  assert.equal(build.includes("process.env.BATCH_SAVE === '1'"), true);
+  assert.equal(runner.includes('BATCH_SAVE_ENABLED = typeof __BATCH_SAVE__'), true);
+  assert.equal(runner.includes('saveEnabled = BATCH_SAVE_ENABLED'), true);
   assert.equal(runner.includes('driveEnabled = BATCH_EXECUTION_ENABLED'), true);
+});
+
+test('distribution_build_defaults_keep_drive_fill_and_save_disabled', () => {
+  assert.equal(BATCH_EXECUTION_ENABLED, false);
+  assert.equal(BATCH_FILL_ONLY, false);
+  assert.equal(BATCH_SAVE_ENABLED, false);
 });
 
 test('manifest_does_not_add_alarm_permission', () => {

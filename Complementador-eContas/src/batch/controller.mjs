@@ -37,6 +37,7 @@ function statusPayload(batch) {
     queueLength: batch.queue.length,
     examined: batch.counters.examined,
     saved: batch.counters.saved,
+    saveAuthorized: batch.saveAuthorized === true,
     report: buildBatchReport(batch),
   };
 }
@@ -46,7 +47,7 @@ function statusPayload(batch) {
  * operações para que dois eventos simultâneos não criem dois lotes.
  */
 export class BatchController {
-  constructor({ storage, runtimeId, sendToTab, newBatchId, now, timeouts, executionEnabled }) {
+  constructor({ storage, runtimeId, sendToTab, newBatchId, now, timeouts, executionEnabled, saveEnabled }) {
     this.storage = storage;
     this.runtimeId = runtimeId;
     this.sendToTab = sendToTab;
@@ -54,6 +55,7 @@ export class BatchController {
     this.now = now || (() => Date.now());
     this.timeouts = { read: 4000, snapshot: 6000, command: 20000, ...(timeouts || {}) };
     this.executionEnabled = executionEnabled === true;
+    this.saveEnabled = saveEnabled === true;
     this.lock = Promise.resolve();
   }
 
@@ -167,6 +169,7 @@ export class BatchController {
           entries: snapshot.entries,
           limits: normalized,
           startedAt: this.now(),
+          saveAuthorized: this.saveEnabled === true,
         });
       } catch (error) {
         return failure(error && error.code ? error.code : 'INVALID_BATCH');

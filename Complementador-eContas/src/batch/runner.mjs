@@ -129,12 +129,15 @@ async function stepOnce({ batchId, deps }) {
     }
 
     if (phase === 'VALIDATING') {
-      if (deps.saveEnabled !== true) {
+      const saveAuthorized = batch.saveAuthorized === true;
+      if (deps.saveEnabled !== true || !saveAuthorized) {
         if (typeof deps.markFilled === 'function') {
           deps.markFilled({ processId });
         }
         return persist(deps.storage, batch, {
-          type: 'MARK_FILLED', reason: 'FILL_ONLY', at: deps.now(),
+          type: 'MARK_FILLED',
+          reason: saveAuthorized ? 'FILL_ONLY' : 'SAVE_NOT_AUTHORIZED',
+          at: deps.now(),
         });
       }
       const attemptId = deps.newAttemptId(processId);

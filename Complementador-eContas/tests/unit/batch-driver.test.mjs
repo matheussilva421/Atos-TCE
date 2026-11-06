@@ -57,6 +57,7 @@ async function runningBatch(storage) {
     entries: [{ processId: '777', processLabel: '777/2020', status: 'pending' }],
     limits: { maxExamined: 1, maxSaved: 1 },
     startedAt: 10,
+    saveAuthorized: true,
   });
   await saveBatch(storage, reduceBatch(created, { type: 'START', at: 11 }));
 }
