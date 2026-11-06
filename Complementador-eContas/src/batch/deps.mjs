@@ -121,6 +121,7 @@ export function createRunnerDeps({
         tabsApi: tabs,
         fresh: true,
         keepTabIds: [...keepForms, ...keepAutos],
+        windowId,
       });
       const verified = await waitForWorkspace({
         processId,
@@ -133,9 +134,11 @@ export function createRunnerDeps({
         error.code = verified.code;
         throw error;
       }
-      session.workspace = workspace;
+      session.workspace = Number.isInteger(workspace.windowId)
+        ? workspace
+        : { ...workspace, ...(Number.isInteger(windowId) ? { windowId } : {}) };
       session.processId = processId;
-      return workspace;
+      return session.workspace;
     },
     async selectInterested({ processId, formTabId }) {
       const result = await sendToTab(formTabId, { type: MESSAGE.BATCH_SELECT_INTERESTED, processId });

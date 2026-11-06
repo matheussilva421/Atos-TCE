@@ -101,11 +101,30 @@ async function stepOnce({ batchId, deps }) {
   if (batch.state === 'SUSPENDED') {
     return { state: 'SUSPENDED', needsWake: false };
   }
-  if (batch.state !== 'RUNNING') {
+  // Parada: o processo em curso nunca fica preso em STOP_REQUESTED sem que o
+  // driver volte a agir. Sem salvamento armado ele é devolvido para revisão
+  // humana (a aba fica aberta conforme keepProblemTabs) e o lote encerra.
+  if (batch.state === 'STOP_REQUESTED') {
+    if (batch.current && batch.current.saveAttemptId) {
+      return { state: 'STOP_REQUESTED', needsWake: false };
+    }
+    if (!batch.current) {
+      return persist(deps.storage, batch, { type: 'STOP_SAFE', at: deps.now() });
+    }
+    return persist(deps.storage, batch, {
+      type: 'MARK_REVIEW', reason: 'STOPPED', at: deps.now(),
+    });
+  }
+  // Pausa: termina o processo em curso e só então pausa, para não deixar o
+  // formulário pela metade.
+  if (batch.state !== 'RUNNING' && batch.state !== 'PAUSE_REQUESTED') {
     return { state: batch.state, needsWake: false };
   }
 
   if (!batch.current) {
+    if (batch.state === 'PAUSE_REQUESTED') {
+      return persist(deps.storage, batch, { type: 'PAUSE_SAFE', at: deps.now() });
+    }
     const next = nextEligibleProcess(batch);
     if (!next) {
       return persist(deps.storage, batch, { type: 'COMPLETE', at: deps.now() });

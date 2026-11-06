@@ -81,7 +81,9 @@ export function reduceBatch(batch, event) {
       break;
     }
     case 'ADVANCE_PHASE': {
-      if (next.state !== 'RUNNING' || !current) {
+      // A pausa só é efetivada depois que o processo em curso termina; avançar
+      // de fase durante PAUSE_REQUESTED é o caminho seguro para isso.
+      if ((next.state !== 'RUNNING' && next.state !== 'PAUSE_REQUESTED') || !current) {
         fail('NO_CURRENT_PROCESS');
       }
       const from = PHASES.indexOf(current.phase);

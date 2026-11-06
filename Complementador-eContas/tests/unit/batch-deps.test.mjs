@@ -19,11 +19,11 @@ function fakeTabs() {
         { id: 3, url: 'https://example.invalid/', windowId: 1 },
       ];
     },
-    async create({ url }) {
+    async create({ url, windowId = null }) {
       const id = nextId;
       nextId += 1;
-      tabs[id] = { id, url };
-      calls.push({ op: 'create', id, url });
+      tabs[id] = { id, url, windowId };
+      calls.push({ op: 'create', id, url, windowId });
       return tabs[id];
     },
     async update(id, { url }) {
@@ -85,6 +85,26 @@ test('open_workspace_replaces_tabs_between_processes', async () => {
   assert.equal(tabs.calls.filter((call) => call.op === 'create').length, 4);
   assert.equal(tabs.tabs[first.autosTabId], undefined);
   assert.equal(tabs.tabs[second.autosTabId].url.includes('/502/autos'), true);
+});
+
+test('open_workspace_creates_both_tabs_in_the_batch_window', async () => {
+  const { instance, tabs } = deps();
+  const workspace = await instance.openWorkspace({ processId: '501', windowId: 3 });
+  const created = tabs.calls.filter((call) => call.op === 'create');
+  assert.equal(created.length, 2);
+  assert.equal(created.every((call) => call.windowId === 3), true);
+  assert.equal(workspace.windowId, 3);
+});
+
+test('verify_opens_probe_tab_in_the_workspace_window', async () => {
+  const { instance, tabs } = deps({
+    verifyResponse: { ok: true, processId: '501', hasForm: true, saveButtonPresent: false },
+  });
+  await instance.openWorkspace({ processId: '501', windowId: 7 });
+  const result = await instance.verify({ processId: '501', attemptId: 'attempt-9' });
+  assert.equal(result.status, 'confirmed');
+  const created = tabs.calls.filter((call) => call.op === 'create');
+  assert.equal(created[created.length - 1].windowId, 7);
 });
 
 test('fill_filters_source_tabs_to_portal_origin', async () => {

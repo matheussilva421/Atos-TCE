@@ -1,5 +1,15 @@
 # Handoff — Complementador e-Contas
 
+> ESTADO ATUAL — 06/11/2026 (release 2.0.5 construída; QA ao vivo pendente). Esta seção prevalece sobre todo o histórico abaixo.
+>
+> - Versão 2.0.5 corrige duas causas reais da 2.0.4, encontradas depois do relatório: (1) o `windowId` era capturado e persistido, mas descartado em `createRunnerDeps().openWorkspace`, então `chrome.tabs.create` abria as abas na janela em foco; (2) “Parar” com processo em curso deixava o lote preso em `STOP_REQUESTED`, sem Iniciar, Pausar, Parar ou Continuar.
+> - Correções: repasse do `windowId` em `src/batch/deps.mjs`; parada segura em `src/batch/runner.mjs` (`STOP_SAFE` sem processo, `MARK_REVIEW` com processo, espera do salvamento armado); `ADVANCE_PHASE` aceito em `PAUSE_REQUESTED` para a pausa terminar o processo antes de parar.
+> - Testes: **344 unitários PASS** (7 novos). Suíte de navegador **BLOCKED** neste ambiente: `msedge.exe` fecha no launch e o Chrome em headless não injeta a extensão.
+> - Build funcional: `work/release-2.0.5-extract`; ZIP `release/Complementador-eContas-2.0.5.zip` (646.769 bytes, SHA-256 `0B775B3F8B5E868533836F40C49CE2E1D516DC512C88AD8D1C4ADC5FE11E1360`, extração 0 divergências).
+> - `scripts/build.mjs` agora aceita `--outdir=` para gerar QA/release sem mexer em `dist`.
+> - Evidência: `docs/evidence/batch-2.0.5-window-stop.md`.
+> - Pendente: `QA_LIVE_PENDING` — provar duas janelas e “Parar → STOPPED” exige login no e-Contas.
+>
 > ESTADO ATUAL — 06/11/2026 (release 2.0.4 homologado no QA). Esta seção prevalece sobre todo o histórico abaixo.
 >
 > - Branch `codex/complementador-e-contas`; commits de código/testes até `23e1339`; `main`/`origin/main` em `6e1acd5`; consolidação documental no commit seguinte.

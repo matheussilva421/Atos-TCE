@@ -3,11 +3,12 @@ import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const testMode = process.argv.includes('--test');
+const outdirOption = process.argv.find((value) => value.startsWith('--outdir='));
 const portalOrigin = testMode
   ? (process.env.TEST_PORTAL_ORIGIN || 'http://127.0.0.1:4173')
   : 'https://processos.tce.rn.gov.br';
 const pdfOrigin = testMode ? portalOrigin : 'https://novaarearestrita.tce.rn.gov.br';
-const outdir = testMode ? 'dist-test' : 'dist';
+const outdir = outdirOption ? outdirOption.slice('--outdir='.length) : (testMode ? 'dist-test' : 'dist');
 
 await rm(outdir, { recursive: true, force: true });
 await mkdir(path.join(outdir, 'vendor'), { recursive: true });
