@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Complementador e-Contas",
   "version": "0.1.1",
-  "description": "Preenche campos do Complementar Ato a partir do documento aberto nos autos, sem salvar ou concluir o ato.",
+  "description": "Preenche o Complementar Ato a partir dos autos; a automação em lote tem salvamento desligado por padrão.",
   "minimum_chrome_version": "110",
   "permissions": ["storage"],
   "host_permissions": [
