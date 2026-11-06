@@ -61,6 +61,8 @@ export function createRunnerDeps({
   executionEnabled = false,
   verify = null,
   workspaceTimeoutMs = 10000,
+  ensureRetryDelayMs = 1000,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   beginTransaction = null,
   finishTransaction = null,
   saveTransaction = null,
@@ -122,7 +124,12 @@ export function createRunnerDeps({
       });
       let ensured = await requestEnsure();
       if (!ensured || ensured.ok !== true) {
-        await new Promise((resolve) => setTimeout(resolve, 4000));
+        const code = ensured && ensured.code ? ensured.code : 'ENSURE_UNDEFINED';
+        const retryable = code === 'NO_DOCUMENT' || code === 'NO_EVENT_CARD' || code.startsWith('ENSURE_');
+        if (!retryable) {
+          return { ok: false, code };
+        }
+        await sleep(ensureRetryDelayMs);
         ensured = await requestEnsure();
       }
       if (!ensured || ensured.ok !== true) {

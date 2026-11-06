@@ -137,3 +137,16 @@ test('hung_journal_read_fails_closed_with_timeout', async () => {
   assert.equal(result.code, 'STORAGE_TIMEOUT');
   assert.equal(Date.now() - started < 2000, true);
 });
+
+test('context_change_blocks_start_before_freezing_queue', async () => {
+  const { instance } = controller();
+  const result = await instance.start({
+    sender: SENDER,
+    limits: { maxExamined: 2, maxSaved: 1 },
+    expectedContextKey: 'ctx-from-another-filter-state',
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'CONTEXT_CHANGED');
+  const status = await instance.status({ sender: SENDER });
+  assert.equal(status.batch, null);
+});

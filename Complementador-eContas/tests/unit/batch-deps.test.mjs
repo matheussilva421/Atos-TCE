@@ -124,6 +124,7 @@ test('fill_reports_missing_ensure_response', async () => {
     fillTransaction: async () => ({ ok: true }),
     now: () => 1000,
     workspaceTimeoutMs: 20,
+    ensureRetryDelayMs: 0,
   });
   const workspace = await instance.openWorkspace({ processId: '501' });
   const result = await instance.fill({
@@ -246,4 +247,61 @@ test('verify_closes_temp_tab_when_read_fails', async () => {
   const created = tabs.calls.filter((call) => call.op === 'create');
   assert.equal(created.length, 1);
   assert.equal(tabs.calls.some((call) => call.op === 'remove' && call.id === created[0].id), true);
+});
+
+test('fill_retries_conditionally_after_no_document', async () => {
+  let ensures = 0;
+  const tabs = fakeTabs();
+  const instance = createRunnerDeps({
+    storage: {},
+    tabs,
+    sendToTab: async (tabId, message) => {
+      if (message.type === MESSAGE.BATCH_ENSURE_DOCUMENT) {
+        ensures += 1;
+        return ensures === 1 ? { ok: false, code: 'NO_DOCUMENT' } : { ok: true };
+      }
+      return { ok: true };
+    },
+    fillTransaction: async () => ({ ok: true }),
+    now: () => 1000,
+    ensureRetryDelayMs: 0,
+    workspaceTimeoutMs: 20,
+  });
+  const workspace = await instance.openWorkspace({ processId: '501' });
+  const result = await instance.fill({
+    processId: '501',
+    formTabId: workspace.formTabId,
+    autosTabId: workspace.autosTabId,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(ensures, 2);
+});
+
+test('fill_does_not_retry_when_process_changed', async () => {
+  let ensures = 0;
+  const tabs = fakeTabs();
+  const instance = createRunnerDeps({
+    storage: {},
+    tabs,
+    sendToTab: async (tabId, message) => {
+      if (message.type === MESSAGE.BATCH_ENSURE_DOCUMENT) {
+        ensures += 1;
+        return { ok: false, code: 'PROCESS_CHANGED' };
+      }
+      return { ok: true };
+    },
+    fillTransaction: async () => ({ ok: true }),
+    now: () => 1000,
+    ensureRetryDelayMs: 0,
+    workspaceTimeoutMs: 20,
+  });
+  const workspace = await instance.openWorkspace({ processId: '501' });
+  const result = await instance.fill({
+    processId: '501',
+    formTabId: workspace.formTabId,
+    autosTabId: workspace.autosTabId,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'PROCESS_CHANGED');
+  assert.equal(ensures, 1);
 });
