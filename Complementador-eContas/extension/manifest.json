@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Complementador e-Contas",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "description": "Preenche o Complementar Ato a partir dos autos; a automação em lote só inicia com autorização explícita.",
   "minimum_chrome_version": "110",
   "permissions": ["storage"],

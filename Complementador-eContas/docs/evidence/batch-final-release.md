@@ -1,32 +1,32 @@
-# Release 2.0.3 — Complementador e-Contas
+# Release 2.0.4 — Complementador e-Contas
 
 Data: 06/11/2026
 Branch: `codex/complementador-e-contas`
-Versão: `2.0.3`
-Estado: `RELEASE_2.0.3_READY` / `G7_PENDING_HUMAN_ACCEPTANCE`
+Versão: `2.0.4`
+Estado: `RELEASE_2.0.4_READY` / `G7_PENDING_HUMAN_ACCEPTANCE`
 
-A automação em lote foi homologada no Chrome QA com 25 processos examinados e 10 salvamentos reais, todos verificados no portal. O patch 2.0.3 adiciona suporte a **Meus Processos**, separa presets por rota e amplia tempos para máquinas mais lentas. O Chrome profissional não foi tocado.
+A automação em lote foi homologada no Chrome QA com 25 processos examinados e 10 salvamentos reais, todos verificados no portal. O patch 2.0.4 adiciona suporte a **Meus Processos**, separa presets por rota e amplia tempos para máquinas mais lentas. O Chrome profissional não foi tocado.
 
 ## ZIP funcional
 
 | Item | Valor |
 | --- | --- |
-| Arquivo | `release/Complementador-eContas-2.0.3.zip` |
-| Bytes | 646.292 |
-| SHA-256 | `092423E1F22B55F5C5506A62CB7FB7575C582E254F9A9AD8C279A64D0810D4FD` |
-| Manifesto | 2.0.3 |
-| Extração de ensaio | `work/release-2.0.3-extract` |
+| Arquivo | `release/Complementador-eContas-2.0.4.zip` |
+| Bytes | 646.605 |
+| SHA-256 | `817A8D3B2B55E3A85967A555255C2B9A548522BF11685F62983DC62B73A0D8A3` |
+| Manifesto | 2.0.4 |
+| Extração de ensaio | `work/release-2.0.4-extract` |
 | Divergências de hash | 0 |
 
 ### Arquivos do ZIP
 
 | Arquivo | Bytes | SHA-256 |
 | --- | ---: | --- |
-| manifest.json | 1.201 | `1E6BC9D08392E94A475548622BCF70207A144BACEB297FF7B6FFCC653E4F40FB` |
-| background.js | 137.267 | `01DEAB242766DF9C853A068ABB42AD83962860C7ED5DD7E1E3E567D34A83912F` |
-| form-content.js | 57.911 | `66EEE2268B8A440681715DD297B0133EF30A7F56B369D9F29CDE8A678CA0CCD4` |
-| autos-content.js | 984.622 | `B596D12B82ECCB2F5E2DB5598935ED98AFA3E130553D0F96E9C89EFAF9678105` |
-| list-content.js | 29.494 | `CF89F2243206EB31369BA41EC594BBB528D093ED86ABBBF58C08318B91473AEE` |
+| manifest.json | 1.201 | `69DF58508106E47A68EC72E48BE1F8E904F0E6C5508ED463B7D59ABDA307DF40` |
+| background.js | 138.418 | `0FC2C0B801CF1F6D662EA246004AEB0010790BC66E000C117316E1BC3233ED2E` |
+| form-content.js | 57.943 | `C8E29A40ECBBFEA51D484356332F550831B241CD50D93409762DFC8FB166A6FC` |
+| autos-content.js | 984.654 | `E35BFE18E66DE5E4FD92E567FA786260FCB16ACB849873F7A6136EEFE30E593E` |
+| list-content.js | 30.637 | `DE7A600D936AC91A3B4130A4C8D139A048BC031678BE2CEBA005B41BDFDEF60A` |
 | vendor/pdf.worker.mjs | 1.417.586 | `BD88805178A26C729DB8C0107A5B630CB900EC070F4D8C7529A3E45530AFD41D` |
 
 O build funcional tem `BATCH_EXECUTION_ENABLED=true`, `BATCH_SAVE_ENABLED=true` e `BATCH_FILL_ONLY=false`. O lote só começa após clique explícito em “⚡ Rodar automação”; não há início automático no carregamento.
@@ -60,10 +60,15 @@ O build funcional tem `BATCH_EXECUTION_ENABLED=true`, `BATCH_SAVE_ENABLED=true` 
 
 | Comando | Resultado |
 | --- | --- |
-| `node --test tests/unit/*.test.mjs` | **334 PASS** |
+| `node --test tests/unit/*.test.mjs` | **337 PASS** |
 | `npm run test:browser` | **25 PASS** |
 | `npm run build` / `build:test` | PASS |
 | Extração do ZIP | PASS, 0 divergências |
+
+## Zerar lote e janela
+
+- Botão **Zerar lote** limpa o diário e reabilita o Iniciar; recusa quando há `SAVE_UNCERTAIN`/`saveAttemptId`.
+- As abas são criadas na janela onde o lote foi iniciado; outra janela não recebe os processos.
 
 ## Abas
 
@@ -82,8 +87,8 @@ O build funcional tem `BATCH_EXECUTION_ENABLED=true`, `BATCH_SAVE_ENABLED=true` 
 ## Instalação no outro PC
 
 1. Remover/desativar a 2.0.0.
-2. Extrair o ZIP 2.0.3 e carregar a pasta em `chrome://extensions` com modo desenvolvedor.
-3. Confirmar versão 2.0.3.
+2. Extrair o ZIP 2.0.4 e carregar a pasta em `chrome://extensions` com modo desenvolvedor.
+3. Confirmar versão 2.0.4.
 4. Aplicar o filtro, definir os limites e iniciar explicitamente o lote.
 
 ## Gates
@@ -102,4 +107,4 @@ O build funcional tem `BATCH_EXECUTION_ENABLED=true`, `BATCH_SAVE_ENABLED=true` 
 - Kill físico do service worker/reinício do navegador: `MV3_WORKER_KILL_TEST_NOT_RUN`.
 - Autosave do portal: `UNKNOWN`.
 - A outra máquina não foi acessada diretamente; o patch amplia os limites e corrige a rota, mas a confirmação final é no ambiente do operador.
-- A homologação real usou o build QA 0.1.1 com o mesmo caminho de preenchimento/salvamento; a 2.0.3 acrescenta limpeza pós-save, rota Meus Processos e tempos maiores, cobertos por testes.
+- A homologação real usou o build QA 0.1.1 com o mesmo caminho de preenchimento/salvamento; a 2.0.4 acrescenta limpeza pós-save, rota Meus Processos e tempos maiores, cobertos por testes.

@@ -14,6 +14,7 @@ let previewButton = null;
 let pauseButton = null;
 let stopButton = null;
 let resumeButton = null;
+let resetButton = null;
 let examinedInput = null;
 let savedInput = null;
 let keepProblemInput = null;
@@ -79,6 +80,7 @@ function ensureUi() {
     + '<div class="row"><button type="button" data-action="pause" class="secondary">Pausar</button>'
     + '<button type="button" data-action="stop" class="danger">Parar</button>'
     + '<button type="button" data-action="resume" class="secondary">Continuar</button></div>'
+    + '<div class="row"><button type="button" data-action="reset" class="danger">Zerar lote</button></div>'
     + '<div class="status" role="status" aria-live="polite">Pronto para ler a página atual.</div>'
     + '<div class="summary"></div></div>';
   document.documentElement.appendChild(host);
@@ -89,6 +91,7 @@ function ensureUi() {
   pauseButton = shadow.querySelector('button[data-action="pause"]');
   stopButton = shadow.querySelector('button[data-action="stop"]');
   resumeButton = shadow.querySelector('button[data-action="resume"]');
+  resetButton = shadow.querySelector('button[data-action="reset"]');
   const saveFiltersButton = shadow.querySelector('button[data-action="save-filters"]');
   const restoreFiltersButton = shadow.querySelector('button[data-action="restore-filters"]');
   examinedInput = shadow.querySelectorAll('input[type="number"]')[0];
@@ -100,6 +103,7 @@ function ensureUi() {
   pauseButton.addEventListener('click', () => onControl('pause'));
   stopButton.addEventListener('click', () => onControl('stop'));
   resumeButton.addEventListener('click', () => onControl('resume'));
+  resetButton.addEventListener('click', onReset);
   saveFiltersButton.addEventListener('click', onSaveFilters);
   restoreFiltersButton.addEventListener('click', onRestoreFilters);
   applyControls(null);
@@ -194,6 +198,7 @@ function applyControls(status) {
   if (pauseButton) pauseButton.disabled = !controls.canPause || busy;
   if (stopButton) stopButton.disabled = !controls.canStop || busy;
   if (resumeButton) resumeButton.disabled = !controls.canResume || busy;
+  if (resetButton) resetButton.disabled = busy;
 }
 
 function renderStatus(status) {
@@ -328,6 +333,33 @@ async function onControl(action) {
         : 'Comando recusado.';
     }
     void refreshStatus();
+  }
+}
+
+async function onReset() {
+  if (busy) {
+    return;
+  }
+  busy = true;
+  applyControls(currentStatus);
+  const response = await send({ type: MESSAGE.BATCH_RESET, requestId: createRequestId() });
+  busy = false;
+  if (response && response.ok) {
+    currentStatus = null;
+    renderStatus(null);
+    if (statusElement) {
+      statusElement.dataset.tone = 'ok';
+      statusElement.textContent = 'Lote zerado. Pronto para iniciar outro.';
+    }
+    void refreshStatus();
+    return;
+  }
+  applyControls(currentStatus);
+  if (statusElement) {
+    statusElement.dataset.tone = 'error';
+    statusElement.textContent = response && response.code === 'SAVE_UNCERTAIN_LOCKED'
+      ? 'Há salvamento incerto; resolva antes de zerar.'
+      : 'Não foi possível zerar o lote.';
   }
 }
 

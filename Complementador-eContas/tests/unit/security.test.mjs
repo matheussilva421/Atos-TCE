@@ -166,7 +166,7 @@ test('build_has_manifest_and_scripts', () => {
     return;
   }
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  assert.equal(manifest.version, '2.0.3');
+  assert.equal(manifest.version, '2.0.4');
   for (const file of ['background.js', 'form-content.js', 'autos-content.js', 'vendor/pdf.worker.mjs']) {
     assert.equal(existsSync(path.join('dist', file)), true, 'missing ' + file);
   }

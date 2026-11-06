@@ -140,6 +140,14 @@ export async function saveBatch(storage, batch) {
  * Remove apenas lotes terminais e antigos. Lotes suspensos, pausados, ativos ou com
  * tentativa de salvamento pendente são preservados explicitamente.
  */
+export async function clearBatch(storage) {
+  try {
+    await storage.remove(BATCH_JOURNAL_KEY);
+  } catch (error) {
+    throw new JournalError('STORAGE_FAILURE', error);
+  }
+}
+
 export async function compactJournal(storage, now = Date.now(), policy = {}) {
   const maxAge = Number.isFinite(policy.maxCompletedAgeMs)
     ? policy.maxCompletedAgeMs

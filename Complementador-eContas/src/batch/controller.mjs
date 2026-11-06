@@ -1,7 +1,7 @@
 import { PORTAL_ORIGIN } from '../shared/config.mjs';
 import { MESSAGE } from '../shared/protocol.mjs';
 import { parseListRoute } from '../shared/routes.mjs';
-import { loadBatch, saveBatch } from './journal.mjs';
+import { clearBatch, loadBatch, saveBatch } from './journal.mjs';
 import { createFrozenBatch, validateLimits } from './queue.mjs';
 import { buildBatchReport } from './report.mjs';
 import { reconcileExternalCompletions } from './reconciliation.mjs';
@@ -250,6 +250,31 @@ export class BatchController {
   resume({ sender, batchId, revision }) {
     return this.transition({
       sender, batchId, revision, event: 'RESUME_AUTHORIZED', allowed: ['PAUSED', 'SUSPENDED'],
+    });
+  }
+
+  async reset({ sender }) {
+    return this.serialize(async () => {
+      if (!this.trusted(sender)) {
+        return failure('UNTRUSTED_SENDER');
+      }
+      const tab = this.listTab(sender);
+      if (!tab) {
+        return failure('INVALID_LIST_TAB');
+      }
+      const existing = await this.read();
+      if (existing.error) {
+        return failure(existing.error);
+      }
+      const batch = existing.batch;
+      if (batch && batch.current && batch.current.saveAttemptId) {
+        return failure('SAVE_UNCERTAIN_LOCKED');
+      }
+      if (batch && batch.queue.some((entry) => entry.status === 'SAVE_UNCERTAIN')) {
+        return failure('SAVE_UNCERTAIN_LOCKED');
+      }
+      await clearBatch(this.storage);
+      return { ok: true, reset: true, batch: null };
     });
   }
 
