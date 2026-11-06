@@ -2,7 +2,7 @@
 
 > ESTADO ATUAL — 05/11/2026 (pós-F1–F6). Esta seção prevalece sobre todo o histórico abaixo.
 >
-> - Branch `codex/complementador-e-contas`; commits de código até `913a9b5`; `main`/`origin/main` em `6e1acd5`; consolidação documental no commit seguinte.
+> - Branch `codex/complementador-e-contas`; commits de código/testes até `3bd2001`; `main`/`origin/main` em `6e1acd5`; ajuste documental no commit seguinte.
 > - Entregue: separação `BATCH_EXECUTION`/`BATCH_SAVE` com `saveAuthorized` no lote; verificação pós-save em aba nova; checkpoint `SAVE_PENDING` com retomada sem segundo clique; diálogo estrutural homologado; revalidação pré-clique; classificação `MISSING_FIELDS`; reconciliação `COMPLETED_EXTERNALLY`; reentrada MV3 por evento; retry condicionado do documento.
 > - Testes finais: **322 unitários PASS**; **24 navegador PASS** em um ciclo; `build`/`build:test` PASS; benchmark p50 428 ms/p95 704 ms.
 > - Status: `PARTIAL_WITH_EVIDENCE` · `SUPERVISED_REAL_SAVE_VERIFIED (4/4)` · `AUTOMATED_SAVE_NOT_RUN` · `MV3_WORKER_KILL_TEST_NOT_RUN` · `G7_PENDING`.

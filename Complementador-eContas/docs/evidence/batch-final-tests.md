@@ -2,7 +2,7 @@
 
 Data: 05/11/2026
 Branch: `codex/complementador-e-contas`
-Base antes dos documentos finais: `913a9b5` (commits F1–F5 abaixo)
+HEAD de código/testes: `3bd2001`. O ajuste documental gera o commit seguinte.
 
 ## Comandos e resultados
 

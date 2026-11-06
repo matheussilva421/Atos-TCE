@@ -3,6 +3,7 @@
 Data: 05/11/2026
 Versão: 0.1.1
 Branch: `codex/complementador-e-contas`
+HEAD de código/testes: `3bd2001`
 
 ## Estado
 
