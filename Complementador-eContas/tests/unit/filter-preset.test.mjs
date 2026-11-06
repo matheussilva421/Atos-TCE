@@ -5,6 +5,8 @@ import {
   applyFilterPreset,
   filterPresetIsUsable,
   readFilterPreset,
+  presetKeyFor,
+  routeKeyFor,
   sanitizePreset,
 } from '../../src/list/filter-preset.mjs';
 
@@ -90,4 +92,13 @@ test('sanitizes_preset_payload', () => {
     selects: [{ name: 'idMarcador', value: 'Mutirão - Educação' }],
     checkboxes: [{ name: 'ProcessosNoSetor', checked: true }],
   });
+});
+
+test('preset_keys_are_scoped_by_list_route', () => {
+  const meus = 'https://processos.tce.rn.gov.br/#/dashboard/meus/meus-processos?setor=CBP';
+  const setor = 'https://processos.tce.rn.gov.br/#/dashboard/processos-no-setor/no-setor';
+  assert.equal(routeKeyFor(meus), 'meus-processos');
+  assert.equal(routeKeyFor(setor), 'processos-no-setor');
+  assert.equal(presetKeyFor('meus-processos'), 'complementadorFilterPreset:meus-processos');
+  assert.equal(presetKeyFor('processos-no-setor'), 'complementadorFilterPreset');
 });

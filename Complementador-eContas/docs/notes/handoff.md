@@ -1,17 +1,20 @@
 # Handoff — Complementador e-Contas
 
-> ESTADO ATUAL — 06/11/2026 (release 2.0.0 homologado no QA). Esta seção prevalece sobre todo o histórico abaixo.
+> ESTADO ATUAL — 06/11/2026 (release 2.0.1 homologado no QA). Esta seção prevalece sobre todo o histórico abaixo.
 >
 > - Branch `codex/complementador-e-contas`; commits de código/testes até `23e1339`; `main`/`origin/main` em `6e1acd5`; consolidação documental no commit seguinte.
 > - Homologação real: **25 examinados, 10 preenchidos/salvos, 15 revisões, 0 incertos**; **10/10 atos verificados no portal**.
-> - Testes: **326 unitários PASS**; **24 navegador PASS**; build/build:test PASS.
-> - ZIP funcional: `release/Complementador-eContas-2.0.0.zip` (645.261 bytes, SHA-256 `5606E669696FBF734BBFC01D197731D60EBA95393F3FC7519088C9E652E7A13A`).
-> - Status: `RELEASE_2.0_READY` · `G7_PENDING_HUMAN_ACCEPTANCE` · `MV3_WORKER_KILL_TEST_NOT_RUN` · `AUTOSAVE_UNKNOWN`.
+> - Testes: **329 unitários PASS**; **25 navegador PASS**; build/build:test PASS.
+> - ZIP funcional 2.0.1: `release/Complementador-eContas-2.0.1.zip` (645.508 bytes, SHA-256 `CC03219722FD81971F933D7F7982255C680D13E2230DAB3F35930AAAD86D85DD`).
+> - Status: `RELEASE_2.0.1_READY` · `G7_PENDING_HUMAN_ACCEPTANCE` · `MV3_WORKER_KILL_TEST_NOT_RUN` · `AUTOSAVE_UNKNOWN`.
 > - Filtros: Mutirão - Educação; ATO COMPLEMENTADO = Não; ProcessosNoSetor; semDistribuicao.
 > - Abas: processos `CONFIRMED` fecham as duas abas de trabalho após o ACK; revisões/incertezas permanecem abertas.
+> - Meus Processos: rota `#/dashboard/meus/meus-processos` suportada; presets separados por rota.
+> - CORS do PDF corrigido com `credentials: omit`; Meus Processos e tempos ampliados.
+> - Tempos ampliados: leitura/aplicação 180 s, documentos 600 s, abas 30 s, iframe 60 s.
 > - Relatórios: `docs/evidence/batch-2.0-homologation-attempt.md`, `batch-final-release.md`, `batch-h2-adapter.md`, `batch-h3-adapter.md`, `batch-final-tests.md`, `batch-final-security.md`, `batch-ca-traceability.md`.
 > - Pendências: G7 (aceite humano), Chrome profissional, kill físico do worker e autosave do portal. Nenhum merge/PR/instalação profissional.
-> - Próximo passo: operador revisar o relatório e aceitar/instalar o ZIP 2.0.0 conforme o procedimento institucional.
+> - Próximo passo: operador revisar o relatório e aceitar/instalar o ZIP 2.0.1 conforme o procedimento institucional.
 
 > PAUSA 05/11/2026 (GOAL pausado a pedido do usuário; PC será desligado). Esta seção é o ponto de retomada.
 

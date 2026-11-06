@@ -109,3 +109,14 @@ test('valid_pdf_without_content_length_uses_streaming', async () => {
   assert.equal(result.ok, true);
   assert.equal(result.byteLength, pdf.length);
 });
+test('fetch_uses_omit_credentials_to_avoid_cors_wildcard', async () => {
+  const pdf = makePdf(['PESSOA UM']);
+  let options = null;
+  await fetchPdfBytes(async (url, init) => {
+    options = init;
+    return makeResponse({ contentType: 'application/pdf', body: pdf, contentLength: pdf.length });
+  }, 'https://pdf.invalid/current.pdf');
+  assert.equal(options.credentials, 'omit');
+  assert.equal(options.cache, 'no-store');
+  assert.equal(options.redirect, 'error');
+});

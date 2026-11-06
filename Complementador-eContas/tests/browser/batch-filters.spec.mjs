@@ -58,3 +58,26 @@ test('saved_filters_are_applied_and_searched_automatically', async () => {
     await server.close();
   }
 });
+
+test('batch_panel_appears_on_meus_processos_route', async () => {
+  const server = await startFixtureServer();
+  let page = null;
+  try {
+    const extension = await getExtension();
+    page = await extension.context.newPage();
+    await page.goto(server.origin + '/lista-filtros#/dashboard/meus/meus-processos?ProcessosFinalisticosNoSetor=true&setor=CBP', { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => Boolean(
+      document.querySelector('#complementador-econtas-batch-root')?.shadowRoot?.querySelector('button[data-action="preview"]'),
+    ), null, { timeout: 20000 });
+    const state = await page.evaluate(() => ({
+      rows: document.querySelectorAll('#tabela-processos-consulta-id tbody tr').length,
+      panel: Boolean(document.querySelector('#complementador-econtas-batch-root')),
+    }));
+    assert.equal(state.panel, true);
+    assert.equal(state.rows > 0, true);
+    assert.equal(server.requests.every((request) => request.method === 'GET'), true);
+  } finally {
+    if (page) await page.close().catch(() => {});
+    await server.close();
+  }
+});

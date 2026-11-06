@@ -6,6 +6,7 @@ import { readListContext, readVisibleList } from '../../src/list/list-reader.mjs
 import { parseListRoute } from '../../src/shared/routes.mjs';
 
 const LIST_URL = 'https://processos.tce.rn.gov.br/#/dashboard/processos-no-setor/no-setor';
+const MEUS_URL = 'https://processos.tce.rn.gov.br/#/dashboard/meus/meus-processos?ProcessosFinalisticosNoSetor=true&setor=CBP';
 
 async function load(url = LIST_URL) {
   const html = await readFile(new URL('../fixtures/batch/list.html', import.meta.url), 'utf8');
@@ -41,6 +42,7 @@ test('only_current_page_is_captured', async () => {
 
 test('list_route_requires_verified_pattern', () => {
   assert.deepEqual(parseListRoute(LIST_URL), { kind: 'list' });
+  assert.deepEqual(parseListRoute(MEUS_URL), { kind: 'list' });
   assert.equal(parseListRoute('https://processos.tce.rn.gov.br/#/dashboard/processos/501/autos'), null);
   assert.equal(parseListRoute('https://processos.tce.rn.gov.br/#/dashboard/complementar-ato/501'), null);
   assert.equal(parseListRoute('https://evil.invalid/#/dashboard/processos-no-setor/no-setor'), null);
@@ -77,4 +79,12 @@ test('context_fingerprint_tracks_filters_only', async () => {
   const second = readListContext(document);
   assert.notEqual(second, first);
   assert.equal(JSON.stringify(second).includes('Mutirão'), false);
+});
+
+test('meus_processos_route_reads_same_table_contract', async () => {
+  const document = await load(MEUS_URL);
+  const snapshot = readVisibleList(document);
+  assert.equal(snapshot.ok, true);
+  assert.deepEqual(snapshot.entries.map((entry) => entry.processId), ['501', '502', '503']);
+  assert.equal(typeof readListContext(document), 'string');
 });

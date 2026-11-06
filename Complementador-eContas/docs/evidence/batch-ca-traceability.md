@@ -41,7 +41,7 @@ Escopo: código local, testes sintéticos, suítes consolidadas e homologação 
 2. Autosave do portal: `UNKNOWN`.
 3. Chrome profissional: `NOT_RUN` (não instalado por escopo).
 4. G7: aceite humano do operador pendente.
-5. A homologação real usou o build QA 0.1.1 com o mesmo caminho de preenchimento/salvamento; a 2.0.0 acrescenta apenas a limpeza pós-save das abas, coberta por testes.
+5. A homologação real usou o build QA 0.1.1 com o mesmo caminho de preenchimento/salvamento; a 2.0.1 acrescenta limpeza pós-save, Meus Processos, presets por rota e tempos ampliados.
 
 ## Declaração
 

@@ -47,4 +47,4 @@ Nenhum processo de revisão foi salvo. Nenhum valor foi inventado.
 
 ## Veredito
 
-`H3_ADAPTER_PASS`. O lote real está homologado; o release 2.0.0 pode ser entregue como funcional, com aceite humano G7 pendente.
+`H3_ADAPTER_PASS`. O lote real está homologado; o release 2.0.1 pode ser entregue como funcional, com aceite humano G7 pendente.

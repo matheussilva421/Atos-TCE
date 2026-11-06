@@ -3,7 +3,7 @@
 Data: 06/11/2026
 Estado: `ROLLBACK_CANDIDATE` / salvamento desligado
 
-Este pacote preserva a versão 0.1.1 com o motor de lote desligado, para rollback do release 2.0.0. O release funcional homologado está em `docs/evidence/batch-final-release.md`.
+Este pacote preserva a versão 0.1.1 com o motor de lote desligado, para rollback do release 2.0.1. O release funcional homologado está em `docs/evidence/batch-final-release.md`.
 
 ## ZIP
 

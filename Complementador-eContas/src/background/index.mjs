@@ -16,7 +16,7 @@ import { isBatchFetchAllowed } from '../batch/runtime-state.mjs';
 import { loadBatch, saveBatch } from '../batch/journal.mjs';
 import { reduceBatch } from '../batch/state-machine.mjs';
 import { decideWake, WAKE_MARKER_KEY } from '../batch/lifecycle.mjs';
-import { FILTER_PRESET_KEY, sanitizePreset } from '../list/filter-preset.mjs';
+import { FILTER_PRESET_KEY, isKnownPresetRoute, presetKeyFor, sanitizePreset } from '../list/filter-preset.mjs';
 
 const transactions = new TransactionManager({ timeoutMs: 180000 });
 let diagnosticRecorder = null;
@@ -121,7 +121,7 @@ function getBatchDriver() {
   batchDriver = createBatchDriver({
     storage: chrome.storage.local,
     tabs: chrome.tabs,
-    sendToTab: createTabSender((tabId, payload) => chrome.tabs.sendMessage(tabId, payload)),
+    sendToTab: createTabSender((tabId, payload) => chrome.tabs.sendMessage(tabId, payload), { attempts: 160, delayMs: 250 }),
     runFillTransaction,
     readDocumentCache,
     writeDocumentCache,
@@ -450,15 +450,17 @@ async function handleFilterPreset(message, sender) {
   if (!chrome.storage || !chrome.storage.local) {
     return { ok: false, code: 'STORAGE_UNAVAILABLE' };
   }
+  const route = isKnownPresetRoute(message.route) ? message.route : 'processos-no-setor';
+  const key = presetKeyFor(route);
   if (message.type === MESSAGE.FILTER_PRESET_GET) {
-    const values = await chrome.storage.local.get(FILTER_PRESET_KEY);
-    return { ok: true, preset: values[FILTER_PRESET_KEY] || null };
+    const values = await chrome.storage.local.get(key);
+    return { ok: true, preset: values[key] || null };
   }
   const preset = sanitizePreset(message.preset);
   if (!preset) {
     return { ok: false, code: 'INVALID_PRESET' };
   }
-  await chrome.storage.local.set({ [FILTER_PRESET_KEY]: preset });
+  await chrome.storage.local.set({ [key]: preset });
   return { ok: true };
 }
 

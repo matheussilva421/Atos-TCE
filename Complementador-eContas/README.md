@@ -1,6 +1,6 @@
 # Complementador e-Contas
 
-Extensão Manifest V3 independente para o formulário **Complementar Ato** do e-Contas do TCE/RN. Ela localiza nos eventos dos autos a Resolução Administrativa e a Guia Financeira/Taxação de Proventos do processo, propõe os campos e preenche somente controles vazios e editáveis. No modo individual, **não salva, não complementa o ato e não envia dados a serviços externos**. A versão 2.0.0 inclui automação em lote com salvamento automático homologado no Chrome QA; cada lote exige clique explícito e limites definidos pelo operador.
+Extensão Manifest V3 independente para o formulário **Complementar Ato** do e-Contas do TCE/RN. Ela localiza nos eventos dos autos a Resolução Administrativa e a Guia Financeira/Taxação de Proventos do processo, propõe os campos e preenche somente controles vazios e editáveis. No modo individual, **não salva, não complementa o ato e não envia dados a serviços externos**. A versão 2.0.1 inclui automação em lote com salvamento automático homologado no Chrome QA; cada lote exige clique explícito e limites definidos pelo operador.
 
 ## O que faz
 
@@ -25,7 +25,7 @@ Extensão Manifest V3 independente para o formulário **Complementar Ato** do e-
 - Exibe **Origem: data da resolução administrativa** para a data proposta ao campo DOE.
 - Cancela sem escrever se processo, interessado, aba, rota ou documento mudarem durante a leitura.
 
-## Automação em lote (2.0.0)
+## Automação em lote (2.0.1)
 
 - O painel **⚡ Rodar automação** aparece na listagem de processos e captura apenas a página atual.
 - A fila exclui processos já complementados, recusa múltiplos interessados e respeita dois limites independentes (examinados e salvos).
@@ -69,7 +69,7 @@ A instalação no perfil profissional deve ser feita pelo operador, com a extens
 - Sem OCR, LLM, backend, banco ou nuvem no MVP.
 - Se o documento tiver páginas sem texto legível, a extensão falha fechada e não preenche.
 - Se houver mais de uma aba de autos do mesmo processo, a extensão recusa em vez de escolher uma.
-- A versão 2.0.0 realizou 10 salvamentos reais no Chrome QA com autorização explícita; o Chrome profissional não foi tocado. Se o portal indicar autosave durante a digitação, interrompa o uso e reporte.
+- A versão 2.0.1 realizou 10 salvamentos reais no Chrome QA com autorização explícita; o Chrome profissional não foi tocado. A rota **Meus Processos** também é suportada. Se o portal indicar autosave durante a digitação, interrompa o uso e reporte.
 
 ## Atualização, remoção e rollback
 
@@ -103,10 +103,10 @@ A instalação no perfil profissional deve ser feita pelo operador, com a extens
 - **REAL_PERFORMANCE**: primeiro clique a partir de documento diverso levou 14,3–14,5 s; com a Resolução já aberta e cache limpo, 7,096 s; com cache, amostras de 2,8–6,7 s (p50 3,026 s; p95 6,729 s).
 - **QA_EXTENSION_BUILD_VERIFIED**: os cinco arquivos carregados no Chrome QA coincidem byte a byte com `dist` (SHA-256 conferido no service worker).
 - **CACHE_ISOLATION_VERIFIED**: PASS sintético; processo diferente não reutiliza ids. Não houve teste real com dois processos distintos.
-- **NO_SAVE_OR_SUBMIT_VERIFIED**: PASS no modo individual; o lote 2.0.0 realizou 10 salvamentos autorizados no QA, todos verificados no portal.
+- **NO_SAVE_OR_SUBMIT_VERIFIED**: PASS no modo individual; o lote 2.0.1 realizou 10 salvamentos autorizados no QA, todos verificados no portal.
 - **FINAL_BUILD_VERIFIED_ON_DISK**: build, pasta de release e ZIP extraído com os mesmos hashes.
 - **PROFESSIONAL_BROWSER_PENDING**: o Chrome profissional não foi tocado nem recarregado; a instalação lá continua manual.
-- No modo individual, nenhum ato é salvo ou concluído; no lote 2.0.0, 10 atos foram salvos no QA com autorização e verificação independente.
+- No modo individual, nenhum ato é salvo ou concluído; no lote 2.0.1, 10 atos foram salvos no QA com autorização e verificação independente.
 
 ## Documentação
 

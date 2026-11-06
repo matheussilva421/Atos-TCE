@@ -60,7 +60,7 @@ export function createRunnerDeps({
   now = () => Date.now(),
   executionEnabled = false,
   verify = null,
-  workspaceTimeoutMs = 10000,
+  workspaceTimeoutMs = 30000,
   ensureRetryDelayMs = 1000,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   beginTransaction = null,

@@ -80,8 +80,8 @@ export function createBatchDriver({
             sendToSource: (tabId, payload) => sendToTab(tabId, payload),
             sendToForm: (tabId, payload) => sendToTab(tabId, payload),
             extract: extractFields,
-            timeoutMs: 60000,
-            documentTimeoutMs: 300000,
+            timeoutMs: 180000,
+            documentTimeoutMs: 600000,
             cached,
             applyMessageType: MESSAGE.BATCH_APPLY,
             onDocumentsFound: (ids) => {

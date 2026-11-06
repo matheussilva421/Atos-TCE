@@ -3,7 +3,7 @@ import { MESSAGE, createRequestId } from '../shared/protocol.mjs';
 import { parseListRoute } from '../shared/routes.mjs';
 import { readVisibleList } from './list-reader.mjs';
 import { describeBatchState, describeControls, formatSummary, validateLimitsInput } from './list-ui.mjs';
-import { applyFilterPreset, readFilterPreset } from './filter-preset.mjs';
+import { applyFilterPreset, readFilterPreset, routeKeyFor } from './filter-preset.mjs';
 
 const HOST_ID = 'complementador-econtas-batch-root';
 let host = null;
@@ -103,7 +103,8 @@ function ensureUi() {
 
 async function onSaveFilters() {
   const preset = readFilterPreset(document);
-  const response = await send({ type: MESSAGE.FILTER_PRESET_SET, requestId: createRequestId(), preset });
+  const route = routeKeyFor(location.href);
+  const response = await send({ type: MESSAGE.FILTER_PRESET_SET, requestId: createRequestId(), preset, route });
   if (statusElement) {
     statusElement.dataset.tone = response && response.ok ? 'ok' : 'error';
     statusElement.textContent = response && response.ok
@@ -113,7 +114,8 @@ async function onSaveFilters() {
 }
 
 async function onRestoreFilters() {
-  const response = await send({ type: MESSAGE.FILTER_PRESET_GET, requestId: createRequestId() });
+  const route = routeKeyFor(location.href);
+  const response = await send({ type: MESSAGE.FILTER_PRESET_GET, requestId: createRequestId(), route });
   if (!response || !response.ok || !response.preset) {
     if (statusElement) {
       statusElement.dataset.tone = 'warn';
@@ -137,7 +139,8 @@ async function autoRestoreFilters() {
   if (!claim || claim.apply !== true) {
     return;
   }
-  const response = await send({ type: MESSAGE.FILTER_PRESET_GET, requestId: createRequestId() });
+  const route = routeKeyFor(location.href);
+  const response = await send({ type: MESSAGE.FILTER_PRESET_GET, requestId: createRequestId(), route });
   if (response && response.ok && response.preset) {
     const applied = await applyFilterPreset(document, response.preset, { search: false });
     if (!applied || applied.ok !== true) {

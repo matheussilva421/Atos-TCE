@@ -8,7 +8,7 @@ export function currentDocumentSrc(doc) {
  * Se nenhum estiver aberto, clica no primeiro cartão de evento e aguarda o src.
  */
 export async function ensureDocumentOpen(doc, options = {}) {
-  const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 30000;
+  const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 60000;
   const pollMs = Number.isFinite(options.pollMs) ? options.pollMs : 250;
   const clickDelayMs = Number.isFinite(options.clickDelayMs) ? options.clickDelayMs : 5000;
   const sleep = options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));

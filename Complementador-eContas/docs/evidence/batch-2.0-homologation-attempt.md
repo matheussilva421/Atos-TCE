@@ -1,4 +1,4 @@
-# Relatório de homologação — Complementador e-Contas 2.0.0
+# Relatório de homologação — Complementador e-Contas 2.0.x
 
 Data: 06/11/2026
 Ambiente: Chrome QA isolado com build de salvamento habilitado
@@ -11,7 +11,7 @@ Veredito: `RELEASE_2.0_READY` / `G7_PENDING_HUMAN_ACCEPTANCE`
 - Captura: 25 pendentes, 0 concluídos, 0 sem status.
 - Build de homologação: `work/qa-save-build-2026-11-05`, background SHA-256 `C69E92C062FE810F3C98F63CF8FDCCAC6F21FC2BE60C5F5EB23537B2A832CBDB`.
 - Flags: execução true, salvamento true, fill-only false.
-- Build 2.0.0 de entrega: background SHA-256 `50E2CE856CD2C49E4FD605B94AD7E4C3F2D6865478C014DC10502C8E404B2D03`. O delta em relação ao build homologado é apenas o fechamento das abas após `CONFIRMED`, testado em unitários e navegador.
+- Build 2.0.1 de entrega: background SHA-256 `1A11EFC9A793AE8FEDD7AD22DEF869D39CCD7D80A79BB4D9B37C5BEA8FA6A6C3`. O delta em relação ao build homologado inclui fechamento de abas após `CONFIRMED`, suporte a Meus Processos, presets por rota e tempos ampliados, cobertos por testes.
 
 ## Resultado operacional
 
@@ -56,18 +56,18 @@ Nenhum **mark_uncertain**, nenhum segundo clique e nenhuma tentativa além das 1
 
 | Verificação | Resultado |
 | --- | --- |
-| `node --test tests/unit/*.test.mjs` | **326 PASS**, 0 FAIL |
-| `npm run test:browser` | **24 PASS**, 0 FAIL |
+| `node --test tests/unit/*.test.mjs` | **328 PASS**, 0 FAIL |
+| `npm run test:browser` | **25 PASS**, 0 FAIL |
 | `npm run build` / `build:test` | PASS |
-| Extração do ZIP 2.0.0 | PASS, hashes conferidos |
+| Extração do ZIP 2.0.1 | PASS, hashes conferidos |
 | Build seguro 0.1.1 | preservado como rollback |
 
-## ZIP 2.0.0
+## ZIP 2.0.1
 
-- Arquivo: `release/Complementador-eContas-2.0.0.zip`
-- Bytes: 645.261
-- SHA-256: `5606E669696FBF734BBFC01D197731D60EBA95393F3FC7519088C9E652E7A13A`
-- Versão do manifesto: 2.0.0
+- Arquivo: `release/Complementador-eContas-2.0.1.zip`
+- Bytes: 645.508
+- SHA-256: `1538D6191B0F8F285DF5C43943480CC9C33254E1E61EC4798B0F69A87E787897`
+- Versão do manifesto: 2.0.1
 - Conteúdo: manifest, bundles e `vendor/pdf.worker.mjs`; sem PDFs, dados pessoais ou documentação.
 
 ## Abas
@@ -86,7 +86,7 @@ Nenhum **mark_uncertain**, nenhum segundo clique e nenhuma tentativa além das 1
 | F3 classificação de campos | PASS; revisões reais classificadas |
 | F4 MV3 | PARTIAL — kill físico do worker não executado |
 | F5 cache/segurança | PASS sintético; autosave `UNKNOWN` |
-| F6 suítes | PASS — 326 unitários, 24 navegador |
+| F6 suítes | PASS — 328 unitários, 25 navegador |
 | F7 H2 adaptador | PASS — 10 salvamentos reais, 10/10 verificados |
 | F8 H3 lote | PASS — 25 examinados, 10 salvos, 0 incertos |
 | F9 Chrome profissional | NOT_RUN — não instalado por decisão de escopo |
@@ -97,12 +97,12 @@ Nenhum **mark_uncertain**, nenhum segundo clique e nenhuma tentativa além das 1
 - O kill físico do service worker/reinício do navegador continua `MV3_WORKER_KILL_TEST_NOT_RUN`; a lógica está coberta por testes puros/estáticos.
 - Autosave do portal permanece `UNKNOWN`.
 - O Chrome profissional não foi tocado.
-- A homologação real ocorreu no build QA 0.1.1 com o mesmo caminho de preenchimento/salvamento; o build 2.0.0 acrescenta apenas a limpeza pós-save das abas, coberta por testes.
+- A homologação real ocorreu no build QA 0.1.1 com o mesmo caminho de preenchimento/salvamento; o build 2.0.1 acrescenta limpeza pós-save, Meus Processos, presets por rota e tempos ampliados, cobertos por testes.
 - Rollback de código não desfaz ato já gravado no e-Contas; reversão institucional segue o procedimento oficial.
 
 ## Instalação e rollback
 
-1. Extrair `Complementador-eContas-2.0.0.zip` em pasta local.
+1. Extrair `Complementador-eContas-2.0.1.zip` em pasta local.
 2. Abrir `chrome://extensions`, ativar modo desenvolvedor e carregar a pasta extraída.
 3. O lote só começa após clique explícito em “⚡ Rodar automação”; não há início automático.
 4. Rollback: remover/desativar a 2.0.0 e carregar o backup `work/batch-final-baseline-2026-11-05` (ou o candidato seguro 0.1.1). Nenhum ato já salvo é revertido pelo rollback.

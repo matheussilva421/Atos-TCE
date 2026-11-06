@@ -51,6 +51,9 @@ export function parseListRoute(url, portalOrigin = PORTAL_ORIGIN) {
   if (parts[1] === 'processos-no-setor' && parts[2] === 'no-setor') {
     return { kind: 'list' };
   }
+  if (parts[1] === 'meus' && parts[2] === 'meus-processos') {
+    return { kind: 'list' };
+  }
   return null;
 }
 

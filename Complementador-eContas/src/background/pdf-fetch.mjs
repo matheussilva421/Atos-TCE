@@ -49,7 +49,7 @@ export async function fetchPdfBytes(fetchImpl, url, options = {}) {
   let response;
   try {
     response = await fetchImpl(url, {
-      credentials: 'include',
+      credentials: 'omit',
       cache: 'no-store',
       redirect: 'error',
     });

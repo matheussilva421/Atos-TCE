@@ -1,4 +1,23 @@
 export const FILTER_PRESET_KEY = 'complementadorFilterPreset';
+export const FILTER_ROUTES = Object.freeze(['processos-no-setor', 'meus-processos']);
+
+export function routeKeyFor(href) {
+  const value = String(href || '');
+  if (value.includes('/dashboard/meus/meus-processos')) {
+    return 'meus-processos';
+  }
+  return 'processos-no-setor';
+}
+
+export function isKnownPresetRoute(value) {
+  return FILTER_ROUTES.includes(value);
+}
+
+export function presetKeyFor(route) {
+  return route === 'meus-processos'
+    ? FILTER_PRESET_KEY + ':meus-processos'
+    : FILTER_PRESET_KEY;
+}
 
 function clean(value) {
   return String(value || '').replace(/[×✕]/g, ' ').replace(/\s+/g, ' ').trim();
