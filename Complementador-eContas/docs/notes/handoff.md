@@ -1,5 +1,16 @@
 # Handoff — Complementador e-Contas
 
+> ESTADO ATUAL — 05/11/2026 (fim da sessão de automação em lote). Esta seção prevalece sobre todo o histórico abaixo.
+>
+> - Branch `codex/complementador-e-contas`; HEAD na coleta `cb10b1a`; `main`/`origin/main` em `6e1acd5`; árvore limpa antes do relatório.
+> - Entregue e provado no QA: preenchimento em lote (10 examinados, 4 `FILLED`, 6 `MISSING_FIELDS`), filtros automáticos e quatro salvamentos supervisionados com verificação 4/4.
+> - Testes: 266 unitários PASS; 23 de navegador PASS; build PASS com o motor desligado.
+> - Relatório completo: `docs/evidence/final-report-2026-11-05.md`.
+> - Pendências: salvamento automático pelo adaptador (driver sem `saveEnabled`; `verify()` devolve `unknown`; recuperação de `SAVE_PENDING`; catch da fase `VALIDATING`), classificação dos 6 `MISSING_FIELDS`, MV3/cache/autosave reais, Chrome profissional e G7.
+> - Nenhum salvamento novo sem autorização específica. Os quatro salvamentos já feitos não autorizam novos atos.
+> - Próximo passo: F1 com TDD nos defeitos do relatório, depois F2–F6 e os gates A/B.
+
+
 > PAUSA 05/11/2026 (GOAL pausado a pedido do usuário; PC será desligado). Esta seção é o ponto de retomada.
 
 ## Retomada após desligamento

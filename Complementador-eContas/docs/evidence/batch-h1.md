@@ -53,7 +53,7 @@ Suíte de navegador: 21 testes PASS (19 anteriores + 2 novos), em fixtures locai
 
 ## Declaração de segurança
 
-`REAL_SAVE_NOT_TESTED`. Nenhum clique em Complementar ato, nenhum diálogo real confirmado e nenhum ato salvo. A UI de salvamento observada limita-se ao botão da tela e à ausência de modal antes do clique.
+> Nota de 05/11/2026: esta declaração vale para a fase H1 descrita acima. Depois dela, quatro atos foram salvos supervisionadamente pelo operador e verificados (ver `batch-h2.md`); o adaptador automático continua não exercitado. A suíte atual tem 266 testes unitários e 23 de navegador.
 
 ## Execução real supervisionada com preenchimento (05/11/2026)
 

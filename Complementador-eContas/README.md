@@ -1,6 +1,6 @@
 # Complementador e-Contas
 
-Extensão Manifest V3 independente para o formulário **Complementar Ato** do e-Contas do TCE/RN. Ela localiza nos eventos dos autos a Resolução Administrativa e a Guia Financeira/Taxação de Proventos do processo, propõe os campos e preenche somente controles vazios e editáveis. **Não salva, não complementa o ato e não envia dados a serviços externos.**
+Extensão Manifest V3 independente para o formulário **Complementar Ato** do e-Contas do TCE/RN. Ela localiza nos eventos dos autos a Resolução Administrativa e a Guia Financeira/Taxação de Proventos do processo, propõe os campos e preenche somente controles vazios e editáveis. No modo individual, **não salva, não complementa o ato e não envia dados a serviços externos**. A automação em lote possui um adaptador de salvamento implementado e desligado por padrão; ele ainda não foi exercitado de ponta a ponta.
 
 ## O que faz
 
@@ -24,6 +24,14 @@ Extensão Manifest V3 independente para o formulário **Complementar Ato** do e-
 - Cliques sintéticos gerados pela página são ignorados; somente eventos trusted iniciam o preenchimento ou o diagnóstico.
 - Exibe **Origem: data da resolução administrativa** para a data proposta ao campo DOE.
 - Cancela sem escrever se processo, interessado, aba, rota ou documento mudarem durante a leitura.
+
+## Automação em lote (em homologação)
+
+- O painel **⚡ Rodar automação** aparece na listagem de processos e captura apenas a página atual.
+- A fila exclui processos já complementados, recusa múltiplos interessados e respeita dois limites independentes (examinados e salvos).
+- O modo só-preenchimento (build com `BATCH_FILL_ONLY=1`) preenche os processos e mantém as abas abertas para revisão, sem nenhum caminho de salvamento.
+- O salvamento automático está implementado, mas desligado por padrão e ainda não homologado. Os quatro salvamentos realizados até aqui foram supervisionados pelo operador, um a um.
+- O diário do lote usa `chrome.storage.local` com identificadores, estados e motivos sanitizados; não guarda PDFs nem dados pessoais.
 
 ## Requisitos
 
@@ -54,7 +62,7 @@ A instalação no perfil profissional deve ser feita pelo operador, com a extens
 ## Segurança e limites
 
 - Permissões de host restritas a **processos.tce.rn.gov.br** e **novaarearestrita.tce.rn.gov.br**.
-- Sem storage persistente; o service worker usa chrome.storage.session para métricas sanitizadas do diagnóstico e para o cache `complementadorDocumentCache`, que guarda apenas `processHash`, `resolutionEventId`, `guiaEventId` e `updatedAt`. Sem all_urls, downloads, webRequest, debugger, cookies, IndexedDB ou telemetria.
+- No modo individual, sem storage persistente; o service worker usa chrome.storage.session para métricas sanitizadas do diagnóstico e para o cache `complementadorDocumentCache`, que guarda apenas `processHash`, `resolutionEventId`, `guiaEventId` e `updatedAt`. A automação em lote usa `chrome.storage.local` apenas para o diário sanitizado (IDs, estados, contadores e motivos) e para o preset de filtros. Sem all_urls, downloads, webRequest, debugger, cookies, IndexedDB ou telemetria.
 - O content script não acessa storage; recebe somente resultados sanitizados por mensagens GET_DIAGNOSTIC/DIAGNOSTIC_UPDATE. Não há nome, CPF, matrícula, texto, URL documental ou identificador de processo.
 - Os únicos fetches de rede são os PDFs do documento atual e dos candidatos dos eventos, no service worker, com validação de origem, caminho, tipo, tamanho e assinatura PDF. A busca clica somente nos cartões de evento, lê até 2 páginas por candidato e restaura o documento original.
 - Nenhum PDF, texto integral, nome, CPF, matrícula, token ou cookie é persistido.
