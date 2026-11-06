@@ -394,3 +394,22 @@ test('missing_fields_records_sanitized_cause_and_fields', async () => {
   assert.deepEqual(stored.diagnostics['301'].fields, ['dataNascimento']);
   assert.equal(JSON.stringify(stored.diagnostics).includes('Pessoa'), false);
 });
+
+test('empty_save_response_marks_uncertain_without_reclick', async () => {
+  const storage = memoryStorage();
+  await runningBatch(storage);
+  let saves = 0;
+  const options = deps({
+    storage,
+    save: async () => { saves += 1; return undefined; },
+    verify: async () => ({ status: 'unknown' }),
+  });
+  for (let step = 0; step < 7; step += 1) {
+    await runOneStep({ batchId: 'batch-runner', deps: options });
+  }
+  const stored = await loadBatch(storage);
+  assert.equal(saves, 1);
+  assert.equal(stored.state, 'SUSPENDED');
+  assert.equal(stored.queue[0].status, 'SAVE_UNCERTAIN');
+  assert.equal(stored.counters.saved, 0);
+});

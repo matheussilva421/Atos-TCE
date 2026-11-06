@@ -49,3 +49,9 @@ test('background_reenters_by_event_and_suspends_after_restart', () => {
   assert.equal(background.includes('await initializeWake();'), true);
   assert.equal(background.includes('void initializeWake();'), true);
 });
+
+test('fill_only_structurally_forces_save_off', () => {
+  const runner = readFileSync('src/background/batch-runner.mjs', 'utf8');
+  assert.equal(runner.includes('BATCH_FILL_ONLY === true ? false : saveEnabled === true'), true);
+  assert.equal(runner.includes("enabled: driveEnabled === true || BATCH_FILL_ONLY === true"), true);
+});

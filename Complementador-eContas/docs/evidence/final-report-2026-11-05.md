@@ -1,5 +1,7 @@
 # Relatório final — Complementador e-Contas
 
+> Atualização 05/11/2026 (pós-F1–F6): os itens 1–6 da seção "O que falta" foram implementados e testados; consulte `batch-final-tests.md`, `batch-final-diagnostics.md`, `batch-final-security.md` e `batch-final-release.md`. O release continua candidato seguro; F7/F8/F9 não foram executados.
+
 Data: 05/11/2026
 Branch: `codex/complementador-e-contas`
 Versão: 0.1.1

@@ -1,15 +1,16 @@
 # Handoff — Complementador e-Contas
 
-> ESTADO ATUAL — 05/11/2026 (fim da sessão de automação em lote). Esta seção prevalece sobre todo o histórico abaixo.
+> ESTADO ATUAL — 05/11/2026 (pós-F1–F6). Esta seção prevalece sobre todo o histórico abaixo.
 >
-> - Branch `codex/complementador-e-contas`; HEAD na coleta `cb10b1a`; `main`/`origin/main` em `6e1acd5`; árvore limpa antes do relatório.
-> - Entregue e provado no QA: preenchimento em lote (10 examinados, 4 `FILLED`, 6 `MISSING_FIELDS`), filtros automáticos e quatro salvamentos supervisionados com verificação 4/4.
-> - Testes: 266 unitários PASS; 23 de navegador PASS; build PASS com o motor desligado.
-> - Relatório completo: `docs/evidence/final-report-2026-11-05.md`.
-> - Pendências: salvamento automático pelo adaptador (driver sem `saveEnabled`; `verify()` devolve `unknown`; recuperação de `SAVE_PENDING`; catch da fase `VALIDATING`), classificação dos 6 `MISSING_FIELDS`, MV3/cache/autosave reais, Chrome profissional e G7.
-> - Nenhum salvamento novo sem autorização específica. Os quatro salvamentos já feitos não autorizam novos atos.
-> - Próximo passo: F1 com TDD nos defeitos do relatório, depois F2–F6 e os gates A/B.
-
+> - Branch `codex/complementador-e-contas`; commits de código até `913a9b5`; `main`/`origin/main` em `6e1acd5`; consolidação documental no commit seguinte.
+> - Entregue: separação `BATCH_EXECUTION`/`BATCH_SAVE` com `saveAuthorized` no lote; verificação pós-save em aba nova; checkpoint `SAVE_PENDING` com retomada sem segundo clique; diálogo estrutural homologado; revalidação pré-clique; classificação `MISSING_FIELDS`; reconciliação `COMPLETED_EXTERNALLY`; reentrada MV3 por evento; retry condicionado do documento.
+> - Testes finais: **322 unitários PASS**; **24 navegador PASS** em um ciclo; `build`/`build:test` PASS; benchmark p50 428 ms/p95 704 ms.
+> - Status: `PARTIAL_WITH_EVIDENCE` · `SUPERVISED_REAL_SAVE_VERIFIED (4/4)` · `AUTOMATED_SAVE_NOT_RUN` · `MV3_WORKER_KILL_TEST_NOT_RUN` · `G7_PENDING`.
+> - Candidato seguro: `release/Complementador-eContas-0.1.1-batch-safe.zip` (SHA-256 `D820E4A9E32FB66F99C27D5B8B2E777E65E901153BC9076DE05EE154A8319E0C`), motor desligado.
+> - Relatórios: `docs/evidence/batch-final-{baseline,tests,diagnostics,security,release}.md`; matriz em `batch-ca-traceability.md`.
+> - Pendências: F7 (um ato real via adaptador) exige autorização específica; F8 lote pequeno e F9 Chrome profissional/G7 também. Os seis `MISSING_FIELDS` reais ainda não foram reclassificados. Autosave e kill físico do worker não foram provados.
+> - Nenhum salvamento novo foi feito. Os quatro atos anteriores não autorizam novos.
+> - Próximo passo: operador autorizar um ato elegível para F7; sem isso, o pacote seguro é o artefato de entrega.
 
 > PAUSA 05/11/2026 (GOAL pausado a pedido do usuário; PC será desligado). Esta seção é o ponto de retomada.
 

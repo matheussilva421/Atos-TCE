@@ -305,3 +305,47 @@ test('verify_rejects_wrong_process_and_untrusted_sender', () => {
     RUNTIME_ID,
   ).code, 'UNTRUSTED_SENDER');
 });
+
+test('batch_save_rejects_untrusted_sender_without_clicking', async () => {
+  const doc = document(filledForm({
+    extra: '<button class="btn btn-primary">Complementar ato</button>',
+  }));
+  let clicks = 0;
+  doc.querySelector('button.btn').addEventListener('click', () => { clicks += 1; });
+  const result = await handleBatchSave(
+    {
+      type: 'BATCH_SAVE',
+      processId: '901',
+      attemptId: 'attempt-901-untrusted',
+      interestedKey: 'key-1',
+    },
+    { id: 'evil-extension' },
+    doc,
+    RUNTIME_ID,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'UNTRUSTED_SENDER');
+  assert.equal(clicks, 0);
+});
+
+test('batch_save_rejects_wrong_process_without_clicking', async () => {
+  const doc = document(filledForm({
+    extra: '<button class="btn btn-primary">Complementar ato</button>',
+  }));
+  let clicks = 0;
+  doc.querySelector('button.btn').addEventListener('click', () => { clicks += 1; });
+  const result = await handleBatchSave(
+    {
+      type: 'BATCH_SAVE',
+      processId: '902',
+      attemptId: 'attempt-901-wrong',
+      interestedKey: 'key-1',
+    },
+    SENDER,
+    doc,
+    RUNTIME_ID,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'PROCESS_MISMATCH');
+  assert.equal(clicks, 0);
+});
