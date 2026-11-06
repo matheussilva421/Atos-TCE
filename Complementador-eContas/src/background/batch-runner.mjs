@@ -55,6 +55,7 @@ export function createBatchDriver({
             type: MESSAGE.BATCH_SAVE,
             processId,
             attemptId,
+            interestedKey: deps && deps.session ? deps.session.interestedKey : null,
             knownDialog,
           });
         },

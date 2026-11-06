@@ -124,8 +124,19 @@ test('batch_save_reports_unknown_dialog_for_learning', async () => {
       + '<div class="modal show"><h4 class="modal-title">Confirma a complementação?</h4>'
       + '<button>Cancelar</button><button>Confirmar</button></div>',
   }));
+  const snapshot = await handleBatchFormMessage(
+    { type: 'BATCH_FORM_SNAPSHOT', processId: '901' },
+    SENDER,
+    doc,
+    RUNTIME_ID,
+  );
   const result = await handleBatchSave(
-    { type: 'BATCH_SAVE', processId: '901', attemptId: 'attempt-901-learn' },
+    {
+      type: 'BATCH_SAVE',
+      processId: '901',
+      attemptId: 'attempt-901-learn',
+      interestedKey: snapshot.snapshot.interestedKey,
+    },
     SENDER,
     doc,
     RUNTIME_ID,
@@ -139,17 +150,26 @@ test('batch_save_reports_unknown_dialog_for_learning', async () => {
 test('batch_save_confirms_known_dialog_once', async () => {
   const doc = document(filledForm({
     extra: '<button class="btn btn-primary">Complementar ato</button>'
-      + '<div class="modal show"><h4 class="modal-title">Confirmar complementação</h4>'
-      + '<button>Confirmar</button></div>',
+      + '<div class="modal show" role="dialog" aria-modal="true">'
+      + '<h4 class="modal-title">Complementar ato</h4>'
+      + '<button class="cancelar">NÃO</button>'
+      + '<button class="confirmar">sim, complementar</button></div>',
   }));
+  const snapshot = await handleBatchFormMessage(
+    { type: 'BATCH_FORM_SNAPSHOT', processId: '901' },
+    SENDER,
+    doc,
+    RUNTIME_ID,
+  );
   let confirms = 0;
-  doc.querySelector('.modal button').addEventListener('click', () => { confirms += 1; });
+  doc.querySelector('.confirmar').addEventListener('click', () => { confirms += 1; });
   const result = await handleBatchSave(
     {
       type: 'BATCH_SAVE',
       processId: '901',
       attemptId: 'attempt-901-known',
-      knownDialog: { title: 'Confirmar complementação', confirmText: 'Confirmar' },
+      interestedKey: snapshot.snapshot.interestedKey,
+      knownDialog: { title: 'Complementar ato', confirmText: 'sim, complementar', cancelText: 'NÃO' },
     },
     SENDER,
     doc,
@@ -158,4 +178,86 @@ test('batch_save_confirms_known_dialog_once', async () => {
   assert.equal(result.ok, true);
   assert.equal(result.result, 'ack');
   assert.equal(confirms, 1);
+});
+
+test('batch_save_blocks_missing_fields_before_click', async () => {
+  const doc = document('<tce-container>' + card('Pessoa A', true) + '</tce-container>'
+    + '<tce-input-field formcontrolname="dataDoeEstado"><input value=""></tce-input-field>'
+    + '<tce-input-field formcontrolname="cargo"><input value=""></tce-input-field>'
+    + '<tce-input-field formcontrolname="matricula"><input value=""></tce-input-field>'
+    + '<tce-input-field formcontrolname="dataNascimento"><input value=""></tce-input-field>'
+    + '<button class="btn btn-primary">Complementar ato</button>');
+  const snapshot = await handleBatchFormMessage(
+    { type: 'BATCH_FORM_SNAPSHOT', processId: '901' },
+    SENDER,
+    doc,
+    RUNTIME_ID,
+  );
+  let clicks = 0;
+  doc.querySelector('button.btn').addEventListener('click', () => { clicks += 1; });
+  const result = await handleBatchSave(
+    {
+      type: 'BATCH_SAVE',
+      processId: '901',
+      attemptId: 'attempt-901-missing',
+      interestedKey: snapshot.snapshot.interestedKey,
+    },
+    SENDER,
+    doc,
+    RUNTIME_ID,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'MISSING_FIELDS');
+  assert.equal(clicks, 0);
+});
+
+test('batch_save_blocks_changed_interested_before_click', async () => {
+  const doc = document(filledForm({
+    extra: '<button class="btn btn-primary">Complementar ato</button>',
+  }));
+  let clicks = 0;
+  doc.querySelector('button.btn').addEventListener('click', () => { clicks += 1; });
+  const result = await handleBatchSave(
+    {
+      type: 'BATCH_SAVE',
+      processId: '901',
+      attemptId: 'attempt-901-changed',
+      interestedKey: 'another-key',
+    },
+    SENDER,
+    doc,
+    RUNTIME_ID,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'INTERESTED_CHANGED');
+  assert.equal(clicks, 0);
+});
+
+test('batch_save_blocks_visible_error_before_click', async () => {
+  const doc = document(filledForm({
+    extra: '<div class="invalid-feedback">Campo obrigatório</div>'
+      + '<button class="btn btn-primary">Complementar ato</button>',
+  }));
+  const snapshot = await handleBatchFormMessage(
+    { type: 'BATCH_FORM_SNAPSHOT', processId: '901' },
+    SENDER,
+    doc,
+    RUNTIME_ID,
+  );
+  let clicks = 0;
+  doc.querySelector('button.btn').addEventListener('click', () => { clicks += 1; });
+  const result = await handleBatchSave(
+    {
+      type: 'BATCH_SAVE',
+      processId: '901',
+      attemptId: 'attempt-901-error',
+      interestedKey: snapshot.snapshot.interestedKey,
+    },
+    SENDER,
+    doc,
+    RUNTIME_ID,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'VISIBLE_ERROR');
+  assert.equal(clicks, 0);
 });

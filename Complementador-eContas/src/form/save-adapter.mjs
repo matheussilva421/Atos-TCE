@@ -4,6 +4,12 @@ import { parseRoute } from '../shared/routes.mjs';
 const SAVE_LABEL = 'complementar ato';
 const DIALOG_SELECTOR = '.modal.show, ngb-modal-window, .swal2-popup';
 
+export const HOMOLOGATED_DIALOG = Object.freeze({
+  title: 'Complementar ato',
+  confirmText: 'sim, complementar',
+  cancelText: 'NÃO',
+});
+
 function locationHref(doc) {
   return (doc && doc.location && doc.location.href)
     || (doc && doc.defaultView && doc.defaultView.location && doc.defaultView.location.href)
@@ -16,24 +22,73 @@ function findSaveButton(doc) {
 }
 
 function findDialog(doc) {
-  return doc.querySelector(DIALOG_SELECTOR);
+  return [...doc.querySelectorAll(DIALOG_SELECTOR)].find((dialog) => !dialog.hidden) || null;
+}
+
+function normalizeKnownDialog(value) {
+  if (!value || typeof value !== 'object') {
+    return HOMOLOGATED_DIALOG;
+  }
+  const title = normalizeText(value.title).toLowerCase();
+  const confirmText = normalizeText(value.confirmText).toLowerCase();
+  const cancelText = normalizeText(value.cancelText).toLowerCase();
+  if (title !== normalizeText(HOMOLOGATED_DIALOG.title).toLowerCase()) {
+    return null;
+  }
+  if (confirmText !== normalizeText(HOMOLOGATED_DIALOG.confirmText).toLowerCase()) {
+    return null;
+  }
+  if (cancelText && cancelText !== normalizeText(HOMOLOGATED_DIALOG.cancelText).toLowerCase()) {
+    return null;
+  }
+  return HOMOLOGATED_DIALOG;
+}
+
+function isStructuredDialog(dialog) {
+  if (!dialog || dialog.hidden) {
+    return false;
+  }
+  const tag = dialog.tagName.toLowerCase();
+  const role = dialog.getAttribute('role');
+  const ariaModal = dialog.getAttribute('aria-modal');
+  if (tag === 'ngb-modal-window') {
+    return role === 'dialog' || ariaModal === 'true';
+  }
+  return role === 'dialog';
+}
+
+function dialogButtons(dialog) {
+  return [...dialog.querySelectorAll('button, a.btn')];
+}
+
+function buttonWithText(dialog, text) {
+  const expected = normalizeText(text).toLowerCase();
+  return dialogButtons(dialog).filter((element) => normalizeText(element.textContent).toLowerCase() === expected);
 }
 
 function dialogMatches(dialog, knownDialog) {
-  if (!dialog || !knownDialog) {
+  if (!dialog || !knownDialog || !isStructuredDialog(dialog)) {
     return false;
   }
   const title = dialog.querySelector('.modal-title, h1, h2, h3, h4, .swal2-title');
-  const titleText = normalizeText(title ? title.textContent : '');
-  const confirm = [...dialog.querySelectorAll('button, a.btn')]
-    .find((element) => normalizeText(element.textContent).toLowerCase()
-      === normalizeText(knownDialog.confirmText).toLowerCase()) || null;
-  return titleText === normalizeText(knownDialog.title) && Boolean(confirm);
+  if (!title) {
+    return false;
+  }
+  const titleText = normalizeText(title.textContent).toLowerCase();
+  if (titleText !== normalizeText(knownDialog.title).toLowerCase()) {
+    return false;
+  }
+  const confirm = buttonWithText(dialog, knownDialog.confirmText);
+  const cancel = buttonWithText(dialog, knownDialog.cancelText);
+  if (confirm.length !== 1 || cancel.length < 1) {
+    return false;
+  }
+  const button = confirm[0];
+  return !(button.disabled || button.getAttribute('aria-disabled') === 'true');
 }
 
 /**
  * Lê a UI de salvamento observada no portal: botão "Complementar ato".
- * Diálogos conhecidos ainda não foram homologados; portanto o padrão é falhar fechado.
  */
 export function inspectSaveUi(doc) {
   const button = findSaveButton(doc);
@@ -47,8 +102,9 @@ export function inspectSaveUi(doc) {
 }
 
 /**
- * Executa no máximo um clique por tentativa. Nunca confirma diálogo desconhecido
- * e sinaliza 'unknown' quando não há prova de sucesso.
+ * Executa no máximo um clique por tentativa. Aceita apenas o contrato de diálogo
+ * homologado em H2; qualquer variação de título, confirmação, cancelamento ou
+ * estrutura retorna 'unknown' e não confirma. Um ack de UI não prova salvamento.
  */
 export async function clickComplementarAtoOnce(doc, expected, deps = {}) {
   const route = parseRoute(locationHref(doc));
@@ -57,6 +113,10 @@ export async function clickComplementarAtoOnce(doc, expected, deps = {}) {
   }
   if (typeof expected.attemptId !== 'string' || expected.attemptId.length < 6) {
     return { attempted: false, result: 'error', code: 'INVALID_ATTEMPT' };
+  }
+  const knownDialog = normalizeKnownDialog(expected.knownDialog);
+  if (!knownDialog) {
+    return { attempted: false, result: 'unknown', code: 'DIALOG_CONTRACT_UNKNOWN' };
   }
   const dispatched = deps.dispatched instanceof Set ? deps.dispatched : null;
   if (dispatched && dispatched.has(expected.attemptId)) {
@@ -76,10 +136,8 @@ export async function clickComplementarAtoOnce(doc, expected, deps = {}) {
 
   const dialog = findDialog(doc);
   if (dialog) {
-    if (dialogMatches(dialog, expected.knownDialog)) {
-      const confirm = [...dialog.querySelectorAll('button, a.btn')]
-        .find((element) => normalizeText(element.textContent).toLowerCase()
-          === normalizeText(expected.knownDialog.confirmText).toLowerCase());
+    if (dialogMatches(dialog, knownDialog)) {
+      const confirm = buttonWithText(dialog, knownDialog.confirmText)[0];
       confirm.click();
       await wait(60);
       return { attempted: true, result: 'ack' };

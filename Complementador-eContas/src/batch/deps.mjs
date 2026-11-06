@@ -58,7 +58,11 @@ export function createRunnerDeps({
       return workspace;
     },
     async selectInterested({ processId, formTabId }) {
-      return sendToTab(formTabId, { type: MESSAGE.BATCH_SELECT_INTERESTED, processId });
+      const result = await sendToTab(formTabId, { type: MESSAGE.BATCH_SELECT_INTERESTED, processId });
+      if (result && result.ok === true && typeof result.interestedKey === 'string') {
+        session.interestedKey = result.interestedKey;
+      }
+      return result;
     },
     async fill({ processId, formTabId, autosTabId }) {
       const requestId = createRequestId();

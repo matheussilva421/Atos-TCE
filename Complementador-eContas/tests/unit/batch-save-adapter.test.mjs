@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { clickComplementarAtoOnce, inspectSaveUi, observeSaveOutcome } from '../../src/form/save-adapter.mjs';
+import {
+  clickComplementarAtoOnce,
+  inspectSaveUi,
+  observeSaveOutcome,
+  HOMOLOGATED_DIALOG,
+} from '../../src/form/save-adapter.mjs';
 
 const URL_COMPLEMENT = 'https://processos.tce.rn.gov.br/#/dashboard/complementar-ato/801';
 
@@ -12,16 +17,23 @@ function pages(body) {
 
 const SAVE_BUTTON = '<button class="btn btn-primary ng-star-inserted">Complementar ato</button>';
 
+function realDialog(overrides = {}) {
+  return '<div class="modal show" role="dialog" aria-modal="true">'
+    + '<h4 class="modal-title">' + (overrides.title || HOMOLOGATED_DIALOG.title) + '</h4>'
+    + '<button class="cancelar">' + (overrides.cancelText || HOMOLOGATED_DIALOG.cancelText) + '</button>'
+    + '<button class="confirmar">' + (overrides.confirmText || HOMOLOGATED_DIALOG.confirmText) + '</button>'
+    + (overrides.extra || '')
+    + '</div>';
+}
+
 test('known_dialog_can_confirm_once', async () => {
-  const document = pages(SAVE_BUTTON
-    + '<div class="modal show"><h4 class="modal-title">Confirmar complementação</h4>'
-    + '<button class="confirmar">Confirmar</button></div>');
+  const document = pages(SAVE_BUTTON + realDialog());
   let confirms = 0;
   document.querySelector('.confirmar').addEventListener('click', () => { confirms += 1; });
   const result = await clickComplementarAtoOnce(document, {
     processId: '801',
     attemptId: 'attempt-801-1',
-    knownDialog: { title: 'Confirmar complementação', confirmText: 'Confirmar' },
+    knownDialog: HOMOLOGATED_DIALOG,
   }, { wait: async () => {} });
   assert.equal(result.attempted, true);
   assert.equal(result.result, 'ack');
@@ -29,9 +41,7 @@ test('known_dialog_can_confirm_once', async () => {
 });
 
 test('unknown_dialog_is_not_accepted', async () => {
-  const document = pages(SAVE_BUTTON
-    + '<div class="modal show"><h4 class="modal-title">Mensagem inesperada</h4>'
-    + '<button class="confirmar">Confirmar</button></div>');
+  const document = pages(SAVE_BUTTON + realDialog({ title: 'Mensagem inesperada' }));
   let confirms = 0;
   document.querySelector('.confirmar').addEventListener('click', () => { confirms += 1; });
   const result = await clickComplementarAtoOnce(document, { processId: '801', attemptId: 'attempt-801-2' }, { wait: async () => {} });
@@ -39,6 +49,47 @@ test('unknown_dialog_is_not_accepted', async () => {
   assert.equal(result.result, 'unknown');
   assert.equal(result.code, 'UNKNOWN_DIALOG');
   assert.equal(confirms, 0);
+});
+
+test('missing_cancel_button_fails_closed', async () => {
+  const document = pages(SAVE_BUTTON
+    + '<div class="modal show" role="dialog" aria-modal="true">'
+    + '<h4 class="modal-title">' + HOMOLOGATED_DIALOG.title + '</h4>'
+    + '<button class="confirmar">' + HOMOLOGATED_DIALOG.confirmText + '</button>'
+    + '</div>');
+  let confirms = 0;
+  document.querySelector('.confirmar').addEventListener('click', () => { confirms += 1; });
+  const result = await clickComplementarAtoOnce(document, { processId: '801', attemptId: 'attempt-801-cancel' }, { wait: async () => {} });
+  assert.equal(result.result, 'unknown');
+  assert.equal(result.code, 'UNKNOWN_DIALOG');
+  assert.equal(confirms, 0);
+});
+
+test('modal_without_dialog_role_fails_closed', async () => {
+  const document = pages(SAVE_BUTTON
+    + '<div class="modal show">'
+    + '<h4 class="modal-title">' + HOMOLOGATED_DIALOG.title + '</h4>'
+    + '<button class="cancelar">' + HOMOLOGATED_DIALOG.cancelText + '</button>'
+    + '<button class="confirmar">' + HOMOLOGATED_DIALOG.confirmText + '</button>'
+    + '</div>');
+  let confirms = 0;
+  document.querySelector('.confirmar').addEventListener('click', () => { confirms += 1; });
+  const result = await clickComplementarAtoOnce(document, { processId: '801', attemptId: 'attempt-801-role' }, { wait: async () => {} });
+  assert.equal(result.result, 'unknown');
+  assert.equal(result.code, 'UNKNOWN_DIALOG');
+  assert.equal(confirms, 0);
+});
+
+test('disabled_confirm_button_fails_closed', async () => {
+  const document = pages(SAVE_BUTTON
+    + '<div class="modal show" role="dialog" aria-modal="true">'
+    + '<h4 class="modal-title">' + HOMOLOGATED_DIALOG.title + '</h4>'
+    + '<button class="cancelar">' + HOMOLOGATED_DIALOG.cancelText + '</button>'
+    + '<button class="confirmar" disabled>' + HOMOLOGATED_DIALOG.confirmText + '</button>'
+    + '</div>');
+  const result = await clickComplementarAtoOnce(document, { processId: '801', attemptId: 'attempt-801-disabled' }, { wait: async () => {} });
+  assert.equal(result.result, 'unknown');
+  assert.equal(result.code, 'UNKNOWN_DIALOG');
 });
 
 test('save_button_not_found_no_click', async () => {

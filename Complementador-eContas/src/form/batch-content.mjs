@@ -38,6 +38,23 @@ export async function handleBatchSave(message, sender, doc, runtimeId) {
   if (message.processId !== route.idProcesso) {
     return { ok: false, code: 'PROCESS_MISMATCH' };
   }
+  let snapshot;
+  try {
+    snapshot = readForm(doc);
+  } catch (error) {
+    return { ok: false, code: error && error.code ? error.code : 'FORM_NOT_READY' };
+  }
+  const ready = validateBatchReady(snapshot, {
+    processId: message.processId,
+    interestedKey: typeof message.interestedKey === 'string' ? message.interestedKey : '',
+    interestedCount: snapshot.interestedCount,
+    status: 'pending',
+    revisionMarker: snapshot.revisionMarker,
+    visibleErrors: hasVisibleErrors(doc),
+  });
+  if (!ready.ok) {
+    return { ok: false, code: ready.code, fields: ready.fields || [] };
+  }
   const result = await clickComplementarAtoOnce(doc, {
     processId: message.processId,
     attemptId: message.attemptId,
