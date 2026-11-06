@@ -1,6 +1,6 @@
 {
   "name": "complementador-econtas",
-  "version": "0.1.1",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "description": "Extensão Chrome independente para complementação assistida de atos no e-Contas do TCE/RN.",

@@ -305,3 +305,16 @@ test('fill_does_not_retry_when_process_changed', async () => {
   assert.equal(result.code, 'PROCESS_CHANGED');
   assert.equal(ensures, 1);
 });
+
+test('cleanup_closes_confirmed_tabs_but_preserves_review_state', async () => {
+  const { instance, tabs } = deps();
+  const workspace = await instance.openWorkspace({ processId: '501' });
+  const review = await instance.cleanupWorkspace({ processId: '501', status: 'REVIEW_REQUIRED' });
+  assert.equal(review.closed, 0);
+  assert.equal(tabs.tabs[workspace.autosTabId] !== undefined, true);
+  assert.equal(tabs.tabs[workspace.formTabId] !== undefined, true);
+  const confirmed = await instance.cleanupWorkspace({ processId: '501', status: 'CONFIRMED' });
+  assert.equal(confirmed.closed, 2);
+  assert.equal(tabs.tabs[workspace.autosTabId], undefined);
+  assert.equal(tabs.tabs[workspace.formTabId], undefined);
+});

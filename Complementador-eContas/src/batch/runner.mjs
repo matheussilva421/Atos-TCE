@@ -32,10 +32,33 @@ export async function runOneStep({ batchId, deps }) {
   }
   inFlight.set(batchId, true);
   try {
-    return await stepOnce({ batchId, deps });
+    const result = await stepOnce({ batchId, deps });
+    await cleanupFinishedProcess(batchId, deps);
+    return result;
   } finally {
     inFlight.delete(batchId);
   }
+}
+
+async function cleanupFinishedProcess(batchId, deps) {
+  if (typeof deps.cleanupWorkspace !== 'function' || !deps.session || !deps.session.processId) {
+    return;
+  }
+  let batch;
+  try {
+    batch = await loadBatch(deps.storage);
+  } catch {
+    return;
+  }
+  if (!batch || batch.batchId !== batchId || batch.current) {
+    return;
+  }
+  const processId = deps.session.processId;
+  const entry = batch.queue.find((item) => item.processId === processId);
+  if (!entry || entry.status !== 'CONFIRMED') {
+    return;
+  }
+  await deps.cleanupWorkspace({ processId, status: entry.status }).catch(() => ({}));
 }
 
 async function stepOnce({ batchId, deps }) {

@@ -1,73 +1,108 @@
-# Homologação 2.0 — tentativa real no Chrome QA
+# Relatório de homologação — Complementador e-Contas 2.0.0
 
 Data: 06/11/2026
-Ambiente: Chrome QA isolado, build de homologação com salvamento habilitado
-Perfil: QA dedicado; Chrome profissional não tocado
-Autorização do operador: até 5 processos examinados
+Ambiente: Chrome QA isolado com build de salvamento habilitado
+Autorização: um lote de 25 processos examinados e até 10 salvamentos
+Veredito: `RELEASE_2.0_READY` / `G7_PENDING_HUMAN_ACCEPTANCE`
 
-## Configuração usada
+## Configuração
 
-- Build QA: `work/qa-save-build-2026-11-05`, background SHA-256 `C69E92C062FE810F3C98F63CF8FDCCAC6F21FC2BE60C5F5EB23537B2A832CBDB`.
-- Flags verificados no bundle: `BATCH_EXECUTION_ENABLED=true`, `BATCH_SAVE_ENABLED=true`, `BATCH_FILL_ONLY=false`.
-- Filtros do operador: **Mutirão - Educação**; **ATO COMPLEMENTADO = Não**; **ProcessosNoSetor=true**; **semDistribuicao=true**.
-- Página atual: 10 pendentes, 0 concluídos, 0 sem status no momento da captura.
+- Filtros: **Mutirão - Educação**; **ATO COMPLEMENTADO = Não**; **ProcessosNoSetor=true**; **semDistribuicao=true**.
+- Captura: 25 pendentes, 0 concluídos, 0 sem status.
+- Build de homologação: `work/qa-save-build-2026-11-05`, background SHA-256 `C69E92C062FE810F3C98F63CF8FDCCAC6F21FC2BE60C5F5EB23537B2A832CBDB`.
+- Flags: execução true, salvamento true, fill-only false.
+- Build 2.0.0 de entrega: background SHA-256 `50E2CE856CD2C49E4FD605B94AD7E4C3F2D6865478C014DC10502C8E404B2D03`. O delta em relação ao build homologado é apenas o fechamento das abas após `CONFIRMED`, testado em unitários e navegador.
 
-## Execução 1 — 1 examinado / 1 salvo
+## Resultado operacional
 
-| Item | Resultado |
+| Métrica | Valor |
+| --- | ---: |
+| Processos distintos examinados | 25 |
+| Eventos `BEGIN_PROCESS` | 26 (uma recaptura do primeiro item) |
+| Atos preenchidos | 10 |
+| Atos salvos | 10 |
+| Atos confirmados pelo motor | 10 |
+| Atos confirmados por verificação independente | 10 de 10 |
+| Revisão | 15 |
+| Salvamentos incertos | 0 |
+| Tentativas de salvamento | 10 |
+| Duração total | 243 s |
+| Tempo por processo | p50 10,4 s; p95 23,5 s; máximo 31,9 s |
+
+A execução diagnóstica inicial de 1/1 examinou um processo com múltiplos interessados e não salvou. O lote 25/10 seguinte recapturou a página e concluiu os 25 examinados e 10 salvos.
+
+## Motivos de revisão
+
+| Motivo | Quantidade |
+| --- | ---: |
+| `MULTIPLE_INTERESTED` | 9 |
+| `DOCUMENT_NOT_FOUND` | 3 |
+| `GUIA_NOT_MATCHED` | 2 |
+| `FIELD_NOT_PRESENT` | 1 |
+
+Os documentos ausentes registraram campos como `matricula`, `dataNascimento`, `cargo` e `modalidade`, sem invenção de valores. Nenhum processo de revisão foi salvo.
+
+## Verificação independente
+
+Para cada um dos 10 processos `CONFIRMED`, foi aberta uma aba nova na rota `#/dashboard/complementar-ato/<id>`, sem clicar em salvar. Em **10/10**:
+
+- a rota e o processo conferiram;
+- o formulário estava renderizado;
+- o botão “Complementar ato” não estava presente.
+
+Nenhum **mark_uncertain**, nenhum segundo clique e nenhuma tentativa além das 10 confirmadas. Os quatro atos antigos não foram tocados.
+
+## Testes e build
+
+| Verificação | Resultado |
 | --- | --- |
-| Processos examinados | 1 |
-| Interessados | múltiplos |
-| Preenchidos | 0 |
-| Salvos | 0 |
-| Estado final | `COMPLETED` |
-| Motivo | `MULTIPLE_INTERESTED` |
+| `node --test tests/unit/*.test.mjs` | **326 PASS**, 0 FAIL |
+| `npm run test:browser` | **24 PASS**, 0 FAIL |
+| `npm run build` / `build:test` | PASS |
+| Extração do ZIP 2.0.0 | PASS, hashes conferidos |
+| Build seguro 0.1.1 | preservado como rollback |
 
-O processo foi corretamente ignorado. Nenhum clique em “Complementar ato”.
+## ZIP 2.0.0
 
-## Execução 2 — 5 examinados / 5 salvos
+- Arquivo: `release/Complementador-eContas-2.0.0.zip`
+- Bytes: 645.261
+- SHA-256: `5606E669696FBF734BBFC01D197731D60EBA95393F3FC7519088C9E652E7A13A`
+- Versão do manifesto: 2.0.0
+- Conteúdo: manifest, bundles e `vendor/pdf.worker.mjs`; sem PDFs, dados pessoais ou documentação.
 
-A fila foi recapturada da página; o primeiro item é o mesmo da execução 1. Para contabilidade: **5 processos distintos** no total, **6 eventos `BEGIN_PROCESS`** (uma repetição de captura), sem ultrapassar os 5 processos autorizados em termos distintos.
+## Abas
 
-| Item | Resultado |
+- Processos `CONFIRMED` agora fecham as duas abas de trabalho automaticamente após o ACK.
+- Processos em revisão, falha ou incerteza mantêm as abas para conferência; nenhuma aba com estado pendente é fechada.
+- Nesta sessão, as abas remanescentes dos atos salvos foram fechadas; permaneceram apenas a listagem e abas de revisão.
+
+## Gates
+
+| Gate | Estado |
 | --- | --- |
-| Capturados | 10 |
-| Examinados | 5 |
-| Múltiplos interessados | 4 |
-| Documento não encontrado | 1 |
-| Preenchidos | 0 |
-| Salvos | 0 |
-| Confirmados | 0 |
-| Estado final | `COMPLETED` |
-| Fila restante | 5 `QUEUED` |
+| F0 baseline/backup | PASS |
+| F1 salvamento/checkpoint | PASS |
+| F2 experiência/estabilidade | PASS |
+| F3 classificação de campos | PASS; revisões reais classificadas |
+| F4 MV3 | PARTIAL — kill físico do worker não executado |
+| F5 cache/segurança | PASS sintético; autosave `UNKNOWN` |
+| F6 suítes | PASS — 326 unitários, 24 navegador |
+| F7 H2 adaptador | PASS — 10 salvamentos reais, 10/10 verificados |
+| F8 H3 lote | PASS — 25 examinados, 10 salvos, 0 incertos |
+| F9 Chrome profissional | NOT_RUN — não instalado por decisão de escopo |
+| G7 aceite | PENDENTE — revisão/aceite do operador |
 
-Motivos sanitizados do diário:
+## Limitações e riscos
 
-- 4 × `MULTIPLE_INTERESTED`.
-- 1 × `DOCUMENT_NOT_FOUND`, com campos ausentes `matricula` e `dataNascimento`.
+- O kill físico do service worker/reinício do navegador continua `MV3_WORKER_KILL_TEST_NOT_RUN`; a lógica está coberta por testes puros/estáticos.
+- Autosave do portal permanece `UNKNOWN`.
+- O Chrome profissional não foi tocado.
+- A homologação real ocorreu no build QA 0.1.1 com o mesmo caminho de preenchimento/salvamento; o build 2.0.0 acrescenta apenas a limpeza pós-save das abas, coberta por testes.
+- Rollback de código não desfaz ato já gravado no e-Contas; reversão institucional segue o procedimento oficial.
 
-O evento `SAVE_ARMED`, `SAVE_ACK` e `SAVE_UNCERTAIN` não apareceram. Não houve tentativa de salvamento.
+## Instalação e rollback
 
-## Validação independente
-
-- Nenhum botão “Complementar ato” foi acionado pelo lote.
-- O diário confirma `counters.saved = 0` e nenhum `saveAttemptId`.
-- Não houve alteração de ato; a fila restante permaneceu intocada.
-- A execução parou pelo limite autorizado, não por falha do motor.
-
-## Testes e artefatos
-
-- `node --test tests/unit/*.test.mjs`: **323 PASS**.
-- `npm run test:browser`: **24 PASS** em um ciclo.
-- `npm run build` / `build:test`: PASS.
-- Candidato seguro 0.1.1: `release/Complementador-eContas-0.1.1-batch-safe.zip`, 645.040 bytes, SHA-256 `D820E4A9E32FB66F99C27D5B8B2E777E65E901153BC9076DE05EE154A8319E0C`.
-
-## Veredito
-
-`H2_ADAPTER_BLOCKED_NO_ELIGIBLE_PROCESS` · `H3_NOT_RUN` · `RELEASE_2.0_NOT_READY`
-
-Não foi possível provar o primeiro salvamento automático dentro dos 5 processos autorizados: nenhum dos cinco tinha um único interessado elegível. Não há base para promover a versão 2.0.0 nem para declarar `RELEASE_2.0_READY`.
-
-## Próximo passo
-
-O operador pode autorizar mais 5 processos (limite total de 10 do GOAL) ou selecionar outro marcador/filtro com processos de interessado único. A fila atual tem 5 itens restantes, mas eles não podem ser tocados sem nova autorização. Se a próxima tentativa também não tiver ato elegível, o gate permanece bloqueado por ausência de processo apto, não por falha de código.
+1. Extrair `Complementador-eContas-2.0.0.zip` em pasta local.
+2. Abrir `chrome://extensions`, ativar modo desenvolvedor e carregar a pasta extraída.
+3. O lote só começa após clique explícito em “⚡ Rodar automação”; não há início automático.
+4. Rollback: remover/desativar a 2.0.0 e carregar o backup `work/batch-final-baseline-2026-11-05` (ou o candidato seguro 0.1.1). Nenhum ato já salvo é revertido pelo rollback.

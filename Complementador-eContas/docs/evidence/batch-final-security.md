@@ -21,7 +21,7 @@ Escopo: permissões, mensagens, storage, cache, diálogo, dados pessoais e limit
 
 ## Salvamento
 
-- Três controles independentes, todos fechados por padrão:
+- Três controles independentes. O build seguro mantém todos fechados; o ZIP funcional 2.0.0 habilita execução e salvamento no build, mas o lote só começa com clique explícito em Start:
   - `BATCH_EXECUTION`: liga o processamento do lote.
   - `BATCH_FILL_ONLY`: preenche e mantém abas, forçando salvamento desligado.
   - `BATCH_SAVE`: habilita a capacidade de salvamento.
@@ -47,12 +47,12 @@ Escopo: permissões, mensagens, storage, cache, diálogo, dados pessoais e limit
 - `tests/unit/document-cache.test.mjs`: cache por processo e alternância entre dois processos.
 - `tests/browser/batch-autos.spec.mjs`: duas abas de processos distintos não respondem uma pela outra.
 - `tests/unit/batch-save-adapter.test.mjs`: diálogo estrutural e falha fechada.
-- Suíte final: 323 unitários PASS; 24 navegador PASS.
+- Suíte final: 326 unitários PASS; 24 navegador PASS.
 
 ## Riscos e pendências
 
 - **Autosave do portal: UNKNOWN.** Não foi observado durante digitação real; se existir, o preenchimento em lote pode persistir antes do clique. Não testar no portal real sem autorização específica.
-- **Chrome profissional: NOT_RUN.** Nenhuma instalação, recarga ou inspeção no perfil institucional.
+- **Chrome profissional: NOT_RUN.** Nenhuma instalação, recarga ou inspeção no perfil institucional.\n- **Abas:** processos CONFIRMED fecham as duas abas de trabalho após o ACK; revisão/incerteza permanecem abertas. A limpeza é testada em unitários e navegador.
 - **MV3 físico: PARTIAL.** A lógica de suspensão/reentrada tem testes puros e verificação estática; o kill real do service worker via CDP travou o navegador e foi removido.
 - **Verificação pós-save:** a melhor evidência disponível é rota/processo corretos + formulário renderizado + ausência do botão. Não é um ACK formal do portal; por isso a confirmação automática continua conservadora.
 - O portal pode mudar DOM, status ou diálogo; seletores e textos observados exigem revalidação antes de novo gate real.

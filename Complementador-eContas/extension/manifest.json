@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Complementador e-Contas",
-  "version": "0.1.1",
-  "description": "Preenche o Complementar Ato a partir dos autos; a automação em lote tem salvamento desligado por padrão.",
+  "version": "2.0.0",
+  "description": "Preenche o Complementar Ato a partir dos autos; a automação em lote só inicia com autorização explícita.",
   "minimum_chrome_version": "110",
   "permissions": ["storage"],
   "host_permissions": [

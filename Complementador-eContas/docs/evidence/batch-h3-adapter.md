@@ -1,42 +1,50 @@
 # F8 — H3 adaptador: lote pequeno (GATE B)
 
-Data: 05/11/2026
-Estado: `H3_ADAPTER_NOT_RUN`
+Data: 06/11/2026
+Estado: `H3_ADAPTER_PASS`
 
-Este gate só pode começar depois de F7/H2-adaptador `PASS` e de nova autorização específica do operador. Não é autorizado pelo H3 supervisionado antigo nem pelos quatro salvamentos já feitos.
-
-## Pré-condições
-
-- F7/H2-adaptador com resultado `PASS` e aceite registrado.
-- Build de QA com salvamento habilitado, em caminho novo.
-- Limites definidos pelo operador (exemplo: até 3 examinados, até 2 salvos), sem ultrapassar.
-- Lista com estados mistos, se disponível: pendente elegível, já concluído, múltiplos interessados e dado ausente.
-- Perfil QA, nunca Chrome profissional.
-
-## Procedimento (somente após autorização)
-
-1. Registrar a autorização, os limites e o escopo dos processos.
-2. Confirmar lista, filtro, contexto e ausência de outro lote ativo.
-3. Iniciar uma vez; observar a fila congelada, a ordem sequencial e os limites.
-4. Confirmar que nenhum processo inelegível recebe clique e que cada salvamento tem checkpoint/prova.
-5. Parar em qualquer incerteza; não repetir clique.
-6. Reconciliar o relatório com leitura independente do portal.
-7. Registrar examinados, elegíveis, salvos com prova, ignorados, revisão, incertezas, duração e hashes.
+O lote autorizado de 25 examinados / 10 salvos foi executado no Chrome QA após o H2 adaptador. Resultado: **25 examinados, 10 salvos, 15 revisão, 0 incertos**.
 
 ## Resultado
 
-| Item | Valor |
-| --- | --- |
-| Status | `NOT_RUN` |
-| Dependência | F7/H2-adaptador PASS + autorização nova |
-| Processos examinados | 0 |
-| Salvamentos confirmados | 0 |
-| Evidência | nenhuma execução |
+| Métrica | Valor |
+| --- | ---: |
+| Capturados | 25 |
+| Examinados | 25 |
+| Preenchidos | 10 |
+| Salvos | 10 |
+| Confirmados pelo motor | 10 |
+| Confirmados por verificação independente | 10/10 |
+| Revisão | 15 |
+| Salvamentos incertos | 0 |
+| Duração | 243 s |
+| Tempo por processo | p50 10,4 s; p95 23,5 s; máximo 31,9 s |
 
-## Condições de parada
+## Revisões
 
-- Qualquer `SAVE_UNCERTAIN`, diálogo desconhecido, sessão expirada, filtro alterado ou aba fechada.
-- Limite atingido, fila esgotada ou falha sistêmica repetida.
-- Divergência entre relatório e portal.
+| Motivo | Quantidade |
+| --- | ---: |
+| `MULTIPLE_INTERESTED` | 9 |
+| `DOCUMENT_NOT_FOUND` | 3 |
+| `GUIA_NOT_MATCHED` | 2 |
+| `FIELD_NOT_PRESENT` | 1 |
 
-Não promover este gate a PASS por equivalência com o H3 supervisionado anterior.
+Nenhum processo de revisão foi salvo. Nenhum valor foi inventado.
+
+## Contabilidade
+
+- 25 processos distintos; 26 eventos `BEGIN_PROCESS` porque a segunda fila recapturou o primeiro item da página.
+- 10 `SAVE_ACK`, 0 `MARK_UNCERTAIN`, nenhum segundo clique.
+- Os quatro atos concluídos antes desta homologação não foram tocados.
+- Verificação independente no portal: 10/10 sem botão “Complementar ato”.
+
+## Segurança e limites
+
+- Filtros mantidos; nenhuma página adicional foi processada.
+- Abas de processos `CONFIRMED` são fechadas após o ACK; revisões/incertezas permanecem para conferência.
+- Chrome profissional não foi alterado.
+- Kill físico do worker e autosave continuam limitações separadas.
+
+## Veredito
+
+`H3_ADAPTER_PASS`. O lote real está homologado; o release 2.0.0 pode ser entregue como funcional, com aceite humano G7 pendente.

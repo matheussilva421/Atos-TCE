@@ -48,6 +48,7 @@ function deps(overrides = {}) {
     storage: overrides.storage,
     now: () => 1000,
     newAttemptId: () => 'attempt-301-1',
+    cleanupWorkspace: async ({ processId, status }) => { calls.push('cleanup:' + status + ':' + processId); return { closed: 2 }; },
     openWorkspace: async ({ processId }) => { calls.push('open'); return { autosTabId: 41, formTabId: 42 }; },
     selectInterested: async () => { calls.push('select'); return { ok: true, interestedKey: 'key-1' }; },
     fill: async () => { calls.push('fill'); return { ok: true }; },
@@ -412,4 +413,27 @@ test('empty_save_response_marks_uncertain_without_reclick', async () => {
   assert.equal(stored.state, 'SUSPENDED');
   assert.equal(stored.queue[0].status, 'SAVE_UNCERTAIN');
   assert.equal(stored.counters.saved, 0);
+});
+
+test('confirmed_save_closes_only_its_workspace', async () => {
+  const storage = memoryStorage();
+  await runningBatch(storage);
+  const options = deps({ storage });
+  for (let step = 0; step < 7; step += 1) {
+    await runOneStep({ batchId: 'batch-runner', deps: options });
+  }
+  assert.equal(options.calls.includes('cleanup:CONFIRMED:301'), true);
+});
+
+test('review_process_keeps_workspace_open', async () => {
+  const storage = memoryStorage();
+  await runningBatch(storage);
+  const options = deps({
+    storage,
+    selectInterested: async () => ({ ok: false, code: 'MULTIPLE_INTERESTED' }),
+  });
+  for (let step = 0; step < 5; step += 1) {
+    await runOneStep({ batchId: 'batch-runner', deps: options });
+  }
+  assert.equal(options.calls.some((call) => call.startsWith('cleanup:')), false);
 });

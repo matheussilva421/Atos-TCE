@@ -67,7 +67,7 @@ export function createRunnerDeps({
   finishTransaction = null,
   saveTransaction = null,
 }) {
-  const session = { workspace: null };
+  const session = { workspace: null, processId: null, interestedKey: null };
   const keepForms = new Set();
   return {
     storage,
@@ -77,6 +77,27 @@ export function createRunnerDeps({
       if (session.workspace) {
         keepForms.add(session.workspace.formTabId);
       }
+    },
+    async cleanupWorkspace({ processId, status }) {
+      const workspace = session.workspace;
+      if (!workspace || session.processId !== processId || status !== 'CONFIRMED') {
+        return { closed: 0 };
+      }
+      let closed = 0;
+      if (typeof tabs.remove === 'function') {
+        for (const tabId of [workspace.autosTabId, workspace.formTabId]) {
+          try {
+            await tabs.remove(tabId);
+            closed += 1;
+          } catch {
+            // A aba pode já ter sido fechada.
+          }
+        }
+      }
+      session.workspace = null;
+      session.processId = null;
+      session.interestedKey = null;
+      return { closed };
     },
     saveEnabled: executionEnabled === true,
     newAttemptId(processId) {
@@ -102,6 +123,7 @@ export function createRunnerDeps({
         throw error;
       }
       session.workspace = workspace;
+      session.processId = processId;
       return workspace;
     },
     async selectInterested({ processId, formTabId }) {
