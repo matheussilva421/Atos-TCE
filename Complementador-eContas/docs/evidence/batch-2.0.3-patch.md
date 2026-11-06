@@ -28,20 +28,21 @@ Estado: `PATCH_VERIFIED`
    - `SAVE_UNCERTAIN` sempre mantém as abas, independentemente da opção.
    - `CONFIRMED` sempre fecha as duas abas.
    - A preferência é persistida em `chrome.storage.local` e aplicada no início do lote.
+- As abas de Autos/Complementar Ato são criadas na janela onde o lote foi iniciado; abrir outra janela no segundo monitor não desvia mais os processos.
 
 ## Testes
 
 | Verificação | Resultado |
 | --- | --- |
-| Unitários | **332 PASS** |
+| Unitários | **334 PASS** |
 | Navegador | **25 PASS** |
 | Verificação do checkbox no QA | começa marcado; desmarcar e recarregar mantém a escolha |
 
 ## ZIP 2.0.3
 
 - Arquivo: `release/Complementador-eContas-2.0.3.zip`
-- Bytes: 646.104
-- SHA-256: `C659EB5E3A2FCAFAAEAE73FC3EDDB5ACC83DF5A9011D5A971CACB71D857E819A`
+- Bytes: 646.292
+- SHA-256: `092423E1F22B55F5C5506A62CB7FB7575C582E254F9A9AD8C279A64D0810D4FD`
 - Manifesto: 2.0.3
 - Extração conferida, 0 divergências.
 - Flags funcionais: execução true, salvamento true, fill-only false; o lote só começa com clique explícito.

@@ -173,6 +173,7 @@ export class BatchController {
           startedAt: this.now(),
           saveAuthorized: this.saveEnabled === true,
           keepProblemTabs: keepProblemTabs !== false,
+          windowId: Number.isInteger(tab.windowId) ? tab.windowId : null,
         });
       } catch (error) {
         return failure(error && error.code ? error.code : 'INVALID_BATCH');

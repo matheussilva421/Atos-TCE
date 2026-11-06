@@ -47,7 +47,7 @@ Escopo: permissões, mensagens, storage, cache, diálogo, dados pessoais e limit
 - `tests/unit/document-cache.test.mjs`: cache por processo e alternância entre dois processos.
 - `tests/browser/batch-autos.spec.mjs`: duas abas de processos distintos não respondem uma pela outra.
 - `tests/unit/batch-save-adapter.test.mjs`: diálogo estrutural e falha fechada.
-- Suíte final: 332 unitários PASS; 25 navegador PASS.
+- Suíte final: 334 unitários PASS; 25 navegador PASS.
 
 ## Riscos e pendências
 

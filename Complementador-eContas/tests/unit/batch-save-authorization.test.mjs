@@ -188,3 +188,21 @@ test('controller_persists_keep_problem_tabs_preference', async () => {
     assert.equal(stored.keepProblemTabs, keepProblemTabs);
   }
 });
+
+test('controller_persists_the_list_window_for_workspace_tabs', async () => {
+  const storage = memoryStorage();
+  const controller = new BatchController({
+    storage,
+    runtimeId: RUNTIME_ID,
+    newBatchId: () => 'batch-window',
+    sendToTab: async () => ({ ok: true, contextKey: 'ctx-live', entries: [{ processId: '888', processLabel: '888/2020', status: 'pending' }] }),
+    now: () => 1000,
+  });
+  const started = await controller.start({
+    sender: { id: RUNTIME_ID, tab: { id: 7, windowId: 3, url: LIST_TAB.url } },
+    limits: { maxExamined: 1, maxSaved: 1 },
+  });
+  assert.equal(started.ok, true);
+  const stored = await loadBatch(storage);
+  assert.equal(stored.windowId, 3);
+});

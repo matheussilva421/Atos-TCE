@@ -65,8 +65,8 @@ Nenhum **mark_uncertain**, nenhum segundo clique e nenhuma tentativa além das 1
 ## ZIP 2.0.3
 
 - Arquivo: `release/Complementador-eContas-2.0.3.zip`
-- Bytes: 646.104
-- SHA-256: `C659EB5E3A2FCAFAAEAE73FC3EDDB5ACC83DF5A9011D5A971CACB71D857E819A`
+- Bytes: 646.292
+- SHA-256: `092423E1F22B55F5C5506A62CB7FB7575C582E254F9A9AD8C279A64D0810D4FD`
 - Versão do manifesto: 2.0.3
 - Conteúdo: manifest, bundles e `vendor/pdf.worker.mjs`; sem PDFs, dados pessoais ou documentação.
 

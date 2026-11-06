@@ -150,7 +150,7 @@ async function handleBatchCommand(message, sender) {
   const command = {
     sender: {
       id: sender && sender.id,
-      tab: sender && sender.tab ? { id: sender.tab.id, url: sender.tab.url } : null,
+      tab: sender && sender.tab ? { id: sender.tab.id, url: sender.tab.url, windowId: sender.tab.windowId } : null,
     },
   };
   switch (message.type) {

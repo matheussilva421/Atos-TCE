@@ -4,12 +4,13 @@
 >
 > - Branch `codex/complementador-e-contas`; commits de código/testes até `23e1339`; `main`/`origin/main` em `6e1acd5`; consolidação documental no commit seguinte.
 > - Homologação real: **25 examinados, 10 preenchidos/salvos, 15 revisões, 0 incertos**; **10/10 atos verificados no portal**.
-> - Testes: **332 unitários PASS**; **25 navegador PASS**; build/build:test PASS.
-> - ZIP funcional 2.0.3: `release/Complementador-eContas-2.0.3.zip` (646.104 bytes, SHA-256 `C659EB5E3A2FCAFAAEAE73FC3EDDB5ACC83DF5A9011D5A971CACB71D857E819A`).
+> - Testes: **334 unitários PASS**; **25 navegador PASS**; build/build:test PASS.
+> - ZIP funcional 2.0.3: `release/Complementador-eContas-2.0.3.zip` (646.292 bytes, SHA-256 `092423E1F22B55F5C5506A62CB7FB7575C582E254F9A9AD8C279A64D0810D4FD`).
 > - Status: `RELEASE_2.0.3_READY` · `G7_PENDING_HUMAN_ACCEPTANCE` · `MV3_WORKER_KILL_TEST_NOT_RUN` · `AUTOSAVE_UNKNOWN`.
 > - Filtros: Mutirão - Educação; ATO COMPLEMENTADO = Não; ProcessosNoSetor; semDistribuicao.
 > - Abas: `CONFIRMED` fecha as duas abas; revisão/falha seguem o checkbox “Manter abas de processos com problema” (padrão marcado); `SAVE_UNCERTAIN` sempre mantém.
 > - O checkbox de abas problemáticas é persistido em `chrome.storage.local`.
+> - Abas de trabalho são fixadas na janela onde o lote foi iniciado.
 > - Meus Processos: rota `#/dashboard/meus/meus-processos` suportada; presets separados por rota.
 > - CORS do PDF corrigido com `credentials: omit`; Meus Processos e tempos ampliados.
 > - Tempos ampliados: leitura/aplicação 180 s, documentos 600 s, abas 30 s, iframe 60 s.

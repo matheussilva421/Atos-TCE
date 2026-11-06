@@ -2,13 +2,17 @@ import { PORTAL_ORIGIN } from '../shared/config.mjs';
 import { createRequestId, MESSAGE } from '../shared/protocol.mjs';
 import { formUrlFor, openWorkspace, waitForWorkspace } from './workspace.mjs';
 
-async function verifyInFreshTab({ tabs, sendToTab, processId, attemptId }) {
+async function verifyInFreshTab({ tabs, sendToTab, processId, attemptId, windowId }) {
   if (!tabs || typeof tabs.create !== 'function' || typeof sendToTab !== 'function') {
     return { status: 'unknown', evidence: ['VERIFY_UNAVAILABLE'] };
   }
   let tab = null;
   try {
-    tab = await tabs.create({ url: formUrlFor(processId), active: false });
+    const properties = { url: formUrlFor(processId), active: false };
+    if (Number.isInteger(windowId)) {
+      properties.windowId = windowId;
+    }
+    tab = await tabs.create(properties);
     if (!tab || !Number.isInteger(tab.id)) {
       return { status: 'unknown', evidence: ['VERIFY_TAB_FAILED'] };
     }
@@ -110,7 +114,7 @@ export function createRunnerDeps({
     newAttemptId(processId) {
       return 'attempt-' + processId + '-' + now().toString(36);
     },
-    async openWorkspace({ processId }) {
+    async openWorkspace({ processId, windowId }) {
       const workspace = await openWorkspace({
         processId,
         previous: session.workspace,
@@ -209,6 +213,7 @@ export function createRunnerDeps({
         sendToTab,
         processId: args && args.processId,
         attemptId: args && args.attemptId,
+        windowId: session.workspace ? session.workspace.windowId : null,
       });
     },
   };

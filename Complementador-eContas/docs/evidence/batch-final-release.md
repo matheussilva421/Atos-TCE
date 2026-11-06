@@ -12,8 +12,8 @@ A automação em lote foi homologada no Chrome QA com 25 processos examinados e 
 | Item | Valor |
 | --- | --- |
 | Arquivo | `release/Complementador-eContas-2.0.3.zip` |
-| Bytes | 646.104 |
-| SHA-256 | `C659EB5E3A2FCAFAAEAE73FC3EDDB5ACC83DF5A9011D5A971CACB71D857E819A` |
+| Bytes | 646.292 |
+| SHA-256 | `092423E1F22B55F5C5506A62CB7FB7575C582E254F9A9AD8C279A64D0810D4FD` |
 | Manifesto | 2.0.3 |
 | Extração de ensaio | `work/release-2.0.3-extract` |
 | Divergências de hash | 0 |
@@ -23,7 +23,7 @@ A automação em lote foi homologada no Chrome QA com 25 processos examinados e 
 | Arquivo | Bytes | SHA-256 |
 | --- | ---: | --- |
 | manifest.json | 1.201 | `1E6BC9D08392E94A475548622BCF70207A144BACEB297FF7B6FFCC653E4F40FB` |
-| background.js | 136.481 | `6C52BD1F80822AEC5852DE4C497FBC2945D859B048934C43C142ACB1FE09AEAB` |
+| background.js | 137.267 | `01DEAB242766DF9C853A068ABB42AD83962860C7ED5DD7E1E3E567D34A83912F` |
 | form-content.js | 57.911 | `66EEE2268B8A440681715DD297B0133EF30A7F56B369D9F29CDE8A678CA0CCD4` |
 | autos-content.js | 984.622 | `B596D12B82ECCB2F5E2DB5598935ED98AFA3E130553D0F96E9C89EFAF9678105` |
 | list-content.js | 29.494 | `CF89F2243206EB31369BA41EC594BBB528D093ED86ABBBF58C08318B91473AEE` |
@@ -60,7 +60,7 @@ O build funcional tem `BATCH_EXECUTION_ENABLED=true`, `BATCH_SAVE_ENABLED=true` 
 
 | Comando | Resultado |
 | --- | --- |
-| `node --test tests/unit/*.test.mjs` | **332 PASS** |
+| `node --test tests/unit/*.test.mjs` | **334 PASS** |
 | `npm run test:browser` | **25 PASS** |
 | `npm run build` / `build:test` | PASS |
 | Extração do ZIP | PASS, 0 divergências |
@@ -71,6 +71,7 @@ O build funcional tem `BATCH_EXECUTION_ENABLED=true`, `BATCH_SAVE_ENABLED=true` 
 - Marcado: revisão/falha mantêm Autos e Complementar Ato abertos; desmarcado: fecham.
 - `SAVE_UNCERTAIN` sempre mantém as abas; `CONFIRMED` sempre fecha.
 - A preferência é persistida em `chrome.storage.local`.
+- As abas de trabalho são fixadas na janela onde o lote foi iniciado; outra janela aberta no segundo monitor não recebe os processos.
 
 ## Backup e rollback
 

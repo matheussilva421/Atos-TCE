@@ -19,8 +19,8 @@ function fakeTabs(initial = {}) {
     async create(properties) {
       const id = nextId;
       nextId += 1;
-      tabs[id] = { id, url: properties.url };
-      calls.push({ op: 'create', id, url: properties.url });
+      tabs[id] = { id, url: properties.url, windowId: properties.windowId };
+      calls.push({ op: 'create', id, url: properties.url, windowId: properties.windowId });
       return tabs[id];
     },
     async update(tabId, properties) {
@@ -183,4 +183,13 @@ test('fresh_workspace_accepts_callback_style_remove', async () => {
   });
   assert.equal(Number.isInteger(workspace.autosTabId), true);
   assert.equal(api.tabs[81], undefined);
+});
+
+test('workspace_tabs_are_pinned_to_the_list_window', async () => {
+  const api = fakeTabs();
+  const workspace = await openWorkspace({ processId: '701', tabsApi: api, windowId: 3 });
+  assert.equal(workspace.windowId, 3);
+  const creates = api.calls.filter((call) => call.op === 'create');
+  assert.equal(creates.length, 2);
+  assert.equal(creates.every((call) => call.windowId === 3), true);
 });

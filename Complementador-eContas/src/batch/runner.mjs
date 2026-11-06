@@ -117,7 +117,7 @@ async function stepOnce({ batchId, deps }) {
   const phase = batch.current.phase;
   try {
     if (phase === 'EXAMINING') {
-      const workspace = await deps.openWorkspace({ processId });
+      const workspace = await deps.openWorkspace({ processId, windowId: batch.windowId });
       const selected = await deps.selectInterested({
         processId,
         autosTabId: workspace.autosTabId,

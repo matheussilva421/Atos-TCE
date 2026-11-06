@@ -30,7 +30,7 @@ function sameIds(ids) {
  * A aba da listagem nunca é recebida nem alterada.
  */
 export async function openWorkspace({
-  processId, previous = null, tabsApi, fresh = false, keepTabIds = [],
+  processId, previous = null, tabsApi, fresh = false, keepTabIds = [], windowId = null,
 }) {
   if (!isValidProcessId(processId)) {
     throw new WorkspaceError('INVALID_PROCESS');
@@ -61,9 +61,20 @@ export async function openWorkspace({
       return { autosTabId: previous.autosTabId, formTabId: previous.formTabId };
     }
   }
-  const autos = await tabsApi.create({ url: autosUrl(processId), active: false });
-  const form = await tabsApi.create({ url: formUrlFor(processId), active: false });
-  return { autosTabId: autos.id, formTabId: form.id };
+  const properties = (url) => {
+    const value = { url, active: false };
+    if (Number.isInteger(windowId)) {
+      value.windowId = windowId;
+    }
+    return value;
+  };
+  const autos = await tabsApi.create(properties(autosUrl(processId)));
+  const form = await tabsApi.create(properties(formUrlFor(processId)));
+  return {
+    autosTabId: autos.id,
+    formTabId: form.id,
+    ...(Number.isInteger(autos.windowId) ? { windowId: autos.windowId } : {}),
+  };
 }
 
 export async function verifyWorkspace({ processId, ids, tabsApi }) {
