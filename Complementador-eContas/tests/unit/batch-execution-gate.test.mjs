@@ -39,3 +39,13 @@ test('manifest_does_not_add_alarm_permission', () => {
   const manifest = JSON.parse(readFileSync('extension/manifest.json', 'utf8'));
   assert.deepEqual(manifest.permissions, ['storage']);
 });
+
+test('background_reenters_by_event_and_suspends_after_restart', () => {
+  const background = readFileSync('src/background/index.mjs', 'utf8');
+  assert.equal(background.includes('onStartup'), true);
+  assert.equal(background.includes('initializeWake'), true);
+  assert.equal(background.includes('WAKE_MARKER_KEY'), true);
+  assert.equal(background.includes("type: 'SUSPEND'"), true);
+  assert.equal(background.includes('await initializeWake();'), true);
+  assert.equal(background.includes('void initializeWake();'), true);
+});

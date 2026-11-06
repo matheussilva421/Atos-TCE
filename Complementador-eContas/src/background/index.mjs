@@ -13,7 +13,9 @@ import { retryAsync } from '../shared/retry.mjs';
 import { createDriveTracker } from '../batch/runtime-state.mjs';
 import { createTabSender } from '../batch/tab-sender.mjs';
 import { isBatchFetchAllowed } from '../batch/runtime-state.mjs';
-import { loadBatch } from '../batch/journal.mjs';
+import { loadBatch, saveBatch } from '../batch/journal.mjs';
+import { reduceBatch } from '../batch/state-machine.mjs';
+import { decideWake, WAKE_MARKER_KEY } from '../batch/lifecycle.mjs';
 import { FILTER_PRESET_KEY, sanitizePreset } from '../list/filter-preset.mjs';
 
 const transactions = new TransactionManager({ timeoutMs: 180000 });
@@ -30,6 +32,55 @@ function startDrive(driver, batchId) {
     (result) => driveTracker.record(result),
     (error) => driveTracker.fail(error),
   );
+}
+
+let wakePromise = null;
+
+async function initializeWake() {
+  if (wakePromise) {
+    return wakePromise;
+  }
+  wakePromise = (async () => {
+    let marker = null;
+    try {
+      if (chrome.storage && chrome.storage.session) {
+        const values = await chrome.storage.session.get(WAKE_MARKER_KEY);
+        marker = values ? values[WAKE_MARKER_KEY] : null;
+        await chrome.storage.session.set({
+          [WAKE_MARKER_KEY]: { runtimeId: chrome.runtime.id, at: Date.now() },
+        });
+      }
+    } catch {
+      return { action: 'unavailable', reason: 'session_storage_failed' };
+    }
+    let batch = null;
+    try {
+      batch = await loadBatch(chrome.storage.local);
+    } catch {
+      return { action: 'unavailable', reason: 'journal_unavailable' };
+    }
+    const decision = decideWake({ batch, sessionMarker: marker, runtimeId: chrome.runtime.id });
+    if (decision.action === 'suspend' && batch) {
+      try {
+        await saveBatch(chrome.storage.local, reduceBatch(batch, { type: 'SUSPEND', at: Date.now() }));
+      } catch {
+        return { action: 'unavailable', reason: 'suspend_failed' };
+      }
+    }
+    if (decision.action === 'drive' && batch) {
+      const driver = getBatchDriver();
+      if (driver) {
+        startDrive(driver, batch.batchId);
+      }
+    }
+    return decision;
+  })();
+  return wakePromise;
+}
+
+void initializeWake();
+if (chrome.runtime.onStartup && typeof chrome.runtime.onStartup.addListener === 'function') {
+  chrome.runtime.onStartup.addListener(() => { void initializeWake(); });
 }
 
 const BATCH_TYPES = new Set([
@@ -91,6 +142,7 @@ try {
 }
 
 async function handleBatchCommand(message, sender) {
+  await initializeWake();
   const controller = getBatchController();
   if (!controller) {
     return { ok: false, code: 'STORAGE_UNAVAILABLE' };
