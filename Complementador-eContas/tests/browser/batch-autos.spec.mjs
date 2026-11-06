@@ -60,3 +60,41 @@ test('autos_content_responds_to_ensure_document', async () => {
     await server.close();
   }
 });
+
+test('two_autos_tabs_do_not_cross_process', async () => {
+  const server = await startFixtureServer({ scanEvents: true });
+  let pageA = null;
+  let pageB = null;
+  try {
+    const extension = await getExtension();
+    pageA = await openAutosPage(extension.context, server.origin, '999001');
+    pageB = await openAutosPage(extension.context, server.origin, '999002');
+    const worker = await waitForServiceWorker(extension.context);
+    const result = await worker.evaluate(async () => {
+      const tabs = await chrome.tabs.query({});
+      const tabA = tabs.find((tab) => tab.url && tab.url.includes('/999001/autos'));
+      const tabB = tabs.find((tab) => tab.url && tab.url.includes('/999002/autos'));
+      const ownA = await chrome.tabs.sendMessage(tabA.id, {
+        type: 'BATCH_ENSURE_DOCUMENT',
+        expectedProcessId: '999001',
+      });
+      const ownB = await chrome.tabs.sendMessage(tabB.id, {
+        type: 'BATCH_ENSURE_DOCUMENT',
+        expectedProcessId: '999002',
+      });
+      const crossed = await chrome.tabs.sendMessage(tabA.id, {
+        type: 'BATCH_ENSURE_DOCUMENT',
+        expectedProcessId: '999002',
+      });
+      return { ownA, ownB, crossed };
+    });
+    assert.equal(result.ownA.ok, true);
+    assert.equal(result.ownB.ok, true);
+    assert.equal(result.crossed.ok, false);
+    assert.equal(result.crossed.code, 'PROCESS_CHANGED');
+  } finally {
+    if (pageA) await pageA.close().catch(() => {});
+    if (pageB) await pageB.close().catch(() => {});
+    await server.close();
+  }
+});

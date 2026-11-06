@@ -30,3 +30,16 @@ test('new_process_does_not_reuse_old_events', () => {
   assert.equal(merged.resolutionEventId, 'id-9');
   assert.equal(merged.guiaEventId, null);
 });
+
+test('dois_processos_em_sequencia_nao_reaproveitam_ids', () => {
+  let stored = mergeCacheEntry(null, '577367', { resolutionEventId: 'res-a', guiaEventId: 'guia-a' });
+  assert.equal(cacheMatches(stored, '577367'), true);
+  stored = mergeCacheEntry(stored, '577368', { resolutionEventId: 'res-b', guiaEventId: 'guia-b' });
+  assert.equal(cacheMatches(stored, '577367'), false);
+  assert.equal(cacheMatches(stored, '577368'), true);
+  assert.equal(stored.resolutionEventId, 'res-b');
+  assert.equal(stored.guiaEventId, 'guia-b');
+  stored = mergeCacheEntry(stored, '577367', { resolutionEventId: 'res-c', guiaEventId: null });
+  assert.equal(stored.guiaEventId, null);
+  assert.equal(stored.resolutionEventId, 'res-c');
+});
