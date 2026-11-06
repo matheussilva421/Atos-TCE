@@ -84,10 +84,9 @@ test('pause_request_stops_next_process', () => {
   const armed = reduceBatch(paused, { type: 'SAVE_ARMED', saveAttemptId: 'attempt-3', at: 951 });
   const acked = reduceBatch(armed, { type: 'SAVE_ACK', at: 952 });
   assert.equal(acked.counters.saved, 1);
-  const safe = reduceBatch(acked, { type: 'PAUSE_SAFE', at: 953 });
-  assert.equal(safe.state, 'PAUSED');
-  assert.equal(nextEligibleProcess(safe), null);
-  const resumed = reduceBatch(safe, { type: 'RESUME_AUTHORIZED', at: 954 });
+  assert.equal(acked.state, 'PAUSED');
+  assert.equal(nextEligibleProcess(acked), null);
+  const resumed = reduceBatch(acked, { type: 'RESUME_AUTHORIZED', at: 954 });
   assert.equal(resumed.state, 'RUNNING');
 });
 

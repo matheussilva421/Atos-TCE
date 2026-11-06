@@ -134,8 +134,10 @@ export function reduceBatch(batch, event) {
       entry.status = 'CONFIRMED';
       next.counters.saved += 1;
       next.current = null;
-      if (next.state === 'SUSPENDED') {
-        next.state = 'RUNNING';
+      if (next.state === 'PAUSE_REQUESTED') {
+        next.state = 'PAUSED';
+      } else if (next.state === 'STOP_REQUESTED') {
+        next.state = 'STOPPED';
       }
       break;
     }

@@ -50,16 +50,21 @@ async function stepOnce({ batchId, deps }) {
   if (!batch || batch.batchId !== batchId) {
     return { state: 'IDLE', needsWake: false };
   }
-  if (batch.state === 'SUSPENDED') {
-    if (batch.current && batch.current.saveAttemptId) {
-      const observed = await deps.verify({
-        processId: batch.current.processId,
-        attemptId: batch.current.saveAttemptId,
-      }).catch(() => null);
-      if (observed && observed.status === 'confirmed') {
-        return persist(deps.storage, batch, { type: 'SAVE_ACK', at: deps.now() });
-      }
+  if (batch.current && batch.current.saveAttemptId
+      && ['SAVE_PENDING', 'VERIFYING', 'SAVE_UNCERTAIN'].includes(batch.current.phase)) {
+    const observed = await deps.verify({
+      processId: batch.current.processId,
+      attemptId: batch.current.saveAttemptId,
+    }).catch(() => null);
+    if (observed && observed.status === 'confirmed') {
+      return persist(deps.storage, batch, { type: 'SAVE_ACK', at: deps.now() });
     }
+    if (batch.state === 'SUSPENDED') {
+      return { state: 'SUSPENDED', needsWake: false };
+    }
+    return persist(deps.storage, batch, { type: 'MARK_UNCERTAIN', at: deps.now() });
+  }
+  if (batch.state === 'SUSPENDED') {
     return { state: 'SUSPENDED', needsWake: false };
   }
   if (batch.state !== 'RUNNING') {
@@ -141,22 +146,34 @@ async function stepOnce({ batchId, deps }) {
         });
       }
       const attemptId = deps.newAttemptId(processId);
-      const armed = await persist(deps.storage, batch, {
+      await persist(deps.storage, batch, {
         type: 'SAVE_ARMED', saveAttemptId: attemptId, at: deps.now(),
       });
-      const outcome = await deps.save({ processId, attemptId });
-      const stored = await loadBatch(deps.storage);
-      if (outcome && outcome.attempted === false) {
-        return persist(deps.storage, stored, { type: 'SAVE_NOT_DISPATCHED', at: deps.now() });
+      let stored;
+      try {
+        stored = await loadBatch(deps.storage);
+      } catch {
+        return { state: 'UNAVAILABLE', needsWake: false };
       }
-      if (!outcome || outcome.result !== 'ack') {
+      try {
+        const outcome = await deps.save({ processId, attemptId });
+        if (outcome && outcome.attempted === false) {
+          return persist(deps.storage, stored, { type: 'SAVE_NOT_DISPATCHED', at: deps.now() });
+        }
+        if (!outcome || outcome.result !== 'ack') {
+          return persist(deps.storage, stored, { type: 'MARK_UNCERTAIN', at: deps.now() });
+        }
+        const observed = await deps.verify({ processId, attemptId });
+        if (observed && observed.status === 'confirmed') {
+          return persist(deps.storage, stored, { type: 'SAVE_ACK', at: deps.now() });
+        }
         return persist(deps.storage, stored, { type: 'MARK_UNCERTAIN', at: deps.now() });
+      } catch (error) {
+        const code = error && error.code ? error.code : 'SAVE_EXCEPTION';
+        return persist(deps.storage, stored, {
+          type: 'MARK_UNCERTAIN', reason: code, at: deps.now(),
+        });
       }
-      const observed = await deps.verify({ processId, attemptId });
-      if (observed && observed.status === 'confirmed') {
-        return persist(deps.storage, stored, { type: 'SAVE_ACK', at: deps.now() });
-      }
-      return persist(deps.storage, stored, { type: 'MARK_UNCERTAIN', at: deps.now() });
     }
   } catch (error) {
     const code = error && error.code ? error.code : 'DEPENDENCY_ERROR';
