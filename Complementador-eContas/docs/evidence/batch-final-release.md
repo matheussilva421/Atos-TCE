@@ -7,7 +7,7 @@ HEAD de código/testes: `3bd2001`
 
 ## Estado
 
-`PARTIAL_WITH_EVIDENCE` · `H2_ADAPTER_BLOCKED_EXTERNAL_AUTH` · `H3_NOT_RUN` · `PROFESSIONAL_BROWSER_NOT_RUN` · `G7_PENDING`
+`PARTIAL_WITH_EVIDENCE` · `H2_ADAPTER_BLOCKED_NO_ELIGIBLE_PROCESS` · `H3_NOT_RUN` · `PROFESSIONAL_BROWSER_NOT_RUN` · `G7_PENDING`
 
 O núcleo local e sintético está implementado e verde. O salvamento automático nunca foi exercitado em ato real; os quatro atos existentes foram salvos de forma supervisionada em H2. O pacote abaixo é um **candidato seguro com o motor desligado**, não um release funcional homologado.
 
@@ -68,11 +68,11 @@ O ZIP contém apenas `manifest.json`, os quatro bundles e `vendor/pdf.worker.mjs
 | F4 MV3 | PARTIAL — lógica e estáticos; kill real não executado |
 | F5 cache/segurança | PASS sintético; autosave `UNKNOWN` |
 | F6 suítes consolidadas | PASS — 323 unitários, 24 navegador |
-| F7 H2-adaptador | `H2_ADAPTER_BLOCKED_EXTERNAL_AUTH` — não executado; ver `batch-h2-adapter.md` |
+| F7 H2-adaptador | `H2_ADAPTER_BLOCKED_NO_ELIGIBLE_PROCESS` — executado com 5 examinados, 0 salvos; ver `batch-h2-adapter.md` |
 | F8 H3-adaptador | `H3_NOT_RUN`; ver `batch-h3-adapter.md` |
 | F9 Chrome profissional | `PROFESSIONAL_BROWSER_NOT_RUN` |
 | G7 aceite | `G7_PENDING` |
 
 ## Próximo passo único
 
-Quando o operador autorizar expressamente **um** ato novo elegível no Chrome QA, executar F7 com o runner/adaptador, checkpoint e verificação independente; sem essa autorização, o pacote seguro permanece o artefato de entrega.
+Autorizar mais 5 processos no Chrome QA (limite total de 10) ou mudar o filtro para uma lista com interessado único. Sem processo apto, o pacote seguro permanece o artefato de entrega.

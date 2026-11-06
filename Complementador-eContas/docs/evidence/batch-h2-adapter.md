@@ -1,57 +1,39 @@
 # F7 — H2 adaptador: um salvamento real (GATE A)
 
-Data: 05/11/2026
-Estado: `H2_ADAPTER_BLOCKED_EXTERNAL_AUTH` / `NOT_RUN`
+Data: 06/11/2026
+Estado: `H2_ADAPTER_BLOCKED_NO_ELIGIBLE_PROCESS` / `RELEASE_2.0_NOT_READY`
 
-Este gate é diferente do H2 supervisionado de 05/11/2026. Aqui o clique e a confirmação devem ser feitos pelo runner/adaptador da extensão, com checkpoint, tentativa única e verificação independente. Nenhum salvamento foi executado nesta fase.
+O gate foi autorizado para até 5 processos no Chrome QA e executado com o build de salvamento habilitado. Nenhum dos 5 processos distintos tinha um único interessado elegível; não houve clique em “Complementar ato”, `SAVE_ARMED`, `SAVE_ACK` ou `SAVE_UNCERTAIN`.
 
-## Pré-condições já atendidas
+## Pré-condições atendidas
 
-- F1–F6 locais: 323 unitários PASS e 24 navegador PASS em um ciclo.
-- Build de QA com salvamento habilitado: `work/qa-save-build-2026-11-05`, background SHA-256 `C69E92C062FE810F3C98F63CF8FDCCAC6F21FC2BE60C5F5EB23537B2A832CBDB`. Não executado.
-- Build seguro de distribuição restaurado em `dist` com os três flags falsos.
-- Adaptador com diálogo estrutural, revalidação pré-clique, checkpoint `SAVE_PENDING`, `SAVE_UNCERTAIN` sem retry e verificação em aba nova.
+- F1–F6 locais verdes: 323 unitários e 24 navegador PASS.
+- Build de QA: `work/qa-save-build-2026-11-05`, background SHA-256 `C69E92C062FE810F3C98F63CF8FDCCAC6F21FC2BE60C5F5EB23537B2A832CBDB`.
+- Flags do bundle: execução true, salvamento true, fill-only false.
+- Filtros: Mutirão - Educação; ATO COMPLEMENTADO = Não; ProcessosNoSetor; semDistribuicao.
 
-## Autorização necessária
+## Execução
 
-O operador deve autorizar expressamente, nesta conversa:
+| Execução | Examinados | Revisão | Preenchidos | Salvos |
+| --- | ---: | ---: | ---: | ---: |
+| 1/1 inicial | 1 | 1 (`MULTIPLE_INTERESTED`) | 0 | 0 |
+| 5/5 seguinte | 5 | 4 `MULTIPLE_INTERESTED` + 1 `DOCUMENT_NOT_FOUND` | 0 | 0 |
 
-1. Executar **um único ato novo** no Chrome QA.
-2. Limite de **1 processo examinado** e **1 salvamento**.
-3. Não substituir o alvo se ele ficar inelegível.
-4. Não repetir o clique após resultado incerto.
-5. Manter o build de distribuição desligado; usar apenas o build de QA preparado.
+Contabilidade: 5 processos distintos; 6 eventos `BEGIN_PROCESS` porque a segunda fila recapturou o primeiro item da página. A fila restante tem 5 itens `QUEUED`, não tocados.
 
-O processo/ato exato deve ser escolhido pelo operador na interface; não registrar número de processo, nome, CPF, matrícula ou nascimento em logs/evidências.
+O processo com `DOCUMENT_NOT_FOUND` registrou ausência de `matricula` e `dataNascimento`. Nenhum valor foi inventado.
 
-## Procedimento (somente após autorização)
+## Evidência
 
-1. Copiar o build de QA para um caminho novo e carregá-lo no perfil QA; nunca no Chrome profissional.
-2. Fazer login manual, aplicar o filtro do operador e selecionar o ato autorizado.
-3. Conferir: um único interessado, status pendente, cinco campos preenchidos, sem erro visível e sem divergência.
-4. Iniciar o lote com limites 1/1. O runner deve gravar `SAVE_ARMED` antes do clique.
-5. Aceitar somente o diálogo homologado: **Complementar ato**, **sim, complementar**, **NÃO**.
-6. Verificar em aba nova: rota/processo corretos, formulário renderizado e botão “Complementar ato” ausente.
-7. Gravar `CONFIRMED` apenas com essa evidência; caso contrário, `SAVE_UNCERTAIN` e parar.
-8. Encerrar o Chrome QA e restaurar o build seguro em `dist`.
+- `docs/evidence/batch-2.0-homologation-attempt.md`.
+- Diário: `state=COMPLETED`, `examined=5`, `saved=0`, `current=null`, sem `saveAttemptId`.
+- Nenhum ato foi salvo ou concluído.
+- Nenhum formulário foi persistido pelo motor; 0 `FILLED`.
 
-## Condições de parada imediata
+## Por que não é PASS
 
-- Diálogo diferente do homologado, botão ausente/desabilitado, rota ou processo divergente.
-- Mais de um interessado, campo faltando, erro visível ou valor divergente.
-- Timeout, resposta vazia, falha de storage ou dúvida sobre o clique.
-- Qualquer risco de autosave não previsto.
+O objetivo do F7 é provar o salvamento automático com um ato real. Como nenhum processo autorizado era elegível, o gate não foi exercitado. Isso é bloqueio por ausência de processo apto, não falha de código.
 
-## Resultado
+## Próximo passo
 
-| Item | Valor |
-| --- | --- |
-| Status | `NOT_RUN` |
-| Autorização | ausente |
-| Tentativas de clique | 0 |
-| Salvamentos confirmados pelo motor | 0 |
-| Última evidência | build de QA preparado, não executado |
-
-## Evidência a preencher após o gate
-
-`docs/evidence/batch-h2-adapter.md` deve receber: data, build/hash, resultado `PASS/FAILED/UNCERTAIN`, contador, eventos sanitizados, prova pós-save, riscos e aceite do operador. Não copiar dados pessoais.
+Nova autorização para mais 5 processos (limite total de 10) ou mudança do filtro/marcador para uma lista com interessado único. Não usar os quatro atos já concluídos e não tocar os 5 itens restantes sem autorização.

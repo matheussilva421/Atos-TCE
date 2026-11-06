@@ -1,7 +1,7 @@
 # Candidato local de release — automação em lote
 
 Data: 05/11/2026
-Estado: `PARTIAL_WITH_EVIDENCE` / `H2_ADAPTER_BLOCKED_EXTERNAL_AUTH` / `H3_NOT_RUN` / `G7_PENDING`
+Estado: `PARTIAL_WITH_EVIDENCE` / `H2_ADAPTER_BLOCKED_NO_ELIGIBLE_PROCESS` / `H3_NOT_RUN` / `G7_PENDING`
 
 Este documento prepara a entrega (T24) sem publicar, instalar em perfil profissional ou declarar homologação. A versão do manifesto permanece 0.1.1. O release detalhado está em `docs/evidence/batch-final-release.md`.
 
