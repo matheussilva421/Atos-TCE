@@ -4,6 +4,8 @@ import { parseListRoute } from '../shared/routes.mjs';
 import { loadBatch, saveBatch } from './journal.mjs';
 import { createFrozenBatch, validateLimits } from './queue.mjs';
 import { buildBatchReport } from './report.mjs';
+import { reconcileExternalCompletions } from './reconciliation.mjs';
+import { isValidProcessId } from '../shared/identity.mjs';
 import { reduceBatch } from './state-machine.mjs';
 
 const ACTIVE_STATES = new Set(['READY', 'RUNNING', 'PAUSE_REQUESTED', 'STOP_REQUESTED', 'PAUSED', 'SUSPENDED']);
@@ -246,6 +248,37 @@ export class BatchController {
   resume({ sender, batchId, revision }) {
     return this.transition({
       sender, batchId, revision, event: 'RESUME_AUTHORIZED', allowed: ['PAUSED', 'SUSPENDED'],
+    });
+  }
+
+  async reconcileExternal({ sender, batchId, revision, processIds }) {
+    return this.serialize(async () => {
+      if (!this.trusted(sender)) {
+        return failure('UNTRUSTED_SENDER');
+      }
+      const tab = this.listTab(sender);
+      if (!tab) {
+        return failure('INVALID_LIST_TAB');
+      }
+      const existing = await this.read();
+      if (existing.error) {
+        return failure(existing.error);
+      }
+      const batch = existing.batch;
+      if (!batch || batch.batchId !== batchId) {
+        return failure('NO_BATCH');
+      }
+      if (batch.revision !== revision) {
+        return failure('STALE_REVISION', { revision: batch.revision, state: batch.state });
+      }
+      const ids = (Array.isArray(processIds) ? processIds : [])
+        .filter((processId) => typeof processId === 'string' && isValidProcessId(processId))
+        .slice(0, 200);
+      const result = reconcileExternalCompletions(batch, ids, { at: this.now() });
+      if (result.changed > 0) {
+        await saveBatch(this.storage, result.batch);
+      }
+      return { ...statusPayload(result.batch), changed: result.changed };
     });
   }
 }

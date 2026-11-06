@@ -52,6 +52,12 @@ function deps(options = {}) {
     tabs,
     sendToTab: async (tabId, message) => {
       messages.push({ tabId, message });
+      if (message.type === MESSAGE.BATCH_VERIFY_SAVED && options.verifyResponse) {
+        return options.verifyResponse;
+      }
+      if (message.type === MESSAGE.BATCH_VERIFY_SAVED && options.verifyThrows) {
+        throw new Error('verify failed');
+      }
       return options.formResponse || { ok: true };
     },
     fillTransaction: async (payload) => {
@@ -197,4 +203,47 @@ test('workspace_is_verified_before_use', async () => {
     (error) => error.code === 'WRONG_PROCESS_TAB',
   );
   assert.equal(messages.length, 0);
+});
+
+test('verify_confirms_from_fresh_tab_without_save_button', async () => {
+  const { instance, tabs, messages } = deps({
+    verifyResponse: { ok: true, processId: '501', hasForm: true, saveButtonPresent: false },
+  });
+  const result = await instance.verify({ processId: '501', attemptId: 'attempt-1' });
+  assert.equal(result.status, 'confirmed');
+  assert.deepEqual(result.evidence, ['fresh_tab', 'form_present', 'save_button_absent']);
+  const created = tabs.calls.filter((call) => call.op === 'create');
+  assert.equal(created.length, 1);
+  assert.equal(created[0].url.includes('/complementar-ato/501'), true);
+  assert.equal(messages[0].message.type, MESSAGE.BATCH_VERIFY_SAVED);
+  assert.equal(tabs.calls.some((call) => call.op === 'remove' && call.id === created[0].id), true);
+});
+
+test('verify_stays_unknown_when_save_button_is_present', async () => {
+  const { instance } = deps({
+    verifyResponse: { ok: true, processId: '501', hasForm: true, saveButtonPresent: true },
+  });
+  const result = await instance.verify({ processId: '501', attemptId: 'attempt-2' });
+  assert.equal(result.status, 'unknown');
+  assert.deepEqual(result.evidence, ['VERIFY_SAVE_BUTTON_PRESENT']);
+});
+
+test('verify_stays_unknown_for_wrong_process_or_unreadable_form', async () => {
+  const wrong = deps({
+    verifyResponse: { ok: true, processId: '999', hasForm: true, saveButtonPresent: false },
+  });
+  assert.equal((await wrong.instance.verify({ processId: '501' })).status, 'unknown');
+  const noForm = deps({
+    verifyResponse: { ok: true, processId: '501', hasForm: false, saveButtonPresent: false },
+  });
+  assert.equal((await noForm.instance.verify({ processId: '501' })).status, 'unknown');
+});
+
+test('verify_closes_temp_tab_when_read_fails', async () => {
+  const { instance, tabs } = deps({ verifyThrows: true });
+  const result = await instance.verify({ processId: '501', attemptId: 'attempt-3' });
+  assert.equal(result.status, 'unknown');
+  const created = tabs.calls.filter((call) => call.op === 'create');
+  assert.equal(created.length, 1);
+  assert.equal(tabs.calls.some((call) => call.op === 'remove' && call.id === created[0].id), true);
 });

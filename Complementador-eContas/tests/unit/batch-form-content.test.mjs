@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { handleBatchFormMessage, handleBatchSave } from '../../src/form/batch-content.mjs';
+import { handleBatchFormMessage, handleBatchSave, handleBatchVerifySaved } from '../../src/form/batch-content.mjs';
 
 const RUNTIME_ID = 'ext-runtime';
 const URL_COMPLEMENT = 'https://processos.tce.rn.gov.br/#/dashboard/complementar-ato/901';
@@ -260,4 +260,48 @@ test('batch_save_blocks_visible_error_before_click', async () => {
   assert.equal(result.ok, false);
   assert.equal(result.code, 'VISIBLE_ERROR');
   assert.equal(clicks, 0);
+});
+
+test('verify_reports_form_without_save_button', () => {
+  const doc = document(filledForm());
+  const result = handleBatchVerifySaved(
+    { type: 'BATCH_VERIFY_SAVED', processId: '901', attemptId: 'attempt-901-verify' },
+    SENDER,
+    doc,
+    RUNTIME_ID,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.processId, '901');
+  assert.equal(result.attemptId, 'attempt-901-verify');
+  assert.equal(result.hasForm, true);
+  assert.equal(result.saveButtonPresent, false);
+});
+
+test('verify_reports_save_button_present', () => {
+  const doc = document(filledForm({ extra: '<button class="btn btn-primary">Complementar ato</button>' }));
+  const result = handleBatchVerifySaved(
+    { type: 'BATCH_VERIFY_SAVED', processId: '901', attemptId: 'attempt-901-verify-2' },
+    SENDER,
+    doc,
+    RUNTIME_ID,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.hasForm, true);
+  assert.equal(result.saveButtonPresent, true);
+});
+
+test('verify_rejects_wrong_process_and_untrusted_sender', () => {
+  const doc = document(filledForm());
+  assert.equal(handleBatchVerifySaved(
+    { type: 'BATCH_VERIFY_SAVED', processId: '902' },
+    SENDER,
+    doc,
+    RUNTIME_ID,
+  ).code, 'PROCESS_MISMATCH');
+  assert.equal(handleBatchVerifySaved(
+    { type: 'BATCH_VERIFY_SAVED', processId: '901' },
+    { id: 'evil' },
+    doc,
+    RUNTIME_ID,
+  ).code, 'UNTRUSTED_SENDER');
 });

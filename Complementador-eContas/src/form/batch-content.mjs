@@ -5,7 +5,7 @@ import { parseRoute } from '../shared/routes.mjs';
 import { validateBatchReady } from './batch-validation.mjs';
 import { readForm } from './form-reader.mjs';
 import { selectSingleInterested } from './interested-selector.mjs';
-import { clickComplementarAtoOnce } from './save-adapter.mjs';
+import { clickComplementarAtoOnce, hasSaveButton } from './save-adapter.mjs';
 
 const dispatchedAttempts = new Set();
 
@@ -68,6 +68,30 @@ export async function handleBatchSave(message, sender, doc, runtimeId) {
     attempted: result.attempted,
     result: result.result,
     code: result.code || null,
+  };
+}
+
+export function handleBatchVerifySaved(message, sender, doc, runtimeId) {
+  if (!sender || sender.id !== runtimeId) {
+    return { ok: false, code: 'UNTRUSTED_SENDER' };
+  }
+  const route = parseRoute(locationHref(doc), PORTAL_ORIGIN);
+  if (!route || route.kind !== 'complemento') {
+    return { ok: false, code: 'INVALID_TARGET' };
+  }
+  if (message.processId !== route.idProcesso) {
+    return { ok: false, code: 'PROCESS_MISMATCH' };
+  }
+  const hasForm = Boolean(doc.querySelector('tce-input-field[formcontrolname="cargo"]')
+    || doc.querySelector('tce-input-field[formcontrolname="dataDoeEstado"]')
+    || doc.querySelector('tce-select-field.modalidade-campo')
+    || doc.querySelector('form'));
+  return {
+    ok: true,
+    processId: route.idProcesso,
+    attemptId: typeof message.attemptId === 'string' ? message.attemptId : null,
+    hasForm,
+    saveButtonPresent: hasSaveButton(doc),
   };
 }
 

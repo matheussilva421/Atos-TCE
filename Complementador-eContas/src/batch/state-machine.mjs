@@ -10,7 +10,7 @@ export class InvalidTransition extends Error {
 }
 
 const PHASES = ['EXAMINING', 'READING', 'FILLING', 'VALIDATING'];
-const TERMINAL_STATUS = new Set(['CONFIRMED', 'SKIPPED', 'REVIEW_REQUIRED', 'FAILED']);
+const TERMINAL_STATUS = new Set(['CONFIRMED', 'COMPLETED_EXTERNALLY', 'SKIPPED', 'REVIEW_REQUIRED', 'FAILED']);
 
 function fail(reason) {
   throw new InvalidTransition(reason);

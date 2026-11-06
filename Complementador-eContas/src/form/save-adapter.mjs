@@ -90,6 +90,10 @@ function dialogMatches(dialog, knownDialog) {
 /**
  * Lê a UI de salvamento observada no portal: botão "Complementar ato".
  */
+export function hasSaveButton(doc) {
+  return Boolean(findSaveButton(doc));
+}
+
 export function inspectSaveUi(doc) {
   const button = findSaveButton(doc);
   if (!button) {

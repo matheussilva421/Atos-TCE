@@ -17,7 +17,7 @@ function autosUrl(processId) {
   return PORTAL_ORIGIN + '/#/dashboard/processos/' + processId + '/autos';
 }
 
-function formUrl(processId) {
+export function formUrlFor(processId) {
   return PORTAL_ORIGIN + '/#/dashboard/complementar-ato/' + processId;
 }
 
@@ -57,12 +57,12 @@ export async function openWorkspace({
       }
     } else {
       await tabsApi.update(previous.autosTabId, { url: autosUrl(processId), active: false });
-      await tabsApi.update(previous.formTabId, { url: formUrl(processId), active: false });
+      await tabsApi.update(previous.formTabId, { url: formUrlFor(processId), active: false });
       return { autosTabId: previous.autosTabId, formTabId: previous.formTabId };
     }
   }
   const autos = await tabsApi.create({ url: autosUrl(processId), active: false });
-  const form = await tabsApi.create({ url: formUrl(processId), active: false });
+  const form = await tabsApi.create({ url: formUrlFor(processId), active: false });
   return { autosTabId: autos.id, formTabId: form.id };
 }
 

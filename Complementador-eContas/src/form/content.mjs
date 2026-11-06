@@ -4,7 +4,7 @@ import { MESSAGE, createRequestId } from '../shared/protocol.mjs';
 import { parseRoute } from '../shared/routes.mjs';
 import { ensureModalityCatalog, readForm } from './form-reader.mjs';
 import { applyFillPlan, createFillPlan } from './form-writer.mjs';
-import { handleBatchFormMessage, handleBatchSave } from './batch-content.mjs';
+import { handleBatchFormMessage, handleBatchSave, handleBatchVerifySaved } from './batch-content.mjs';
 
 const HOST_ID = 'complementador-econtas-root';
 let route = parseRoute(location.href, PORTAL_ORIGIN);
@@ -414,8 +414,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     MESSAGE.BATCH_VALIDATE_FORM,
     MESSAGE.BATCH_FORM_SNAPSHOT,
     MESSAGE.BATCH_SAVE,
+    MESSAGE.BATCH_VERIFY_SAVED,
   ].includes(message.type)) {
     return false;
+  }
+  if (message.type === MESSAGE.BATCH_VERIFY_SAVED) {
+    sendResponse(handleBatchVerifySaved(message, sender, document, chrome.runtime.id));
+    return true;
   }
   if (message.type === MESSAGE.BATCH_SAVE) {
     handleBatchSave(message, sender, document, chrome.runtime.id).then(

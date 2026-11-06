@@ -39,6 +39,7 @@ const BATCH_TYPES = new Set([
   MESSAGE.BATCH_PAUSE,
   MESSAGE.BATCH_STOP,
   MESSAGE.BATCH_RESUME,
+  MESSAGE.BATCH_RECONCILE_EXTERNAL,
 ]);
 
 function getBatchController() {
@@ -137,6 +138,13 @@ async function handleBatchCommand(message, sender) {
       return controller.pause({ ...command, batchId: message.batchId, revision: message.revision });
     case MESSAGE.BATCH_STOP:
       return controller.stop({ ...command, batchId: message.batchId, revision: message.revision });
+    case MESSAGE.BATCH_RECONCILE_EXTERNAL:
+      return controller.reconcileExternal({
+        ...command,
+        batchId: message.batchId,
+        revision: message.revision,
+        processIds: message.processIds,
+      });
     case MESSAGE.BATCH_RESUME: {
       const resumed = await controller.resume({ ...command, batchId: message.batchId, revision: message.revision });
       if (resumed && resumed.ok) {

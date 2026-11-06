@@ -1,6 +1,51 @@
 import { PORTAL_ORIGIN } from '../shared/config.mjs';
 import { createRequestId, MESSAGE } from '../shared/protocol.mjs';
-import { openWorkspace, waitForWorkspace } from './workspace.mjs';
+import { formUrlFor, openWorkspace, waitForWorkspace } from './workspace.mjs';
+
+async function verifyInFreshTab({ tabs, sendToTab, processId, attemptId }) {
+  if (!tabs || typeof tabs.create !== 'function' || typeof sendToTab !== 'function') {
+    return { status: 'unknown', evidence: ['VERIFY_UNAVAILABLE'] };
+  }
+  let tab = null;
+  try {
+    tab = await tabs.create({ url: formUrlFor(processId), active: false });
+    if (!tab || !Number.isInteger(tab.id)) {
+      return { status: 'unknown', evidence: ['VERIFY_TAB_FAILED'] };
+    }
+    const result = await sendToTab(tab.id, {
+      type: MESSAGE.BATCH_VERIFY_SAVED,
+      processId,
+      attemptId,
+    });
+    if (!result || result.ok !== true) {
+      return { status: 'unknown', evidence: ['VERIFY_READ_FAILED'] };
+    }
+    if (result.processId !== processId) {
+      return { status: 'unknown', evidence: ['VERIFY_WRONG_PROCESS'] };
+    }
+    if (result.hasForm !== true) {
+      return { status: 'unknown', evidence: ['VERIFY_FORM_NOT_RENDERED'] };
+    }
+    if (result.saveButtonPresent !== false) {
+      return { status: 'unknown', evidence: ['VERIFY_SAVE_BUTTON_PRESENT'] };
+    }
+    return {
+      status: 'confirmed',
+      evidence: ['fresh_tab', 'form_present', 'save_button_absent'],
+      at: Date.now(),
+    };
+  } catch {
+    return { status: 'unknown', evidence: ['VERIFY_FAILED'] };
+  } finally {
+    if (tab && Number.isInteger(tab.id) && typeof tabs.remove === 'function') {
+      try {
+        await tabs.remove(tab.id);
+      } catch {
+        // A aba de verificação é descartável.
+      }
+    }
+  }
+}
 
 /**
  * Adapta as APIs do navegador às dependências do runner. A execução real e o
@@ -123,7 +168,12 @@ export function createRunnerDeps({
       if (typeof verify === 'function') {
         return verify(args);
       }
-      return { status: 'unknown', evidence: [] };
+      return verifyInFreshTab({
+        tabs,
+        sendToTab,
+        processId: args && args.processId,
+        attemptId: args && args.attemptId,
+      });
     },
   };
 }
