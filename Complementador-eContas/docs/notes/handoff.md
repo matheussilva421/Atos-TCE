@@ -1,20 +1,21 @@
 # Handoff — Complementador e-Contas
 
-> ESTADO ATUAL — 06/11/2026 (release 2.0.2 homologado no QA). Esta seção prevalece sobre todo o histórico abaixo.
+> ESTADO ATUAL — 06/11/2026 (release 2.0.3 homologado no QA). Esta seção prevalece sobre todo o histórico abaixo.
 >
 > - Branch `codex/complementador-e-contas`; commits de código/testes até `23e1339`; `main`/`origin/main` em `6e1acd5`; consolidação documental no commit seguinte.
 > - Homologação real: **25 examinados, 10 preenchidos/salvos, 15 revisões, 0 incertos**; **10/10 atos verificados no portal**.
-> - Testes: **330 unitários PASS**; **25 navegador PASS**; build/build:test PASS.
-> - ZIP funcional 2.0.2: `release/Complementador-eContas-2.0.2.zip` (645.600 bytes, SHA-256 `3FA30669A3DBBFA663387152F88FE1EBF9AF015888F3E98CB01F6248F5A78D0B`).
-> - Status: `RELEASE_2.0.2_READY` · `G7_PENDING_HUMAN_ACCEPTANCE` · `MV3_WORKER_KILL_TEST_NOT_RUN` · `AUTOSAVE_UNKNOWN`.
+> - Testes: **332 unitários PASS**; **25 navegador PASS**; build/build:test PASS.
+> - ZIP funcional 2.0.3: `release/Complementador-eContas-2.0.3.zip` (646.104 bytes, SHA-256 `C659EB5E3A2FCAFAAEAE73FC3EDDB5ACC83DF5A9011D5A971CACB71D857E819A`).
+> - Status: `RELEASE_2.0.3_READY` · `G7_PENDING_HUMAN_ACCEPTANCE` · `MV3_WORKER_KILL_TEST_NOT_RUN` · `AUTOSAVE_UNKNOWN`.
 > - Filtros: Mutirão - Educação; ATO COMPLEMENTADO = Não; ProcessosNoSetor; semDistribuicao.
-> - Abas: processos `CONFIRMED` fecham as duas abas de trabalho após o ACK; revisões/incertezas permanecem abertas.
+> - Abas: `CONFIRMED` fecha as duas abas; revisão/falha seguem o checkbox “Manter abas de processos com problema” (padrão marcado); `SAVE_UNCERTAIN` sempre mantém.
+> - O checkbox de abas problemáticas é persistido em `chrome.storage.local`.
 > - Meus Processos: rota `#/dashboard/meus/meus-processos` suportada; presets separados por rota.
 > - CORS do PDF corrigido com `credentials: omit`; Meus Processos e tempos ampliados.
 > - Tempos ampliados: leitura/aplicação 180 s, documentos 600 s, abas 30 s, iframe 60 s.
-> - Relatórios: `docs/evidence/batch-2.0-homologation-attempt.md`, `batch-final-release.md`, `batch-h2-adapter.md`, `batch-h3-adapter.md`, `batch-final-tests.md`, `batch-final-security.md`, `batch-ca-traceability.md`.
+> - Relatórios: `docs/evidence/batch-2.0-homologation-attempt.md`, `batch-final-release.md`, `batch-h2-adapter.md`, `batch-h3-adapter.md`, `batch-final-tests.md`, `batch-final-security.md`, `batch-2.0.3-patch.md`, `batch-ca-traceability.md`.
 > - Pendências: G7 (aceite humano), Chrome profissional, kill físico do worker e autosave do portal. Nenhum merge/PR/instalação profissional.
-> - Próximo passo: operador revisar o relatório e aceitar/instalar o ZIP 2.0.2 conforme o procedimento institucional.
+> - Próximo passo: operador revisar o relatório e aceitar/instalar o ZIP 2.0.3 conforme o procedimento institucional.
 
 > PAUSA 05/11/2026 (GOAL pausado a pedido do usuário; PC será desligado). Esta seção é o ponto de retomada.
 

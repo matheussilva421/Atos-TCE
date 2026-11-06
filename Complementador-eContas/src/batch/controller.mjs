@@ -133,7 +133,7 @@ export class BatchController {
     });
   }
 
-  async start({ sender, limits, expectedContextKey }) {
+  async start({ sender, limits, expectedContextKey, keepProblemTabs }) {
     return this.serialize(async () => {
       if (!this.trusted(sender)) {
         return failure('UNTRUSTED_SENDER');
@@ -172,6 +172,7 @@ export class BatchController {
           limits: normalized,
           startedAt: this.now(),
           saveAuthorized: this.saveEnabled === true,
+          keepProblemTabs: keepProblemTabs !== false,
         });
       } catch (error) {
         return failure(error && error.code ? error.code : 'INVALID_BATCH');

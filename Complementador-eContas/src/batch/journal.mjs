@@ -80,6 +80,7 @@ export function sanitizeBatch(batch) {
       maxSaved: toInt(limits.maxSaved),
     },
     saveAuthorized: batch.saveAuthorized === true,
+    keepProblemTabs: batch.keepProblemTabs !== false,
     queue: batch.queue.map((entry) => ({
       processId: typeof entry?.processId === 'string' ? entry.processId : '',
       processLabel: typeof entry?.processLabel === 'string' ? entry.processLabel : '',

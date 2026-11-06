@@ -1,4 +1,4 @@
-# Testes finais — Complementador e-Contas 2.0.2
+# Testes finais — Complementador e-Contas 2.0.3
 
 Data: 06/11/2026
 Branch: `codex/complementador-e-contas`
@@ -8,10 +8,10 @@ HEAD de código/testes antes da consolidação: `23e1339`
 
 | Comando | Resultado |
 | --- | --- |
-| `node --test tests/unit/*.test.mjs` | **330 PASS**, 0 FAIL, 4,9 s |
-| `npm run build:test` | PASS — `background.js` 134.882 B, `form-content.js` 57.821 B, `autos-content.js` 984.515 B, `list-content.js` 28.292 B, `manifest.json` 1.054 B |
+| `node --test tests/unit/*.test.mjs` | **332 PASS**, 0 FAIL, 4,9 s |
+| `npm run build:test` | PASS — `background.js` 136.456 B, `form-content.js` 57.901 B, `autos-content.js` 984.595 B, `list-content.js` 29.484 B, `manifest.json` 1.054 B |
 | `npm run test:browser` | **25 PASS**, 0 FAIL, 31,6 s, uma execução (Chromium 1248 headless) |
-| `npm run build` | PASS — `background.js` 134.909 B, `form-content.js` 57.831 B, `autos-content.js` 984.542 B, `list-content.js` 28.302 B, `manifest.json` 1.201 B |
+| `npm run build` | PASS — `background.js` 136.483 B, `form-content.js` 57.911 B, `autos-content.js` 984.622 B, `list-content.js` 29.494 B, `manifest.json` 1.201 B |
 | `git diff --check` | PASS |
 
 ## Cobertura de F1–F5
@@ -24,7 +24,10 @@ HEAD de código/testes antes da consolidação: `23e1339`
 - Reconciliação `COMPLETED_EXTERNALLY`.
 - Reentrada MV3 por evento e suspensão após reinício.
 - Cache entre dois processos e duas abas de processos distintos.
-- Fechamento das abas de trabalho somente após `CONFIRMED`; revisões/incertezas ficam abertas.\n- Rota Meus Processos e presets de filtro separados por rota.\n- Tempos ampliados para leitura, aplicação, documentos e abas.
+- Fechamento das abas de trabalho somente após `CONFIRMED`; revisões/incertezas ficam abertas.
+- Rota Meus Processos e presets de filtro separados por rota.
+- Checkbox de abas problemáticas, persistido e aplicado ao lote.
+- Tempos ampliados para leitura, aplicação, documentos e abas.
 
 ## Testes de negação dos gates
 

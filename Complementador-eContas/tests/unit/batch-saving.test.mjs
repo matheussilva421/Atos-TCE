@@ -441,3 +441,20 @@ test('review_process_keeps_workspace_open', async () => {
   assert.equal(options.calls.some((call) => call.startsWith('cleanup:')), false);
   assert.equal(options.calls.includes('keep:REVIEW_REQUIRED:301'), true);
 });
+
+test('review_process_closes_tabs_when_preference_is_false', async () => {
+  const storage = memoryStorage();
+  await runningBatch(storage);
+  const stored = await loadBatch(storage);
+  stored.keepProblemTabs = false;
+  await saveBatch(storage, stored);
+  const options = deps({
+    storage,
+    selectInterested: async () => ({ ok: false, code: 'MULTIPLE_INTERESTED' }),
+  });
+  for (let step = 0; step < 5; step += 1) {
+    await runOneStep({ batchId: 'batch-runner', deps: options });
+  }
+  assert.equal(options.calls.includes('cleanup:REVIEW_REQUIRED:301'), true);
+  assert.equal(options.calls.some((call) => call.startsWith('keep:')), false);
+});

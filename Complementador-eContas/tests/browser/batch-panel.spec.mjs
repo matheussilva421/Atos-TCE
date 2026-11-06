@@ -49,6 +49,7 @@ function panelState(page) {
       summary: shadow.querySelector('.summary').textContent.trim(),
       disabled: Object.fromEntries([...shadow.querySelectorAll('button')]
         .map((button) => [button.getAttribute('data-action'), button.disabled])),
+      keepProblem: shadow.querySelector('input[data-option="keep-problem-tabs"]')?.checked ?? null,
     };
   });
 }
@@ -71,6 +72,7 @@ test('batch_panel_previews_starts_and_stops_on_current_page', async () => {
   await withList(async (server, page) => {
     const initial = await panelState(page);
     assert.equal(initial.disabled.pause, true);
+    assert.equal(initial.keepProblem, true);
     assert.equal(initial.disabled.stop, true);
 
     await clickAction(page, 'preview');

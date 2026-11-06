@@ -163,3 +163,28 @@ test('controller_persists_save_authorization_in_the_batch', async () => {
     assert.equal(stored.saveAuthorized, saveEnabled);
   }
 });
+
+test('controller_persists_keep_problem_tabs_preference', async () => {
+  for (const keepProblemTabs of [true, false]) {
+    const storage = memoryStorage();
+    const controller = new BatchController({
+      storage,
+      runtimeId: RUNTIME_ID,
+      newBatchId: () => 'batch-tabs-' + String(keepProblemTabs),
+      sendToTab: async () => ({
+        ok: true,
+        contextKey: 'ctx-live',
+        entries: [{ processId: '888', processLabel: '888/2020', status: 'pending' }],
+      }),
+      now: () => 1000,
+    });
+    const started = await controller.start({
+      sender: { id: RUNTIME_ID, tab: LIST_TAB },
+      limits: { maxExamined: 1, maxSaved: 1 },
+      keepProblemTabs,
+    });
+    assert.equal(started.ok, true);
+    const stored = await loadBatch(storage);
+    assert.equal(stored.keepProblemTabs, keepProblemTabs);
+  }
+});

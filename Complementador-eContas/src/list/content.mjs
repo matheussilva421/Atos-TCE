@@ -16,6 +16,7 @@ let stopButton = null;
 let resumeButton = null;
 let examinedInput = null;
 let savedInput = null;
+let keepProblemInput = null;
 let currentStatus = null;
 let pollHandle = null;
 let busy = false;
@@ -60,6 +61,8 @@ function ensureUi() {
     + 'button:disabled{opacity:.5;cursor:not-allowed}'
     + '.secondary{background:#fff;color:#0b6e4f;border:1px solid #0b6e4f}'
     + '.danger{background:#fff;color:#a61b1b;border:1px solid #a61b1b}'
+    + '.option{display:flex;align-items:center;gap:6px;font-size:11px;color:#334e68;margin-bottom:6px}'
+    + '.option input{width:auto;margin:0}'
     + '.status{font-size:12px;margin-top:6px;color:#334e68;min-height:18px}'
     + '.summary{font-size:11px;margin-top:4px;color:#627d98}'
     + '[data-tone="error"]{color:#a61b1b}[data-tone="warn"]{color:#8a5a00}[data-tone="ok"]{color:#0b6e4f}'
@@ -68,6 +71,7 @@ function ensureUi() {
     + '<div class="title">Complementador e-Contas ' + version + '</div>'
     + '<div class="row"><label>Máx. examinados<input type="number" min="1" step="1" value="5" aria-label="Máximo de processos examinados"></label>'
     + '<label>Máx. salvos<input type="number" min="1" step="1" value="1" aria-label="Máximo de atos confirmados"></label></div>'
+    + '<div class="option"><label><input type="checkbox" data-option="keep-problem-tabs" checked> Manter abas de processos com problema</label></div>'
     + '<div class="row"><button type="button" data-action="preview" class="secondary">Pré-visualizar</button>'
     + '<button type="button" data-action="start">⚡ Rodar automação</button></div>'
     + '<div class="row"><button type="button" data-action="save-filters" class="secondary">Salvar filtros</button>'
@@ -89,6 +93,8 @@ function ensureUi() {
   const restoreFiltersButton = shadow.querySelector('button[data-action="restore-filters"]');
   examinedInput = shadow.querySelectorAll('input[type="number"]')[0];
   savedInput = shadow.querySelectorAll('input[type="number"]')[1];
+  keepProblemInput = shadow.querySelector('input[data-option="keep-problem-tabs"]');
+  keepProblemInput.addEventListener('change', onKeepProblemTabsChange);
   startButton.addEventListener('click', onStart);
   previewButton.addEventListener('click', onPreview);
   pauseButton.addEventListener('click', () => onControl('pause'));
@@ -97,8 +103,27 @@ function ensureUi() {
   saveFiltersButton.addEventListener('click', onSaveFilters);
   restoreFiltersButton.addEventListener('click', onRestoreFilters);
   applyControls(null);
+  void loadBatchPrefs();
   void refreshStatus();
   setTimeout(() => { void autoRestoreFilters(); }, 1200);
+}
+
+async function loadBatchPrefs() {
+  const response = await send({ type: MESSAGE.BATCH_PREFS_GET, requestId: createRequestId() });
+  if (response && response.ok && response.prefs && keepProblemInput) {
+    keepProblemInput.checked = response.prefs.keepProblemTabs !== false;
+  }
+}
+
+async function onKeepProblemTabsChange() {
+  if (!keepProblemInput) {
+    return;
+  }
+  await send({
+    type: MESSAGE.BATCH_PREFS_SET,
+    requestId: createRequestId(),
+    prefs: { keepProblemTabs: keepProblemInput.checked },
+  });
 }
 
 async function onSaveFilters() {
@@ -258,6 +283,7 @@ async function onStart() {
     type: MESSAGE.BATCH_START,
     requestId: createRequestId(),
     limits: parsed.limits,
+    keepProblemTabs: keepProblemInput ? keepProblemInput.checked : true,
   });
   busy = false;
   if (!response || !response.ok) {

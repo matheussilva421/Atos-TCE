@@ -157,7 +157,7 @@ async function handleBatchCommand(message, sender) {
     case MESSAGE.BATCH_PREVIEW:
       return controller.preview(command);
     case MESSAGE.BATCH_START: {
-      const started = await controller.start({ ...command, limits: message.limits, expectedContextKey: message.contextKey });
+      const started = await controller.start({ ...command, limits: message.limits, expectedContextKey: message.contextKey, keepProblemTabs: message.keepProblemTabs });
       if (started && started.ok) {
         const driver = getBatchDriver();
         if (driver) {
@@ -443,6 +443,25 @@ async function handleGetDiagnostic(message, sender) {
   return { ok: true, diagnostic: await readDiagnostic() };
 }
 
+const BATCH_PREFS_KEY = 'complementadorBatchPrefs';
+
+async function handleBatchPrefs(message, sender) {
+  if (!isTrusted(sender)) {
+    return { ok: false, code: 'UNTRUSTED_SENDER' };
+  }
+  if (!chrome.storage || !chrome.storage.local) {
+    return { ok: false, code: 'STORAGE_UNAVAILABLE' };
+  }
+  if (message.type === MESSAGE.BATCH_PREFS_GET) {
+    const values = await chrome.storage.local.get(BATCH_PREFS_KEY);
+    const stored = values ? values[BATCH_PREFS_KEY] : null;
+    return { ok: true, prefs: { keepProblemTabs: !stored || stored.keepProblemTabs !== false } };
+  }
+  const keepProblemTabs = Boolean(message.prefs && message.prefs.keepProblemTabs !== false);
+  await chrome.storage.local.set({ [BATCH_PREFS_KEY]: { keepProblemTabs } });
+  return { ok: true, prefs: { keepProblemTabs } };
+}
+
 async function handleFilterPreset(message, sender) {
   if (!isTrusted(sender)) {
     return { ok: false, code: 'UNTRUSTED_SENDER' };
@@ -560,6 +579,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleBatchCommand(message, sender).then(
       (response) => sendResponse(response),
       () => sendResponse({ ok: false, code: 'BATCH_COMMAND_FAILED' }),
+    );
+    return true;
+  }
+  if (message.type === MESSAGE.BATCH_PREFS_GET || message.type === MESSAGE.BATCH_PREFS_SET) {
+    handleBatchPrefs(message, sender).then(
+      (response) => sendResponse(response),
+      () => sendResponse({ ok: false, code: 'BATCH_PREFS_FAILED' }),
     );
     return true;
   }

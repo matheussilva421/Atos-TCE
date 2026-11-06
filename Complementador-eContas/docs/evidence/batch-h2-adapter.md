@@ -25,7 +25,7 @@ O adaptador executou salvamentos reais no Chrome QA, com checkpoint, clique úni
 
 - O kill físico do service worker/reinício do navegador não foi executado (`MV3_WORKER_KILL_TEST_NOT_RUN`).
 - Autosave do portal continua `UNKNOWN`.
-- O build 2.0.2 difere do build homologado por limpeza pós-save, Meus Processos, presets por rota e tempos ampliados; o caminho de preenchimento/salvamento é o mesmo.
+- O build 2.0.3 difere do build homologado por limpeza pós-save, Meus Processos, presets por rota e tempos ampliados; o caminho de preenchimento/salvamento é o mesmo.
 - O Chrome profissional não foi tocado.
 
 ## Veredito

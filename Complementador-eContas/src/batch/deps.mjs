@@ -85,9 +85,9 @@ export function createRunnerDeps({
         keepAutos.add(session.workspace.autosTabId);
       }
     },
-    async cleanupWorkspace({ processId, status }) {
+    async cleanupWorkspace({ processId, status, force = false }) {
       const workspace = session.workspace;
-      if (!workspace || session.processId !== processId || status !== 'CONFIRMED') {
+      if (!workspace || session.processId !== processId || (status !== 'CONFIRMED' && force !== true)) {
         return { closed: 0 };
       }
       let closed = 0;

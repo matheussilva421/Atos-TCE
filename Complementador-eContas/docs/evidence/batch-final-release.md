@@ -1,32 +1,32 @@
-# Release 2.0.2 — Complementador e-Contas
+# Release 2.0.3 — Complementador e-Contas
 
 Data: 06/11/2026
 Branch: `codex/complementador-e-contas`
-Versão: `2.0.2`
-Estado: `RELEASE_2.0.2_READY` / `G7_PENDING_HUMAN_ACCEPTANCE`
+Versão: `2.0.3`
+Estado: `RELEASE_2.0.3_READY` / `G7_PENDING_HUMAN_ACCEPTANCE`
 
-A automação em lote foi homologada no Chrome QA com 25 processos examinados e 10 salvamentos reais, todos verificados no portal. O patch 2.0.2 adiciona suporte a **Meus Processos**, separa presets por rota e amplia tempos para máquinas mais lentas. O Chrome profissional não foi tocado.
+A automação em lote foi homologada no Chrome QA com 25 processos examinados e 10 salvamentos reais, todos verificados no portal. O patch 2.0.3 adiciona suporte a **Meus Processos**, separa presets por rota e amplia tempos para máquinas mais lentas. O Chrome profissional não foi tocado.
 
 ## ZIP funcional
 
 | Item | Valor |
 | --- | --- |
-| Arquivo | `release/Complementador-eContas-2.0.2.zip` |
-| Bytes | 645.600 |
-| SHA-256 | `3FA30669A3DBBFA663387152F88FE1EBF9AF015888F3E98CB01F6248F5A78D0B` |
-| Manifesto | 2.0.2 |
-| Extração de ensaio | `work/release-2.0.2-extract` |
+| Arquivo | `release/Complementador-eContas-2.0.3.zip` |
+| Bytes | 646.104 |
+| SHA-256 | `C659EB5E3A2FCAFAAEAE73FC3EDDB5ACC83DF5A9011D5A971CACB71D857E819A` |
+| Manifesto | 2.0.3 |
+| Extração de ensaio | `work/release-2.0.3-extract` |
 | Divergências de hash | 0 |
 
 ### Arquivos do ZIP
 
 | Arquivo | Bytes | SHA-256 |
 | --- | ---: | --- |
-| manifest.json | 1.201 | `6E4950D6E53E8DA110AA9B451BE862C2F82A310C158008451807B41872A89448` |
-| background.js | 134.907 | `4A4A97DE80B1B666992D493E295178BEDD80849B705426668EFE9422A27FB43A` |
-| form-content.js | 57.831 | `544711B11E12963FFDB6092524AFEF1A7E36AE973C9B08423D8F8B1B002E5C9E` |
-| autos-content.js | 984.542 | `C32E784F52FE7A9A95B50086D505F1199F0E3D7BAB183DBA4BC383C872969A9D` |
-| list-content.js | 28.302 | `EB73FCA61077979DCF58E493F475926E88FCFD980B5FBB1457BF7D45B6A805CC` |
+| manifest.json | 1.201 | `1E6BC9D08392E94A475548622BCF70207A144BACEB297FF7B6FFCC653E4F40FB` |
+| background.js | 136.481 | `6C52BD1F80822AEC5852DE4C497FBC2945D859B048934C43C142ACB1FE09AEAB` |
+| form-content.js | 57.911 | `66EEE2268B8A440681715DD297B0133EF30A7F56B369D9F29CDE8A678CA0CCD4` |
+| autos-content.js | 984.622 | `B596D12B82ECCB2F5E2DB5598935ED98AFA3E130553D0F96E9C89EFAF9678105` |
+| list-content.js | 29.494 | `CF89F2243206EB31369BA41EC594BBB528D093ED86ABBBF58C08318B91473AEE` |
 | vendor/pdf.worker.mjs | 1.417.586 | `BD88805178A26C729DB8C0107A5B630CB900EC070F4D8C7529A3E45530AFD41D` |
 
 O build funcional tem `BATCH_EXECUTION_ENABLED=true`, `BATCH_SAVE_ENABLED=true` e `BATCH_FILL_ONLY=false`. O lote só começa após clique explícito em “⚡ Rodar automação”; não há início automático no carregamento.
@@ -60,15 +60,17 @@ O build funcional tem `BATCH_EXECUTION_ENABLED=true`, `BATCH_SAVE_ENABLED=true` 
 
 | Comando | Resultado |
 | --- | --- |
-| `node --test tests/unit/*.test.mjs` | **330 PASS** |
+| `node --test tests/unit/*.test.mjs` | **332 PASS** |
 | `npm run test:browser` | **25 PASS** |
 | `npm run build` / `build:test` | PASS |
 | Extração do ZIP | PASS, 0 divergências |
 
 ## Abas
 
-- Após `CONFIRMED`, a extensão fecha as abas de Autos e Complementar Ato daquele processo.
-- Processos em revisão, falha ou incerteza mantêm as abas para conferência.
+- Checkbox **“Manter abas de processos com problema”**, marcado por padrão.
+- Marcado: revisão/falha mantêm Autos e Complementar Ato abertos; desmarcado: fecham.
+- `SAVE_UNCERTAIN` sempre mantém as abas; `CONFIRMED` sempre fecha.
+- A preferência é persistida em `chrome.storage.local`.
 
 ## Backup e rollback
 
@@ -79,8 +81,8 @@ O build funcional tem `BATCH_EXECUTION_ENABLED=true`, `BATCH_SAVE_ENABLED=true` 
 ## Instalação no outro PC
 
 1. Remover/desativar a 2.0.0.
-2. Extrair o ZIP 2.0.2 e carregar a pasta em `chrome://extensions` com modo desenvolvedor.
-3. Confirmar versão 2.0.2.
+2. Extrair o ZIP 2.0.3 e carregar a pasta em `chrome://extensions` com modo desenvolvedor.
+3. Confirmar versão 2.0.3.
 4. Aplicar o filtro, definir os limites e iniciar explicitamente o lote.
 
 ## Gates
@@ -99,4 +101,4 @@ O build funcional tem `BATCH_EXECUTION_ENABLED=true`, `BATCH_SAVE_ENABLED=true` 
 - Kill físico do service worker/reinício do navegador: `MV3_WORKER_KILL_TEST_NOT_RUN`.
 - Autosave do portal: `UNKNOWN`.
 - A outra máquina não foi acessada diretamente; o patch amplia os limites e corrige a rota, mas a confirmação final é no ambiente do operador.
-- A homologação real usou o build QA 0.1.1 com o mesmo caminho de preenchimento/salvamento; a 2.0.2 acrescenta limpeza pós-save, rota Meus Processos e tempos maiores, cobertos por testes.
+- A homologação real usou o build QA 0.1.1 com o mesmo caminho de preenchimento/salvamento; a 2.0.3 acrescenta limpeza pós-save, rota Meus Processos e tempos maiores, cobertos por testes.

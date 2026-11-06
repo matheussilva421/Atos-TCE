@@ -58,16 +58,17 @@ async function cleanupFinishedProcess(batchId, deps) {
   if (!entry) {
     return;
   }
-  if (['REVIEW_REQUIRED', 'FAILED', 'SKIPPED'].includes(entry.status)) {
+  const problem = ['REVIEW_REQUIRED', 'FAILED', 'SKIPPED'].includes(entry.status);
+  if (problem && batch.keepProblemTabs !== false) {
     if (typeof deps.keepWorkspace === 'function') {
       deps.keepWorkspace({ processId, status: entry.status });
     }
     return;
   }
-  if (entry.status !== 'CONFIRMED') {
+  if (!problem && entry.status !== 'CONFIRMED') {
     return;
   }
-  await deps.cleanupWorkspace({ processId, status: entry.status }).catch(() => ({}));
+  await deps.cleanupWorkspace({ processId, status: entry.status, force: problem }).catch(() => ({}));
 }
 
 async function stepOnce({ batchId, deps }) {
