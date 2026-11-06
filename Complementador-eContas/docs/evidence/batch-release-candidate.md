@@ -39,7 +39,7 @@ Política institucional pode bloquear extensões não empacotadas; a instalaçã
 - Preenchimento em lote no QA: 10 examinados, 4 `FILLED`, 6 `REVIEW_REQUIRED`, 0 salvamentos automáticos.
 - Quatro atos salvos de forma supervisionada, uma confirmação cada, verificação independente 4/4.
 - Diálogo real: título **Complementar ato**, confirmação **sim, complementar**, cancelamento **NÃO**.
-- Suítes finais: 322 unitários PASS; 24 navegador PASS em um ciclo.
+- Suítes finais: 323 unitários PASS; 24 navegador PASS em um ciclo.
 - Verificação pós-save em aba nova, classificação de campos ausentes e retomada manual após incerteza implementadas e testadas sinteticamente.
 
 ## O que não está homologado

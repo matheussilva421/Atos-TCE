@@ -67,9 +67,9 @@ O ZIP contém apenas `manifest.json`, os quatro bundles e `vendor/pdf.worker.mjs
 | F3 classificação de campos | PASS sintético; seis casos reais `NOT_CLASSIFIED_REAL` |
 | F4 MV3 | PARTIAL — lógica e estáticos; kill real não executado |
 | F5 cache/segurança | PASS sintético; autosave `UNKNOWN` |
-| F6 suítes consolidadas | PASS — 322 unitários, 24 navegador |
-| F7 H2-adaptador | `H2_ADAPTER_BLOCKED_EXTERNAL_AUTH` — não executado |
-| F8 H3-adaptador | `H3_NOT_RUN` |
+| F6 suítes consolidadas | PASS — 323 unitários, 24 navegador |
+| F7 H2-adaptador | `H2_ADAPTER_BLOCKED_EXTERNAL_AUTH` — não executado; ver `batch-h2-adapter.md` |
+| F8 H3-adaptador | `H3_NOT_RUN`; ver `batch-h3-adapter.md` |
 | F9 Chrome profissional | `PROFESSIONAL_BROWSER_NOT_RUN` |
 | G7 aceite | `G7_PENDING` |
 

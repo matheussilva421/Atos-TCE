@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import {
   BATCH_EXECUTION_ENABLED,
   BATCH_FILL_ONLY,
@@ -54,4 +54,23 @@ test('fill_only_structurally_forces_save_off', () => {
   const runner = readFileSync('src/background/batch-runner.mjs', 'utf8');
   assert.equal(runner.includes('BATCH_FILL_ONLY === true ? false : saveEnabled === true'), true);
   assert.equal(runner.includes("enabled: driveEnabled === true || BATCH_FILL_ONLY === true"), true);
+});
+
+function bundleFlagEnabled(text, name) {
+  const match = new RegExp('var ' + name + ' = ([^;]+);').exec(text);
+  assert.ok(match, name + ' ausente no bundle');
+  return /\?\s*true\s*:/.test(match[1]);
+}
+
+test('built_bundles_keep_drive_fill_and_save_disabled', () => {
+  for (const dir of ['dist', 'dist-test']) {
+    const file = dir + '/background.js';
+    if (!existsSync(file)) {
+      continue;
+    }
+    const text = readFileSync(file, 'utf8');
+    assert.equal(bundleFlagEnabled(text, 'BATCH_EXECUTION_ENABLED'), false, file);
+    assert.equal(bundleFlagEnabled(text, 'BATCH_FILL_ONLY'), false, file);
+    assert.equal(bundleFlagEnabled(text, 'BATCH_SAVE_ENABLED'), false, file);
+  }
 });

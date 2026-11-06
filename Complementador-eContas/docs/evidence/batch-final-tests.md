@@ -8,7 +8,7 @@ HEAD de código/testes: `3bd2001`. O ajuste documental gera o commit seguinte.
 
 | Comando | Resultado |
 | --- | --- |
-| `node --test tests/unit/*.test.mjs` | **322 PASS**, 0 FAIL, 6,0 s |
+| `node --test tests/unit/*.test.mjs` | **323 PASS**, 0 FAIL, 18,1 s |
 | `npm run build:test` | PASS — `background.js` 132.349 B, `form-content.js` 57.821 B, `autos-content.js` 984.515 B, `list-content.js` 27.750 B, `manifest.json` 1.051 B |
 | `npm run test:browser` | **24 PASS**, 0 FAIL, 33,5 s, uma única execução (Chromium 1248 headless) |
 | `npm run build` | PASS — `background.js` 132.376 B, `form-content.js` 57.831 B, `autos-content.js` 984.542 B, `list-content.js` 27.760 B, `manifest.json` 1.198 B |
