@@ -361,3 +361,36 @@ test('pause_requested_ack_becomes_paused', () => {
     assert.equal(next.counters.saved, 1);
   })();
 });
+
+test('missing_fields_records_sanitized_cause_and_fields', async () => {
+  const storage = memoryStorage();
+  await runningBatch(storage);
+  const options = deps({
+    storage,
+    fill: async () => ({
+      ok: true,
+      diagnostics: {
+        resolutionFound: true,
+        guiaFound: false,
+        proposalStatus: {
+          modalidade: 'exact',
+          dataDoeEstado: 'exact',
+          cargo: 'exact',
+          matricula: 'exact',
+          dataNascimento: 'absent',
+        },
+        skipped: [],
+        errors: [],
+      },
+    }),
+    validate: async () => ({ ok: false, code: 'MISSING_FIELDS', fields: ['dataNascimento'] }),
+  });
+  for (let step = 0; step < 7; step += 1) {
+    await runOneStep({ batchId: 'batch-runner', deps: options });
+  }
+  const stored = await loadBatch(storage);
+  assert.equal(stored.queue[0].status, 'REVIEW_REQUIRED');
+  assert.equal(stored.diagnostics['301'].cause, 'GUIA_NOT_MATCHED');
+  assert.deepEqual(stored.diagnostics['301'].fields, ['dataNascimento']);
+  assert.equal(JSON.stringify(stored.diagnostics).includes('Pessoa'), false);
+});

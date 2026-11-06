@@ -91,7 +91,7 @@ export function createBatchDriver({
             },
           });
           if (result && result.ok === true) {
-            return { ok: true, report: result.report };
+            return { ok: true, report: result.report, diagnostics: result.fieldDiagnostics };
           }
           return {
             ok: false,

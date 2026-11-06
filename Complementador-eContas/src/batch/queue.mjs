@@ -86,6 +86,7 @@ export function createFrozenBatch({ batchId, listTabId, contextKey, entries, lim
     counters: { examined: 0, saved: 0 },
     state: 'READY',
     current: null,
+    diagnostics: {},
     events: [{ processId: null, code: 'CAPTURED', at }],
     updatedAt: at,
     capture: { captured, skippedCompleted, skippedUnknown },

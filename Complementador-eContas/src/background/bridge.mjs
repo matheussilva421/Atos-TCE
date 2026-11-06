@@ -450,6 +450,27 @@ export async function runFillTransaction(input) {
     return errorResponse(requestId, (apply && apply.code) || 'APPLY_REJECTED', 'Preenchimento recusado pelo formulário.');
   }
 
+  const applyReport = apply.report && typeof apply.report === 'object' ? apply.report : {};
+  const fieldDiagnostics = {
+    resolutionFound: Boolean(resolution && resolution.eventId),
+    guiaFound: Boolean(birth && (birth.eventId || birth.source === 'guia')),
+    proposalStatus: Object.fromEntries(
+      ['modalidade', 'dataDoeEstado', 'cargo', 'matricula', 'dataNascimento']
+        .map((name) => [
+          name,
+          proposals[name] && typeof proposals[name].status === 'string'
+            ? proposals[name].status
+            : 'absent',
+        ]),
+    ),
+    skipped: (Array.isArray(applyReport.skipped) ? applyReport.skipped : [])
+      .slice(0, 10)
+      .map((item) => ({ field: String(item.field || ''), reason: String(item.reason || '') })),
+    errors: (Array.isArray(applyReport.errors) ? applyReport.errors : [])
+      .slice(0, 10)
+      .map((item) => ({ field: String(item.field || ''), code: String(item.code || '') })),
+  };
+
   return {
     ok: true,
     requestId,
@@ -464,6 +485,7 @@ export async function runFillTransaction(input) {
       observedAt: read.document.observedAt,
     },
     report: apply.report,
+    fieldDiagnostics,
     sourceNotes: { ...(apply.sourceNotes || {}), ...sourceNotes },
     discovery: discovery ? {
       scannedCount: discovery.scannedCount || 0,

@@ -16,6 +16,28 @@ function toInt(value, fallback = 0) {
   return Number.isSafeInteger(value) ? value : fallback;
 }
 
+const DIAGNOSTIC_FIELDS = new Set(['modalidade', 'dataDoeEstado', 'cargo', 'matricula', 'dataNascimento']);
+
+function sanitizeDiagnostics(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  const result = {};
+  for (const [processId, entry] of Object.entries(value).slice(-50)) {
+    if (!/^\d{1,12}$/.test(processId) || !entry || typeof entry !== 'object') {
+      continue;
+    }
+    result[processId] = {
+      cause: typeof entry.cause === 'string' ? entry.cause.slice(0, 40) : '',
+      fields: Array.isArray(entry.fields)
+        ? entry.fields.filter((field) => DIAGNOSTIC_FIELDS.has(field)).slice(0, 5)
+        : [],
+      at: toInt(entry.at),
+    };
+  }
+  return result;
+}
+
 function normalizeCurrent(current) {
   if (!current || typeof current !== 'object') {
     return null;
@@ -80,6 +102,7 @@ export function sanitizeBatch(batch) {
         ...(typeof event.reason === 'string' ? { reason: event.reason.slice(0, 40) } : {}),
       })),
     updatedAt: toInt(batch.updatedAt),
+    diagnostics: sanitizeDiagnostics(batch.diagnostics),
     capture: {
       captured: toInt(capture.captured),
       skippedCompleted: toInt(capture.skippedCompleted),

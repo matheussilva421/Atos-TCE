@@ -56,13 +56,22 @@ export function buildBatchReport(batch, options = {}) {
   const queue = Array.isArray(batch && batch.queue) ? batch.queue : [];
   const counters = batch && batch.counters ? batch.counters : {};
   const capture = batch && batch.capture ? batch.capture : {};
+  const diagnostics = batch && batch.diagnostics && typeof batch.diagnostics === 'object'
+    ? batch.diagnostics
+    : {};
+  const diagnosticFields = new Set(['modalidade', 'dataDoeEstado', 'cargo', 'matricula', 'dataNascimento']);
   const items = queue.map((entry) => {
     const status = typeof entry.status === 'string' ? entry.status : 'unknown';
+    const diagnostic = entry && diagnostics[entry.processId];
     return {
       processId: typeof entry.processId === 'string' ? entry.processId : '',
       processLabel: typeof entry.processLabel === 'string' ? entry.processLabel : '',
       status,
       reasonCode: reasonFor(status),
+      cause: diagnostic && typeof diagnostic.cause === 'string' ? diagnostic.cause.slice(0, 40) : null,
+      fields: diagnostic && Array.isArray(diagnostic.fields)
+        ? diagnostic.fields.filter((field) => diagnosticFields.has(field)).slice(0, 5)
+        : [],
       link: linkFor(entry.processId, origin),
     };
   });

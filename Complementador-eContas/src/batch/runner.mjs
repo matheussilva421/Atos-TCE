@@ -1,6 +1,7 @@
 import { loadBatch, saveBatch } from './journal.mjs';
 import { nextEligibleProcess } from './queue.mjs';
 import { reduceBatch } from './state-machine.mjs';
+import { classifyMissingFields } from './missing-fields.mjs';
 
 const REVIEW_CODES = new Set([
   'MULTIPLE_INTERESTED', 'NO_INTERESTED', 'CARDS_NOT_LOADED', 'INTERESTED_WITHOUT_IDENTITY',
@@ -114,6 +115,9 @@ async function stepOnce({ batchId, deps }) {
           at: deps.now(),
         });
       }
+      if (deps.session) {
+        deps.session.diagnostics = filled.diagnostics || null;
+      }
       return persist(deps.storage, batch, { type: 'ADVANCE_PHASE', phase: 'FILLING', at: deps.now() });
     }
 
@@ -124,9 +128,27 @@ async function stepOnce({ batchId, deps }) {
         interestedKey: deps.session && deps.session.interestedKey,
       });
       if (!validated || !validated.ok) {
-        return persist(deps.storage, batch, {
-          type: eventForFailure(validated && validated.code),
-          reason: (validated && validated.code) || 'VALIDATION_FAILED',
+        const code = (validated && validated.code) || 'VALIDATION_FAILED';
+        let nextBatch = batch;
+        let reason = code;
+        if (code === 'MISSING_FIELDS') {
+          const classified = classifyMissingFields({
+            fields: validated.fields || [],
+            diagnostics: (deps.session && deps.session.diagnostics) || {},
+            errorCode: code,
+          });
+          reason = classified.cause;
+          nextBatch = {
+            ...batch,
+            diagnostics: {
+              ...(batch.diagnostics || {}),
+              [processId]: { cause: classified.cause, fields: classified.fields, at: deps.now() },
+            },
+          };
+        }
+        return persist(deps.storage, nextBatch, {
+          type: eventForFailure(code),
+          reason,
           at: deps.now(),
         });
       }

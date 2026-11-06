@@ -112,3 +112,17 @@ test('links_reject_untrusted_origin', () => {
   }), { portalOrigin: 'https://processos.tce.rn.gov.br' });
   assert.equal(injection.items[0].link, null);
 });
+
+test('report_includes_sanitized_missing_field_cause', () => {
+  const report = buildBatchReport(batch({
+    queue: [{ processId: '401', processLabel: '401/2020', status: 'REVIEW_REQUIRED' }],
+    counters: { examined: 1, saved: 0 },
+    diagnostics: {
+      '401': { cause: 'GUIA_NOT_MATCHED', fields: ['dataNascimento'], at: 10 },
+    },
+  }));
+  const item = report.items.find((entry) => entry.processId === '401');
+  assert.equal(item.reasonCode, 'REVIEW_REQUIRED');
+  assert.equal(item.cause, 'GUIA_NOT_MATCHED');
+  assert.deepEqual(item.fields, ['dataNascimento']);
+});
