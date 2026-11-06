@@ -1,7 +1,7 @@
-# Patch 2.0.1 — Meus Processos e tempos ampliados
+# Patch 2.0.2 — Meus Processos e tempos ampliados
 
 Data: 06/11/2026
-Versão: 2.0.1
+Versão: 2.0.2
 Estado: `PATCH_VERIFIED`
 
 ## Problemas corrigidos
@@ -32,25 +32,25 @@ Estado: `PATCH_VERIFIED`
 
 | Verificação | Resultado |
 | --- | --- |
-| Unitários | **329 PASS** |
+| Unitários | **330 PASS** |
 | Navegador | **25 PASS** (inclui painel em Meus Processos) |
 | Build / build:test | PASS |
 | Verificação real de Meus Processos | 25 linhas, 23 pendentes, 2 concluídos |
 
-## ZIP 2.0.1
+## ZIP 2.0.2
 
-- Arquivo: `release/Complementador-eContas-2.0.1.zip`
-- Bytes: 645.508
-- SHA-256: `CC03219722FD81971F933D7F7982255C680D13E2230DAB3F35930AAAD86D85DD`
-- Manifesto: 2.0.1
+- Arquivo: `release/Complementador-eContas-2.0.2.zip`
+- Bytes: 645.600
+- SHA-256: `3FA30669A3DBBFA663387152F88FE1EBF9AF015888F3E98CB01F6248F5A78D0B`
+- Manifesto: 2.0.2
 - Extração conferida, 0 divergências.
 - Flags funcionais: execução true, salvamento true, fill-only false; o lote só começa com clique explícito.
 
 ## Instalação no outro PC
 
 1. Remover/desativar a versão 2.0.0 instalada.
-2. Carregar a pasta extraída do `Complementador-eContas-2.0.1.zip`.
-3. Confirmar versão 2.0.1 em `chrome://extensions`.
+2. Carregar a pasta extraída do `Complementador-eContas-2.0.2.zip`.
+3. Confirmar versão 2.0.2 em `chrome://extensions`.
 4. Abrir a lista, aplicar o filtro, definir os limites e clicar em “⚡ Rodar automação”.
 
 Se o problema de tempo persistir, registrar o código de erro exibido no painel/diário para diagnóstico específico; não repetir um salvamento incerto.

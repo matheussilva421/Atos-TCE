@@ -21,7 +21,7 @@ Escopo: permissões, mensagens, storage, cache, diálogo, dados pessoais e limit
 
 ## Salvamento
 
-- Três controles independentes. O build seguro mantém todos fechados; o ZIP funcional 2.0.1 habilita execução e salvamento no build, mas o lote só começa com clique explícito em Start:
+- Três controles independentes. O build seguro mantém todos fechados; o ZIP funcional 2.0.2 habilita execução e salvamento no build, mas o lote só começa com clique explícito em Start:
   - `BATCH_EXECUTION`: liga o processamento do lote.
   - `BATCH_FILL_ONLY`: preenche e mantém abas, forçando salvamento desligado.
   - `BATCH_SAVE`: habilita a capacidade de salvamento.
@@ -47,7 +47,7 @@ Escopo: permissões, mensagens, storage, cache, diálogo, dados pessoais e limit
 - `tests/unit/document-cache.test.mjs`: cache por processo e alternância entre dois processos.
 - `tests/browser/batch-autos.spec.mjs`: duas abas de processos distintos não respondem uma pela outra.
 - `tests/unit/batch-save-adapter.test.mjs`: diálogo estrutural e falha fechada.
-- Suíte final: 329 unitários PASS; 25 navegador PASS.
+- Suíte final: 330 unitários PASS; 25 navegador PASS.
 
 ## Riscos e pendências
 

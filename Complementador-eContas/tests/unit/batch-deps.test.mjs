@@ -318,3 +318,13 @@ test('cleanup_closes_confirmed_tabs_but_preserves_review_state', async () => {
   assert.equal(tabs.tabs[workspace.autosTabId], undefined);
   assert.equal(tabs.tabs[workspace.formTabId], undefined);
 });
+
+test('keep_workspace_preserves_review_tabs_between_processes', async () => {
+  const { instance, tabs } = deps();
+  const first = await instance.openWorkspace({ processId: '501' });
+  instance.keepWorkspace({ processId: '501' });
+  const second = await instance.openWorkspace({ processId: '502' });
+  assert.equal(tabs.tabs[first.autosTabId] !== undefined, true);
+  assert.equal(tabs.tabs[first.formTabId] !== undefined, true);
+  assert.notEqual(second.autosTabId, first.autosTabId);
+});

@@ -43,13 +43,16 @@ async function runningBatch(storage, limits = { maxExamined: 1, maxSaved: 1 }) {
 
 function deps(overrides = {}) {
   const calls = [];
+  const session = { processId: null, workspace: null };
   return {
     calls,
+    session,
     storage: overrides.storage,
     now: () => 1000,
     newAttemptId: () => 'attempt-301-1',
     cleanupWorkspace: async ({ processId, status }) => { calls.push('cleanup:' + status + ':' + processId); return { closed: 2 }; },
-    openWorkspace: async ({ processId }) => { calls.push('open'); return { autosTabId: 41, formTabId: 42 }; },
+    keepWorkspace: ({ processId, status }) => { calls.push('keep:' + status + ':' + processId); },
+    openWorkspace: async ({ processId }) => { calls.push('open'); session.processId = processId; session.workspace = { autosTabId: 41, formTabId: 42 }; return session.workspace; },
     selectInterested: async () => { calls.push('select'); return { ok: true, interestedKey: 'key-1' }; },
     fill: async () => { calls.push('fill'); return { ok: true }; },
     validate: async () => { calls.push('validate'); return { ok: true }; },
@@ -436,4 +439,5 @@ test('review_process_keeps_workspace_open', async () => {
     await runOneStep({ batchId: 'batch-runner', deps: options });
   }
   assert.equal(options.calls.some((call) => call.startsWith('cleanup:')), false);
+  assert.equal(options.calls.includes('keep:REVIEW_REQUIRED:301'), true);
 });

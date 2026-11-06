@@ -69,6 +69,7 @@ export function createRunnerDeps({
 }) {
   const session = { workspace: null, processId: null, interestedKey: null };
   const keepForms = new Set();
+  const keepAutos = new Set();
   return {
     storage,
     now,
@@ -76,6 +77,12 @@ export function createRunnerDeps({
     markFilled() {
       if (session.workspace) {
         keepForms.add(session.workspace.formTabId);
+      }
+    },
+    keepWorkspace({ processId }) {
+      if (session.workspace && session.processId === processId) {
+        keepForms.add(session.workspace.formTabId);
+        keepAutos.add(session.workspace.autosTabId);
       }
     },
     async cleanupWorkspace({ processId, status }) {
@@ -109,7 +116,7 @@ export function createRunnerDeps({
         previous: session.workspace,
         tabsApi: tabs,
         fresh: true,
-        keepTabIds: [...keepForms],
+        keepTabIds: [...keepForms, ...keepAutos],
       });
       const verified = await waitForWorkspace({
         processId,

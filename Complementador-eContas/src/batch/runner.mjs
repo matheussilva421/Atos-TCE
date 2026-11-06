@@ -55,7 +55,16 @@ async function cleanupFinishedProcess(batchId, deps) {
   }
   const processId = deps.session.processId;
   const entry = batch.queue.find((item) => item.processId === processId);
-  if (!entry || entry.status !== 'CONFIRMED') {
+  if (!entry) {
+    return;
+  }
+  if (['REVIEW_REQUIRED', 'FAILED', 'SKIPPED'].includes(entry.status)) {
+    if (typeof deps.keepWorkspace === 'function') {
+      deps.keepWorkspace({ processId, status: entry.status });
+    }
+    return;
+  }
+  if (entry.status !== 'CONFIRMED') {
     return;
   }
   await deps.cleanupWorkspace({ processId, status: entry.status }).catch(() => ({}));

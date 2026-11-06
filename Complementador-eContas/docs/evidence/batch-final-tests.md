@@ -1,4 +1,4 @@
-# Testes finais — Complementador e-Contas 2.0.1
+# Testes finais — Complementador e-Contas 2.0.2
 
 Data: 06/11/2026
 Branch: `codex/complementador-e-contas`
@@ -8,10 +8,10 @@ HEAD de código/testes antes da consolidação: `23e1339`
 
 | Comando | Resultado |
 | --- | --- |
-| `node --test tests/unit/*.test.mjs` | **329 PASS**, 0 FAIL, 4,9 s |
-| `npm run build:test` | PASS — `background.js` 134.336 B, `form-content.js` 57.821 B, `autos-content.js` 984.515 B, `list-content.js` 28.292 B, `manifest.json` 1.054 B |
+| `node --test tests/unit/*.test.mjs` | **330 PASS**, 0 FAIL, 4,9 s |
+| `npm run build:test` | PASS — `background.js` 134.882 B, `form-content.js` 57.821 B, `autos-content.js` 984.515 B, `list-content.js` 28.292 B, `manifest.json` 1.054 B |
 | `npm run test:browser` | **25 PASS**, 0 FAIL, 31,6 s, uma execução (Chromium 1248 headless) |
-| `npm run build` | PASS — `background.js` 134.363 B, `form-content.js` 57.831 B, `autos-content.js` 984.542 B, `list-content.js` 28.302 B, `manifest.json` 1.201 B |
+| `npm run build` | PASS — `background.js` 134.909 B, `form-content.js` 57.831 B, `autos-content.js` 984.542 B, `list-content.js` 28.302 B, `manifest.json` 1.201 B |
 | `git diff --check` | PASS |
 
 ## Cobertura de F1–F5
