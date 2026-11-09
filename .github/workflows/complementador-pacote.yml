@@ -1,0 +1,50 @@
+name: Pacote Complementador e-Contas
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/complementador-e-contas]
+    paths: [.github/workflows/complementador-pacote.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  pacote:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Complementador-eContas
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: Complementador-eContas/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+        env:
+          BATCH_EXECUTION: '1'
+          BATCH_SAVE: '1'
+      - name: Instruções de instalação
+        run: |
+          cat > dist/INSTALAR.txt <<'INSTRUCTIONS'
+          Extraia todo o ZIP para uma pasta permanente.
+          Abra chrome://extensions (Edge: edge://extensions).
+          Ative Modo do desenvolvedor.
+          Clique em Carregar sem compactacao e selecione a pasta que contem manifest.json.
+          Desative a copia antiga da extensao, se houver, e recarregue as abas do portal.
+
+          Arraste o painel pelo titulo; Esconder recolhe e Mostrar reabre.
+          Esconder nao pausa nem interrompe um lote em andamento.
+          A posicao e o recolhimento duram ate recarregar a pagina.
+          Build de producao com as opcoes da release funcional 2.0.5.
+          INSTRUCTIONS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Complementador-eContas-2.0.5-painel-movel
+          path: Complementador-eContas/dist/
+          if-no-files-found: error
+          retention-days: 90
