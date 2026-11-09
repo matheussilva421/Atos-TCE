@@ -86,7 +86,7 @@ test('spa_push_state_injects_form_ui', async () => {
         ? [...host.shadowRoot.querySelectorAll('button')].map((button) => button.textContent)
         : [];
     });
-    assert.deepEqual(buttons, ['⚡ Preencher', 'Diagnóstico L1 (somente leitura)']);
+    assert.deepEqual(buttons, ['⚡ Preencher', 'Diagnóstico L1 (somente leitura)', 'Esconder', 'Mostrar Complementador e-Contas']);
     await page.close();
   });
 });

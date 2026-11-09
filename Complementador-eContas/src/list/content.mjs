@@ -1,4 +1,5 @@
 import { PORTAL_ORIGIN } from '../shared/config.mjs';
+import { attachFloatingPanel } from '../shared/floating-panel.mjs';
 import { MESSAGE, createRequestId } from '../shared/protocol.mjs';
 import { parseListRoute } from '../shared/routes.mjs';
 import { readVisibleList } from './list-reader.mjs';
@@ -84,6 +85,7 @@ function ensureUi() {
     + '<div class="status" role="status" aria-live="polite">Pronto para ler a página atual.</div>'
     + '<div class="summary"></div></div>';
   document.documentElement.appendChild(host);
+  attachFloatingPanel(host);
   statusElement = shadow.querySelector('.status');
   summaryElement = shadow.querySelector('.summary');
   startButton = shadow.querySelector('button[data-action="start"]');

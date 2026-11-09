@@ -1,4 +1,5 @@
 import { PORTAL_ORIGIN } from '../shared/config.mjs';
+import { attachFloatingPanel } from '../shared/floating-panel.mjs';
 import { requestLastDiagnostic, renderDiagnostic as renderDiagnosticPanel, subscribeDiagnosticUpdates } from './diagnostic-ui.mjs';
 import { MESSAGE, createRequestId } from '../shared/protocol.mjs';
 import { parseRoute } from '../shared/routes.mjs';
@@ -72,6 +73,7 @@ function ensureUi() {
     + '<div class="source" style="display:none"></div>'
     + '<div class="diagnostic" style="display:none"></div></div>';
   document.documentElement.appendChild(host);
+  attachFloatingPanel(host);
   button = shadow.querySelector('button');
   diagnosticButton = shadow.querySelector('button[data-action="diagnose"]');
   statusElement = shadow.querySelector('.status');

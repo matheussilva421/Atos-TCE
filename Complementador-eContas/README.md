@@ -54,6 +54,8 @@ A instalação no perfil profissional deve ser feita pelo operador, com a extens
 
 ## Uso
 
+Nos painéis do formulário e da listagem, arraste o título **Complementador e-Contas** para mover o painel. Também é possível focar o título com Tab e usar as setas do teclado. Clique em **Esconder** para recolher e em **Mostrar Complementador e-Contas** para reabrir. Os campos e o estado atual são preservados; esconder não pausa nem para um lote em execução. A posição e o recolhimento duram até recarregar a página.
+
 1. Abra os autos do processo. Pode deixar qualquer evento aberto; a extensão procura a Resolução e a Guia.
 2. Abra o Complementar Ato do mesmo processo e selecione o interessado.
 3. Clique em **⚡ Preencher**.
